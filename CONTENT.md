@@ -1,4 +1,4 @@
-# Castor Advisories — Content Reference
+# Castor Advisory — Content Reference
 
 ## Brand Voice
 - **Tone**: Blend of startup energy + institutional rigor

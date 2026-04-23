@@ -1,4 +1,4 @@
-# Castor Advisories: Go-to-Market Strategy
+# Castor Advisory: Go-to-Market Strategy
 
 **Stage**: Pre-launch
 **Budget**: $1-5K/month
@@ -146,7 +146,7 @@ Castor has a cold-start problem: you need talent to serve clients, and you need 
 **Email**:
 > Hi [Name],
 >
-> I run Castor Advisories, a structured accelerator that places graduates into supervised consulting engagements with real business clients.
+> I run Castor Advisory, a structured accelerator that places graduates into supervised consulting engagements with real business clients.
 >
 > Participants work on live operational challenges, build real solutions, and earn equity in the ventures they help create. Every engagement produces a documented performance profile that our recruiting partners use for placement.
 >
@@ -175,7 +175,7 @@ Subject: Quick question about [specific operational area]
 >
 > Worth a 15-minute conversation?
 >
-> [Name], Castor Advisories
+> [Name], Castor Advisory
 
 **Email 2 (Day 4): Social proof / specificity**
 > Hi [Name],
@@ -200,7 +200,7 @@ Subject: Quick question about [specific operational area]
 **Message**:
 > Hey [Name], saw your post about [topic]. Resonated with me.
 >
-> I run Castor Advisories. We place graduates into supervised consulting teams that work on real business challenges. You earn equity in what you build and leave with a documented performance record that recruiting partners actually use.
+> I run Castor Advisory. We place graduates into supervised consulting teams that work on real business challenges. You earn equity in what you build and leave with a documented performance record that recruiting partners actually use.
 >
 > Not a bootcamp, not an internship. Real work with real stakes. Would you be up for a quick chat to see if it's a fit?
 
@@ -278,7 +278,7 @@ Don't run an investor outreach campaign. Instead:
 
 ### Week 1-2: Foundation
 - [ ] Set up LinkedIn profile optimized for Castor (founder account)
-- [ ] Set up professional email (contact@castoradvisories.com) with warm-up
+- [ ] Set up professional email (contact@castoradvisory.com) with warm-up
 - [ ] Set up Apollo.io or Instantly.ai for outreach sequences
 - [ ] Create a one-pager PDF for participants (share with universities)
 - [ ] Create a one-pager PDF for clients (attach to cold emails)
