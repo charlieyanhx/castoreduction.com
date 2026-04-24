@@ -12,233 +12,37 @@
     <meta name="twitter:card" content="summary">
     <meta name="twitter:title" content="Castor Advisory">
     <meta name="twitter:description" content="Where emerging talent meets real opportunity.">
+    <link rel="canonical" href="https://castoradvisory.com">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><g transform='translate(10,8)'><ellipse cx='40' cy='38' rx='38' ry='35' fill='%23B07840'/><ellipse cx='40' cy='46' rx='28' ry='24' fill='%23D4A870'/><circle cx='28' cy='30' r='5.5' fill='%232B3C2B'/><circle cx='52' cy='30' r='5.5' fill='%232B3C2B'/></g></svg>">
+
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Castor Advisory",
+        "url": "https://castoradvisory.com",
+        "description": "A closed-loop accelerator that connects emerging talent with real consulting engagements, generating compounding value through structured execution.",
+        "foundingDate": "2026",
+        "contactPoint": {
+            "@type": "ContactPoint",
+            "email": "contact@castoradvisory.com",
+            "contactType": "general"
+        },
+        "sameAs": []
+    }
+    </script>
+
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        html { scroll-behavior: smooth; }
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background-color: #F7F5F0;
-            color: #2B3C2B;
-            line-height: 1.6;
-        }
-        button { border: none; background: none; cursor: pointer; font-family: inherit; }
-        button:focus { outline: none; }
-        a { text-decoration: none; color: inherit; }
 
-        /* Accessibility */
-        button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
-            outline: 2px solid #B07840; outline-offset: 2px;
-        }
-        .skip-link {
-            position: absolute; top: -100%; left: 1rem; padding: 0.75rem 1.5rem;
-            background: #2B3C2B; color: white; font-weight: 600; border-radius: 0 0 0.5rem 0.5rem;
-            z-index: 200; font-size: 0.875rem; transition: top 0.2s ease;
-        }
-        .skip-link:focus { top: 0; }
+    <!-- AOS (Animate on Scroll) -->
+    <link rel="stylesheet" href="https://unpkg.com/aos@2.3.4/dist/aos.css">
 
-        /* Navigation */
-        nav { position: fixed; top: 0; left: 0; right: 0; z-index: 50; transition: all 300ms ease; }
-        nav.scrolled { background-color: rgba(255,255,255,0.95); backdrop-filter: blur(12px); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-        nav:not(.scrolled) { background-color: rgba(247,245,240,0.8); backdrop-filter: blur(8px); }
-        .nav-content { max-width: 80rem; margin: 0 auto; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
-        .nav-logo { display: flex; align-items: center; gap: 0.625rem; cursor: pointer; border: none; background: none; padding: 0; }
-        .nav-logo-text { color: #2B3C2B; font-size: 1.25rem; font-weight: 900; letter-spacing: -0.015em; }
-        .nav-logo-subtext { color: #5A6E5A; font-size: 0.75rem; font-weight: 500; margin-left: 0.5rem; letter-spacing: 0.1em; }
-        .nav-links { display: none; gap: 0.25rem; align-items: center; }
-        .nav-links.desktop { display: flex; }
-        .nav-link { padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; transition: all 200ms ease; background: transparent; border: none; cursor: pointer; }
-        .nav-link.active { color: #2B3C2B; background-color: rgba(43,60,43,0.08); }
-        .nav-link:not(.active) { color: #5A6E5A; }
-        .nav-link:not(.active):hover { color: #2B3C2B; background-color: rgba(43,60,43,0.04); }
-        .nav-cta { display: none; gap: 0.75rem; align-items: center; }
-        .nav-cta.desktop { display: flex; }
-        .nav-cta-btn { padding: 0.625rem 1.25rem; background-color: #2B3C2B; color: white; font-weight: 600; border-radius: 0.5rem; font-size: 0.875rem; transition: all 200ms ease; }
-        .nav-cta-btn:hover { box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
-        .hamburger { display: none; background: none; border: none; cursor: pointer; color: #2B3C2B; padding: 0; }
-        .mobile-menu { display: none; background-color: rgba(255,255,255,0.95); backdrop-filter: blur(12px); border-top: 1px solid rgba(43,60,43,0.1); padding: 1.5rem; }
-        .mobile-menu.active { display: block; }
-        .mobile-menu-link { display: block; width: 100%; text-align: left; padding: 0.75rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; transition: all 200ms ease; background: transparent; border: none; cursor: pointer; margin-bottom: 0.5rem; }
-        .mobile-menu-link.active { color: #2B3C2B; background-color: rgba(43,60,43,0.08); }
-        .mobile-menu-link:not(.active) { color: #5A6E5A; }
-
-        @media (max-width: 1023px) {
-            .nav-links.desktop { display: none; }
-            .nav-cta.desktop { display: none; }
-            .hamburger { display: block; }
-            .nav-logo-subtext { display: none; }
-        }
-
-        /* Pages */
-        .page { display: none; }
-        .page.active { display: block; animation: pageIn 0.4s cubic-bezier(0.25,0.46,0.45,0.94); }
-        @keyframes pageIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-
-        /* Hero */
-        .hero { position: relative; padding: 8rem 1.5rem 6rem; overflow: hidden; }
-        .hero-bg { position: absolute; inset: 0; }
-        .hero-content { max-width: 64rem; margin: 0 auto; text-align: center; position: relative; z-index: 10; }
-        .section-tag { display: inline-block; padding: 0.375rem 1rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.12em; margin-bottom: 1rem; background-color: rgba(176,120,64,0.08); border: 1px solid rgba(176,120,64,0.2); color: #B07840; text-transform: uppercase; }
-        .hero h1 { font-size: clamp(2.25rem,8vw,4.5rem); font-weight: 900; line-height: 1.25; margin-bottom: 1.5rem; color: #2B3C2B; }
-        .hero p { font-size: clamp(1.125rem,3vw,1.25rem); max-width: 42rem; margin: 0 auto 2.5rem; line-height: 1.625; color: #5A6E5A; }
-
-        /* Feature Cards */
-        .feature-card { border-radius: 1rem; padding: 2rem; transition: all 200ms ease; background-color: rgba(43,60,43,0.03); border: 1px solid rgba(43,60,43,0.1); }
-        .feature-card:hover { transform: translateY(-4px); box-shadow: 0 8px 24px rgba(43,60,43,0.06); border-color: rgba(43,60,43,0.16); }
-        .feature-card-icon { width: 3rem; height: 3rem; border-radius: 0.75rem; display: flex; align-items: center; justify-content: center; margin-bottom: 1.25rem; background-color: rgba(176,120,64,0.12); }
-        .feature-card-icon svg { color: #B07840; width: 22px; height: 22px; }
-        .feature-card h3 { font-size: 1.125rem; font-weight: 700; margin-bottom: 0.75rem; color: #2B3C2B; }
-        .feature-card p { font-size: 0.875rem; line-height: 1.625; color: #5A6E5A; }
-
-        /* CTA Button */
-        .cta-button { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.875rem 1.75rem; font-weight: 700; border-radius: 0.75rem; font-size: 0.875rem; transition: all 200ms ease; border: none; cursor: pointer; text-decoration: none; }
-        .cta-button.primary { background-color: #2B3C2B; color: white; }
-        .cta-button.primary:hover { box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); transform: translateY(-2px); }
-        .cta-button.secondary { border: 1px solid rgba(43,60,43,0.2); color: #2B3C2B; }
-        .cta-button.secondary:hover { background-color: rgba(255,255,255,0.6); }
-        .cta-button svg { width: 18px; height: 18px; }
-
-        /* Check Item */
-        .check-item { display: flex; gap: 0.75rem; border-radius: 0.75rem; padding: 1.25rem; background-color: rgba(43,60,43,0.03); border: 1px solid rgba(43,60,43,0.1); align-items: flex-start; }
-        .check-item svg { flex-shrink: 0; margin-top: 0.125rem; color: #B07840; width: 18px; height: 18px; }
-        .check-item span { font-size: 0.875rem; color: #5A6E5A; }
-
-        /* Section */
-        section { padding: 1.5rem 1.5rem 4rem; }
-        section h2 { font-size: clamp(1.875rem,5vw,2.25rem); font-weight: 900; color: #2B3C2B; }
-        section > div > h2 { margin-bottom: 1.5rem; }
-        section > div > p { font-size: 1rem; line-height: 1.625; color: #5A6E5A; }
-
-        /* Utility */
-        .max-w-xl { max-width: 36rem; } .max-w-2xl { max-width: 42rem; } .max-w-3xl { max-width: 48rem; }
-        .max-w-4xl { max-width: 56rem; } .max-w-5xl { max-width: 64rem; } .max-w-6xl { max-width: 72rem; } .max-w-7xl { max-width: 80rem; }
-        .mx-auto { margin-left: auto; margin-right: auto; }
-        .text-center { text-align: center; }
-        .grid { display: grid; gap: 1.5rem; }
-        .content-grid { display: grid; gap: 1.5rem; }
-
-        /* Footer */
-        footer { background-color: #2B3C2B; padding: 4rem 1.5rem; color: white; }
-        footer h4 { color: white; font-weight: 600; font-size: 0.875rem; margin-bottom: 1rem; }
-        footer a, footer button { color: rgba(255,255,255,0.4); font-size: 0.875rem; transition: color 200ms ease; text-align: left; }
-        footer a:hover, footer button:hover { color: white; }
-
-        /* Phase / Step items */
-        .phase-item, .step-item { display: flex; gap: 1.5rem; border-radius: 0.75rem; padding: 1.5rem; transition: all 200ms ease; background-color: rgba(43,60,43,0.03); border: 1px solid rgba(43,60,43,0.1); }
-        .phase-item:hover, .step-item:hover { transform: translateY(-2px); }
-        .phase-label { font-weight: 700; font-size: 0.875rem; white-space: nowrap; padding-top: 0.125rem; min-width: 80px; color: #B07840; }
-        .step-number { width: 2.5rem; height: 2.5rem; border-radius: 0.75rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background-color: rgba(176,120,64,0.12); font-weight: 900; font-size: 0.875rem; color: #B07840; }
-        .phase-item h4, .step-item h4 { font-weight: 700; margin-bottom: 0.25rem; color: #2B3C2B; }
-        .phase-item p, .step-item p { font-size: 0.875rem; color: #5A6E5A; }
-
-        /* Insight boxes */
-        .insight-box { border-radius: 1rem; padding: 2rem; background-color: rgba(43,60,43,0.05); border: 1px solid rgba(43,60,43,0.12); }
-        .insight-box.brown { background-color: rgba(176,120,64,0.05); border: 1px solid rgba(176,120,64,0.12); }
-        .insight-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
-        .insight-icon { width: 2.5rem; height: 2.5rem; border-radius: 0.75rem; display: flex; align-items: center; justify-content: center; background-color: rgba(43,60,43,0.1); }
-        .insight-icon.brown { background-color: rgba(176,120,64,0.12); }
-        .insight-icon svg { width: 20px; height: 20px; color: #2B3C2B; }
-        .insight-icon.brown svg { color: #B07840; }
-        .insight-header h3 { font-size: 1.25rem; font-weight: 700; color: #2B3C2B; }
-        .insight-text { font-size: 0.875rem; line-height: 1.625; color: #5A6E5A; margin-bottom: 1rem; }
-        .insight-highlight { font-size: 0.875rem; font-weight: 600; color: #B07840; }
-
-        /* Stage boxes */
-        .stage-box { border-radius: 0.75rem; padding: 1.25rem; transition: all 200ms ease; background-color: rgba(43,60,43,0.03); border: 1px solid rgba(43,60,43,0.1); }
-        .stage-box:hover { transform: translateY(-4px); }
-        .stage-number { font-weight: 900; font-size: 1.5rem; margin-bottom: 0.5rem; color: #B07840; }
-        .stage-box h4 { font-size: 0.875rem; font-weight: 700; margin-bottom: 0.5rem; color: #2B3C2B; }
-        .stage-box p { font-size: 0.75rem; line-height: 1.625; color: #5A6E5A; }
-
-        /* Dimension grid */
-        .dimension-grid { display: grid; gap: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
-        .dimension-item h4 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.25rem; color: #2B3C2B; }
-        .dimension-item p { font-size: 0.75rem; color: #5A6E5A; }
-
-        /* Consideration boxes */
-        .consideration-box { border-radius: 0.75rem; padding: 1.5rem; transition: all 200ms ease; background-color: rgba(43,60,43,0.03); border: 1px solid rgba(43,60,43,0.1); }
-        .consideration-box h4 { font-weight: 700; margin-bottom: 0.5rem; color: #2B3C2B; }
-        .consideration-box p { font-size: 0.875rem; line-height: 1.625; color: #5A6E5A; }
-
-        /* CTA box */
-        .cta-box { border-radius: 1.875rem; padding: 3rem; text-align: center; background-color: rgba(43,60,43,0.05); border: 1px solid rgba(43,60,43,0.1); }
-        .cta-box.dark { background-color: #2B3C2B; }
-        .cta-box h2 { font-size: clamp(1.875rem,5vw,1.875rem); font-weight: 900; margin-bottom: 1rem; }
-        .cta-box.dark h2 { color: white; }
-        .cta-box p { margin-bottom: 2rem; }
-        .cta-box.dark p { color: rgba(255,255,255,0.6); }
-
-        /* Scroll animations */
-        .animate-on-scroll { opacity: 0; transform: translateY(30px); transition: opacity 0.7s cubic-bezier(0.25,0.46,0.45,0.94), transform 0.7s cubic-bezier(0.25,0.46,0.45,0.94); }
-        .animate-on-scroll.visible { opacity: 1; transform: translateY(0); }
-        .animate-on-scroll.visible .feature-card,
-        .animate-on-scroll.visible .check-item,
-        .animate-on-scroll.visible .phase-item,
-        .animate-on-scroll.visible .step-item,
-        .animate-on-scroll.visible .stage-box,
-        .animate-on-scroll.visible .consideration-box,
-        .animate-on-scroll.visible .insight-box { opacity: 0; animation: staggerIn 0.5s cubic-bezier(0.25,0.46,0.45,0.94) forwards; }
-        .animate-on-scroll.visible .feature-card:nth-child(1), .animate-on-scroll.visible .check-item:nth-child(1), .animate-on-scroll.visible .step-item:nth-child(1), .animate-on-scroll.visible .stage-box:nth-child(1), .animate-on-scroll.visible .consideration-box:nth-child(1), .animate-on-scroll.visible .insight-box:nth-child(1) { animation-delay: 0s; }
-        .animate-on-scroll.visible .feature-card:nth-child(2), .animate-on-scroll.visible .check-item:nth-child(2), .animate-on-scroll.visible .step-item:nth-child(2), .animate-on-scroll.visible .stage-box:nth-child(2), .animate-on-scroll.visible .consideration-box:nth-child(2), .animate-on-scroll.visible .insight-box:nth-child(2) { animation-delay: 0.1s; }
-        .animate-on-scroll.visible .feature-card:nth-child(3), .animate-on-scroll.visible .check-item:nth-child(3), .animate-on-scroll.visible .step-item:nth-child(3), .animate-on-scroll.visible .stage-box:nth-child(3), .animate-on-scroll.visible .consideration-box:nth-child(3) { animation-delay: 0.2s; }
-        .animate-on-scroll.visible .feature-card:nth-child(4), .animate-on-scroll.visible .check-item:nth-child(4), .animate-on-scroll.visible .step-item:nth-child(4), .animate-on-scroll.visible .stage-box:nth-child(4), .animate-on-scroll.visible .consideration-box:nth-child(4) { animation-delay: 0.3s; }
-        .animate-on-scroll.visible .feature-card:nth-child(5), .animate-on-scroll.visible .stage-box:nth-child(5), .animate-on-scroll.visible .step-item:nth-child(5) { animation-delay: 0.4s; }
-        @keyframes staggerIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
-
-        /* Modal */
-        .modal-overlay { position: fixed; inset: 0; z-index: 100; background-color: rgba(0,0,0,0.5); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 1.5rem; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
-        .modal-overlay.active { opacity: 1; pointer-events: auto; }
-        .modal { background-color: #F7F5F0; border-radius: 1.5rem; padding: 2.5rem; max-width: 480px; width: 100%; max-height: 90vh; overflow-y: auto; transform: translateY(20px) scale(0.97); transition: transform 0.3s ease; position: relative; }
-        .modal-overlay.active .modal { transform: translateY(0) scale(1); }
-        .modal-close { position: absolute; top: 1rem; right: 1rem; width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(43,60,43,0.08); border: none; cursor: pointer; color: #5A6E5A; transition: all 200ms ease; }
-        .modal-close:hover { background: rgba(43,60,43,0.15); color: #2B3C2B; }
-        .modal h2 { font-size: 1.5rem; font-weight: 900; color: #2B3C2B; margin-bottom: 0.5rem; }
-        .modal > p { font-size: 0.875rem; color: #5A6E5A; margin-bottom: 1.5rem; line-height: 1.5; }
-        .form-group { margin-bottom: 1rem; }
-        .form-group label { display: block; font-size: 0.8125rem; font-weight: 600; color: #2B3C2B; margin-bottom: 0.375rem; }
-        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 0.75rem 1rem; border: 1px solid rgba(43,60,43,0.15); border-radius: 0.625rem; font-family: inherit; font-size: 0.875rem; background-color: white; color: #2B3C2B; transition: border-color 200ms ease, box-shadow 200ms ease; outline: none; }
-        .form-group input:focus, .form-group textarea:focus, .form-group select:focus { border-color: #B07840; box-shadow: 0 0 0 3px rgba(176,120,64,0.12); }
-        .form-group textarea { resize: vertical; min-height: 80px; }
-        .form-submit { width: 100%; padding: 0.875rem 1.75rem; background-color: #2B3C2B; color: white; font-weight: 700; border-radius: 0.75rem; font-size: 0.875rem; border: none; cursor: pointer; transition: all 200ms ease; margin-top: 0.5rem; }
-        .form-submit:hover { box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); transform: translateY(-1px); }
-        .form-submit:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
-        .form-success { text-align: center; padding: 2rem 0; }
-        .form-success svg { width: 48px; height: 48px; color: #4A7A4A; margin-bottom: 1rem; }
-        .form-success h3 { font-size: 1.25rem; font-weight: 700; color: #2B3C2B; margin-bottom: 0.5rem; }
-        .form-success p { font-size: 0.875rem; color: #5A6E5A; }
-
-        /* File upload */
-        .file-dropzone { border: 2px dashed rgba(43,60,43,0.2); border-radius: 0.75rem; padding: 1.5rem 1rem; text-align: center; cursor: pointer; transition: all 200ms ease; background-color: rgba(255,255,255,0.5); position: relative; }
-        .file-dropzone:hover { border-color: #B07840; background-color: rgba(176,120,64,0.04); }
-        .file-dropzone.dragover { border-color: #B07840; background-color: rgba(176,120,64,0.08); transform: scale(1.01); }
-        .file-dropzone.has-file { border-color: #4A7A4A; border-style: solid; background-color: rgba(74,122,74,0.04); }
-        .file-dropzone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
-        .file-dropzone-icon { width: 2.5rem; height: 2.5rem; margin: 0 auto 0.75rem; border-radius: 0.625rem; display: flex; align-items: center; justify-content: center; background-color: rgba(176,120,64,0.1); }
-        .file-dropzone.has-file .file-dropzone-icon { background-color: rgba(74,122,74,0.1); }
-        .file-dropzone-icon svg { width: 20px; height: 20px; color: #B07840; }
-        .file-dropzone.has-file .file-dropzone-icon svg { color: #4A7A4A; }
-        .file-dropzone-text { font-size: 0.8125rem; color: #5A6E5A; line-height: 1.5; }
-        .file-dropzone-text strong { color: #B07840; font-weight: 600; }
-        .file-dropzone.has-file .file-dropzone-text strong { color: #4A7A4A; }
-        .file-dropzone-hint { font-size: 0.6875rem; color: #8A9A8A; margin-top: 0.375rem; }
-        .file-dropzone-remove { display: inline-flex; align-items: center; gap: 0.25rem; margin-top: 0.5rem; font-size: 0.75rem; color: #B07840; font-weight: 600; background: none; border: none; cursor: pointer; padding: 0.25rem 0.5rem; border-radius: 0.375rem; transition: background 200ms ease; position: relative; z-index: 2; }
-        .file-dropzone-remove:hover { background-color: rgba(176,120,64,0.1); }
-
-        /* Architecture 2x2 grid - single column on mobile */
-        .grid-2x2 { grid-template-columns: repeat(2, 1fr); }
-        @media (max-width: 640px) { .grid-2x2 { grid-template-columns: 1fr; } }
-
-        /* Reduced motion */
-        @media (prefers-reduced-motion: reduce) {
-            .animate-on-scroll { opacity: 1 !important; transform: none !important; transition: none !important; }
-            .animate-on-scroll.visible .feature-card, .animate-on-scroll.visible .check-item, .animate-on-scroll.visible .phase-item, .animate-on-scroll.visible .step-item, .animate-on-scroll.visible .stage-box, .animate-on-scroll.visible .consideration-box, .animate-on-scroll.visible .insight-box { animation: none !important; opacity: 1 !important; }
-            .page.active { animation: none !important; }
-            .modal-overlay, .modal { transition: none !important; }
-        }
-    </style>
+    <!-- Styles -->
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to content</a>
@@ -247,7 +51,7 @@
         <div class="nav-content">
             <button class="nav-logo" onclick="navigateTo('home')">
                 <svg viewBox="0 0 100 100" width="32" height="32"><g transform="translate(10,8)"><ellipse cx="40" cy="38" rx="38" ry="35" fill="#B07840"/><ellipse cx="40" cy="46" rx="28" ry="24" fill="#D4A870"/><circle cx="28" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="29.5" cy="28.5" r="2" fill="white"/><circle cx="52" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="53.5" cy="28.5" r="2" fill="white"/><ellipse cx="40" cy="42" rx="6" ry="4.5" fill="#2B3C2B"/><path d="M35 48 Q40 54 45 48" stroke="#2B3C2B" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="4" y1="38" x2="22" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="2" y1="46" x2="20" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="4" y1="54" x2="22" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="38" x2="58" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="78" y1="46" x2="60" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="54" x2="58" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><ellipse cx="12" cy="12" rx="9" ry="8" fill="#B07840"/><ellipse cx="68" cy="12" rx="9" ry="8" fill="#B07840"/></g></svg>
-                <div><span class="nav-logo-text">CASTOR</span><span class="nav-logo-subtext">ADVISORIES</span></div>
+                <div><span class="nav-logo-text">CASTOR</span><span class="nav-logo-subtext">ADVISORY</span></div>
             </button>
             <div class="nav-links desktop" id="desktopNavLinks"></div>
             <div class="nav-cta desktop" id="desktopNavCTA">
@@ -276,48 +80,48 @@
                     </div>
                 </div>
             </section>
-            <section>
+            <section data-aos="fade-up">
                 <div class="max-w-4xl mx-auto text-center">
                     <span class="section-tag">Our Approach</span>
                     <h2>Real work. Real outcomes. Real careers.</h2>
                     <p style="margin-top: 1.5rem; margin-bottom: 3rem;">The best way to develop talent is through meaningful work, not simulations, not lectures, not unpaid internships. Participants join supervised consulting pods, work directly with business clients, and channel those insights into products and ventures that matter.</p>
                     <div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
-                        <div class="feature-card" style="background-color: rgba(43,60,43,0.05);"><div class="feature-card-icon" style="background-color: rgba(43,60,43,0.1);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M7 9h10M7 13h10M7 17h10M21 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/></svg></div><h3>For those who build</h3><p>For graduates who want to create something tangible: a software tool, a service, a product born from a problem they've seen firsthand. The best ventures start with deep operational understanding.</p></div>
-                        <div class="feature-card" style="background-color: rgba(176,120,64,0.05); border: 1px solid rgba(176,120,64,0.12);"><div class="feature-card-icon" style="background-color: rgba(176,120,64,0.12);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></div><h3>For those who grow</h3><p>Every engagement produces documented experience and validated performance data. Participants leave with a track record that stands on its own, whether they continue building or pursue opportunities through our recruiting partners.</p></div>
+                        <div class="feature-card" data-aos="fade-up" data-aos-delay="0" style="background-color: rgba(43,60,43,0.05);"><div class="feature-card-icon" style="background-color: rgba(43,60,43,0.1);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M7 9h10M7 13h10M7 17h10M21 12a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/></svg></div><h3>For those who build</h3><p>For graduates who want to create something tangible: a software tool, a service, a product born from a problem they've seen firsthand. The best ventures start with deep operational understanding.</p></div>
+                        <div class="feature-card" data-aos="fade-up" data-aos-delay="100" style="background-color: rgba(176,120,64,0.05); border: 1px solid rgba(176,120,64,0.12);"><div class="feature-card-icon" style="background-color: rgba(176,120,64,0.12);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></div><h3>For those who grow</h3><p>Every engagement produces documented experience and validated performance data. Participants leave with a track record that stands on its own, whether they continue building or pursue opportunities through our recruiting partners.</p></div>
                     </div>
                 </div>
             </section>
-            <section>
+            <section data-aos="fade-up">
                 <div class="max-w-6xl mx-auto">
                     <div style="text-align: center; margin-bottom: 4rem;"><span class="section-tag">Why It Works</span><h2>Aligned incentives at every level.</h2><p style="max-width: 36rem; margin: 1rem auto 0;">Our model creates value for each participant in the ecosystem, not at the expense of the others.</p></div>
                     <div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
-                        <div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div><h3>Graduates</h3><p>Meaningful work, structured mentorship, and career outcomes grounded in demonstrated performance.</p></div>
-                        <div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="9"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg></div><h3>Businesses</h3><p>Focused, outcome-driven consulting at a scale and price point designed for growing companies.</p></div>
-                        <div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 3v4"></path><path d="M8 3v4"></path><line x1="2" y1="11" x2="22" y2="11"></line></svg></div><h3>Employers</h3><p>Pre-validated talent with documented work histories, not just credentials.</p></div>
-                        <div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><rect x="2" y="17" width="20" height="4"></rect></svg></div><h3>Technology</h3><p>Purpose-built tools that emerge from operational practice, refined continuously through real-world use.</p></div>
+                        <div class="feature-card" data-aos="fade-up" data-aos-delay="0"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div><h3>Graduates</h3><p>Meaningful work, structured mentorship, and career outcomes grounded in demonstrated performance.</p></div>
+                        <div class="feature-card" data-aos="fade-up" data-aos-delay="100"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="9"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg></div><h3>Businesses</h3><p>Focused, outcome-driven consulting at a scale and price point designed for growing companies.</p></div>
+                        <div class="feature-card" data-aos="fade-up" data-aos-delay="200"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 3v4"></path><path d="M8 3v4"></path><line x1="2" y1="11" x2="22" y2="11"></line></svg></div><h3>Employers</h3><p>Pre-validated talent with documented work histories, not just credentials.</p></div>
+                        <div class="feature-card" data-aos="fade-up" data-aos-delay="300"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><rect x="2" y="17" width="20" height="4"></rect></svg></div><h3>Technology</h3><p>Purpose-built tools that emerge from operational practice, refined continuously through real-world use.</p></div>
                     </div>
                 </div>
             </section>
-            <section>
+            <section data-aos="fade-up">
                 <div class="max-w-6xl mx-auto">
                     <div style="text-align: center; margin-bottom: 4rem;"><span class="section-tag">Our Edge</span><h2>Proprietary insights from every engagement.</h2></div>
                     <div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
-                        <div class="insight-box"><div class="insight-header"><div class="insight-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4M4.22 19.78l2.83-2.83m9.9-9.9l2.83-2.83"></path></svg></div><h3>Talent Performance Intelligence</h3></div><p class="insight-text">Every engagement produces structured, longitudinal performance data: how people solve problems, adapt to feedback, collaborate under pressure, and deliver under real constraints. A talent signal that traditional hiring simply can't replicate.</p><p class="insight-highlight">Valuable to employers and recruiting partners</p></div>
-                        <div class="insight-box brown"><div class="insight-header"><div class="insight-icon brown"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></div><h3>Graduate Market Insights</h3></div><p class="insight-text">Through ongoing surveys and structured feedback, we build a proprietary understanding of how early-career professionals think about work, technology, career development, and the market. A hard-to-reach demographic with high strategic value.</p><p class="insight-highlight">Valuable to enterprises, researchers, and investors</p></div>
+                        <div class="insight-box" data-aos="fade-up" data-aos-delay="0"><div class="insight-header"><div class="insight-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4M4.22 19.78l2.83-2.83m9.9-9.9l2.83-2.83"></path></svg></div><h3>Talent Performance Intelligence</h3></div><p class="insight-text">Every engagement produces structured, longitudinal performance data: how people solve problems, adapt to feedback, collaborate under pressure, and deliver under real constraints. A talent signal that traditional hiring simply can't replicate.</p><p class="insight-highlight">Valuable to employers and recruiting partners</p></div>
+                        <div class="insight-box brown" data-aos="fade-up" data-aos-delay="100"><div class="insight-header"><div class="insight-icon brown"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></div><h3>Graduate Market Insights</h3></div><p class="insight-text">Through ongoing surveys and structured feedback, we build a proprietary understanding of how early-career professionals think about work, technology, career development, and the market. A hard-to-reach demographic with high strategic value.</p><p class="insight-highlight">Valuable to enterprises, researchers, and investors</p></div>
                     </div>
                 </div>
             </section>
-            <section>
+            <section data-aos="fade-up">
                 <div class="max-w-6xl mx-auto">
                     <div style="text-align: center; margin-bottom: 4rem;"><span class="section-tag">What Emerges</span><h2>From insight to product.</h2><p style="max-width: 36rem; margin: 1rem auto 0;">Our teams don't just consult. They identify gaps and build solutions informed by direct operational experience.</p></div>
                     <div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
-                        <div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg></div><h3>Software &amp; Automation</h3><p>Workflow tools, data pipelines, and internal systems designed from observed operational patterns, not hypothetical market research.</p></div>
-                        <div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 1 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></div><h3>Products &amp; Hardware</h3><p>Physical solutions and devices born from hands-on exposure to real logistical, manufacturing, and operational constraints.</p></div>
-                        <div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4M4.22 19.78l2.83-2.83m9.9-9.9l2.83-2.83"></path></svg></div><h3>Services &amp; Methods</h3><p>Structured service offerings, training programs, and consulting frameworks built from patterns that recur across multiple engagements.</p></div>
+                        <div class="feature-card" data-aos="fade-up" data-aos-delay="0"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg></div><h3>Software &amp; Automation</h3><p>Workflow tools, data pipelines, and internal systems designed from observed operational patterns, not hypothetical market research.</p></div>
+                        <div class="feature-card" data-aos="fade-up" data-aos-delay="100"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 1 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></div><h3>Products &amp; Hardware</h3><p>Physical solutions and devices born from hands-on exposure to real logistical, manufacturing, and operational constraints.</p></div>
+                        <div class="feature-card" data-aos="fade-up" data-aos-delay="200"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4M4.22 19.78l2.83-2.83m9.9-9.9l2.83-2.83"></path></svg></div><h3>Services &amp; Methods</h3><p>Structured service offerings, training programs, and consulting frameworks built from patterns that recur across multiple engagements.</p></div>
                     </div>
                 </div>
             </section>
-            <section>
+            <section data-aos="fade-up">
                 <div class="max-w-3xl mx-auto">
                     <div class="cta-box">
                         <h2>Find where you fit.</h2>
@@ -336,55 +140,55 @@
         <!-- THE MODEL -->
         <div id="about" class="page">
             <section class="hero"><div class="hero-content"><span class="section-tag">Our Approach</span><h1>Designed to compound.</h1><p>Castor is structured as an integrated system where talent development, client delivery, technology innovation, and recruiting outcomes reinforce one another continuously.</p></div></section>
-            <section><div class="max-w-4xl mx-auto"><div style="color: #5A6E5A; display: flex; flex-direction: column; gap: 2rem;"><p style="font-size: 1.125rem; line-height: 1.625;">The conventional approach to early-career development separates education from employment, consulting from product development, and hiring from performance validation. These separations create waste: <span style="font-weight: 600; color: #2B3C2B;">learning is discarded at transaction boundaries</span>, and each participant optimizes in isolation.</p><p>Castor was designed differently. Graduates are embedded in supervised consulting engagements with real business clients. Through those engagements, teams develop deep operational understanding, which directly informs the products and ventures they build. Performance is documented throughout, creating a validated record with value well beyond the program itself.</p><p>The result: every engagement strengthens every other part of the organization. Consulting informs product development. Products generate technology. Technology improves delivery. The talent signal generated along the way opens new channels of value for recruiting partners, employers, and participants themselves.</p></div></div></section>
-            <section>
+            <section data-aos="fade-up"><div class="max-w-4xl mx-auto"><div style="color: #5A6E5A; display: flex; flex-direction: column; gap: 2rem;"><p style="font-size: 1.125rem; line-height: 1.625;">The conventional approach to early-career development separates education from employment, consulting from product development, and hiring from performance validation. These separations create waste: <span style="font-weight: 600; color: #2B3C2B;">learning is discarded at transaction boundaries</span>, and each participant optimizes in isolation.</p><p>Castor was designed differently. Graduates are embedded in supervised consulting engagements with real business clients. Through those engagements, teams develop deep operational understanding, which directly informs the products and ventures they build. Performance is documented throughout, creating a validated record with value well beyond the program itself.</p><p>The result: every engagement strengthens every other part of the organization. Consulting informs product development. Products generate technology. Technology improves delivery. The talent signal generated along the way opens new channels of value for recruiting partners, employers, and participants themselves.</p></div></div></section>
+            <section data-aos="fade-up">
                 <div class="max-w-6xl mx-auto">
                     <span class="section-tag">Architecture</span><h2>Integrated by design.</h2>
                     <div class="content-grid grid-2x2" style="margin-top: 2.5rem;">
-                        <div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div><h3>Talent Development</h3><ul style="list-style: none; margin-top: 0.75rem;"><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Graduates work as supervised consulting contributors</li><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Performance is documented, structured, and transferable</li><li style="display: flex; gap: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Career outcomes supported through recruiting partnerships</li></ul></div>
-                        <div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="9"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg></div><h3>Client Delivery</h3><ul style="list-style: none; margin-top: 0.75rem;"><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Engagements scoped around measurable outcomes</li><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Delivery emphasizes implementation over advisory abstraction</li><li style="display: flex; gap: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>AI-augmented tooling enhances efficiency without creating dependency</li></ul></div>
-                        <div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 3v4"></path><path d="M8 3v4"></path><line x1="2" y1="11" x2="22" y2="11"></line></svg></div><h3>Recruiting &amp; Signal</h3><ul style="list-style: none; margin-top: 0.75rem;"><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Longitudinal performance profiles from real work</li><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Anonymized, compliant, and consent-driven data practices</li><li style="display: flex; gap: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Reduces hiring uncertainty for employers and recruiting partners</li></ul></div>
-                        <div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><rect x="2" y="17" width="20" height="4"></rect></svg></div><h3>Technology &amp; Product</h3><ul style="list-style: none; margin-top: 0.75rem;"><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Internal-first tooling refined through repeated operational use</li><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>AI deployed conservatively within deterministic workflows</li><li style="display: flex; gap: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Successful tools and products may be selectively externalized</li></ul></div>
+                        <div class="feature-card" data-aos="fade-up" data-aos-delay="0"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div><h3>Talent Development</h3><ul style="list-style: none; margin-top: 0.75rem;"><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Graduates work as supervised consulting contributors</li><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Performance is documented, structured, and transferable</li><li style="display: flex; gap: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Career outcomes supported through recruiting partnerships</li></ul></div>
+                        <div class="feature-card" data-aos="fade-up" data-aos-delay="100"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="9"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg></div><h3>Client Delivery</h3><ul style="list-style: none; margin-top: 0.75rem;"><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Engagements scoped around measurable outcomes</li><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Delivery emphasizes implementation over advisory abstraction</li><li style="display: flex; gap: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>AI-augmented tooling enhances efficiency without creating dependency</li></ul></div>
+                        <div class="feature-card" data-aos="fade-up" data-aos-delay="200"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 3v4"></path><path d="M8 3v4"></path><line x1="2" y1="11" x2="22" y2="11"></line></svg></div><h3>Recruiting &amp; Signal</h3><ul style="list-style: none; margin-top: 0.75rem;"><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Longitudinal performance profiles from real work</li><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Anonymized, compliant, and consent-driven data practices</li><li style="display: flex; gap: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Reduces hiring uncertainty for employers and recruiting partners</li></ul></div>
+                        <div class="feature-card" data-aos="fade-up" data-aos-delay="300"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><rect x="2" y="17" width="20" height="4"></rect></svg></div><h3>Technology &amp; Product</h3><ul style="list-style: none; margin-top: 0.75rem;"><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Internal-first tooling refined through repeated operational use</li><li style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>AI deployed conservatively within deterministic workflows</li><li style="display: flex; gap: 0.75rem; font-size: 0.875rem; color: #5A6E5A;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #B07840; opacity: 0.7; width: 16px; height: 16px; margin-top: 2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Successful tools and products may be selectively externalized</li></ul></div>
                     </div>
                 </div>
             </section>
-            <section><div class="max-w-6xl mx-auto"><span class="section-tag">Evolution</span><h2>Disciplined growth in five stages.</h2><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-top: 2.5rem;"><div class="stage-box"><div class="stage-number">01</div><h4>Focused Execution</h4><p>Narrow engagements, small teams, rigorous validation of what works</p></div><div class="stage-box"><div class="stage-number">02</div><h4>Operational Maturity</h4><p>Standards emerge, processes harden, internal tooling absorbs friction</p></div><div class="stage-box"><div class="stage-number">03</div><h4>Selective Expansion</h4><p>Proven methods and products are introduced beyond internal use</p></div><div class="stage-box"><div class="stage-number">04</div><h4>Institutional Partnerships</h4><p>Recruiting and enterprise partnerships formalize at scale</p></div><div class="stage-box"><div class="stage-number">05</div><h4>Strategic Growth</h4><p>Geographic, domain, and capital expansion, only when the foundation supports it</p></div></div></div></section>
-            <section><div class="max-w-3xl mx-auto text-center"><h2>Want the full picture?</h2><p style="margin-top: 1rem; margin-bottom: 2rem;">Our detailed operating model and financial framework are available to prospective partners and investors.</p><button class="cta-button primary" onclick="openForm('investors')">Request Materials</button></div></section>
+            <section data-aos="fade-up"><div class="max-w-6xl mx-auto"><span class="section-tag">Evolution</span><h2>Disciplined growth in five stages.</h2><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-top: 2.5rem;"><div class="stage-box" data-aos="fade-up" data-aos-delay="0"><div class="stage-number">01</div><h4>Focused Execution</h4><p>Narrow engagements, small teams, rigorous validation of what works</p></div><div class="stage-box" data-aos="fade-up" data-aos-delay="100"><div class="stage-number">02</div><h4>Operational Maturity</h4><p>Standards emerge, processes harden, internal tooling absorbs friction</p></div><div class="stage-box" data-aos="fade-up" data-aos-delay="200"><div class="stage-number">03</div><h4>Selective Expansion</h4><p>Proven methods and products are introduced beyond internal use</p></div><div class="stage-box" data-aos="fade-up" data-aos-delay="300"><div class="stage-number">04</div><h4>Institutional Partnerships</h4><p>Recruiting and enterprise partnerships formalize at scale</p></div><div class="stage-box" data-aos="fade-up" data-aos-delay="400"><div class="stage-number">05</div><h4>Strategic Growth</h4><p>Geographic, domain, and capital expansion, only when the foundation supports it</p></div></div></div></section>
+            <section data-aos="fade-up"><div class="max-w-3xl mx-auto text-center"><h2>Want the full picture?</h2><p style="margin-top: 1rem; margin-bottom: 2rem;">Our detailed operating model and financial framework are available to prospective partners and investors.</p><button class="cta-button primary" onclick="openForm('investors')">Request Materials</button></div></section>
         </div>
 
         <!-- FOR PARTICIPANTS -->
         <div id="participants" class="page">
             <section class="hero"><div class="hero-content"><span class="section-tag">For Participants</span><h1>Turn your potential into<br><span style="color: #B07840;">a track record.</span></h1><p>Join a supervised consulting team working on real business challenges. Build real solutions, earn equity in the ventures you help create, and leave with a performance record that opens doors, wherever you go next.</p><div style="display: flex; flex-direction: column; align-items: center; gap: 1rem;"><button class="cta-button primary" onclick="openForm('participants')">Apply Now</button></div></div></section>
-            <section><div class="max-w-6xl mx-auto"><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));"><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></div><h3>Meaningful Work From Day One</h3><p>No busy work. No observation rotations. You engage directly with business clients on scoped challenges, from data operations to workflow design to product prototyping.</p></div><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="22"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div><h3>A Record That Speaks For You</h3><p>Every engagement produces a structured performance profile documenting how you approach problems, collaborate with teams, respond to feedback, and deliver under real conditions.</p></div><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></div><h3>Career Outcomes, Not Certificates</h3><p>Our recruiting partnerships connect participants with employers who value demonstrated capability. Your work is your introduction.</p></div></div></div></section>
-            <section><div class="max-w-4xl mx-auto"><span class="section-tag">The Program</span><h2>Structured for depth, not speed.</h2><div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 2.5rem;"><div class="phase-item"><div class="phase-label">Phase 1</div><div><h4>Foundation &amp; Team Formation</h4><p>Onboarding, tools training, methodology immersion, and pod formation. You're matched with a team and a live client challenge.</p></div></div><div class="phase-item"><div class="phase-label">Phase 2</div><div><h4>Client Engagement &amp; Discovery</h4><p>Deep immersion in the client's operational environment. Map workflows, identify pain points, and develop a clear point of view on what's needed.</p></div></div><div class="phase-item"><div class="phase-label">Phase 3</div><div><h4>Solution Development</h4><p>Design and build the solution, whether it's a software tool, a service framework, a process improvement, or a physical product. Iterate under structured supervision.</p></div></div><div class="phase-item"><div class="phase-label">Phase 4</div><div><h4>Delivery &amp; Strategy</h4><p>Refine the solution, develop business logic and pricing, and prepare for presentation. Work with mentors on positioning and stakeholder communication.</p></div></div><div class="phase-item"><div class="phase-label">Phase 5</div><div><h4>Outcomes &amp; Next Steps</h4><p>Deliver the final product. Successful ventures may continue with equity-backed support. All participants receive documented performance profiles and facilitated recruiting introductions.</p></div></div></div></div></section>
-            <section><div class="max-w-4xl mx-auto"><span class="section-tag">What You Receive</span><h2>Investment in your trajectory.</h2><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-top: 2.5rem;"><div class="check-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Equity participation in the ventures you help build</span></div><div class="check-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Hands-on mentorship from experienced operators</span></div><div class="check-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Structured performance documentation</span></div><div class="check-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Access to a network of recruiting partners and employers</span></div><div class="check-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Training in AI-augmented workflows and modern tools</span></div><div class="check-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>A portfolio of real, delivered work</span></div></div></div></section>
+            <section data-aos="fade-up"><div class="max-w-6xl mx-auto"><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));"><div class="feature-card" data-aos="fade-up" data-aos-delay="0"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></div><h3>Meaningful Work From Day One</h3><p>No busy work. No observation rotations. You engage directly with business clients on scoped challenges, from data operations to workflow design to product prototyping.</p></div><div class="feature-card" data-aos="fade-up" data-aos-delay="100"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="22"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div><h3>A Record That Speaks For You</h3><p>Every engagement produces a structured performance profile documenting how you approach problems, collaborate with teams, respond to feedback, and deliver under real conditions.</p></div><div class="feature-card" data-aos="fade-up" data-aos-delay="200"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></div><h3>Career Outcomes, Not Certificates</h3><p>Our recruiting partnerships connect participants with employers who value demonstrated capability. Your work is your introduction.</p></div></div></div></section>
+            <section data-aos="fade-up"><div class="max-w-4xl mx-auto"><span class="section-tag">The Program</span><h2>Structured for depth, not speed.</h2><div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 2.5rem;"><div class="phase-item" data-aos="fade-up" data-aos-delay="0"><div class="phase-label">Phase 1</div><div><h4>Foundation &amp; Team Formation</h4><p>Onboarding, tools training, methodology immersion, and pod formation. You're matched with a team and a live client challenge.</p></div></div><div class="phase-item" data-aos="fade-up" data-aos-delay="100"><div class="phase-label">Phase 2</div><div><h4>Client Engagement &amp; Discovery</h4><p>Deep immersion in the client's operational environment. Map workflows, identify pain points, and develop a clear point of view on what's needed.</p></div></div><div class="phase-item" data-aos="fade-up" data-aos-delay="200"><div class="phase-label">Phase 3</div><div><h4>Solution Development</h4><p>Design and build the solution, whether it's a software tool, a service framework, a process improvement, or a physical product. Iterate under structured supervision.</p></div></div><div class="phase-item" data-aos="fade-up" data-aos-delay="300"><div class="phase-label">Phase 4</div><div><h4>Delivery &amp; Strategy</h4><p>Refine the solution, develop business logic and pricing, and prepare for presentation. Work with mentors on positioning and stakeholder communication.</p></div></div><div class="phase-item" data-aos="fade-up" data-aos-delay="400"><div class="phase-label">Phase 5</div><div><h4>Outcomes &amp; Next Steps</h4><p>Deliver the final product. Successful ventures may continue with equity-backed support. All participants receive documented performance profiles and facilitated recruiting introductions.</p></div></div></div></div></section>
+            <section data-aos="fade-up"><div class="max-w-4xl mx-auto"><span class="section-tag">What You Receive</span><h2>Investment in your trajectory.</h2><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-top: 2.5rem;"><div class="check-item" data-aos="fade-up" data-aos-delay="0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Equity participation in the ventures you help build</span></div><div class="check-item" data-aos="fade-up" data-aos-delay="50"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Hands-on mentorship from experienced operators</span></div><div class="check-item" data-aos="fade-up" data-aos-delay="100"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Structured performance documentation</span></div><div class="check-item" data-aos="fade-up" data-aos-delay="150"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Access to a network of recruiting partners and employers</span></div><div class="check-item" data-aos="fade-up" data-aos-delay="200"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Training in AI-augmented workflows and modern tools</span></div><div class="check-item" data-aos="fade-up" data-aos-delay="250"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>A portfolio of real, delivered work</span></div></div></div></section>
         </div>
 
         <!-- FOR CLIENTS -->
         <div id="clients" class="page">
             <section class="hero"><div class="hero-content"><span class="section-tag">For Clients</span><h1>Consulting designed for <span style="color: #B07840;">how you actually work.</span></h1><p>Engagements scoped around the outcomes that matter to your business. Supervised teams deliver implemented solutions, not slide decks, at a price point that makes sense for growing companies.</p><div style="display: flex; flex-direction: column; align-items: center; gap: 1rem;"><button class="cta-button primary" onclick="openForm('clients')">Start a Conversation</button></div></div></section>
-            <section><div class="max-w-6xl mx-auto"><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));"><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4M4.22 19.78l2.83-2.83m9.9-9.9l2.83-2.83"></path></svg></div><h3>Outcome-Aligned Engagement</h3><p>Engagements structured around clearly defined milestones. Fees reflect delivered value, not hours logged, so incentives stay aligned throughout.</p></div><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div><h3>Dedicated, Supervised Teams</h3><p>Each engagement is staffed with a focused consulting pod under experienced oversight. You get a team embedded in your problem, not spread across ten accounts.</p></div><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><rect x="2" y="17" width="20" height="4"></rect></svg></div><h3>Technology-Enhanced Delivery</h3><p>Internal tooling accelerates common workflows: data consolidation, process mapping, diagnostic analysis. Reducing cost without creating dependencies.</p></div></div></div></section>
-            <section><div class="max-w-4xl mx-auto"><span class="section-tag">Process</span><h2>Straightforward from start to finish.</h2><div style="display: flex; flex-direction: column; gap: 1.5rem; margin-top: 2.5rem;"><div class="step-item"><div class="step-number">1</div><div><h4>Define the Objective</h4><p>Together we identify a specific, operationally meaningful goal, whether that's reducing manual processes, consolidating data, or building a new workflow.</p></div></div><div class="step-item"><div class="step-number">2</div><div><h4>Deploy the Team</h4><p>A supervised pod of 2-5 consultants is assigned to your engagement, scaled to complexity. They work directly with your systems, your people, and your constraints.</p></div></div><div class="step-item"><div class="step-number">3</div><div><h4>Deliver Iteratively</h4><p>Progress reviewed continuously against operational criteria. No disappearing for weeks and returning with a report. You see the work as it develops.</p></div></div><div class="step-item"><div class="step-number">4</div><div><h4>Transfer Ownership</h4><p>When the engagement concludes, the solution is yours. We verify that outcomes persist independently and document everything for your team's ongoing use.</p></div></div></div></div></section>
-            <section><div class="max-w-4xl mx-auto"><span class="section-tag">Best Fit</span><h2>We work well with companies that value execution.</h2><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-top: 2.5rem;"><div class="check-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Growing businesses with 10-200 employees</span></div><div class="check-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Operations that rely on manual processes or legacy systems</span></div><div class="check-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Teams looking for implementation, not more strategy</span></div><div class="check-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Companies exploring automation or data consolidation</span></div><div class="check-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Leaders who value transparency and measurable progress</span></div><div class="check-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Organizations open to working with emerging talent</span></div></div></div></section>
+            <section data-aos="fade-up"><div class="max-w-6xl mx-auto"><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));"><div class="feature-card" data-aos="fade-up" data-aos-delay="0"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4M4.22 19.78l2.83-2.83m9.9-9.9l2.83-2.83"></path></svg></div><h3>Outcome-Aligned Engagement</h3><p>Engagements structured around clearly defined milestones. Fees reflect delivered value, not hours logged, so incentives stay aligned throughout.</p></div><div class="feature-card" data-aos="fade-up" data-aos-delay="100"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div><h3>Dedicated, Supervised Teams</h3><p>Each engagement is staffed with a focused consulting pod under experienced oversight. You get a team embedded in your problem, not spread across ten accounts.</p></div><div class="feature-card" data-aos="fade-up" data-aos-delay="200"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><rect x="2" y="17" width="20" height="4"></rect></svg></div><h3>Technology-Enhanced Delivery</h3><p>Internal tooling accelerates common workflows: data consolidation, process mapping, diagnostic analysis. Reducing cost without creating dependencies.</p></div></div></div></section>
+            <section data-aos="fade-up"><div class="max-w-4xl mx-auto"><span class="section-tag">Process</span><h2>Straightforward from start to finish.</h2><div style="display: flex; flex-direction: column; gap: 1.5rem; margin-top: 2.5rem;"><div class="step-item" data-aos="fade-up" data-aos-delay="0"><div class="step-number">1</div><div><h4>Define the Objective</h4><p>Together we identify a specific, operationally meaningful goal, whether that's reducing manual processes, consolidating data, or building a new workflow.</p></div></div><div class="step-item" data-aos="fade-up" data-aos-delay="100"><div class="step-number">2</div><div><h4>Deploy the Team</h4><p>A supervised pod of 2-5 consultants is assigned to your engagement, scaled to complexity. They work directly with your systems, your people, and your constraints.</p></div></div><div class="step-item" data-aos="fade-up" data-aos-delay="200"><div class="step-number">3</div><div><h4>Deliver Iteratively</h4><p>Progress reviewed continuously against operational criteria. No disappearing for weeks and returning with a report. You see the work as it develops.</p></div></div><div class="step-item" data-aos="fade-up" data-aos-delay="300"><div class="step-number">4</div><div><h4>Transfer Ownership</h4><p>When the engagement concludes, the solution is yours. We verify that outcomes persist independently and document everything for your team's ongoing use.</p></div></div></div></div></section>
+            <section data-aos="fade-up"><div class="max-w-4xl mx-auto"><span class="section-tag">Best Fit</span><h2>We work well with companies that value execution.</h2><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-top: 2.5rem;"><div class="check-item" data-aos="fade-up" data-aos-delay="0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Growing businesses with 10-200 employees</span></div><div class="check-item" data-aos="fade-up" data-aos-delay="50"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Operations that rely on manual processes or legacy systems</span></div><div class="check-item" data-aos="fade-up" data-aos-delay="100"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Teams looking for implementation, not more strategy</span></div><div class="check-item" data-aos="fade-up" data-aos-delay="150"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Companies exploring automation or data consolidation</span></div><div class="check-item" data-aos="fade-up" data-aos-delay="200"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Leaders who value transparency and measurable progress</span></div><div class="check-item" data-aos="fade-up" data-aos-delay="250"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>Organizations open to working with emerging talent</span></div></div></div></section>
         </div>
 
         <!-- FOR RECRUITERS -->
         <div id="recruiters" class="page">
             <section class="hero"><div class="hero-content"><span class="section-tag">For Recruiters</span><h1>Better candidates.<br><span style="color: #B07840;">Better information.</span></h1><p>Performance-validated talent profiles built from real work. Deeper insight into candidate capability than any resume or interview can offer.</p><div style="display: flex; flex-direction: column; align-items: center; gap: 1rem;"><button class="cta-button primary" onclick="openForm('recruiters')">Become a Partner</button></div></div></section>
-            <section><div class="max-w-6xl mx-auto"><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));"><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="22"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div><h3>Evidence Over Inference</h3><p>Profiles built from observed work: how candidates approach problems, collaborate under pressure, incorporate feedback, and deliver in real operating environments.</p></div><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></div><h3>Responsible Data Practices</h3><p>All performance data is anonymized and collected with explicit consent. We follow strict privacy and labor compliance standards across every engagement.</p></div><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></div><h3>Improved Placement Outcomes</h3><p>When hiring decisions are anchored in demonstrated capability rather than credential proxies, both placement accuracy and candidate-employer satisfaction improve.</p></div></div></div></section>
-            <section><div class="max-w-4xl mx-auto"><span class="section-tag">Performance Dimensions</span><h2>What our profiles capture.</h2><div class="insight-box" style="margin-top: 2.5rem;"><div class="dimension-grid"><div class="dimension-item"><h4>Delivery &amp; Execution</h4><p>Ability to scope, plan, and deliver work products on time and to specification</p></div><div class="dimension-item"><h4>Adaptability</h4><p>How quickly candidates acclimate to new domains, tools, and working environments</p></div><div class="dimension-item"><h4>Analytical Thinking</h4><p>Capacity to decompose ambiguous problems into structured, actionable plans</p></div><div class="dimension-item"><h4>Collaboration</h4><p>Effectiveness working with diverse teams, including non-technical stakeholders</p></div><div class="dimension-item"><h4>Growth Orientation</h4><p>Responsiveness to feedback and observable improvement trajectory over time</p></div><div class="dimension-item"><h4>Venture Aptitude</h4><p>Ability to identify opportunities and translate operational insight into scalable solutions</p></div></div></div></div></section>
-            <section><div class="max-w-4xl mx-auto"><span class="section-tag">Partnership Model</span><h2>Aligned economics. No upfront cost.</h2><p style="margin-top: 1.5rem; margin-bottom: 1.5rem;">Partnerships structured around shared success. Fees tied to outcomes, not access. We're not looking to replace recruiters. We're looking to give you better information to work with.</p><button class="cta-button secondary" onclick="navigateTo('about')">Learn About Our Model <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></button></div></section>
+            <section data-aos="fade-up"><div class="max-w-6xl mx-auto"><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));"><div class="feature-card" data-aos="fade-up" data-aos-delay="0"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="22"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div><h3>Evidence Over Inference</h3><p>Profiles built from observed work: how candidates approach problems, collaborate under pressure, incorporate feedback, and deliver in real operating environments.</p></div><div class="feature-card" data-aos="fade-up" data-aos-delay="100"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></div><h3>Responsible Data Practices</h3><p>All performance data is anonymized and collected with explicit consent. We follow strict privacy and labor compliance standards across every engagement.</p></div><div class="feature-card" data-aos="fade-up" data-aos-delay="200"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></div><h3>Improved Placement Outcomes</h3><p>When hiring decisions are anchored in demonstrated capability rather than credential proxies, both placement accuracy and candidate-employer satisfaction improve.</p></div></div></div></section>
+            <section data-aos="fade-up"><div class="max-w-4xl mx-auto"><span class="section-tag">Performance Dimensions</span><h2>What our profiles capture.</h2><div class="insight-box" style="margin-top: 2.5rem;"><div class="dimension-grid"><div class="dimension-item"><h4>Delivery &amp; Execution</h4><p>Ability to scope, plan, and deliver work products on time and to specification</p></div><div class="dimension-item"><h4>Adaptability</h4><p>How quickly candidates acclimate to new domains, tools, and working environments</p></div><div class="dimension-item"><h4>Analytical Thinking</h4><p>Capacity to decompose ambiguous problems into structured, actionable plans</p></div><div class="dimension-item"><h4>Collaboration</h4><p>Effectiveness working with diverse teams, including non-technical stakeholders</p></div><div class="dimension-item"><h4>Growth Orientation</h4><p>Responsiveness to feedback and observable improvement trajectory over time</p></div><div class="dimension-item"><h4>Venture Aptitude</h4><p>Ability to identify opportunities and translate operational insight into scalable solutions</p></div></div></div></div></section>
+            <section data-aos="fade-up"><div class="max-w-4xl mx-auto"><span class="section-tag">Partnership Model</span><h2>Aligned economics. No upfront cost.</h2><p style="margin-top: 1.5rem; margin-bottom: 1.5rem;">Partnerships structured around shared success. Fees tied to outcomes, not access. We're not looking to replace recruiters. We're looking to give you better information to work with.</p><button class="cta-button secondary" onclick="navigateTo('about')">Learn About Our Model <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></button></div></section>
         </div>
 
         <!-- FOR INVESTORS -->
         <div id="investors" class="page">
             <section class="hero"><div class="hero-content"><span class="section-tag">For Investors</span><h1>A system designed to<br><span style="color: #B07840;">compound value.</span></h1><p>A closed-loop accelerator with multiple, self-reinforcing revenue streams: consulting, venture development, talent intelligence, and market data within a single disciplined operating model.</p><div style="display: flex; align-items: center; justify-content: center; gap: 1rem; flex-wrap: wrap;"><button class="cta-button primary" onclick="openForm('investors')">Request Materials</button><button class="cta-button secondary" onclick="navigateTo('about')">Explore the Model <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></button></div></div></section>
-            <section><div class="max-w-4xl mx-auto"><span class="section-tag">Thesis</span><h2>A structural opportunity.</h2><div style="display: flex; flex-direction: column; gap: 1.5rem; margin-top: 2rem; color: #5A6E5A; line-height: 1.625;"><p>Three persistent inefficiencies create the opening: early-career talent is evaluated by signals that don't predict performance, SMBs remain structurally underserved by traditional advisory, and capital markets increasingly demand operational validation behind technology narratives.</p><p>Castor sits at the intersection of all three. The model is designed so that <span style="font-weight: 600; color: #2B3C2B;">progress in any one area directly strengthens the others</span>. Consulting generates operational insight and talent signal. Talent signal enables recruiting revenue and product development. Product development reduces delivery cost and improves client outcomes. Each cycle reinforces the next.</p><p>The result is a business that <span style="font-weight: 600; color: #2B3C2B;">generates value at every stage of development</span>, not one that defers monetization in pursuit of scale. Growth is governed by demonstrated capacity. The system is designed to remain viable without external capital.</p></div></div></section>
-            <section><div class="max-w-6xl mx-auto"><span class="section-tag">Revenue Architecture</span><h2>Diversified and self-reinforcing.</h2><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-top: 2.5rem;"><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="9"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg></div><h3>Consulting</h3><p>Outcome-aligned engagements with SMB clients. The anchor revenue stream and the engine that drives the rest of the system.</p></div><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M7 9h10M7 13h10M7 17h10"></path></svg></div><h3>Ventures</h3><p>Equity participation in products and companies built by Castor teams, originating from direct operational insight, not speculation.</p></div><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div><h3>Talent Intelligence</h3><p>Performance-validated talent profiles delivered to recruiting partners through success-based fee arrangements.</p></div><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></div><h3>Market Data</h3><p>Proprietary graduate sentiment and workforce analytics, structured, anonymized, and valuable to enterprises and researchers.</p></div></div></div></section>
-            <section><div class="max-w-6xl mx-auto"><span class="section-tag">Differentiation</span><h2>Structural advantages that compound over time.</h2><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin-top: 2.5rem;"><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div><h3>Institutional Learning</h3><p>Operational knowledge is retained across engagements, improving supervision, tooling, and delivery quality with each cycle. This learning is structural, not dependent on any individual.</p></div><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"></path></svg></div><h3>Resilient Growth Model</h3><p>Expansion is paced by demonstrated operational capacity, not capital availability. The system can adapt to changing conditions without systemic fragility.</p></div><div class="feature-card"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></div><h3>Proprietary Data Assets</h3><p>Two distinct data engines: talent performance profiles and graduate market intelligence. Both become more valuable and harder to replicate with every cohort.</p></div></div></div></section>
-            <section><div class="max-w-4xl mx-auto"><span class="section-tag">Considerations</span><h2>Our approach to trade-offs.</h2><div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 2.5rem;"><div class="consideration-box"><h4>Measured pace of expansion</h4><p>Operational robustness over rapid scaling. Near-term revenue growth may be slower, but long-term optionality is preserved and the risk of premature exposure is reduced.</p></div><div class="consideration-box"><h4>Multi-dimensional value creation</h4><p>Several interconnected value streams create a durable competitive position, but it requires investors who appreciate system-level thinking over single-metric narratives.</p></div><div class="consideration-box"><h4>Capital as an accelerant, not a requirement</h4><p>The system is viable on its own revenue. External investment enhances speed and reach, but viability doesn't depend on it. We view this as a feature, not a limitation.</p></div></div></div></section>
-            <section><div class="max-w-4xl mx-auto"><span class="section-tag">Technology Perspective</span><h2>Pragmatic integration, not dependency.</h2><p style="margin-top: 1.5rem; margin-bottom: 1rem;">AI is integrated where it demonstrably improves outcomes: automation for well-defined processes, abstraction for complex systems, natural language interfaces for reducing friction. Every component operates within structured, auditable workflows.</p><p><span style="font-weight: 600; color: #2B3C2B;">The bottleneck in AI adoption is organizational, not technical.</span> Castor is an operations-first company that deploys technology effectively, not a technology company searching for operational relevance.</p></div></section>
-            <section><div class="max-w-3xl mx-auto"><div class="cta-box dark"><h2>We'd welcome the conversation.</h2><p>Open to strategic partners who think in systems and value durability. We share our full operating model and financial framework with aligned investors.</p><div style="display: flex; align-items: center; justify-content: center; gap: 1rem; flex-wrap: wrap;"><button style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.875rem 1.75rem; background-color: #B07840; color: white; font-weight: 700; border-radius: 0.75rem; font-size: 0.875rem; transition: all 200ms ease; border: none; cursor: pointer;" onclick="openForm('investors')">Request the Full Deck <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px;"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></button><button style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.875rem 1.75rem; border: 1px solid rgba(255,255,255,0.2); color: white; font-weight: 600; border-radius: 0.75rem; font-size: 0.875rem; transition: all 200ms ease; background: none; cursor: pointer;" onclick="openEmail('Partnership Inquiry')">Reach Out Directly <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22 6 12 13 2 6"></polyline></svg></button></div></div></div></section>
+            <section data-aos="fade-up"><div class="max-w-4xl mx-auto"><span class="section-tag">Thesis</span><h2>A structural opportunity.</h2><div style="display: flex; flex-direction: column; gap: 1.5rem; margin-top: 2rem; color: #5A6E5A; line-height: 1.625;"><p>Three persistent inefficiencies create the opening: early-career talent is evaluated by signals that don't predict performance, SMBs remain structurally underserved by traditional advisory, and capital markets increasingly demand operational validation behind technology narratives.</p><p>Castor sits at the intersection of all three. The model is designed so that <span style="font-weight: 600; color: #2B3C2B;">progress in any one area directly strengthens the others</span>. Consulting generates operational insight and talent signal. Talent signal enables recruiting revenue and product development. Product development reduces delivery cost and improves client outcomes. Each cycle reinforces the next.</p><p>The result is a business that <span style="font-weight: 600; color: #2B3C2B;">generates value at every stage of development</span>, not one that defers monetization in pursuit of scale. Growth is governed by demonstrated capacity. The system is designed to remain viable without external capital.</p></div></div></section>
+            <section data-aos="fade-up"><div class="max-w-6xl mx-auto"><span class="section-tag">Revenue Architecture</span><h2>Diversified and self-reinforcing.</h2><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-top: 2.5rem;"><div class="feature-card" data-aos="fade-up" data-aos-delay="0"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="9"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg></div><h3>Consulting</h3><p>Outcome-aligned engagements with SMB clients. The anchor revenue stream and the engine that drives the rest of the system.</p></div><div class="feature-card" data-aos="fade-up" data-aos-delay="100"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M7 9h10M7 13h10M7 17h10"></path></svg></div><h3>Ventures</h3><p>Equity participation in products and companies built by Castor teams, originating from direct operational insight, not speculation.</p></div><div class="feature-card" data-aos="fade-up" data-aos-delay="200"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div><h3>Talent Intelligence</h3><p>Performance-validated talent profiles delivered to recruiting partners through success-based fee arrangements.</p></div><div class="feature-card" data-aos="fade-up" data-aos-delay="300"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></div><h3>Market Data</h3><p>Proprietary graduate sentiment and workforce analytics, structured, anonymized, and valuable to enterprises and researchers.</p></div></div></div></section>
+            <section data-aos="fade-up"><div class="max-w-6xl mx-auto"><span class="section-tag">Differentiation</span><h2>Structural advantages that compound over time.</h2><div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin-top: 2.5rem;"><div class="feature-card" data-aos="fade-up" data-aos-delay="0"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div><h3>Institutional Learning</h3><p>Operational knowledge is retained across engagements, improving supervision, tooling, and delivery quality with each cycle. This learning is structural, not dependent on any individual.</p></div><div class="feature-card" data-aos="fade-up" data-aos-delay="100"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"></path></svg></div><h3>Resilient Growth Model</h3><p>Expansion is paced by demonstrated operational capacity, not capital availability. The system can adapt to changing conditions without systemic fragility.</p></div><div class="feature-card" data-aos="fade-up" data-aos-delay="200"><div class="feature-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></div><h3>Proprietary Data Assets</h3><p>Two distinct data engines: talent performance profiles and graduate market intelligence. Both become more valuable and harder to replicate with every cohort.</p></div></div></div></section>
+            <section data-aos="fade-up"><div class="max-w-4xl mx-auto"><span class="section-tag">Considerations</span><h2>Our approach to trade-offs.</h2><div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 2.5rem;"><div class="consideration-box" data-aos="fade-up" data-aos-delay="0"><h4>Measured pace of expansion</h4><p>Operational robustness over rapid scaling. Near-term revenue growth may be slower, but long-term optionality is preserved and the risk of premature exposure is reduced.</p></div><div class="consideration-box" data-aos="fade-up" data-aos-delay="100"><h4>Multi-dimensional value creation</h4><p>Several interconnected value streams create a durable competitive position, but it requires investors who appreciate system-level thinking over single-metric narratives.</p></div><div class="consideration-box" data-aos="fade-up" data-aos-delay="200"><h4>Capital as an accelerant, not a requirement</h4><p>The system is viable on its own revenue. External investment enhances speed and reach, but viability doesn't depend on it. We view this as a feature, not a limitation.</p></div></div></div></section>
+            <section data-aos="fade-up"><div class="max-w-4xl mx-auto"><span class="section-tag">Technology Perspective</span><h2>Pragmatic integration, not dependency.</h2><p style="margin-top: 1.5rem; margin-bottom: 1rem;">AI is integrated where it demonstrably improves outcomes: automation for well-defined processes, abstraction for complex systems, natural language interfaces for reducing friction. Every component operates within structured, auditable workflows.</p><p><span style="font-weight: 600; color: #2B3C2B;">The bottleneck in AI adoption is organizational, not technical.</span> Castor is an operations-first company that deploys technology effectively, not a technology company searching for operational relevance.</p></div></section>
+            <section data-aos="fade-up"><div class="max-w-3xl mx-auto"><div class="cta-box dark"><h2>We'd welcome the conversation.</h2><p>Open to strategic partners who think in systems and value durability. We share our full operating model and financial framework with aligned investors.</p><div style="display: flex; align-items: center; justify-content: center; gap: 1rem; flex-wrap: wrap;"><button style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.875rem 1.75rem; background-color: #B07840; color: white; font-weight: 700; border-radius: 0.75rem; font-size: 0.875rem; transition: all 200ms ease; border: none; cursor: pointer;" onclick="openForm('investors')">Request the Full Deck <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px;"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></button><button style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.875rem 1.75rem; border: 1px solid rgba(255,255,255,0.2); color: white; font-weight: 600; border-radius: 0.75rem; font-size: 0.875rem; transition: all 200ms ease; background: none; cursor: pointer;" onclick="openEmail('Partnership Inquiry')">Reach Out Directly <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22 6 12 13 2 6"></polyline></svg></button></div></div></div></section>
         </div>
     </main>
 
@@ -418,214 +222,14 @@
         </div>
     </footer>
 
-    <script>
-        const EMAIL = "contact@castoradvisory.com";
+    <!-- AOS (Animate on Scroll) -->
+    <script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>
 
-        const FORM_CONFIG = {
-            participants: {
-                title: "Apply as a Participant",
-                subtitle: "Tell us about yourself and what you're looking for.",
-                fields: [
-                    { name: "name", label: "Full Name", type: "text", required: true, placeholder: "Your name" },
-                    { name: "email", label: "Email", type: "email", required: true, placeholder: "you@example.com" },
-                    { name: "university", label: "University / Institution", type: "text", placeholder: "Where you studied or are studying" },
-                    { name: "field", label: "Field of Study", type: "text", placeholder: "e.g. Computer Science, Business" },
-                    { name: "resume", label: "Resume / CV", type: "file", accept: ".pdf,.doc,.docx", required: true },
-                    { name: "interest", label: "What interests you about Castor?", type: "textarea", placeholder: "Tell us briefly..." },
-                ],
-                submit: "Submit Application"
-            },
-            clients: {
-                title: "Get in Touch",
-                subtitle: "Tell us about your business and what you need.",
-                fields: [
-                    { name: "name", label: "Your Name", type: "text", required: true, placeholder: "Your name" },
-                    { name: "email", label: "Work Email", type: "email", required: true, placeholder: "you@company.com" },
-                    { name: "company", label: "Company", type: "text", required: true, placeholder: "Company name" },
-                    { name: "size", label: "Company Size", type: "select", options: ["1-10", "11-50", "51-200", "201-500", "500+"] },
-                    { name: "needs", label: "What are you looking for?", type: "textarea", placeholder: "Describe your project or needs..." },
-                ],
-                submit: "Submit Inquiry"
-            },
-            recruiters: {
-                title: "Partner With Us",
-                subtitle: "Learn how Castor talent profiles can improve your placements.",
-                fields: [
-                    { name: "name", label: "Your Name", type: "text", required: true, placeholder: "Your name" },
-                    { name: "email", label: "Work Email", type: "email", required: true, placeholder: "you@agency.com" },
-                    { name: "agency", label: "Agency / Firm", type: "text", placeholder: "Your organization" },
-                    { name: "focus", label: "Recruiting Focus", type: "text", placeholder: "e.g. Tech, Finance, Consulting" },
-                    { name: "message", label: "Anything else?", type: "textarea", placeholder: "Optional details..." },
-                ],
-                submit: "Start Conversation"
-            },
-            investors: {
-                title: "Request Materials",
-                subtitle: "We'll share our operating model and financial framework.",
-                fields: [
-                    { name: "name", label: "Your Name", type: "text", required: true, placeholder: "Your name" },
-                    { name: "email", label: "Email", type: "email", required: true, placeholder: "you@fund.com" },
-                    { name: "firm", label: "Firm / Fund", type: "text", placeholder: "Your organization" },
-                    { name: "role", label: "Role", type: "text", placeholder: "e.g. Partner, Analyst" },
-                    { name: "interest", label: "What materials are you interested in?", type: "select", options: ["Full operating model + financials", "Investor deck / summary", "Talent intelligence overview", "Partnership discussion", "Other"] },
-                    { name: "reason", label: "What prompted your interest?", type: "textarea", placeholder: "Optional. Help us understand your perspective..." },
-                ],
-                submit: "Request the Deck"
-            },
-            general: {
-                title: "Get in Touch",
-                subtitle: "We'd love to hear from you.",
-                fields: [
-                    { name: "name", label: "Your Name", type: "text", required: true, placeholder: "Your name" },
-                    { name: "email", label: "Email", type: "email", required: true, placeholder: "you@example.com" },
-                    { name: "message", label: "Message", type: "textarea", required: true, placeholder: "How can we help?" },
-                ],
-                submit: "Send Message"
-            }
-        };
+    <!-- App -->
+    <script src="app.js"></script>
 
-        function openForm(key) {
-            const config = FORM_CONFIG[key] || FORM_CONFIG.general;
-            const container = document.getElementById('modalFormContent');
-            let fieldsHTML = '';
-            config.fields.forEach(f => {
-                const req = f.required ? ' required' : '';
-                fieldsHTML += '<div class="form-group">';
-                fieldsHTML += '<label for="form-' + f.name + '">' + f.label + (f.required ? ' *' : '') + '</label>';
-                if (f.type === 'file') {
-                    const accept = f.accept || '.pdf,.doc,.docx';
-                    fieldsHTML += '<div class="file-dropzone" id="dropzone-' + f.name + '" onclick="document.getElementById(\'form-' + f.name + '\').click()"><input type="file" id="form-' + f.name + '" name="' + f.name + '" accept="' + accept + '"' + req + ' onchange="handleFileSelect(this, \'' + f.name + '\')"><div class="file-dropzone-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg></div><div class="file-dropzone-text" id="dropzone-text-' + f.name + '"><strong>Click to upload</strong> or drag and drop<br><span class="file-dropzone-hint">PDF, DOC, or DOCX (max 10 MB)</span></div></div>';
-                } else if (f.type === 'textarea') {
-                    fieldsHTML += '<textarea id="form-' + f.name + '" name="' + f.name + '" placeholder="' + (f.placeholder || '') + '"' + req + '></textarea>';
-                } else if (f.type === 'select') {
-                    fieldsHTML += '<select id="form-' + f.name + '" name="' + f.name + '"' + req + '><option value="">Select...</option>';
-                    f.options.forEach(function(o) { fieldsHTML += '<option value="' + o + '">' + o + '</option>'; });
-                    fieldsHTML += '</select>';
-                } else {
-                    fieldsHTML += '<input type="' + f.type + '" id="form-' + f.name + '" name="' + f.name + '" placeholder="' + (f.placeholder || '') + '"' + req + '>';
-                }
-                fieldsHTML += '</div>';
-            });
-            container.innerHTML = '<h2>' + config.title + '</h2><p>' + config.subtitle + '</p><form id="contactForm" onsubmit="handleFormSubmit(event, \'' + key + '\')">' + fieldsHTML + '<button type="submit" class="form-submit">' + config.submit + '</button></form>';
-            document.getElementById('modalOverlay').classList.add('active');
-            document.body.style.overflow = 'hidden';
-            container.querySelectorAll('.file-dropzone').forEach(initDropzone);
-            setTimeout(function() { var fi = container.querySelector('input:not([type="file"]), textarea, select'); if (fi) fi.focus(); }, 300);
-        }
-
-        function initDropzone(dropzone) {
-            ['dragenter','dragover'].forEach(function(evt) { dropzone.addEventListener(evt, function(e) { e.preventDefault(); e.stopPropagation(); dropzone.classList.add('dragover'); }); });
-            ['dragleave','drop'].forEach(function(evt) { dropzone.addEventListener(evt, function(e) { e.preventDefault(); e.stopPropagation(); dropzone.classList.remove('dragover'); }); });
-            dropzone.addEventListener('drop', function(e) { var files = e.dataTransfer.files; if (files.length > 0) { var input = dropzone.querySelector('input[type="file"]'); var dt = new DataTransfer(); dt.items.add(files[0]); input.files = dt.files; handleFileSelect(input, input.name); } });
-        }
-
-        function handleFileSelect(input, fieldName) {
-            var dropzone = document.getElementById('dropzone-' + fieldName);
-            var textEl = document.getElementById('dropzone-text-' + fieldName);
-            var file = input.files[0];
-            if (file) {
-                if (file.size > 10 * 1024 * 1024) { alert('File is too large. Please upload a file under 10 MB.'); input.value = ''; return; }
-                var sizeStr = file.size >= 1024 * 1024 ? (file.size / (1024 * 1024)).toFixed(1) + ' MB' : (file.size / 1024).toFixed(0) + ' KB';
-                dropzone.classList.add('has-file');
-                textEl.innerHTML = '<strong>' + file.name + '</strong><br><span class="file-dropzone-hint">' + sizeStr + '</span><button type="button" class="file-dropzone-remove" onclick="removeFile(event, \'' + fieldName + '\')"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg> Remove</button>';
-            }
-        }
-
-        function removeFile(e, fieldName) {
-            e.stopPropagation();
-            document.getElementById('form-' + fieldName).value = '';
-            var dropzone = document.getElementById('dropzone-' + fieldName);
-            dropzone.classList.remove('has-file');
-            document.getElementById('dropzone-text-' + fieldName).innerHTML = '<strong>Click to upload</strong> or drag and drop<br><span class="file-dropzone-hint">PDF, DOC, or DOCX (max 10 MB)</span>';
-        }
-
-        function closeModal() { document.getElementById('modalOverlay').classList.remove('active'); document.body.style.overflow = ''; }
-        function closeModalOnBackdrop(e) { if (e.target === e.currentTarget) closeModal(); }
-
-        function handleFormSubmit(e, formKey) {
-            e.preventDefault();
-            var form = e.target; var btn = form.querySelector('.form-submit'); btn.disabled = true; btn.textContent = 'Sending...';
-            var data = new FormData(form); var hasFile = form.querySelector('input[type="file"]'); var resumeFile = hasFile ? hasFile.files[0] : null;
-            var subject = FORM_CONFIG[formKey] ? FORM_CONFIG[formKey].title : 'Inquiry';
-            var bodyLines = [];
-            for (var pair of data.entries()) { if (pair[1] instanceof File) { if (pair[1].name) bodyLines.push('Resume: ' + pair[1].name + ' (please attach)'); } else { bodyLines.push(pair[0] + ': ' + pair[1]); } }
-            var body = bodyLines.join('\n');
-            var hasResume = resumeFile && resumeFile.name;
-            var successMsg = hasResume ? 'Your email client will open with your details. <strong>Please attach your resume</strong> (' + resumeFile.name + ') before sending.' : 'Your email client will open with your details pre-filled. Just hit send and we\'ll be in touch soon.';
-            setTimeout(function() {
-                document.getElementById('modalFormContent').innerHTML = '<div class="form-success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><h3>Thank you!</h3><p>' + successMsg + '</p></div>';
-                window.location.href = 'mailto:' + EMAIL + '?subject=' + encodeURIComponent(subject + ' - Castor Advisory') + '&body=' + encodeURIComponent(body);
-                setTimeout(closeModal, hasResume ? 5000 : 3000);
-            }, 600);
-        }
-
-        function openEmail(subject) { window.location.href = "mailto:" + EMAIL + "?subject=" + encodeURIComponent(subject || "Inquiry"); }
-        document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeModal(); });
-
-        // Navigation
-        var NAV_ITEMS = [
-            { id: "home", label: "Home" },
-            { id: "participants", label: "For Participants" },
-            { id: "clients", label: "For Clients" },
-            { id: "recruiters", label: "For Recruiters" },
-            { id: "investors", label: "For Investors" },
-            { id: "about", label: "The Model" }
-        ];
-        var currentPage = "home";
-        var mobileMenuOpen = false;
-
-        function initNavigation() {
-            var desktopNav = document.getElementById('desktopNavLinks');
-            NAV_ITEMS.forEach(function(item) { var btn = document.createElement('button'); btn.className = 'nav-link' + (currentPage === item.id ? ' active' : ''); btn.textContent = item.label; btn.onclick = function() { navigateTo(item.id); }; desktopNav.appendChild(btn); });
-            var mobileNav = document.getElementById('mobileMenu');
-            NAV_ITEMS.forEach(function(item) { var btn = document.createElement('button'); btn.className = 'mobile-menu-link' + (currentPage === item.id ? ' active' : ''); btn.textContent = item.label; btn.onclick = function() { navigateTo(item.id); toggleMobileMenu(); }; mobileNav.appendChild(btn); });
-        }
-
-        function navigateTo(pageId, pushState) {
-            if (pushState === undefined) pushState = true;
-            document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
-            var page = document.getElementById(pageId); if (!page) return;
-            page.classList.add('active'); currentPage = pageId;
-            if (pushState) { var hash = pageId === 'home' ? '' : '#' + pageId; history.pushState({ page: pageId }, '', hash || window.location.pathname); }
-            updateNavigation();
-            if (mobileMenuOpen) toggleMobileMenu();
-            window.scrollTo({ top: 0, behavior: 'instant' });
-            initScrollAnimations();
-        }
-
-        function updateNavigation() {
-            document.querySelectorAll('.nav-link').forEach(function(btn) { btn.classList.remove('active'); if (btn.textContent === (NAV_ITEMS.find(function(i) { return i.id === currentPage; }) || {}).label) btn.classList.add('active'); });
-            document.querySelectorAll('.mobile-menu-link').forEach(function(btn) { btn.classList.remove('active'); if (btn.textContent === (NAV_ITEMS.find(function(i) { return i.id === currentPage; }) || {}).label) btn.classList.add('active'); });
-        }
-
-        function toggleMobileMenu() {
-            var menu = document.getElementById('mobileMenu'); mobileMenuOpen = !mobileMenuOpen; menu.classList.toggle('active');
-            var icon = document.getElementById('hamburgerIcon');
-            icon.innerHTML = mobileMenuOpen ? '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>' : '<line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line>';
-        }
-
-        function getPageFromHash() { var hash = window.location.hash.replace('#', ''); var valid = NAV_ITEMS.map(function(n) { return n.id; }); return valid.includes(hash) ? hash : 'home'; }
-        window.addEventListener('popstate', function(e) { navigateTo(e.state ? e.state.page : getPageFromHash(), false); });
-
-        function initScrollAnimations() {
-            var activePage = document.querySelector('.page.active'); if (!activePage) return;
-            activePage.querySelectorAll('section:not(.hero)').forEach(function(section) { section.classList.remove('visible'); section.classList.add('animate-on-scroll'); });
-            revealVisibleSections();
-        }
-
-        function revealVisibleSections() {
-            var sections = document.querySelectorAll('.animate-on-scroll:not(.visible)'); if (sections.length === 0) return;
-            var vh = window.innerHeight;
-            sections.forEach(function(section) { if (section.getBoundingClientRect().top < vh * 0.92) section.classList.add('visible'); });
-        }
-        window.addEventListener('scroll', revealVisibleSections, { passive: true });
-
-        window.addEventListener('scroll', function() { var navbar = document.getElementById('navbar'); if (window.scrollY > 20) navbar.classList.add('scrolled'); else navbar.classList.remove('scrolled'); });
-
-        initNavigation();
-        var initialPage = getPageFromHash();
-        if (initialPage !== 'home') navigateTo(initialPage, false);
-        else { history.replaceState({ page: 'home' }, '', window.location.pathname + window.location.hash); initScrollAnimations(); }
-    </script>
+    <!-- Cloudflare Web Analytics — replace YOUR_TOKEN after enabling in Cloudflare Dashboard -->
+    <!-- Get your token: Cloudflare Dashboard > Analytics & Logs > Web Analytics > Add site -->
+    <!-- <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "YOUR_TOKEN"}'></script> -->
 </body>
 </html>
