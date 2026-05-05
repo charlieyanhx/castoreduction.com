@@ -857,6 +857,131 @@ def describe_skill_api(name: str):
 # Added cycle31-r3. Reads the most-recent /tmp/bench_*.json files and renders
 # a single-page scannable view. No LLM calls; pure HTML.
 # ---------------------------------------------------------------------------
+@app.get("/architecture", response_class=HTMLResponse)
+def architecture_dashboard():
+    """cycle32 Phase 6: live dashboard of registered tools, skills, and active config.
+    Lets agent/UI/operator see the full architecture at a glance — no code reading required."""
+    import tools as tools_mod
+    import skills as skills_mod
+    import config as config_mod
+
+    tools_by_cat = {}
+    for t in tools_mod.list_tools():
+        tools_by_cat.setdefault(t.category, []).append(t)
+
+    skills_by_produces = {}
+    for s in skills_mod.list_skills():
+        skills_by_produces.setdefault(s.produces, []).append(s)
+
+    profile = config_mod.profile_name()
+    profiles = config_mod.available_profiles()
+    cfg = config_mod.get_all()
+
+    def _esc(s: str) -> str:
+        return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    # Render tools by category
+    tool_blocks = []
+    for cat in sorted(tools_by_cat):
+        rows = []
+        for t in sorted(tools_by_cat[cat], key=lambda x: x.name):
+            rows.append(
+                f'<tr><td><code>{_esc(t.name)}</code></td>'
+                f'<td><code style="font-size:9pt;color:#6b7280">{_esc(t.signature)}</code></td>'
+                f'<td style="font-size:9pt;color:#4b5563">{_esc(t.docstring.split(chr(10))[0])}</td></tr>'
+            )
+        tool_blocks.append(
+            f'<h3>{_esc(cat)} <span style="font-size:9pt;color:#9ca3af">({len(rows)} tools)</span></h3>'
+            f'<table style="width:100%;border-collapse:collapse;font-size:10pt;margin-bottom:18px">'
+            f'<thead style="background:#f9fafb"><tr><th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Name</th><th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Signature</th><th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Description</th></tr></thead>'
+            f'<tbody>' + "".join(f'<tr style="border-bottom:1px solid #e5e7eb">{r[4:-5]}' for r in rows) + '</tbody></table>'
+        )
+
+    # Render skills by produces
+    skill_blocks = []
+    for prod in sorted(skills_by_produces):
+        rows = []
+        for s in sorted(skills_by_produces[prod], key=lambda x: x.name):
+            consumes_str = ", ".join(s.consumes) if s.consumes else "—"
+            rows.append(
+                f'<tr style="border-bottom:1px solid #e5e7eb">'
+                f'<td style="padding:6px 10px"><code>{_esc(s.name)}</code></td>'
+                f'<td style="padding:6px 10px;font-size:9pt;color:#6b7280"><code>{_esc(s.signature)}</code></td>'
+                f'<td style="padding:6px 10px;font-size:9pt;color:#7c3aed">{_esc(consumes_str)}</td>'
+                f'<td style="padding:6px 10px;font-size:9pt;color:#4b5563">{_esc(s.docstring.split(chr(10))[0])}</td>'
+                f'</tr>'
+            )
+        skill_blocks.append(
+            f'<h3>produces: <code style="background:#dbeafe;padding:2px 8px;border-radius:3px">{_esc(prod)}</code> '
+            f'<span style="font-size:9pt;color:#9ca3af">({len(rows)} skill{"s" if len(rows)!=1 else ""})</span></h3>'
+            f'<table style="width:100%;border-collapse:collapse;font-size:10pt;margin-bottom:18px">'
+            f'<thead style="background:#f9fafb"><tr>'
+            f'<th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Name</th>'
+            f'<th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Signature</th>'
+            f'<th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Consumes</th>'
+            f'<th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Description</th>'
+            f'</tr></thead><tbody>' + "".join(rows) + '</tbody></table>'
+        )
+
+    # Render config (top-level keys + values)
+    cfg_rows = []
+    for k in sorted(cfg.keys()):
+        v = cfg[k]
+        if isinstance(v, dict):
+            inner = "<br/>".join(f"<span style='color:#6b7280'>{_esc(kk)}:</span> <code>{_esc(str(vv))}</code>" for kk, vv in v.items())
+            cfg_rows.append(f'<tr><td style="padding:6px 10px;font-weight:600;vertical-align:top"><code>{_esc(k)}</code></td><td style="padding:6px 10px;font-size:9pt">{inner}</td></tr>')
+        else:
+            cfg_rows.append(f'<tr><td style="padding:6px 10px;font-weight:600"><code>{_esc(k)}</code></td><td style="padding:6px 10px"><code>{_esc(str(v))}</code></td></tr>')
+
+    profile_links = " · ".join(
+        f'<code style="background:{"#dbeafe" if p == profile else "#f3f4f6"};padding:2px 8px;border-radius:3px">{_esc(p)}</code>'
+        for p in profiles
+    )
+
+    return HTMLResponse(f"""<!doctype html>
+<html><head><meta charset="utf-8"/><title>Castor Architecture — cycle32</title>
+<style>
+  body {{ font-family: -apple-system, system-ui, sans-serif; max-width: 1200px; margin: 30px auto; padding: 0 24px; color: #1f2937; line-height: 1.5; }}
+  h1 {{ border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }}
+  h2 {{ margin-top: 36px; padding-top: 12px; border-top: 1px solid #e5e7eb; }}
+  h3 {{ margin-top: 18px; }}
+  table {{ border-collapse: collapse; }}
+  table th, table td {{ border: 1px solid #e5e7eb; }}
+  code {{ font-size: 90%; }}
+  .summary-box {{ background: #f9fafb; border: 1px solid #e5e7eb; padding: 14px 18px; border-radius: 6px; margin: 14px 0; }}
+  .nav {{ font-size: 9pt; color: #6b7280; margin-bottom: 24px; }}
+  a {{ color: #2563eb; text-decoration: none; }}
+</style></head><body>
+<div class="nav"><a href="/">app home</a> · <a href="/benchmarks">benchmark dashboard</a> · <a href="/docs">docs</a> · <a href="/api/tools">/api/tools (json)</a> · <a href="/api/skills">/api/skills (json)</a></div>
+
+<h1>Architecture (cycle32 — registry pattern)</h1>
+
+<div class="summary-box">
+  <strong>{len(tools_mod.TOOL_REGISTRY)} tools</strong> across {len(tools_by_cat)} categories ·
+  <strong>{len(skills_mod.SKILL_REGISTRY)} skills</strong> producing {len(skills_by_produces)} report sections ·
+  <strong>active profile:</strong> {profile_links}
+  <br/>
+  <span style="font-size:9pt;color:#6b7280;margin-top:6px;display:inline-block">
+    Adding a new tool/skill is now strictly additive — 1 file, no modification of orchestrator code.
+  </span>
+</div>
+
+<h2>Tools <span style="font-size:11pt;color:#6b7280;font-weight:400">— atomic capability primitives, return Evidence envelopes</span></h2>
+{"".join(tool_blocks)}
+
+<h2>Skills <span style="font-size:11pt;color:#6b7280;font-weight:400">— compose tools to produce a report section</span></h2>
+{"".join(skill_blocks)}
+
+<h2>Active config <span style="font-size:11pt;color:#6b7280;font-weight:400">— profile: <code>{_esc(profile)}</code></span></h2>
+<p style="font-size:10pt;color:#6b7280">Switch profile via <code>PIPELINE_PROFILE=quick</code> env var. Available: {profile_links}</p>
+<table style="width:100%;border-collapse:collapse;font-size:10pt">
+<thead style="background:#f9fafb"><tr><th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Namespace</th><th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Settings</th></tr></thead>
+<tbody>{"".join(cfg_rows)}</tbody>
+</table>
+</body></html>
+""")
+
+
 @app.get("/benchmarks", response_class=HTMLResponse)
 def benchmarks_dashboard():
     """Scan /tmp/bench_*.json files, build a heatmap view of all known cases."""
