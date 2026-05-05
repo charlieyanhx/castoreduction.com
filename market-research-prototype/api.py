@@ -828,6 +828,31 @@ def describe_tool_api(name: str):
 
 
 # ---------------------------------------------------------------------------
+# Skill registry endpoints (cycle32 Phase 2)
+# ---------------------------------------------------------------------------
+@app.get("/api/skills")
+def list_skills_api(produces: str | None = None):
+    """List all registered skills, optionally filtered by what they produce."""
+    import skills
+    items = skills.list_skills(produces=produces)
+    return {
+        "count": len(items),
+        "produces_set": skills.produces_set(),
+        "skills": [{
+            "name": s.name, "produces": s.produces, "consumes": s.consumes,
+            "signature": s.signature, "docstring": s.docstring,
+        } for s in items],
+    }
+
+
+@app.get("/api/skills/{name}")
+def describe_skill_api(name: str):
+    """Detailed description of one skill."""
+    import skills
+    return skills.describe_skill(name)
+
+
+# ---------------------------------------------------------------------------
 # Benchmark dashboard — heatmap of all cases × dimensions
 # Added cycle31-r3. Reads the most-recent /tmp/bench_*.json files and renders
 # a single-page scannable view. No LLM calls; pure HTML.

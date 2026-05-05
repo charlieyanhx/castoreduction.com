@@ -1,0 +1,87 @@
+# config/profiles/default.yaml
+# Active by default. PIPELINE_PROFILE=default (or unset) selects this.
+
+# ---------- Pipeline orchestrator ----------
+pipeline:
+  step_timeout_s: 90
+  step_retry_timeout_s: 180   # second-attempt timeout for critical steps
+  max_pool_workers_main: 8
+
+# ---------- Discovery ----------
+discover:
+  max_candidates: 20
+  cluster_min_size: 1
+  cluster_max_workers: 4
+
+# ---------- Differentiators ----------
+differentiators:
+  per_dimension_max_tokens: 1500   # cycle31 fix: was 500, truncated
+  backstop_max_tokens: 1200
+  parallel_workers: 5
+
+# ---------- Customer universe ----------
+customer_universe:
+  target_count: 30
+  method_d_timeout_s: 30
+  method_e_timeout_s: 20
+  icp_max_tokens: 1500
+  segment_label_max_tokens: 2500
+
+# ---------- Taste decoder ----------
+taste:
+  trustpilot_pages: 3
+  reddit_limit: 25
+  hackernews_limit: 15
+  articles_limit: 6
+  min_total_signals: 8
+  min_reviews_or_reddit: [5, 10]   # min reviews OR min reddit
+  max_tokens: 2500
+
+# ---------- Reddit signal ----------
+reddit:
+  max_threads: 10
+  days_back: 180
+  fetch_timeout_s: 120
+
+# ---------- Pricing simulations ----------
+max_diff:
+  panel_size: 30
+  max_tokens: 4000
+psm:
+  panel_size: 40
+  max_tokens: 3000
+
+# ---------- Market sizing ----------
+market_sizing:
+  per_layer_max_tokens: 4500
+  parallel_workers: 6
+  retry_on_thin: true
+
+# ---------- 4Ps ----------
+four_ps:
+  per_section_max_tokens: 2500
+  parallel_workers: 4
+
+# ---------- Viability ----------
+viability:
+  initial_timeout_s: 90
+  retry_timeout_s: 180
+  max_tokens: 4500
+
+# ---------- Segment scoring ----------
+segment_scoring:
+  per_segment_max_tokens: 1200
+  parallel_workers: 4
+
+# ---------- Narration (Phase 3) ----------
+narration:
+  default_mode: llm           # 'template' | 'llm' | 'hybrid'
+  llm_max_tokens: 1500
+
+# ---------- Validation gate ----------
+validation:
+  audience_low_threshold: 0.3
+  audience_med_threshold: 0.5
+  audience_high_threshold: 0.7
+  min_voice_sources_for_no_flag: 3
+  min_competitors_for_no_flag: 3
