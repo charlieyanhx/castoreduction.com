@@ -801,6 +801,33 @@ def docs_render(path: str):
 
 
 # ---------------------------------------------------------------------------
+# Tool registry endpoints (cycle32 Phase 1) — agent/UI auto-discovery
+# ---------------------------------------------------------------------------
+@app.get("/api/tools")
+def list_tools_api(category: str | None = None):
+    """List all registered tools, optionally filtered by category.
+    Used by UI/agent to discover available capabilities."""
+    import tools
+    items = tools.list_tools(category=category)
+    return {
+        "count": len(items),
+        "categories": tools.categories(),
+        "tools": [{
+            "name": t.name, "category": t.category,
+            "signature": t.signature, "returns": t.returns,
+            "docstring": t.docstring,
+        } for t in items],
+    }
+
+
+@app.get("/api/tools/{name}")
+def describe_tool_api(name: str):
+    """Detailed description of one tool."""
+    import tools
+    return tools.describe_tool(name)
+
+
+# ---------------------------------------------------------------------------
 # Benchmark dashboard — heatmap of all cases × dimensions
 # Added cycle31-r3. Reads the most-recent /tmp/bench_*.json files and renders
 # a single-page scannable view. No LLM calls; pure HTML.
