@@ -1,0 +1,83 @@
+{
+  "_doc": "Reference data for benchmarking the Castor pipeline against an AI-driven sales engagement B2B SaaS for B2B mid-market companies.",
+  "venture_under_test": {
+    "name": "Cadenz",
+    "description": "Cadenz is a B2B SaaS sales engagement platform with AI-driven multi-channel sequence orchestration for B2B SaaS companies with 50-1000 employees. We replace Outreach/Salesloft with an LLM-native cadence builder that auto-personalizes emails per prospect from CRM signals, schedules calls based on engagement intent, and writes follow-ups conditional on prospect's actual reply text. Pricing is $95 per seat per month for the standard tier and $145 per seat for the AI-personalization tier. Target buyer: VP Sales, Director of Sales Operations, and Head of RevOps. We compete with Outreach, Salesloft, Apollo, Gong Engage, and HubSpot Sales Hub. Differentiation: AI-personalization happens at-send time per email (not pre-built templates), conversational reply-classification routes prospect responses without manual triage, and seat pricing 30-40% below the category median.",
+    "category": "B2B SaaS sales engagement / RevOps platform",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "gartner_mq_sales_engagement_2024",
+      "source": "Gartner",
+      "title": "Gartner Magic Quadrant for Sales Engagement Platforms 2024 (publicly cited summaries)",
+      "url": "https://www.gartner.com/en/documents/sales-engagement-platforms",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitive landscape / market positioning",
+      "claims": [
+        {"key": "named_leaders_2024", "value": ["Outreach", "Salesloft", "HubSpot"], "unit": "qualitative", "source_quote": "Leaders quadrant Sales Engagement 2024"},
+        {"key": "challengers_2024", "value": ["Apollo.io"], "unit": "qualitative", "source_quote": "Challengers quadrant"},
+        {"key": "visionaries_2024", "value": ["Gong"], "unit": "qualitative", "source_quote": "Visionaries quadrant"}
+      ]
+    },
+    {
+      "id": "g2_sales_engagement_2024",
+      "source": "G2 / SaaSworthy public market data",
+      "title": "Sales engagement category leaders + customer counts",
+      "url": "https://www.g2.com/categories/sales-engagement",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale",
+      "claims": [
+        {"key": "outreach_arr_estimate_usd_m", "value": 250, "unit": "USD million ARR (estimate)", "source_quote": "Outreach estimated ~$250M ARR (last public press 2023)"},
+        {"key": "salesloft_arr_estimate_usd_m", "value": 200, "unit": "USD million ARR (estimate)", "source_quote": "Salesloft estimated ~$200M ARR"},
+        {"key": "apollo_customers_count_k", "value": 500, "unit": "thousand customers", "source_quote": "Apollo.io 500k+ users (PLG model)"}
+      ]
+    },
+    {
+      "id": "hubspot_q4_2024",
+      "source": "HubSpot Q4 2024 earnings",
+      "title": "HubSpot Sales Hub revenue (analog comp)",
+      "url": "https://ir.hubspot.com/",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale / analog comp",
+      "claims": [
+        {"key": "hubspot_total_revenue_fy24_usd_b", "value": 2.6, "unit": "USD billion", "source_quote": "HubSpot total revenue FY24 ~$2.6B"},
+        {"key": "hubspot_growth_pct", "value": 23, "unit": "% YoY", "source_quote": "23% YoY growth"},
+        {"key": "hubspot_customers_count_k", "value": 238, "unit": "thousand customers", "source_quote": "238k customers globally end of FY24"}
+      ]
+    },
+    {
+      "id": "idc_sales_tech_2024",
+      "source": "IDC / Statista Sales Tech market sizing",
+      "title": "Global sales engagement / sales-tech spend",
+      "url": "https://www.statista.com/topics/sales-technology/",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "TAM / market sizing",
+      "claims": [
+        {"key": "global_sales_engagement_market_2024_usd_b", "value": 8.5, "unit": "USD billion", "source_quote": "global sales engagement software $7-10B in 2024"},
+        {"key": "us_share_pct", "value": 50, "unit": "%", "source_quote": "US share approximately 45-55%"},
+        {"key": "us_sales_engagement_2024_usd_b", "value": 4.25, "unit": "USD billion (derived)", "source_quote": "Derived: 50% × $8.5B"},
+        {"key": "category_cagr_pct", "value": 14, "unit": "% CAGR", "source_quote": "category CAGR 12-18% through 2028"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low":  1000000000,
+    "tam_us_corporate_wellness_usd_mid":  4000000000,
+    "tam_us_corporate_wellness_usd_high": 10000000000,
+    "_tam_note": "Defensible US sales-engagement scoping: narrow $1-2B (B2B SaaS midmarket only), mid-narrow $3-5B (US sales engagement total), broad $7-10B (RevOps + sales engagement + cadence + outreach). Pipeline TAM mid acceptable in $1B-$10B range.",
+    "growth_cagr_pct_low": 8,
+    "growth_cagr_pct_high": 22,
+    "_cagr_note": "Sales engagement category 12-18% CAGR; AI-native subsegment 18-22%.",
+    "competitor_must_include": ["Outreach", "Salesloft", "Apollo", "Gong", "HubSpot"],
+    "_competitor_note": "Five named in description (HubSpot Sales Hub matches 'HubSpot'; Gong Engage matches 'Gong').",
+    "icp_employee_band": "50-1000",
+    "buyer_role_keywords": ["VP Sales", "Director of Sales", "Head of Revenue", "RevOps", "Chief Revenue Officer"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}

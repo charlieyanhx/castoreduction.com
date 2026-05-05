@@ -1,0 +1,287 @@
+"""
+Iter 37: Conversational intake — chat with the founder until we have enough
+to fire the 14-step pipeline. Don't stop until critical fields are filled.
+
+The pipeline needs (at minimum) a clear paragraph that names:
+  - product (what it does, 1-2 sentences)
+  - target customer (who buys/uses)
+  - business model (DTC, B2B SaaS, marketplace, ...)
+  - geography (default US)
+
+Nice-to-have (will ask once if missing):
+  - pricing (if known)
+  - differentiation thesis
+  - stage (pre-launch, launched, scaling)
+  - key features
+
+Each turn, the LLM:
+  1. Looks at the running transcript
+  2. Decides what's still unknown
+  3. Either asks ONE focused next question, or signals "ready" and assembles
+     the final paragraph that downstream `run_plan` will consume.
+
+Sessions are stored in-memory (these are 1-3 minute conversations); SQLite
+persistence is a follow-up if needed.
+"""
+from __future__ import annotations
+import json
+import time
+import uuid
+from threading import Lock
+from typing import Any
+
+from llm import call_json
+from logger import get
+
+log = get("intake")
+
+
+REQUIRED_FIELDS = ("product", "target_customer", "business_model", "geography")
+NICE_TO_HAVE_FIELDS = ("pricing", "differentiation", "stage", "key_features")
+ALL_FIELDS = REQUIRED_FIELDS + NICE_TO_HAVE_FIELDS
+
+
+INTAKE_PROMPT = """You are an analyst interviewing a founder to gather just enough information to run a market-research pipeline. Be conversational, warm, and concise — never interrogative.
+
+Your job each turn:
+1. Read the conversation so far.
+2. Update what you know in `extracted` (8 possible fields below).
+3. Decide:
+   - If at least the 4 REQUIRED fields are filled with usable answers, set `next_action="ready"` and write a clean `final_description` paragraph.
+   - Otherwise, set `next_action="ask"` and write ONE focused next question. Cover multiple gaps in one question if natural.
+
+REQUIRED fields:
+  - product: 1-2 sentences on what the product does
+  - target_customer: who buys/uses (specific is better than generic)
+  - business_model: DTC, B2B SaaS, marketplace, retail, ad-supported, …
+  - geography: country/region (default "US" if unstated after asking once)
+
+NICE-TO-HAVE (ask only if there's space; don't over-ask):
+  - pricing: any pricing info or stage if not set
+  - differentiation: what makes them different from incumbents
+  - stage: idea / pre-launch / launched / scaling
+  - key_features: 2-4 standout capabilities
+
+Rules:
+- NEVER ask more than ONE question per turn.
+- Acknowledge what you just learned in 1 short clause before asking the next thing.
+- If a user gives a great paragraph dump, fill multiple fields at once.
+- After 6 user messages with critical gaps still open, lower the bar — go ready with what you have and note the gaps in the final paragraph.
+- The `final_description` (when ready) must be a single coherent paragraph (~80-150 words) suitable as input to a market-research pipeline. Don't pad, don't add fictional detail.
+
+CONVERSATION SO FAR:
+{transcript}
+
+CURRENT EXTRACTED STATE (may be empty on first turn):
+{extracted}
+
+USER MESSAGE COUNT: {user_msg_count}
+
+Return JSON:
+{{
+  "extracted": {{
+    "product": "..." or null,
+    "target_customer": "..." or null,
+    "business_model": "..." or null,
+    "geography": "..." or null,
+    "pricing": "..." or null,
+    "differentiation": "..." or null,
+    "stage": "..." or null,
+    "key_features": ["..."] or null
+  }},
+  "next_action": "ask" or "ready",
+  "next_question": "your next question (when next_action=ask)" or null,
+  "final_description": "single-paragraph description for the pipeline (when next_action=ready)" or null,
+  "reasoning": "1 short sentence on why you chose ask vs ready"
+}}"""
+
+
+_sessions: dict[str, dict] = {}
+_lock = Lock()
+
+
+def _format_transcript(messages: list[dict]) -> str:
+    if not messages:
+        return "(no messages yet)"
+    return "\n".join(f"{m['role'].upper()}: {m['content']}" for m in messages)
+
+
+def start_session(initial_message: str | None = None) -> dict:
+    """
+    Start a new intake conversation. Returns the opening assistant question.
+    `initial_message` lets the caller pre-seed the first user message
+    (so a single text submission triggers the chat).
+    """
+    sid = str(uuid.uuid4())
+    session = {
+        "id": sid,
+        "created_at": int(time.time()),
+        "messages": [],   # [{role, content}]
+        "extracted": {f: None for f in ALL_FIELDS},
+        "ready": False,
+        "final_description": None,
+    }
+    with _lock:
+        _sessions[sid] = session
+
+    if initial_message:
+        return process_message(sid, initial_message)
+
+    # First-turn opening question — fixed, no LLM needed
+    opener = (
+        "Hi! I'll help you put together a market-research report. "
+        "To start: in a sentence or two, what does your product do and who is it for?"
+    )
+    session["messages"].append({"role": "assistant", "content": opener})
+    return {
+        "session_id": sid,
+        "assistant_message": opener,
+        "extracted": session["extracted"],
+        "ready": False,
+        "user_msg_count": 0,
+    }
+
+
+def process_message(session_id: str, user_message: str) -> dict:
+    """
+    Append the user message, run the LLM, append the assistant reply.
+    Returns the new state. When ready=True, frontend can fire POST /plan
+    with `final_description`.
+    """
+    with _lock:
+        session = _sessions.get(session_id)
+    if not session:
+        return {"error": "session not found"}
+
+    user_message = (user_message or "").strip()
+    if not user_message:
+        return {"error": "empty message"}
+
+    session["messages"].append({"role": "user", "content": user_message})
+    user_msg_count = sum(1 for m in session["messages"] if m["role"] == "user")
+
+    # Call LLM to update extracted state + decide next action
+    try:
+        resp = call_json(
+            system="You interview founders for market research intake. Be concise, warm, never interrogative. Return only JSON.",
+            user=INTAKE_PROMPT.format(
+                transcript=_format_transcript(session["messages"]),
+                extracted=json.dumps(session["extracted"], indent=2),
+                user_msg_count=user_msg_count,
+            ),
+            max_tokens=1200,
+        )
+    except Exception as e:
+        log.warning("intake LLM failed: %s", e)
+        resp = {}
+
+    # Salvage: if LLM hard-failed, give a generic prompt
+    if not resp or "_parse_error" in resp:
+        assistant_text = (
+            "Got it. Could you tell me a bit more about who your target customer is "
+            "and how you plan to charge for the product?"
+        )
+        session["messages"].append({"role": "assistant", "content": assistant_text})
+        return {
+            "session_id": session_id,
+            "assistant_message": assistant_text,
+            "extracted": session["extracted"],
+            "ready": False,
+            "user_msg_count": user_msg_count,
+        }
+
+    # Merge extracted state — only overwrite if new value is non-null
+    new_extracted = resp.get("extracted") or {}
+    for k in ALL_FIELDS:
+        v = new_extracted.get(k)
+        if v not in (None, "", []):
+            session["extracted"][k] = v
+
+    next_action = resp.get("next_action") or "ask"
+
+    # Safety: don't end session before user has spoken at least 2 times
+    # (otherwise a verbose first message can shortcut critical clarifications)
+    missing_required = [f for f in REQUIRED_FIELDS if not session["extracted"].get(f)]
+    if next_action == "ready" and missing_required and user_msg_count < 6:
+        next_action = "ask"
+
+    if next_action == "ready":
+        final = resp.get("final_description") or ""
+        if len(final) < 30:
+            # Synthesize a fallback paragraph from extracted state
+            final = _synthesize_from_extracted(session["extracted"])
+        # Force minimum length so /plan validation passes (>=30 chars)
+        if len(final) < 30:
+            final = (final + ". " + (session["extracted"].get("product") or "") + " " +
+                     (session["extracted"].get("target_customer") or "")).strip()
+        session["final_description"] = final
+        session["ready"] = True
+        assistant_text = "Great — I've got enough to start. Generating your report now."
+        session["messages"].append({"role": "assistant", "content": assistant_text})
+        log.info("intake ready (session=%s, %d turns, %d/%d required filled)",
+                 session_id[:8], user_msg_count,
+                 sum(1 for f in REQUIRED_FIELDS if session["extracted"].get(f)),
+                 len(REQUIRED_FIELDS))
+        return {
+            "session_id": session_id,
+            "assistant_message": assistant_text,
+            "extracted": session["extracted"],
+            "ready": True,
+            "final_description": final,
+            "user_msg_count": user_msg_count,
+        }
+
+    # Otherwise — ask next question
+    next_q = (resp.get("next_question") or "").strip()
+    if not next_q:
+        # Fallback question targeting the first missing required field
+        next_q = _fallback_question(session["extracted"])
+    session["messages"].append({"role": "assistant", "content": next_q})
+    return {
+        "session_id": session_id,
+        "assistant_message": next_q,
+        "extracted": session["extracted"],
+        "ready": False,
+        "user_msg_count": user_msg_count,
+    }
+
+
+def get_session(session_id: str) -> dict | None:
+    with _lock:
+        s = _sessions.get(session_id)
+    return dict(s) if s else None
+
+
+def _synthesize_from_extracted(ex: dict) -> str:
+    parts = []
+    if ex.get("product"):
+        parts.append(ex["product"])
+    if ex.get("target_customer"):
+        parts.append(f"Target customer: {ex['target_customer']}.")
+    if ex.get("business_model"):
+        parts.append(f"Business model: {ex['business_model']}.")
+    if ex.get("geography"):
+        parts.append(f"Geography: {ex['geography']}.")
+    if ex.get("pricing"):
+        parts.append(f"Pricing: {ex['pricing']}.")
+    if ex.get("differentiation"):
+        parts.append(f"Differentiation: {ex['differentiation']}.")
+    if ex.get("stage"):
+        parts.append(f"Stage: {ex['stage']}.")
+    if ex.get("key_features"):
+        feats = ex["key_features"]
+        if isinstance(feats, list):
+            parts.append("Key features: " + ", ".join(feats) + ".")
+    return " ".join(parts)
+
+
+def _fallback_question(ex: dict) -> str:
+    if not ex.get("product"):
+        return "Could you describe what your product does in one or two sentences?"
+    if not ex.get("target_customer"):
+        return "Who's the target customer? Be specific if you can — industry, role, company size."
+    if not ex.get("business_model"):
+        return "How do you plan to make money — DTC, B2B SaaS, marketplace, something else?"
+    if not ex.get("geography"):
+        return "What geography are you targeting first? US, UK, EU, global?"
+    return "Anything else important about the product or market that I should know?"

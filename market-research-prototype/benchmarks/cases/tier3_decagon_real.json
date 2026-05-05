@@ -1,0 +1,70 @@
+{
+  "_doc": "Tier-3 OOS: real venture (Decagon AI) — venture description constructed from PUBLIC press only, not case-writer crafted to fit the rubric. Decagon raised $65M Series B led by Bain Capital Ventures + Accel (mid-2024) for AI customer-support agents. We use this as a strict OOS test of whether the pipeline + rubric work on a venture neither I nor the rubric were tuned for.",
+  "_oos_tier": 3,
+  "_oos_provenance": "Decagon launch press 2024 (BCV + Accel announcement); company website public claims; G2 reviews",
+  "venture_under_test": {
+    "name": "Decagon",
+    "description": "Decagon is an AI-powered customer support agent platform that resolves customer support tickets autonomously without human-in-the-loop. Aimed at mid-market and enterprise companies with 200-5000 employees. Pricing is per-resolved-ticket (outcome-based). Target buyer: VP of Customer Success and Chief Customer Officer at high-volume B2C and B2B brands. Competes with Intercom Fin, Zendesk AI, Ada, Forethought, and Salesforce Einstein AI. Differentiation: outcome-based pricing tied to actual ticket resolution (not seats), trained on company-specific knowledge bases without manual rule-writing, and demonstrated 70%+ deflection rates in published case studies.",
+    "category": "B2B SaaS AI customer support automation",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "decagon_seriesb_2024",
+      "source": "Decagon press release / Bain Capital Ventures announcement",
+      "title": "Decagon $65M Series B (Aug 2024)",
+      "url": "https://decagon.ai/news",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale / venture stage",
+      "claims": [
+        {"key": "decagon_seriesb_size_usd_m", "value": 65, "unit": "USD million", "source_quote": "Decagon raised $65M Series B"},
+        {"key": "decagon_lead_investor", "value": "Bain Capital Ventures", "unit": "qualitative", "source_quote": "led by Bain Capital Ventures with Accel"}
+      ]
+    },
+    {
+      "id": "intercom_fin_metrics_2024",
+      "source": "Intercom blog + public earnings (analog comp)",
+      "title": "Intercom Fin AI agent metrics",
+      "url": "https://www.intercom.com/blog/fin-launch",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale",
+      "claims": [
+        {"key": "intercom_total_arr_estimate_2024_usd_m", "value": 250, "unit": "USD million ARR", "source_quote": "Intercom estimated ~$250M ARR (2024)"},
+        {"key": "intercom_fin_resolution_rate_pct", "value": 50, "unit": "%", "source_quote": "Intercom Fin announced ~50% ticket resolution rate"}
+      ]
+    },
+    {
+      "id": "global_customer_service_software_2024",
+      "source": "IDC / Statista customer service software",
+      "title": "Global customer service software market",
+      "url": "https://www.statista.com/topics/customer-service-software/",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "TAM",
+      "claims": [
+        {"key": "global_cs_software_2024_usd_b", "value": 18, "unit": "USD billion", "source_quote": "global customer service software market $16-20B in 2024"},
+        {"key": "us_share_pct", "value": 45, "unit": "%", "source_quote": "US share approximately 40-50%"},
+        {"key": "us_cs_software_2024_usd_b", "value": 8.1, "unit": "USD billion (derived)", "source_quote": "Derived: 45% × $18B"},
+        {"key": "ai_subsegment_pct", "value": 18, "unit": "%", "source_quote": "AI agents/automation approximately 15-20% of category"},
+        {"key": "us_ai_cs_2024_usd_b", "value": 1.5, "unit": "USD billion (derived)", "source_quote": "Derived: 18% × $8.1B"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low":  500000000,
+    "tam_us_corporate_wellness_usd_mid":  3000000000,
+    "tam_us_corporate_wellness_usd_high": 10000000000,
+    "_tam_note": "Defensible US AI customer-support scoping: narrow $0.5-1.5B (US AI agent subsegment), mid-narrow $1.5-4B (full AI-augmented CS), broad $7-10B (US customer-service software total). Pipeline TAM mid acceptable in $0.5B-$10B range.",
+    "growth_cagr_pct_low": 15,
+    "growth_cagr_pct_high": 40,
+    "_cagr_note": "AI agent subsegment 25-40% CAGR (hot category); broader CS software 8-12% CAGR.",
+    "competitor_must_include": ["Intercom", "Zendesk", "Ada", "Forethought", "Salesforce"],
+    "_competitor_note": "5 named in description (Intercom Fin matches Intercom; Salesforce Einstein matches Salesforce).",
+    "icp_employee_band": "200-5000",
+    "buyer_role_keywords": ["VP Customer Success", "Chief Customer Officer", "VP Support", "Head of CX", "Director of Customer Operations"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}

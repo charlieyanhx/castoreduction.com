@@ -1,0 +1,70 @@
+{
+  "_doc": "Reference data for benchmarking the Castor pipeline against a B2B SaaS cyber-insurance + risk-monitoring platform for SMBs.",
+  "venture_under_test": {
+    "name": "Bulwark",
+    "description": "Bulwark is a B2B SaaS cyber-insurance + active-risk-monitoring platform for SMBs with 50-500 employees. We bundle cyber-insurance underwriting, continuous attack-surface monitoring, employee phishing-simulation training, and incident-response retainer. Pricing: insurance premium calculated per-policy + $80 per employee per year for the monitoring + training package. Target buyer: COO, CFO, or Director of IT/Security at SMBs without a dedicated CISO. We compete with Coalition, At-Bay, Resilience, Vouch, and Cowbell. Differentiation: insurance premium discounts auto-applied when monitoring detects + remediates risks (vs static annual policy renewals), bundled MDR (managed detection + response) for sub-CISO companies, and continuous compliance posture mapping for SOC2/HIPAA/PCI.",
+    "category": "B2B SaaS cyber-insurance / SMB risk monitoring",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "coalition_funding_2024",
+      "source": "Coalition press + funding announcements",
+      "title": "Coalition cyber-insurance scale (analog comp)",
+      "url": "https://www.coalitioninc.com/about",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale",
+      "claims": [
+        {"key": "coalition_valuation_2022_usd_b", "value": 5, "unit": "USD billion", "source_quote": "Coalition valued at $5B in Series F (2022)"},
+        {"key": "coalition_premium_volume_2024_usd_m", "value": 600, "unit": "USD million", "source_quote": "Coalition gross written premium ~$600M (2024 estimate)"},
+        {"key": "coalition_customers_count_k", "value": 100, "unit": "thousand SMB customers", "source_quote": "~100,000 SMB cyber-insurance customers"}
+      ]
+    },
+    {
+      "id": "munich_re_cyber_2024",
+      "source": "Munich Re Cyber Insurance Market Report 2024",
+      "title": "Global + US cyber-insurance market sizing",
+      "url": "https://www.munichre.com/en/insights/cyber.html",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "TAM / market sizing",
+      "claims": [
+        {"key": "global_cyber_insurance_premium_2024_usd_b", "value": 16, "unit": "USD billion", "source_quote": "global cyber-insurance gross written premium $14-18B in 2024"},
+        {"key": "us_share_pct", "value": 55, "unit": "%", "source_quote": "US share approximately 50-60% of global cyber-insurance market"},
+        {"key": "us_cyber_insurance_premium_2024_usd_b", "value": 8.8, "unit": "USD billion (derived)", "source_quote": "Derived: 55% × $16B"},
+        {"key": "smb_segment_share_pct", "value": 30, "unit": "%", "source_quote": "SMB segment approximately 30% of cyber-insurance premium volume"},
+        {"key": "us_smb_cyber_insurance_2024_usd_b", "value": 2.6, "unit": "USD billion (derived)", "source_quote": "Derived: 30% × $8.8B"},
+        {"key": "category_cagr_pct", "value": 22, "unit": "% CAGR", "source_quote": "category CAGR 18-25% through 2028"}
+      ]
+    },
+    {
+      "id": "us_smb_count_susb_cyber",
+      "source": "US Census SUSB + Verizon DBIR 2024",
+      "title": "SMB count + cyber-incident exposure",
+      "url": "https://www.census.gov/programs-surveys/susb.html",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "TAM / firm count",
+      "claims": [
+        {"key": "us_firms_50_to_499_employees_count_k", "value": 230, "unit": "thousand firms", "source_quote": "approximately 230k US firms with 50-499 employees"},
+        {"key": "smb_with_cyber_insurance_pct", "value": 22, "unit": "%", "source_quote": "approximately 22% of US SMBs carry cyber-insurance (2024 Verizon DBIR)"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low":  800000000,
+    "tam_us_corporate_wellness_usd_mid":  3500000000,
+    "tam_us_corporate_wellness_usd_high": 9000000000,
+    "_tam_note": "Defensible US SMB cyber-insurance + monitoring scoping: narrow $0.8-1.5B (50-500 emp ICP × monitoring tier only), mid-narrow $2.5-4B (US SMB cyber-insurance premium total), broad $7-9B (US cyber-insurance + adjacent risk-monitoring software). Pipeline TAM mid acceptable in $0.8B-$9B range.",
+    "growth_cagr_pct_low": 12,
+    "growth_cagr_pct_high": 30,
+    "_cagr_note": "Cyber-insurance category 18-25% CAGR; SMB-focused subsegment slightly higher 20-30%.",
+    "competitor_must_include": ["Coalition", "At-Bay", "Resilience", "Vouch", "Cowbell"],
+    "_competitor_note": "Five named in description.",
+    "icp_employee_band": "50-500",
+    "buyer_role_keywords": ["COO", "CFO", "Director of IT", "Director of Security", "Chief Operating Officer", "VP Operations"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}

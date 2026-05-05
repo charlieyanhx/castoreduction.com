@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Generating report — Castor Research</title>
+<link rel="stylesheet" href="/web/app.css"/>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="/">
+    <span class="brand-mark">●</span>
+    <span class="brand-name">Castor Research</span>
+  </a>
+  <nav class="topnav">
+    <a href="/">New report</a>
+    <a href="/dashboard.html">My reports</a>
+  </nav>
+</header>
+
+<main class="progress-page">
+  <h1 id="title">Generating your report…<span class="progress-elapsed" id="elapsed">0:00</span></h1>
+  <div class="progress-sub" id="subtitle">This takes 5–10 minutes. The browser tab can be closed and reopened.</div>
+
+  <div class="step-list" id="step-list"></div>
+
+  <div class="example-link">
+    <a href="/jobs/def590b9-b6cd-4bc1-a094-e8d3253b3f01/report.html">→ Browse a finished example while you wait</a>
+  </div>
+</main>
+
+<script>
+const STEPS = [
+  { key: "profile",            label: "Profile extraction" },
+  { key: "discover",           label: "Competitor discovery (signals + ranking)" },
+  { key: "firmographics",      label: "Firmographic enrichment" },
+  { key: "clustering",         label: "Clustering + PCA whitespace" },
+  { key: "differentiators",    label: "Differentiators + market gaps" },
+  { key: "customer_universe",  label: "Customer universe (real companies)" },
+  { key: "audience",           label: "Audience taste decoding (top 3 brands)" },
+  { key: "personas",           label: "Persona synthesis + wedge selection" },
+  { key: "reddit_signal",      label: "Reddit customer-voice extraction" },
+  { key: "max_diff",           label: "Max-Diff feature ranking" },
+  { key: "pricing",            label: "Van Westendorp PSM + benchmark" },
+  { key: "economics",          label: "CLV + CAC + EVC + sensitivity" },
+  { key: "place",              label: "Place / channel analysis" },
+  { key: "validation",         label: "Validation gate" },
+  { key: "market_sizing",      label: "Market sizing TAM/SAM/SOM" },
+  { key: "four_ps",            label: "4Ps marketing plan (4 parallel prompts)" },
+  { key: "segment_ranking",    label: "5-metric segment scoring" },
+  { key: "viability",          label: "Viability score 1–100" },
+];
+
+const $ = (s) => document.querySelector(s);
+const params = new URLSearchParams(window.location.search);
+const jobId = params.get("job");
+
+if (!jobId) {
+  document.body.innerHTML = "<main style='padding:60px;text-align:center;color:#9ca3af'>Missing ?job=… in URL</main>";
+  throw new Error("missing job param");
+}
+
+let started = Date.now();
+
+function renderSteps(completed) {
+  const set = new Set(completed || []);
+  let liveSet = false;
+  $("#step-list").innerHTML = STEPS.map((s) => {
+    const done = set.has(s.key);
+    let cls = done ? "done" : (liveSet ? "todo" : "live");
+    if (!done && !liveSet) liveSet = true;
+    if (done) cls = "done";
+    return `
+      <div class="step-row ${cls}">
+        <span class="step-icon ${cls}"></span>
+        <span>${s.label}</span>
+      </div>
+    `;
+  }).join("");
+}
+
+function fmtElapsed(secs) {
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+async function poll() {
+  try {
+    const j = await (await fetch(`/jobs/${jobId}`)).json();
+    const completed = (j.result && j.result._steps_completed) || [];
+    renderSteps(completed);
+
+    if (j.state === "complete") {
+      $("#title").innerHTML = `Report ready ✓<span class="progress-elapsed">${fmtElapsed((Date.now() - started) / 1000)}</span>`;
+      $("#subtitle").innerHTML = `<a href="/jobs/${jobId}/report.html" style="color:var(--accent);font-weight:600">Open report →</a>`;
+      setTimeout(() => { window.location.href = `/jobs/${jobId}/report.html`; }, 1500);
+      return;
+    }
+    if (j.state === "error") {
+      $("#title").textContent = "Error";
+      $("#subtitle").innerHTML = `<span style="color:var(--danger)">${escapeHtml(j.error || "unknown error")}</span>`;
+      return;
+    }
+
+    // Update elapsed and continue polling
+    const elapsedFromStart = (Date.now() - started) / 1000;
+    const elapsedFromJob = j.created_at ? (Date.now() / 1000 - j.created_at) : elapsedFromStart;
+    $("#elapsed").textContent = fmtElapsed(Math.max(elapsedFromStart, elapsedFromJob));
+  } catch (e) {
+    console.error(e);
+  }
+  setTimeout(poll, 2500);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+renderSteps([]);
+poll();
+</script>
+</body>
+</html>

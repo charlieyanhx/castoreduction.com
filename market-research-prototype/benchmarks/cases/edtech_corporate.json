@@ -1,0 +1,68 @@
+{
+  "_doc": "Reference data for benchmarking the Castor pipeline against a B2B SaaS corporate-learning / L&D platform.",
+  "venture_under_test": {
+    "name": "Skillyard",
+    "description": "Skillyard is a B2B SaaS corporate learning and development platform for mid-market companies with 200-2000 employees building structured upskilling programs for technical and operations teams. We bundle a content library (technical, leadership, compliance), AI-driven learning paths, skills assessments, and integration with HRIS for completion tracking. Pricing: $25 per learner per month, billed annually. Target buyer: Chief Learning Officer, VP of People Development, and Director of L&D at mid-market companies investing in workforce development. We compete with Coursera Business, Udemy Business, LinkedIn Learning, Pluralsight, and Degreed. Differentiation: AI-generated learning paths personalized per role + skill-gap assessment, vs competitors' static catalog browsing model; price 30-40% below category median (per-learner monthly vs annual seat); skills-graph integration with Workday/SuccessFactors for promotion-readiness signals.",
+    "category": "B2B SaaS corporate learning / L&D platform",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "coursera_q4_2024",
+      "source": "Coursera Q4 2024 SEC filings",
+      "title": "Coursera Business segment + total revenue",
+      "url": "https://investors.coursera.com/",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale / analog comp",
+      "claims": [
+        {"key": "coursera_total_revenue_fy24_usd_m", "value": 695, "unit": "USD million", "source_quote": "Coursera total revenue FY24 ~$695M"},
+        {"key": "coursera_business_segment_revenue_fy24_usd_m", "value": 240, "unit": "USD million", "source_quote": "Coursera for Business segment ~$240M (35% of total)"},
+        {"key": "coursera_paid_enterprise_customers_count", "value": 1610, "unit": "customers", "source_quote": "1,610 paid enterprise customers"}
+      ]
+    },
+    {
+      "id": "atd_state_of_industry_2024",
+      "source": "Association for Talent Development (ATD) State of the Industry 2024",
+      "title": "Corporate L&D spend benchmarks",
+      "url": "https://www.td.org/research-reports/state-of-the-industry",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "L&D spend / TAM",
+      "claims": [
+        {"key": "us_corporate_ld_spend_per_employee_usd", "value": 1280, "unit": "USD/employee/year", "source_quote": "average US corporate L&D spend $1,280 per employee annually"},
+        {"key": "us_total_corporate_ld_spend_usd_b", "value": 165, "unit": "USD billion", "source_quote": "approximately $165B total US corporate L&D spend (incl. instructor-led + tech)"},
+        {"key": "digital_share_pct", "value": 35, "unit": "%", "source_quote": "approximately 35% of L&D spend goes to digital/online platforms"}
+      ]
+    },
+    {
+      "id": "grand_view_corporate_learning_2024",
+      "source": "Grand View Research",
+      "title": "U.S. corporate e-learning market",
+      "url": "https://www.grandviewresearch.com/industry-analysis/corporate-e-learning-market",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "TAM / market sizing",
+      "claims": [
+        {"key": "us_corporate_elearning_2024_usd_b", "value": 35, "unit": "USD billion", "source_quote": "U.S. corporate e-learning market $30-40B in 2024"},
+        {"key": "us_corporate_elearning_cagr_pct", "value": 12, "unit": "% CAGR", "source_quote": "expected CAGR 9-15% through 2030"},
+        {"key": "saas_lms_subsegment_pct", "value": 45, "unit": "%", "source_quote": "SaaS LMS + content platforms approximately 45% of digital L&D"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low":  3000000000,
+    "tam_us_corporate_wellness_usd_mid":  10000000000,
+    "tam_us_corporate_wellness_usd_high": 35000000000,
+    "_tam_note": "Defensible US corporate L&D scoping: narrow $3-6B (mid-market 200-2000 emp segment), mid-narrow $8-15B (full SaaS LMS + content), broad $25-35B (US corporate e-learning total). Pipeline TAM mid acceptable in $3B-$35B range.",
+    "growth_cagr_pct_low": 6,
+    "growth_cagr_pct_high": 18,
+    "_cagr_note": "Corporate e-learning 9-15% CAGR; AI-driven personalization subsegment 14-18%.",
+    "competitor_must_include": ["Coursera", "Udemy", "LinkedIn Learning", "Pluralsight", "Degreed"],
+    "_competitor_note": "Five named in description (Coursera Business matches 'Coursera'; Udemy Business matches 'Udemy').",
+    "icp_employee_band": "200-2000",
+    "buyer_role_keywords": ["Chief Learning Officer", "VP People", "Director of L&D", "Head of Learning", "VP Talent"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}

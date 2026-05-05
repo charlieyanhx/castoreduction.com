@@ -1,0 +1,69 @@
+{
+  "_doc": "Reference data for benchmarking the Castor pipeline against an APM / observability B2B SaaS venture.",
+  "venture_under_test": {
+    "name": "TraceFlow",
+    "description": "TraceFlow is a B2B SaaS Application Performance Monitoring (APM) and observability platform for engineering teams at companies with 50-1000 engineers. We provide distributed tracing, metrics, and log aggregation through OpenTelemetry-native instrumentation. Pricing is usage-based at $0.30 per host per hour with a free tier up to 5 hosts. We compete with Datadog, New Relic, Grafana Cloud, Honeycomb, and Splunk Observability. Differentiation: OpenTelemetry-first (no proprietary agent), per-second billing granularity, and a deterministic cost-modeling guarantee.",
+    "category": "B2B SaaS observability / APM platform",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "gartner_mq_observability_2024",
+      "source": "Gartner",
+      "title": "Gartner Magic Quadrant for Observability Platforms 2024 (publicly cited summaries)",
+      "url": "https://www.gartner.com/en/documents/observability-platforms",
+      "fetched_date": "2026-04-29",
+      "publicly_accessible": true,
+      "domain": "competitive landscape / market positioning",
+      "claims": [
+        {"key": "named_leaders_2024", "value": ["Datadog", "Dynatrace", "New Relic", "Splunk"], "unit": "qualitative", "source_quote": "Leaders quadrant for Observability Platforms 2024"},
+        {"key": "challengers_2024", "value": ["Cisco", "IBM"], "unit": "qualitative", "source_quote": "Challengers quadrant"},
+        {"key": "visionaries_2024", "value": ["Honeycomb", "Grafana Labs", "Sumo Logic"], "unit": "qualitative", "source_quote": "Visionaries quadrant"}
+      ]
+    },
+    {
+      "id": "idc_apm_market_2024",
+      "source": "IDC / Statista (publicly cited)",
+      "title": "Application Performance Monitoring market size",
+      "url": "https://www.statista.com/topics/4213/application-performance-monitoring/",
+      "fetched_date": "2026-04-29",
+      "publicly_accessible": true,
+      "domain": "TAM / market sizing",
+      "claims": [
+        {"key": "global_apm_market_2024_usd_b", "value": 8.7, "unit": "USD billion", "source_quote": "global APM market reached approximately $8.7B in 2024"},
+        {"key": "global_apm_cagr_pct", "value": 12.5, "unit": "% CAGR", "source_quote": "projected CAGR ~10-15% through 2030"},
+        {"key": "us_share_pct", "value": 42, "unit": "%", "source_quote": "US share approximately 40-45%"},
+        {"key": "us_apm_market_2024_usd_b", "value": 3.7, "unit": "USD billion (derived: 42% × $8.7B)", "source_quote": "Derived from US share 42% × $8.7B global"}
+      ]
+    },
+    {
+      "id": "datadog_q4_2024_arr",
+      "source": "Datadog public filings (Q4 2024 earnings)",
+      "title": "Datadog Q4 2024 ARR + customer count",
+      "url": "https://investors.datadoghq.com/",
+      "fetched_date": "2026-04-29",
+      "publicly_accessible": true,
+      "domain": "competitor scale / analog comp",
+      "claims": [
+        {"key": "datadog_arr_2024_usd_b", "value": 2.7, "unit": "USD billion ARR", "source_quote": "FY2024 revenue ~$2.7B"},
+        {"key": "datadog_customers_count_k", "value": 30, "unit": "thousand customers", "source_quote": "approximately 30,000 customers"},
+        {"key": "datadog_revenue_growth_pct", "value": 26, "unit": "% YoY", "source_quote": "26% YoY revenue growth"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low": 2000000000,
+    "tam_us_corporate_wellness_usd_mid": 5000000000,
+    "tam_us_corporate_wellness_usd_high": 12000000000,
+    "_tam_note": "Reusing the same key names so score.py works without refactor. Defensible US APM scoping: $2-12B (US share of global $8.7B + adjacent observability adjacencies).",
+    "growth_cagr_pct_low": 8,
+    "growth_cagr_pct_high": 25,
+    "_cagr_note": "Global APM CAGR 10-15%; cloud-native subsegment trades 18-25%.",
+    "competitor_must_include": ["Datadog", "New Relic", "Grafana Cloud", "Honeycomb", "Splunk"],
+    "_competitor_note": "Five named in venture description.",
+    "icp_employee_band": "50-1000",
+    "buyer_role_keywords": ["VP Engineering", "Platform", "SRE", "DevOps", "Head of Infrastructure", "engineering"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}

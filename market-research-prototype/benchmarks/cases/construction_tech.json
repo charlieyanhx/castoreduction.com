@@ -1,0 +1,70 @@
+{
+  "_doc": "Reference data for benchmarking the Castor pipeline against an AEC (architecture/engineering/construction) project-management B2B SaaS for mid-market general contractors.",
+  "venture_under_test": {
+    "name": "BuildLane",
+    "description": "BuildLane is a B2B SaaS construction project-management platform combining RFI tracking, drawing version control, daily logs, submittals, and field-to-office reporting for mid-market general contractors with 50-500 employees executing $50M-$500M annual project volume. Pricing is $300 per active project per month with unlimited users. Target buyer: VP of Operations, Director of Field Operations, and Project Executive at GC firms running 10+ concurrent projects. We compete with Procore, Autodesk Construction Cloud, Fieldwire, PlanGrid, and Buildertrend. Differentiation: drawing-version-control-first UX (vs Procore's RFI-first), per-project pricing model (no per-seat tax), and native field-mobile experience offline-capable for remote sites with poor connectivity.",
+    "category": "B2B vertical SaaS for AEC / construction project management",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "procore_q4_2024",
+      "source": "Procore Technologies SEC filings (Q4 2024)",
+      "title": "Procore revenue, customer count, and growth (analog comp)",
+      "url": "https://investors.procore.com/",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale / analog comp",
+      "claims": [
+        {"key": "procore_revenue_fy24_usd_b", "value": 1.15, "unit": "USD billion", "source_quote": "Procore total revenue FY24 ~$1.15B"},
+        {"key": "procore_customers_count_k", "value": 17, "unit": "thousand customers", "source_quote": "approximately 17,000 customers globally"},
+        {"key": "procore_revenue_growth_pct", "value": 21, "unit": "% YoY", "source_quote": "21% YoY revenue growth"},
+        {"key": "procore_construction_volume_under_management_usd_t", "value": 2.1, "unit": "USD trillion", "source_quote": "approximately $2.1 trillion of construction volume managed on platform globally"}
+      ]
+    },
+    {
+      "id": "us_census_construction_2024",
+      "source": "US Census Bureau Construction Spending + Industry Stats",
+      "title": "US construction industry size + firm counts",
+      "url": "https://www.census.gov/construction/c30/historical_data.html",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "TAM / firm count",
+      "claims": [
+        {"key": "us_total_construction_spending_2024_usd_t", "value": 2.1, "unit": "USD trillion", "source_quote": "U.S. construction spending ~$2.1 trillion in 2024"},
+        {"key": "us_general_contractor_firms_count_k", "value": 25, "unit": "thousand firms (50-500 emp)", "source_quote": "approximately 25k US general-contractor firms with 50-500 employees"},
+        {"key": "us_total_gc_firms_count_k", "value": 750, "unit": "thousand firms", "source_quote": "750k+ total US general contractors (mostly micro-firms)"}
+      ]
+    },
+    {
+      "id": "deloitte_aec_tech_2024",
+      "source": "Deloitte Engineering & Construction Industry Outlook",
+      "title": "AEC software and digital adoption",
+      "url": "https://www2.deloitte.com/us/en/insights/industry/engineering-and-construction.html",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "TAM / market sizing",
+      "claims": [
+        {"key": "global_construction_tech_market_2024_usd_b", "value": 12, "unit": "USD billion", "source_quote": "global construction technology software market estimated $10-14B in 2024"},
+        {"key": "us_share_pct", "value": 40, "unit": "%", "source_quote": "US share approximately 35-45%"},
+        {"key": "us_construction_tech_2024_usd_b", "value": 4.8, "unit": "USD billion (derived)", "source_quote": "Derived: 40% × $12B"},
+        {"key": "construction_tech_cagr_pct", "value": 12, "unit": "% CAGR", "source_quote": "category CAGR 10-15% through 2030 driven by digital migration"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low":  600000000,
+    "tam_us_corporate_wellness_usd_mid":  3000000000,
+    "tam_us_corporate_wellness_usd_high": 8000000000,
+    "_tam_note": "Defensible US construction-tech scoping: bottom-up 25k mid-market GCs × $30k ACV = $750M narrow band; mid-narrow $2-4B (full PM software + adjacent), broad $5-8B (PM + scheduling + safety + financials stack). Pipeline TAM mid acceptable in $0.6B-$8B range.",
+    "growth_cagr_pct_low": 6,
+    "growth_cagr_pct_high": 18,
+    "_cagr_note": "Construction-tech 10-15% CAGR; mid-market subsegment slightly higher 12-18% with cloud migration of legacy spreadsheets.",
+    "competitor_must_include": ["Procore", "Autodesk Construction", "Fieldwire", "PlanGrid", "Buildertrend"],
+    "_competitor_note": "Five named in description (Autodesk Construction Cloud matches 'Autodesk Construction').",
+    "icp_employee_band": "50-500",
+    "buyer_role_keywords": ["VP Operations", "Director of Field Operations", "Project Executive", "VP of Construction", "Director of Project Management"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}

@@ -1,0 +1,159 @@
+/* Plain CSS — no @apply (Tailwind CDN doesn't support it in external files) */
+
+.input {
+  background: #0f1115;
+  border: 1px solid #3f3f46;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  color: #e4e4e7;
+}
+.input:focus {
+  outline: none;
+  border-color: #71717a;
+}
+.input::placeholder {
+  color: #52525b;
+}
+.btn {
+  background: #2563eb;
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.btn:hover { background: #1d4ed8; }
+.btn:disabled { background: #374151; cursor: not-allowed; }
+
+.card {
+  background: #151922;
+  border: 1px solid #1f2937;
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+.opp-card {
+  background: #151922;
+  border: 1px solid #1f2937;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.opp-card:hover { border-color: #52525b; }
+
+.section-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #71717a;
+  margin-bottom: 0.25rem;
+}
+.tag {
+  display: inline-block;
+  background: #27272a;
+  color: #d4d4d8;
+  font-size: 0.75rem;
+  border-radius: 9999px;
+  padding: 0.125rem 0.625rem;
+  margin: 0 0.25rem 0.25rem 0;
+}
+.tag-brand { background: rgba(37, 99, 235, 0.15); color: #93c5fd; }
+.tag-warn { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
+.tag-action { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; font-weight: 500; }
+
+.hook-card {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  background: rgba(15, 17, 21, 0.5);
+  border: 1px solid #27272a;
+  border-radius: 0.375rem;
+  padding: 0.75rem;
+}
+.hook-num {
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: #2563eb;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Tabs */
+.tab {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  color: #71717a;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+}
+.tab:hover { color: #d4d4d8; }
+.tab.active { color: white; border-bottom-color: #2563eb; }
+.tab-panel.hidden { display: none; }
+
+/* Status badges */
+.status-badge { font-size: 0.75rem; min-height: 1.2em; }
+.status-badge.running { color: #fbbf24; }
+.status-badge.error { color: #f87171; }
+.status-badge.complete { color: #34d399; }
+
+/* Score bar */
+.score-bar-track {
+  width: 6rem;
+  height: 0.5rem;
+  background: #27272a;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+.score-bar-fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.5s;
+}
+
+/* Signals grid */
+.signal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  font-size: 0.75rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid rgba(31, 41, 55, 0.5);
+}
+.signal-label {
+  color: #71717a;
+  margin-right: 0.75rem;
+  text-transform: capitalize;
+  flex-shrink: 0;
+}
+
+/* Job sidebar */
+.job-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 0.75rem;
+}
+.job-row:hover { background: rgba(39, 39, 42, 0.5); }

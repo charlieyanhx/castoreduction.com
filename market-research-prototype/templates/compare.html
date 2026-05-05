@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Plan Comparison — {{ left.profile.name or 'A' }} vs {{ right.profile.name or 'B' }}</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;color:#1f2937;background:#f3f4f6;padding:20px}
+h1{font-size:24pt;color:#0f172a;margin:0 0 6px}
+.subhead{color:#6b7280;font-size:11pt;margin-bottom:24px}
+.grid{display:grid;grid-template-columns:280px 1fr 1fr;gap:0;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.row{display:contents}
+.cell{padding:14px 18px;border-bottom:1px solid #e5e7eb;font-size:11pt}
+.cell.label{background:#f9fafb;font-weight:600;color:#374151;font-size:10pt;text-transform:uppercase;letter-spacing:.06em}
+.cell.left{border-right:1px solid #e5e7eb}
+.cell strong{color:#0f172a}
+.score{font-size:20pt;font-weight:700}
+.score.green{color:#10b981}.score.amber{color:#f59e0b}.score.red{color:#ef4444}
+.tier{font-size:9pt;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;margin-top:2px}
+.brand-list{margin:0;padding:0;list-style:none;font-size:10pt}
+.brand-list li{padding:3px 0;color:#4b5563}
+.brand-list li strong{color:#0f172a}
+.text-block{font-size:10.5pt;line-height:1.55;color:#374151;white-space:pre-wrap}
+.takeaways{margin:6px 0 0;padding-left:20px;font-size:10pt;color:#4b5563}
+.takeaways li{padding:2px 0}
+.bullet-list{margin:0;padding-left:20px;font-size:10pt;color:#374151}
+.diff{font-weight:700;font-size:11pt}
+.diff.win{color:#10b981}.diff.loss{color:#ef4444}.diff.tie{color:#9ca3af}
+header{max-width:1400px;margin:0 auto 20px}
+.grid{max-width:1400px;margin:0 auto}
+a.back{color:#3b82f6;font-size:11pt;text-decoration:none}
+</style>
+</head>
+<body>
+<header>
+  <a href="/web/" class="back">← Back to app</a>
+  <h1>Side-by-Side Comparison</h1>
+  <div class="subhead">{{ left.profile.name or 'Plan A' }} ({{ left_id[:8] }}) vs {{ right.profile.name or 'Plan B' }} ({{ right_id[:8] }})</div>
+</header>
+
+<div class="grid">
+
+  <!-- HEADER ROW -->
+  <div class="row">
+    <div class="cell label">Venture</div>
+    <div class="cell left"><strong>{{ left.profile.name or 'Plan A' }}</strong><br><span style="color:#6b7280;font-size:10pt">{{ left.profile.category or '' }}</span></div>
+    <div class="cell"><strong>{{ right.profile.name or 'Plan B' }}</strong><br><span style="color:#6b7280;font-size:10pt">{{ right.profile.category or '' }}</span></div>
+  </div>
+
+  <!-- VIABILITY -->
+  <div class="row">
+    <div class="cell label">Viability</div>
+    <div class="cell left">
+      <div class="score {{ 'green' if (left.viability.viability_score or 0) >= 70 else ('amber' if (left.viability.viability_score or 0) >= 40 else 'red') }}">{{ left.viability.viability_score or '?' }}<span style="font-size:11pt;color:#9ca3af">/100</span></div>
+      <div class="tier">{{ left.viability.tier or '' }}</div>
+      {% if left.viability.headline %}<div style="font-size:10pt;color:#374151;margin-top:6px">{{ left.viability.headline }}</div>{% endif %}
+      <div style="font-size:9pt;color:#6b7280;margin-top:6px">Confidence: <strong>{{ left.viability.confidence_in_score or 'unknown' }}</strong></div>
+    </div>
+    <div class="cell">
+      <div class="score {{ 'green' if (right.viability.viability_score or 0) >= 70 else ('amber' if (right.viability.viability_score or 0) >= 40 else 'red') }}">{{ right.viability.viability_score or '?' }}<span style="font-size:11pt;color:#9ca3af">/100</span></div>
+      <div class="tier">{{ right.viability.tier or '' }}</div>
+      {% if right.viability.headline %}<div style="font-size:10pt;color:#374151;margin-top:6px">{{ right.viability.headline }}</div>{% endif %}
+      <div style="font-size:9pt;color:#6b7280;margin-top:6px">Confidence: <strong>{{ right.viability.confidence_in_score or 'unknown' }}</strong></div>
+    </div>
+  </div>
+
+  <!-- DELTA -->
+  <div class="row">
+    <div class="cell label">Δ</div>
+    {% set ldiff = (left.viability.viability_score or 0) - (right.viability.viability_score or 0) %}
+    <div class="cell left"><span class="diff {{ 'win' if ldiff > 0 else ('loss' if ldiff < 0 else 'tie') }}">{{ '+' if ldiff > 0 else '' }}{{ ldiff }} pts</span></div>
+    <div class="cell"><span class="diff {{ 'win' if ldiff < 0 else ('loss' if ldiff > 0 else 'tie') }}">{{ '+' if ldiff < 0 else '' }}{{ -ldiff }} pts</span></div>
+  </div>
+
+  <!-- COMPETITORS -->
+  <div class="row">
+    <div class="cell label">Top competitors</div>
+    <div class="cell left">
+      <ol class="brand-list" style="list-style:decimal;padding-left:20px">
+        {% for c in (left.discover.synthesis.ranked_opportunities or [])[:5] %}<li><strong>{{ c.brand }}</strong> · {{ c.opportunity_score }}</li>{% endfor %}
+      </ol>
+    </div>
+    <div class="cell">
+      <ol class="brand-list" style="list-style:decimal;padding-left:20px">
+        {% for c in (right.discover.synthesis.ranked_opportunities or [])[:5] %}<li><strong>{{ c.brand }}</strong> · {{ c.opportunity_score }}</li>{% endfor %}
+      </ol>
+    </div>
+  </div>
+
+  <!-- AUDIENCE -->
+  <div class="row">
+    <div class="cell label">Audience confidence</div>
+    <div class="cell left">{% if left.audience.confidence is not none %}{{ (left.audience.confidence * 100)|round|int }}% — {{ left.audience.brand }}{% else %}n/a{% endif %}</div>
+    <div class="cell">{% if right.audience.confidence is not none %}{{ (right.audience.confidence * 100)|round|int }}% — {{ right.audience.brand }}{% else %}n/a{% endif %}</div>
+  </div>
+
+  <!-- PRICING -->
+  <div class="row">
+    <div class="cell label">PSM optimal price</div>
+    <div class="cell left">{% if left.pricing.psm.optimal_price_point %}<strong>${{ left.pricing.psm.optimal_price_point }}</strong>{% else %}—{% endif %}</div>
+    <div class="cell">{% if right.pricing.psm.optimal_price_point %}<strong>${{ right.pricing.psm.optimal_price_point }}</strong>{% else %}—{% endif %}</div>
+  </div>
+
+  <!-- 4Ps SECTIONS -->
+  {% for key, label in [('product','Product'), ('price','Price'), ('place','Place'), ('promotion','Promotion')] %}
+  <div class="row">
+    <div class="cell label">{{ label }}</div>
+    {% set lsec = left.four_ps[key] %}
+    {% set rsec = right.four_ps[key] %}
+    <div class="cell left">
+      <div class="text-block">{% if lsec is mapping %}{{ lsec.narrative or '' }}{% else %}{{ lsec or '' }}{% endif %}</div>
+      {% if lsec is mapping and lsec.key_takeaways %}
+      <ul class="takeaways">{% for t in lsec.key_takeaways %}<li>{{ t }}</li>{% endfor %}</ul>
+      {% endif %}
+    </div>
+    <div class="cell">
+      <div class="text-block">{% if rsec is mapping %}{{ rsec.narrative or '' }}{% else %}{{ rsec or '' }}{% endif %}</div>
+      {% if rsec is mapping and rsec.key_takeaways %}
+      <ul class="takeaways">{% for t in rsec.key_takeaways %}<li>{{ t }}</li>{% endfor %}</ul>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+
+  <!-- STRENGTHS -->
+  <div class="row">
+    <div class="cell label">Strengths</div>
+    <div class="cell left"><ul class="bullet-list" style="color:#047857">{% for s in left.viability.strengths or [] %}<li>{{ s }}</li>{% endfor %}</ul></div>
+    <div class="cell"><ul class="bullet-list" style="color:#047857">{% for s in right.viability.strengths or [] %}<li>{{ s }}</li>{% endfor %}</ul></div>
+  </div>
+
+  <!-- RISKS -->
+  <div class="row">
+    <div class="cell label">Risks</div>
+    <div class="cell left"><ul class="bullet-list" style="color:#b91c1c">{% for s in left.viability.risks or [] %}<li>{{ s }}</li>{% endfor %}</ul></div>
+    <div class="cell"><ul class="bullet-list" style="color:#b91c1c">{% for s in right.viability.risks or [] %}<li>{{ s }}</li>{% endfor %}</ul></div>
+  </div>
+
+  <!-- NEXT STEPS -->
+  <div class="row">
+    <div class="cell label">Recommended next steps</div>
+    <div class="cell left"><ol style="margin:0;padding-left:20px;font-size:10pt">{% for s in left.viability.recommended_next_steps or [] %}<li style="padding:2px 0">{{ s }}</li>{% endfor %}</ol></div>
+    <div class="cell"><ol style="margin:0;padding-left:20px;font-size:10pt">{% for s in right.viability.recommended_next_steps or [] %}<li style="padding:2px 0">{{ s }}</li>{% endfor %}</ol></div>
+  </div>
+
+</div>
+</body>
+</html>

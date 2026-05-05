@@ -1,0 +1,71 @@
+{
+  "_doc": "Tier-3 OOS: real venture (Bland AI) — AI voice/phone agents for businesses. Raised $40M Series B (Apr 2024) led by Y Combinator + Scale Venture Partners. Strict OOS — venture and case constructed from public press only. Tests an AI voice category we have not yet benchmarked.",
+  "_oos_tier": 3,
+  "_oos_provenance": "Bland AI Series B announcement Apr 2024; Bland.ai blog public claims; PolyAI / Air.ai / Synthflow public funding for analog comps",
+  "venture_under_test": {
+    "name": "Bland AI",
+    "description": "Bland AI is a B2B SaaS platform providing AI voice agents that handle inbound and outbound phone calls autonomously for sales prospecting, customer support, appointment booking, and lead qualification. Target customers: high-volume call-center operations at companies with 50-2000 employees in real estate, insurance, healthcare scheduling, debt collection, and outbound sales. Pricing: $0.09 per minute of conversation + $99/month base subscription. Target buyer: VP of Sales, Director of Customer Experience, and Head of Call Center Operations. Competes with PolyAI, Air.ai, Synthflow, Vapi, and Retell AI. Differentiation: sub-400ms response latency (vs competitors' 1-2 second pauses that feel non-human), conversational AI fine-tuned per industry vertical (insurance vs retail vs healthcare), and direct telephony integration without requiring Twilio markup.",
+    "category": "B2B SaaS AI voice agents / phone automation",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "bland_seriesb_2024",
+      "source": "Bland AI press release / Series B announcement",
+      "title": "Bland AI $40M Series B (Apr 2024)",
+      "url": "https://www.bland.ai/blog",
+      "fetched_date": "2026-05-01",
+      "publicly_accessible": true,
+      "domain": "competitor scale / venture stage",
+      "claims": [
+        {"key": "bland_seriesb_size_usd_m", "value": 40, "unit": "USD million", "source_quote": "Bland AI raised $40M Series B"},
+        {"key": "bland_lead_investors", "value": "Scale Venture Partners + Y Combinator", "unit": "qualitative", "source_quote": "led by Scale Venture Partners with YC participation"},
+        {"key": "bland_response_latency_ms", "value": 400, "unit": "milliseconds", "source_quote": "sub-400ms response latency claimed publicly"}
+      ]
+    },
+    {
+      "id": "polyai_funding_2024",
+      "source": "PolyAI Series C public press 2024",
+      "title": "PolyAI scale (analog comp)",
+      "url": "https://poly.ai/news",
+      "fetched_date": "2026-05-01",
+      "publicly_accessible": true,
+      "domain": "competitor scale",
+      "claims": [
+        {"key": "polyai_seriesc_size_usd_m", "value": 50, "unit": "USD million", "source_quote": "PolyAI Series C ~$50M (2024)"},
+        {"key": "polyai_valuation_2024_usd_b", "value": 0.5, "unit": "USD billion", "source_quote": "valued at ~$500M post-money"}
+      ]
+    },
+    {
+      "id": "global_call_center_software_2024",
+      "source": "IDC + Statista contact center software market",
+      "title": "Global contact center software + voice automation market",
+      "url": "https://www.statista.com/topics/contact-center-software/",
+      "fetched_date": "2026-05-01",
+      "publicly_accessible": true,
+      "domain": "TAM",
+      "claims": [
+        {"key": "global_contact_center_software_2024_usd_b", "value": 35, "unit": "USD billion", "source_quote": "global contact center software market $30-40B in 2024"},
+        {"key": "us_share_pct", "value": 45, "unit": "%", "source_quote": "US share approximately 40-50%"},
+        {"key": "us_contact_center_2024_usd_b", "value": 15.75, "unit": "USD billion (derived)", "source_quote": "Derived: 45% × $35B"},
+        {"key": "voice_ai_subsegment_2024_usd_b", "value": 2.5, "unit": "USD billion (estimate)", "source_quote": "voice AI / conversational subsegment estimated $2-3B globally; US ~$1B"},
+        {"key": "category_cagr_pct", "value": 28, "unit": "% CAGR", "source_quote": "voice AI subsegment 25-35% CAGR (LLM-driven hot category)"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low":  300000000,
+    "tam_us_corporate_wellness_usd_mid":  2000000000,
+    "tam_us_corporate_wellness_usd_high": 8000000000,
+    "_tam_note": "Defensible US AI voice agent scoping: narrow $0.3-0.8B (US AI voice subsegment for SMB-mid call centers), mid-narrow $1.5-3B (US voice AI + adjacent conversational), broad $5-8B (US contact center software including AI augmentation). Pipeline TAM mid acceptable in $0.3B-$8B range.",
+    "growth_cagr_pct_low": 18,
+    "growth_cagr_pct_high": 45,
+    "_cagr_note": "AI voice subsegment 25-35% CAGR (very hot post-LLM); broader contact center 8-12%.",
+    "competitor_must_include": ["PolyAI", "Air", "Synthflow", "Vapi", "Retell"],
+    "_competitor_note": "5 named in description (Air matches 'Air.ai'; Retell matches 'Retell AI').",
+    "icp_employee_band": "50-2000",
+    "buyer_role_keywords": ["VP Sales", "Director of Customer Experience", "Head of Call Center", "VP Customer Support", "Director of Sales Operations"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}

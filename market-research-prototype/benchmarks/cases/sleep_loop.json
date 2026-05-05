@@ -1,0 +1,81 @@
+{
+  "_doc": "Reference data extracted from publicly-accessible professional reports for benchmarking the Castor pipeline. Each entry: source, url, fetched_date, claims (with units + source-line for traceability).",
+  "venture_under_test": {
+    "name": "Sleep Loop",
+    "description": "Employer-sponsored B2B SaaS, async CBT-I sleep coaching, $4/employee/month, targets HR leaders at 200-2000 employee companies",
+    "category": "Employer-sponsored sleep coaching B2B SaaS / digital mental health point-solution",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "kff_ehbs_2024",
+      "source": "Kaiser Family Foundation",
+      "title": "Employer Health Benefits Survey 2024",
+      "url": "https://www.kff.org/report-section/ehbs-2024-summary-of-findings/",
+      "fetched_date": "2026-04-29",
+      "publicly_accessible": true,
+      "domain": "employer benefits / wellness adoption",
+      "claims": [
+        {"key": "avg_family_premium_usd_2024", "value": 25572, "unit": "USD/year", "source_quote": "average annual premiums for family coverage are $25,572"},
+        {"key": "pct_large_firms_increased_mh_via_third_party", "value": 48, "unit": "%", "source_quote": "48% of large employers have increased the number of mental health counseling resources available to employees through an EAP or third-party vendors, such as Headspace or Lyra Health"},
+        {"key": "pct_large_firms_health_risk_assessment", "value": 56, "unit": "%", "source_quote": "56% of large firms provide workers the opportunity to complete a health risk assessment"},
+        {"key": "pct_small_firms_health_risk_assessment", "value": 31, "unit": "%", "source_quote": "31% of small firms"},
+        {"key": "pct_large_firms_wellness_promotion_program", "value": 79, "unit": "%", "source_quote": "79% of large firms offer a program in at least one of these areas: smoking cessation, weight management, and behavioral or lifestyle coaching"},
+        {"key": "pct_small_firms_wellness_promotion_program", "value": 54, "unit": "%", "source_quote": "54% of small firms"}
+      ]
+    },
+    {
+      "id": "grand_view_corporate_wellness_2025",
+      "source": "Grand View Research",
+      "title": "Corporate Wellness Market Size, Share & Growth | Industry Report 2024-2030",
+      "url": "https://www.grandviewresearch.com/industry-analysis/corporate-wellness-market",
+      "fetched_date": "2026-04-29",
+      "publicly_accessible": true,
+      "domain": "TAM / market sizing",
+      "claims": [
+        {"key": "global_corporate_wellness_market_2025_usd_b", "value": 55.10, "unit": "USD billion", "source_quote": "global corporate wellness market was valued at USD 55.10 billion in 2025"},
+        {"key": "global_corporate_wellness_market_2033_usd_b", "value": 70.1, "unit": "USD billion", "source_quote": "projected to reach USD 70.1 billion by 2033"},
+        {"key": "global_corporate_wellness_cagr_pct", "value": 3.1, "unit": "% CAGR", "source_quote": "expanding at a CAGR of 3.1%"},
+        {"key": "north_america_share_pct", "value": 39.0, "unit": "%", "source_quote": "North America dominated with 39.0% market share in 2025"},
+        {"key": "us_corporate_wellness_market_2025_usd_b", "value": 21.5, "unit": "USD billion (derived: 39% × $55.10B)", "source_quote": "Derived: North America 39% share × $55.1B global"},
+        {"key": "stress_management_segment_fastest", "value": null, "unit": "qualitative", "source_quote": "stress management segment is anticipated to achieve the fastest growth rate"},
+        {"key": "large_org_share_of_buyers_pct", "value": 53.3, "unit": "%", "source_quote": "Large-scale organizations: 53.3% (2025)"}
+      ]
+    },
+    {
+      "id": "rock_health_2025_funding",
+      "source": "Rock Health",
+      "title": "2025 Year-End Digital Health Funding Overview: A Tale of Two Markets",
+      "url": "https://rockhealth.com/insights/2025-year-end-digital-health-funding-overview-a-tale-of-two-markets/",
+      "fetched_date": "2026-04-29",
+      "publicly_accessible": true,
+      "domain": "competitive landscape / venture comps",
+      "claims": [
+        {"key": "us_digital_health_total_funding_2025_usd_b", "value": 14.2, "unit": "USD billion", "source_quote": "Annual funding for U.S. digital health startups reached $14.2B"},
+        {"key": "us_digital_health_total_funding_2024_deals", "value": 509, "unit": "deals", "source_quote": "509 deals in 2024"},
+        {"key": "us_digital_health_total_funding_2025_deals", "value": 482, "unit": "deals", "source_quote": "482 deals in 2025"},
+        {"key": "fitness_wellness_startups_funding_2025_usd_b", "value": 2.0, "unit": "USD billion", "source_quote": "Fitness and wellness startups raised $2.0B across 44 deals"},
+        {"key": "fitness_wellness_deals_2025", "value": 44, "unit": "deals", "source_quote": "across 44 deals"},
+        {"key": "avg_deal_size_2025_usd_m", "value": 29.3, "unit": "USD million", "source_quote": "average deal size rose to $29.3M (up from $20.7M in 2024)"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "_doc": "What the Castor pipeline SHOULD produce, derived from the references above. Bands are intentionally wide because the venture description allows multiple defensible scoping interpretations (broad corporate wellness vs narrow employer-sponsored digital MH point-solution).",
+    "tam_us_corporate_wellness_usd_low": 500000000,
+    "tam_us_corporate_wellness_usd_mid": 5000000000,
+    "tam_us_corporate_wellness_usd_high": 25000000000,
+    "_tam_note": "Defensible scoping range: narrow ICP-fit slice (employer-sponsored CBT-I sleep coaching only, ~$500M-$2B), mid-narrow (digital MH employer point-solutions, $2-8B), or broad (US corporate wellness total $20-25B). Pipeline TAM mid acceptable in $0.5B-$25B range as long as 3 methods reconcile.",
+    "growth_cagr_pct_low": 3,
+    "growth_cagr_pct_high": 25,
+    "_cagr_note": "Grand View 3.1% for total corporate wellness; digital-MH/therapeutics subsegment trades 15-25% in funding-implied growth. Acceptable 3-25%.",
+    "competitor_must_include": ["Calm Business", "Headspace for Work", "Lyra Health", "Big Health", "BetterUp"],
+    "_competitor_note": "KFF explicitly names Headspace and Lyra as third-party EAP vendors. Pipeline should surface these.",
+    "icp_employee_band": "200-2000",
+    "buyer_role_keywords": ["HR", "benefits", "people operations", "CHRO", "head of"],
+    "minimum_pipeline_steps": 14,
+    "_steps_note": "Pipeline must complete all 14 spec steps for a passing grade",
+    "minimum_customer_voice_sources": 5,
+    "_voice_note": "Must aggregate at least 5 sources after this iteration's improvements"
+  }
+}

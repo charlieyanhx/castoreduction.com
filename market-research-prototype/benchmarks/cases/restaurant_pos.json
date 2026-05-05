@@ -1,0 +1,69 @@
+{
+  "_doc": "Reference data for benchmarking the Castor pipeline against a vertical SaaS Point-of-Sale + back-of-house platform for independent multi-location restaurant chains.",
+  "venture_under_test": {
+    "name": "Sliceline",
+    "description": "Sliceline is a B2B vertical SaaS Point-of-Sale (POS) and back-of-house operations platform for independent restaurant chains with 5-50 locations. We bundle POS, online ordering, kitchen display systems, inventory tracking, payroll, and labor scheduling. Pricing is $99 per location per month base + 1.5% transaction fee on processed payments. Target buyer: Owner-Operator and Director of Operations at multi-unit restaurant groups. We compete with Toast, Square for Restaurants, Lightspeed Restaurant, Clover, and TouchBistro. Differentiation: built natively for multi-location franchise reporting (rolled-up P&L per region), no per-feature add-on pricing (everything in the base), and direct integration with Doordash/Uber Eats commission-fee renegotiation tools.",
+    "category": "Vertical SaaS POS / restaurant back-of-house",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "toast_q4_2024_arr",
+      "source": "Toast SEC filings (Q4 2024)",
+      "title": "Toast Annualized Recurring Run-Rate (ARR) and customer count",
+      "url": "https://investors.toasttab.com/",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale / analog comp",
+      "claims": [
+        {"key": "toast_arr_fy24_usd_b", "value": 1.5, "unit": "USD billion", "source_quote": "Toast ARR ~$1.5B (FY24 disclosed)"},
+        {"key": "toast_locations_count_k", "value": 122, "unit": "thousand locations", "source_quote": "approximately 122,000 restaurant locations on platform"},
+        {"key": "toast_revenue_growth_pct", "value": 28, "unit": "% YoY", "source_quote": "Total revenue growth 28% YoY"}
+      ]
+    },
+    {
+      "id": "national_restaurant_association_2024",
+      "source": "National Restaurant Association",
+      "title": "State of the Restaurant Industry 2024",
+      "url": "https://restaurant.org/research-and-media/research/industry-statistics/",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "TAM / firm count",
+      "claims": [
+        {"key": "us_restaurant_industry_size_2024_usd_t", "value": 1.1, "unit": "USD trillion", "source_quote": "U.S. restaurant industry sales projected to reach $1.1 trillion in 2024"},
+        {"key": "us_restaurant_locations_count_m", "value": 1.0, "unit": "million locations", "source_quote": "approximately 1 million restaurant locations in the U.S."},
+        {"key": "us_independent_chains_2_50_locations_pct", "value": 28, "unit": "%", "source_quote": "approximately 28% of U.S. restaurants are part of independent chains with 2-50 locations"}
+      ]
+    },
+    {
+      "id": "idc_restaurant_tech_2024",
+      "source": "IDC / Statista Restaurant Technology Spend",
+      "title": "Restaurant tech / POS software spend",
+      "url": "https://www.statista.com/topics/restaurant-technology",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "TAM / market sizing",
+      "claims": [
+        {"key": "global_restaurant_pos_market_2024_usd_b", "value": 26, "unit": "USD billion", "source_quote": "global restaurant POS + management software market $24-28B in 2024"},
+        {"key": "us_share_pct", "value": 38, "unit": "%", "source_quote": "US share approximately 35-40%"},
+        {"key": "us_restaurant_tech_2024_usd_b", "value": 9.9, "unit": "USD billion (derived)", "source_quote": "Derived: 38% × $26B"},
+        {"key": "us_restaurant_tech_cagr_pct", "value": 11, "unit": "% CAGR", "source_quote": "expected CAGR 9-13% through 2030"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low":  500000000,
+    "tam_us_corporate_wellness_usd_mid":  3000000000,
+    "tam_us_corporate_wellness_usd_high": 10000000000,
+    "_tam_note": "Defensible US restaurant-tech scoping: bottom-up 280k independent-chain locations × $1200 ACV = $336M narrow; mid-narrow $1-3B (POS+BOH bundle); broad $8-10B (full restaurant-tech stack including payments). Pipeline TAM mid acceptable in $0.5B-$10B range.",
+    "growth_cagr_pct_low": 6,
+    "growth_cagr_pct_high": 16,
+    "_cagr_note": "Restaurant-tech market 9-13% CAGR; multi-location subsegment slightly higher 11-15% with cloud migration.",
+    "competitor_must_include": ["Toast", "Square", "Lightspeed", "Clover", "TouchBistro"],
+    "_competitor_note": "Five named in description.",
+    "icp_employee_band": "5-50",
+    "buyer_role_keywords": ["Owner", "Operator", "Director of Operations", "Founder", "GM"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}

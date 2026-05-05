@@ -1,0 +1,68 @@
+{
+  "_doc": "Reference data for benchmarking the Castor pipeline against a B2B SaaS corporate-card + spend-management venture.",
+  "venture_under_test": {
+    "name": "LedgerJet",
+    "description": "LedgerJet is a B2B SaaS corporate card + spend-management platform for venture-backed startups and high-growth companies with 20-500 employees. We bundle corporate cards, AP automation, expense reimbursement, vendor payments, and accounting integrations into one product. Pricing: free corporate cards (interchange-funded) + $12 per employee per month for the spend-management dashboard. Target buyer: CFO, Controller, or Head of Finance at venture-backed Seed-to-Series-C startups. We compete with Brex, Ramp, Mercury, Airbase, and Navan (formerly TripActions). Differentiation: native QuickBooks/Xero/NetSuite reconciliation in <30s (vs competitors' batch sync), card-issuance API for embedding into vertical SaaS workflows, and free wire transfers up to $50k/month included in the base tier.",
+    "category": "B2B SaaS fintech / corporate-card + spend-management",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "ramp_funding_2024",
+      "source": "Ramp public press 2024",
+      "title": "Ramp Series E funding + business metrics",
+      "url": "https://ramp.com/press",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale / analog comp",
+      "claims": [
+        {"key": "ramp_valuation_2024_usd_b", "value": 13, "unit": "USD billion", "source_quote": "Ramp valued at $13B in Series E (Aug 2024)"},
+        {"key": "ramp_arr_estimate_2024_usd_m", "value": 700, "unit": "USD million ARR", "source_quote": "Ramp announced $700M+ ARR (mid-2024)"},
+        {"key": "ramp_customers_count_k", "value": 30, "unit": "thousand customers", "source_quote": "approximately 30,000 customers"}
+      ]
+    },
+    {
+      "id": "brex_filings_2024",
+      "source": "Brex public press + SEC filings",
+      "title": "Brex business metrics (analog comp)",
+      "url": "https://www.brex.com/about",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale",
+      "claims": [
+        {"key": "brex_arr_estimate_2024_usd_m", "value": 500, "unit": "USD million ARR", "source_quote": "Brex ARR estimated $400-600M (2024)"},
+        {"key": "brex_valuation_2024_usd_b", "value": 12, "unit": "USD billion", "source_quote": "Brex last valued at $12.3B"}
+      ]
+    },
+    {
+      "id": "idc_spend_mgmt_2024",
+      "source": "IDC / Statista B2B fintech market sizing",
+      "title": "Corporate card + spend management market",
+      "url": "https://www.statista.com/topics/financial-technology/",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "TAM / market sizing",
+      "claims": [
+        {"key": "global_spend_mgmt_2024_usd_b", "value": 22, "unit": "USD billion", "source_quote": "global B2B spend management software $20-25B in 2024"},
+        {"key": "us_share_pct", "value": 50, "unit": "%", "source_quote": "US share approximately 45-55%"},
+        {"key": "us_spend_mgmt_2024_usd_b", "value": 11, "unit": "USD billion (derived)", "source_quote": "Derived: 50% × $22B"},
+        {"key": "category_cagr_pct", "value": 14, "unit": "% CAGR", "source_quote": "category CAGR 12-18% through 2030"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low":  1500000000,
+    "tam_us_corporate_wellness_usd_mid":  6000000000,
+    "tam_us_corporate_wellness_usd_high": 18000000000,
+    "_tam_note": "Defensible US B2B fintech / spend-mgmt scoping: narrow $1.5-3B (venture-backed startup ICP slice), mid-narrow $5-8B (US corporate card + spend mgmt), broad $12-18B (full B2B fintech stack incl. AP automation + accounting). Pipeline TAM mid acceptable in $1.5B-$18B range.",
+    "growth_cagr_pct_low": 8,
+    "growth_cagr_pct_high": 22,
+    "_cagr_note": "B2B fintech spend-mgmt 12-18% CAGR; venture-backed-startup subsegment 18-22%.",
+    "competitor_must_include": ["Brex", "Ramp", "Mercury", "Airbase", "Navan"],
+    "_competitor_note": "Five named in description.",
+    "icp_employee_band": "20-500",
+    "buyer_role_keywords": ["CFO", "Controller", "Head of Finance", "VP Finance", "Chief Financial Officer"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Castor Research — Market research for founders</title>
+<link rel="stylesheet" href="/web/app.css"/>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="/">
+    <span class="brand-mark">●</span>
+    <span class="brand-name">Castor Research</span>
+  </a>
+  <nav class="topnav">
+    <a href="/" class="active">New report</a>
+    <a href="/dashboard.html">My reports</a>
+    <a href="/jobs/def590b9-b6cd-4bc1-a094-e8d3253b3f01/report.html">Example</a>
+  </nav>
+</header>
+
+<main class="landing">
+  <section class="hero">
+    <h1>Get a paid-grade market research report on your idea.</h1>
+    <p class="lede">Talk it through. We'll figure out the rest.</p>
+  </section>
+
+  <section class="chat-shell" id="chat-shell">
+    <div class="chat-panel">
+      <div class="chat-header">
+        <span class="chat-status" id="chat-status">Ready</span>
+        <span class="chat-meta" id="extracted-meta">0 of 4 required fields filled</span>
+      </div>
+      <div class="chat-stream" id="chat-stream"></div>
+      <div class="chat-composer">
+        <textarea id="chat-input" placeholder="Press Enter to send · Shift+Enter for newline" rows="2" disabled></textarea>
+        <button id="chat-send" disabled>Send</button>
+      </div>
+      <div class="chat-hints" id="chat-hints"></div>
+    </div>
+
+    <aside class="chat-aside">
+      <div class="aside-block">
+        <div class="aside-label">What we still need</div>
+        <ul id="needed-list" class="needed-list">
+          <li data-field="product"><span class="dot"></span>Product</li>
+          <li data-field="target_customer"><span class="dot"></span>Target customer</li>
+          <li data-field="business_model"><span class="dot"></span>Business model</li>
+          <li data-field="geography"><span class="dot"></span>Geography</li>
+          <li class="optional" data-field="pricing"><span class="dot"></span>Pricing <em>opt</em></li>
+          <li class="optional" data-field="differentiation"><span class="dot"></span>Differentiation <em>opt</em></li>
+          <li class="optional" data-field="stage"><span class="dot"></span>Stage <em>opt</em></li>
+        </ul>
+      </div>
+      <div class="aside-block">
+        <div class="aside-label">What you'll get</div>
+        <ul class="bullet-list">
+          <li>Viability score 1–100 with confidence rating</li>
+          <li>Real competitors with funding + headcount</li>
+          <li>TAM/SAM/SOM with arithmetic + FRED anchors</li>
+          <li>EVC vs the next-best alternative</li>
+          <li>Decoded personas + customer-voice quotes</li>
+          <li>4Ps plan + 3-year scenarios + PDF export</li>
+        </ul>
+      </div>
+      <div class="aside-block">
+        <div class="aside-label">Try an example</div>
+        <div class="example-row">
+          <button class="example" data-example="dtc">DTC mint candy box</button>
+          <button class="example" data-example="b2b">Shopify analytics SaaS</button>
+          <button class="example" data-example="pet">Pet enrichment box</button>
+        </div>
+      </div>
+    </aside>
+  </section>
+
+  <section class="ready-launch" id="ready-launch" hidden>
+    <h2>Ready to generate</h2>
+    <div class="final-paragraph" id="final-paragraph"></div>
+    <details class="advanced">
+      <summary>Advanced — segment scoring weights</summary>
+      <div class="weights-grid">
+        <label>WTP × market size <input type="range" min="0" max="3" step="0.1" value="1" data-w="wtp_x_market_size"/><span class="w-val">1.0</span></label>
+        <label>Low price elasticity <input type="range" min="0" max="3" step="0.1" value="1" data-w="low_price_elasticity"/><span class="w-val">1.0</span></label>
+        <label>Low competition <input type="range" min="0" max="3" step="0.1" value="1" data-w="low_competition"/><span class="w-val">1.0</span></label>
+        <label>Ease of reach <input type="range" min="0" max="3" step="0.1" value="1" data-w="ease_of_reach"/><span class="w-val">1.0</span></label>
+        <label>Growth potential <input type="range" min="0" max="3" step="0.1" value="1" data-w="growth_potential"/><span class="w-val">1.0</span></label>
+      </div>
+    </details>
+    <button id="launch-btn" class="primary big">Generate report →</button>
+    <div class="launch-meta">Takes 5–10 minutes — full 14-step research pipeline.</div>
+  </section>
+</main>
+
+<script src="/web/app.js"></script>
+</body>
+</html>

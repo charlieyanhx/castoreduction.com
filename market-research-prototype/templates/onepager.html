@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Investor One-Pager — {{ profile.name or 'Untitled' }}</title>
+<style>
+@page{size:letter;margin:0.5in}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;color:#0f172a;background:#fff;font-size:10.5pt;line-height:1.4}
+.page{max-width:780px;margin:20px auto;padding:24px}
+header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1e293b;padding-bottom:12px;margin-bottom:14px}
+header .title{flex:1}
+header h1{font-size:24pt;font-weight:800;margin:0;color:#0f172a;letter-spacing:-0.02em}
+header .subtitle{font-size:10pt;color:#64748b;margin-top:2px}
+header .right{text-align:right;min-width:160px}
+header .score{font-size:42pt;font-weight:800;line-height:1;color:{{ viability_color }}}
+header .tier{font-size:8pt;text-transform:uppercase;letter-spacing:.1em;color:#64748b;margin-top:2px}
+.summary{background:#f8fafc;border-left:3px solid #f59e0b;padding:10px 14px;border-radius:4px;margin:12px 0;font-size:10pt}
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}
+.kpi{background:#f1f5f9;padding:10px 12px;border-radius:6px}
+.kpi .label{font-size:7.5pt;text-transform:uppercase;letter-spacing:.1em;color:#64748b;font-weight:600}
+.kpi .value{font-size:18pt;font-weight:700;color:#0f172a;line-height:1.1;margin-top:4px}
+.kpi .sub{font-size:8.5pt;color:#64748b;margin-top:2px}
+section{margin-top:14px}
+h2{font-size:11pt;text-transform:uppercase;letter-spacing:.08em;color:#475569;border-bottom:1px solid #e2e8f0;padding-bottom:4px;margin:14px 0 6px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.list{margin:0;padding-left:18px;font-size:10pt}
+.list li{margin:2px 0}
+.competitors{margin:0;padding:0;list-style:none}
+.competitors li{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f1f5f9;font-size:10pt}
+.competitors .name{font-weight:600}
+.competitors .score-pill{font-weight:700;color:#3b82f6}
+.relevance{display:inline-block;font-size:7pt;padding:1px 5px;border-radius:3px;margin-left:6px;text-transform:uppercase;letter-spacing:.05em;font-weight:600;vertical-align:middle}
+.rel-direct{background:#10b98122;color:#047857}
+.rel-adjacent{background:#f59e0b22;color:#b45309}
+.rel-reference{background:#94a3b822;color:#475569}
+.scenarios{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:9.5pt}
+.scenario{background:#f8fafc;padding:8px;border-radius:4px}
+.scenario .label{font-size:8pt;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.scenario .y3{font-size:14pt;font-weight:700;margin-top:2px}
+footer{text-align:center;font-size:8pt;color:#94a3b8;margin-top:18px;padding-top:8px;border-top:1px solid #e2e8f0}
+.print-nag{position:fixed;top:0;left:0;right:0;background:#1e293b;color:#fff;padding:6px;text-align:center;font-size:9pt}
+.print-nag a{color:#7dd3fc;margin-left:8px}
+@media print{.print-nag{display:none}body{background:#fff}}
+</style>
+</head>
+<body>
+<div class="print-nag">📄 One-pager view. <strong>Cmd+P</strong> → Save as PDF for sharing. <a href="/jobs/{{ job_id }}/report.html">Full report</a> · <a href="/web/">App</a></div>
+
+<div class="page">
+
+<header>
+  <div class="title">
+    <h1>{{ profile.name or 'Untitled Venture' }}</h1>
+    <div class="subtitle">{{ profile.category or '' }} · {{ profile.business_model or 'unknown model' }} · {{ profile.geography or 'US' }}</div>
+  </div>
+  <div class="right">
+    <div class="score">{{ viability.viability_score or '?' }}</div>
+    <div class="tier">{{ viability.tier or 'unrated' }} · {{ viability.confidence_in_score or 'unknown' }} confidence</div>
+  </div>
+</header>
+
+{% if viability.headline %}
+<div class="summary">
+  <strong>{{ viability.headline }}</strong>
+  {% if viability.summary %}<div style="margin-top:4px;color:#475569">{{ viability.summary }}</div>{% endif %}
+</div>
+{% endif %}
+
+<div class="kpi-row">
+  {% if market_sizing and market_sizing.tam %}
+  <div class="kpi">
+    <div class="label">TAM</div>
+    <div class="value">{{ format_currency(market_sizing.tam.mid) }}</div>
+    <div class="sub">{{ format_currency(market_sizing.tam.low) }}–{{ format_currency(market_sizing.tam.high) }}</div>
+  </div>
+  {% endif %}
+  {% if market_sizing and market_sizing.sam %}
+  <div class="kpi">
+    <div class="label">SAM</div>
+    <div class="value">{{ format_currency(market_sizing.sam.mid) }}</div>
+    <div class="sub">{{ format_currency(market_sizing.sam.low) }}–{{ format_currency(market_sizing.sam.high) }}</div>
+  </div>
+  {% endif %}
+  {% if market_sizing and market_sizing.som %}
+  <div class="kpi">
+    <div class="label">SOM (Y3)</div>
+    <div class="value">{{ format_currency(market_sizing.som.mid) }}</div>
+    <div class="sub">{{ format_currency(market_sizing.som.low) }}–{{ format_currency(market_sizing.som.high) }}</div>
+  </div>
+  {% endif %}
+  {% if psm and psm.optimal_price_point %}
+  <div class="kpi">
+    <div class="label">Price (PSM)</div>
+    <div class="value">${{ psm.optimal_price_point }}</div>
+    {% if psm.acceptable_range %}<div class="sub">${{ psm.acceptable_range[0] }}–${{ psm.acceptable_range[1] }}</div>{% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="row">
+  <section>
+    <h2>Strengths</h2>
+    <ul class="list">{% for s in viability.strengths or [] %}<li>{{ s }}</li>{% endfor %}</ul>
+  </section>
+  <section>
+    <h2>Risks</h2>
+    <ul class="list">{% for r in viability.risks or [] %}<li>{{ r }}</li>{% endfor %}</ul>
+  </section>
+</div>
+
+{% if personas and personas.personas %}
+{% set wedge = personas.personas|selectattr('id', 'equalto', personas.recommended_wedge_persona)|first %}
+{% if wedge %}
+<section>
+  <h2>Wedge Persona</h2>
+  <div style="background:#ecfdf5;border-left:3px solid #10b981;padding:10px 14px;border-radius:4px">
+    <div style="font-size:11pt;font-weight:700;color:#065f46">{{ wedge.name }}</div>
+    <div style="font-size:9.5pt;color:#047857;margin-top:2px">{{ wedge.core_motivation }}</div>
+    <blockquote style="margin:6px 0;padding-left:10px;border-left:2px solid #10b981;font-style:italic;font-size:10pt;color:#065f46">"{{ wedge.winning_message }}"</blockquote>
+    <div style="font-size:9pt;color:#047857"><strong>Reach via:</strong> {{ wedge.best_channel }}</div>
+  </div>
+</section>
+{% endif %}
+{% endif %}
+
+<section>
+  <h2>Top Competitors</h2>
+  <ul class="competitors">
+    {% for c in (competitors or [])[:5] %}
+    <li>
+      <span>
+        <span class="name">{{ c.brand }}</span>
+        {% if c.relevance %}<span class="relevance rel-{{ c.relevance }}">{{ c.relevance }}</span>{% endif %}
+        <span style="color:#94a3b8;font-size:8.5pt">{{ c.domain or '' }}</span>
+      </span>
+      <span class="score-pill">{{ c.opportunity_score|default('?') }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+{% if financials and not financials.error %}
+<section>
+  <h2>3-Year Revenue Scenarios (Y3)</h2>
+  <div class="scenarios">
+    {% for label in ['conservative','base','aggressive'] %}
+    {% set s = financials.scenarios[label] %}
+    <div class="scenario">
+      <div class="label" style="color:{{ '#ef4444' if label == 'conservative' else ('#3b82f6' if label == 'base' else '#10b981') }}">{{ label }}</div>
+      <div class="y3">{{ format_currency(s.year_3.revenue_usd) }}</div>
+      <div class="sub">{{ s.year_3.customers }} customers · BE Y{{ s.break_even_year or '4+' }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if viability.recommended_next_steps %}
+<section>
+  <h2>Recommended Next Steps</h2>
+  <ol class="list">{% for s in viability.recommended_next_steps[:5] %}<li>{{ s }}</li>{% endfor %}</ol>
+</section>
+{% endif %}
+
+<footer>
+  Generated {{ generated_date }} · Pipeline {{ steps_completed|length }} steps · Job {{ job_id[:8] }} · <a href="/jobs/{{ job_id }}/report.html" style="color:#3b82f6">Full report</a>
+</footer>
+
+</div>
+</body>
+</html>

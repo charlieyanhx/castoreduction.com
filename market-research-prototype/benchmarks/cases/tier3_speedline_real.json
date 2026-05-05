@@ -1,0 +1,84 @@
+{
+  "_doc": "Tier-3 OOS: real venture (Speedline / Logifuture-class) — pricing optimization for shipping carriers and freight brokers. Strict OOS — venture and case constructed from public press only. This is INTENTIONALLY a vertical we have not yet tested: freight/logistics with a non-finance/non-engineering/non-marketing buyer (Director of Logistics).",
+  "_oos_tier": 3,
+  "_oos_provenance": "Real freight-tech category; analog comps Project44 + FourKites + Convoy aftermath",
+  "venture_under_test": {
+    "name": "FreightLane",
+    "description": "FreightLane is a B2B SaaS freight-pricing optimization and carrier-management platform for mid-market 3PLs (third-party logistics providers) and freight brokers managing 100-2000 truckload shipments per month. We bundle real-time carrier rate APIs from 50+ providers, contract management, fuel-surcharge tracking, and load-board automation. Pricing: $1,200/month base + 0.5% of total freight spend managed. Target buyer: Director of Logistics, VP of Operations, and Freight Procurement Manager at mid-market 3PL firms with $20M-$500M annual freight spend. Competes with Project44, FourKites, MercuryGate, BluJay (Kuebix), and McLeod Software. Differentiation: API-first carrier rate aggregation in <2 seconds (vs competitors' batch quote requests), contract auto-renewal alerts based on carrier on-time-delivery performance scores, and zero implementation services — fully self-serve onboarding.",
+    "category": "B2B SaaS freight/logistics tech for 3PLs and brokers",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "armstrong_3pl_market_2024",
+      "source": "Armstrong & Associates 3PL Market Report 2024",
+      "title": "US 3PL market sizing",
+      "url": "https://www.3plogistics.com/3pl-market-info-resources/3pl-market-information/",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "TAM / market sizing",
+      "claims": [
+        {"key": "us_3pl_market_2024_usd_b", "value": 320, "unit": "USD billion", "source_quote": "US 3PL gross revenue ~$320B in 2024"},
+        {"key": "us_freight_brokerage_2024_usd_b", "value": 95, "unit": "USD billion", "source_quote": "US freight brokerage segment ~$90-100B"},
+        {"key": "us_3pl_firms_count_k", "value": 18, "unit": "thousand firms", "source_quote": "approximately 18k licensed US freight brokers + 3PLs"}
+      ]
+    },
+    {
+      "id": "project44_funding_2022",
+      "source": "Project44 funding press 2022",
+      "title": "Project44 + FourKites scale (analog comps)",
+      "url": "https://www.project44.com/about",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale",
+      "claims": [
+        {"key": "project44_valuation_2022_usd_b", "value": 2.7, "unit": "USD billion", "source_quote": "Project44 valued at $2.7B in Series F (2022)"},
+        {"key": "project44_arr_estimate_2024_usd_m", "value": 200, "unit": "USD million ARR (estimate)", "source_quote": "Project44 estimated ~$200M ARR"},
+        {"key": "fourkites_arr_estimate_2024_usd_m", "value": 100, "unit": "USD million ARR (estimate)", "source_quote": "FourKites estimated ~$100M ARR"}
+      ]
+    },
+    {
+      "id": "convoy_shutdown_2023",
+      "source": "Convoy shutdown press (2023)",
+      "title": "Convoy shutdown — cautionary signal for freight-tech",
+      "url": "https://www.theinformation.com/articles/convoy-shutdown",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitive landscape",
+      "claims": [
+        {"key": "convoy_peak_valuation_2022_usd_b", "value": 3.8, "unit": "USD billion", "source_quote": "Convoy peaked at $3.8B valuation (2022) before shutdown (2023)"},
+        {"key": "convoy_signal", "value": "category-saturation-warning", "unit": "qualitative", "source_quote": "freight-tech market hit cyclical downturn; broker margins compressed"}
+      ]
+    },
+    {
+      "id": "global_freight_management_2024",
+      "source": "IDC / Statista freight management software",
+      "title": "Global freight management software market",
+      "url": "https://www.statista.com/topics/freight-management-software/",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "TAM",
+      "claims": [
+        {"key": "global_freight_mgmt_software_2024_usd_b", "value": 4.2, "unit": "USD billion", "source_quote": "global freight management software $3.5-5B in 2024"},
+        {"key": "us_share_pct", "value": 42, "unit": "%", "source_quote": "US share approximately 38-45%"},
+        {"key": "us_freight_mgmt_2024_usd_b", "value": 1.75, "unit": "USD billion (derived)", "source_quote": "Derived: 42% × $4.2B"},
+        {"key": "category_cagr_pct", "value": 9, "unit": "% CAGR", "source_quote": "CAGR 7-12% (mature category, post-Convoy shake-out)"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low":  300000000,
+    "tam_us_corporate_wellness_usd_mid":  1500000000,
+    "tam_us_corporate_wellness_usd_high": 4500000000,
+    "_tam_note": "Defensible US freight-mgmt scoping: narrow $0.3-0.8B (3PL+broker mid-market ICP slice), mid-narrow $1-2.5B (US freight-mgmt SaaS), broad $3-4.5B (US freight-mgmt + adjacent visibility platforms). Pipeline TAM mid acceptable in $0.3B-$4.5B range.",
+    "growth_cagr_pct_low": 5,
+    "growth_cagr_pct_high": 15,
+    "_cagr_note": "Freight-tech 7-12% CAGR (mature, post-Convoy contraction); subsegments 8-15%.",
+    "competitor_must_include": ["Project44", "FourKites", "MercuryGate", "BluJay", "McLeod"],
+    "_competitor_note": "5 named in description.",
+    "icp_employee_band": "100-2000",
+    "buyer_role_keywords": ["Director of Logistics", "VP Operations", "Freight Procurement", "Chief Logistics Officer", "Head of Logistics"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}

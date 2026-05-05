@@ -1,0 +1,83 @@
+{
+  "_doc": "Reference data for benchmarking the Castor pipeline against an AI-driven SOC / SIEM B2B SaaS venture.",
+  "venture_under_test": {
+    "name": "SentryOps",
+    "description": "SentryOps is a B2B SaaS Security Operations Center (SOC) platform combining SIEM + SOAR + threat-intel correlation, designed for security teams at companies with 500-5000 employees. We replace legacy Splunk / IBM QRadar deployments with an AI-first detection engine that auto-tunes correlation rules from your environment. Pricing is consumption-based at $0.40 per GB ingested + $80/seat/month for analyst access. Target buyer: CISO and Director of Security Operations. We compete with Splunk, IBM QRadar, Microsoft Sentinel, Palo Alto Cortex XSIAM, and SentinelOne Singularity. Differentiation: model-self-tunes against new attack patterns within 24h (no manual rule writing), pricing tied to outcomes (alert MTTR), and detection content built from CTI and MITRE ATT&CK rather than vendor signatures.",
+    "category": "B2B SaaS SOC / SIEM platform",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "gartner_mq_siem_2024",
+      "source": "Gartner",
+      "title": "Gartner Magic Quadrant for Security Information and Event Management 2024 (publicly cited summaries)",
+      "url": "https://www.gartner.com/en/documents/security-information-event-management",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitive landscape / market positioning",
+      "claims": [
+        {"key": "named_leaders_2024", "value": ["Splunk", "Microsoft", "IBM", "Securonix", "Exabeam"], "unit": "qualitative", "source_quote": "Leaders quadrant SIEM 2024"},
+        {"key": "challengers_2024", "value": ["LogRhythm", "Sumo Logic"], "unit": "qualitative", "source_quote": "Challengers quadrant"},
+        {"key": "visionaries_2024", "value": ["Devo", "Elastic", "Gurucul"], "unit": "qualitative", "source_quote": "Visionaries quadrant"}
+      ]
+    },
+    {
+      "id": "idc_security_market_2024",
+      "source": "IDC / Statista (publicly cited)",
+      "title": "Global cybersecurity software market sizing",
+      "url": "https://www.statista.com/topics/873/cybersecurity/",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "TAM / market sizing",
+      "claims": [
+        {"key": "global_cybersecurity_software_2024_usd_b", "value": 188, "unit": "USD billion", "source_quote": "global cybersecurity software market reached approximately $188B in 2024"},
+        {"key": "global_siem_segment_2024_usd_b", "value": 6.2, "unit": "USD billion", "source_quote": "SIEM subsegment estimated $5.5-7B (2024)"},
+        {"key": "global_soar_segment_2024_usd_b", "value": 1.6, "unit": "USD billion", "source_quote": "SOAR subsegment estimated $1.4-1.8B"},
+        {"key": "us_share_pct", "value": 45, "unit": "%", "source_quote": "US share of global cybersecurity ~40-50%"},
+        {"key": "us_siem_addressable_2024_usd_b", "value": 3.5, "unit": "USD billion (derived)", "source_quote": "Derived: 45% × ($6.2B SIEM + $1.6B SOAR)"}
+      ]
+    },
+    {
+      "id": "splunk_q4_2023_arr",
+      "source": "Cisco / Splunk SEC filings",
+      "title": "Splunk last public ARR before Cisco acquisition close",
+      "url": "https://investors.splunk.com/",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale / analog comp",
+      "claims": [
+        {"key": "splunk_arr_fy23_usd_b", "value": 3.65, "unit": "USD billion ARR", "source_quote": "Splunk FY23 cloud ARR ~$3.65B (Q4 FY23 earnings)"},
+        {"key": "splunk_customers_count", "value": 16000, "unit": "customers", "source_quote": "approximately 16,000 customers globally"},
+        {"key": "splunk_acquisition_value_usd_b", "value": 28, "unit": "USD billion", "source_quote": "Cisco acquired Splunk for $28B (March 2024)"}
+      ]
+    },
+    {
+      "id": "crowdstrike_q4_2024",
+      "source": "CrowdStrike Q4 FY2024 earnings",
+      "title": "CrowdStrike ARR and growth (analog comp)",
+      "url": "https://ir.crowdstrike.com/",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale / analog comp",
+      "claims": [
+        {"key": "crowdstrike_arr_fy24_usd_b", "value": 3.44, "unit": "USD billion", "source_quote": "CrowdStrike ending ARR FY24 = $3.44B"},
+        {"key": "crowdstrike_growth_pct", "value": 36, "unit": "% YoY", "source_quote": "ARR up 36% YoY"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low":  1000000000,
+    "tam_us_corporate_wellness_usd_mid":  4000000000,
+    "tam_us_corporate_wellness_usd_high": 12000000000,
+    "_tam_note": "Defensible US SOC/SIEM scoping: narrow $1-3B (US SIEM only / new entrant ICP-fit slice), mid-narrow $3-6B (US SIEM+SOAR), broad $8-12B (US incident-response + adjacent threat-intel). Pipeline TAM mid acceptable in $1B-$12B range.",
+    "growth_cagr_pct_low": 8,
+    "growth_cagr_pct_high": 25,
+    "_cagr_note": "SIEM legacy market trades 6-10% CAGR; AI-native subsegment 18-25%; cybersecurity overall ~12-15%.",
+    "competitor_must_include": ["Splunk", "Microsoft Sentinel", "Cortex", "SentinelOne", "QRadar"],
+    "_competitor_note": "Five named in description (Microsoft Sentinel matches 'Microsoft Sentinel'; Cortex matches 'Palo Alto Cortex XSIAM'; QRadar matches 'IBM QRadar').",
+    "icp_employee_band": "500-5000",
+    "buyer_role_keywords": ["CISO", "Chief Information Security Officer", "Director of Security", "Head of Security"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}

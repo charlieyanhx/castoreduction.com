@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Market Research Prototype</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<header>
+  <h1>Market Research Prototype</h1>
+  <p class="tag">Discover rising DTC brands · decode audience taste · match product ideas</p>
+</header>
+
+<main>
+  <section id="discover-panel" class="panel">
+    <h2>1 · Discover opportunities</h2>
+    <form id="discover-form">
+      <label>
+        Category
+        <input name="category" placeholder="e.g. protein bars, skincare, wireless earbuds" required minlength="2" />
+      </label>
+      <label>
+        Geo
+        <input name="geo" value="US" maxlength="2" />
+      </label>
+      <button type="submit">Discover</button>
+    </form>
+    <div id="discover-status" class="status"></div>
+    <div id="discover-results"></div>
+  </section>
+
+  <section id="taste-panel" class="panel">
+    <h2>2 · Decode audience taste</h2>
+    <form id="taste-form">
+      <label>Brand <input name="brand" placeholder="e.g. David Protein" required /></label>
+      <label>Domain <input name="domain" placeholder="e.g. davidprotein.com" required /></label>
+      <button type="submit">Decode</button>
+    </form>
+    <div id="taste-status" class="status"></div>
+    <div id="taste-results"></div>
+  </section>
+
+  <section id="match-panel" class="panel">
+    <h2>3 · Match a product idea</h2>
+    <form id="match-form">
+      <label>Product idea
+        <textarea name="idea" rows="3" placeholder="e.g. AI skincare routine builder for oily-skin millennials" required minlength="5"></textarea>
+      </label>
+      <label>Taste profile JSON
+        <textarea name="taste_profile" rows="5" placeholder='paste {"brand": ...} from step 2' required></textarea>
+      </label>
+      <button type="submit">Score match</button>
+    </form>
+    <div id="match-status" class="status"></div>
+    <div id="match-results"></div>
+  </section>
+
+  <section id="usage-panel" class="panel">
+    <h2>Session usage</h2>
+    <pre id="usage-display">loading…</pre>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>My Reports — Castor Research</title>
+<link rel="stylesheet" href="/web/app.css"/>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="/">
+    <span class="brand-mark">●</span>
+    <span class="brand-name">Castor Research</span>
+  </a>
+  <nav class="topnav">
+    <a href="/">New report</a>
+    <a href="/dashboard.html" class="active">My reports</a>
+    <a href="/" class="pill">+ New</a>
+  </nav>
+</header>
+
+<main class="dashboard">
+  <h1>My reports</h1>
+  <div class="muted" id="counts">Loading…</div>
+
+  <div class="dashboard-toolbar">
+    <input type="search" class="search" id="search" placeholder="Filter by idea name…"/>
+    <select class="filter" id="tier-filter">
+      <option value="">All tiers</option>
+      <option value="exceptional">Exceptional</option>
+      <option value="strong">Strong</option>
+      <option value="moderate">Moderate</option>
+      <option value="high-risk">High risk</option>
+    </select>
+  </div>
+
+  <div class="compare-bar" id="compare-bar" hidden>
+    <span id="compare-count">0 selected</span>
+    <button id="compare-btn">Compare side-by-side →</button>
+    <button id="clear-btn" style="background:transparent;border:1px solid #2a2f3d;color:#9ca3af">Clear</button>
+  </div>
+
+  <div id="table-wrap"></div>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const selected = new Set();
+
+async function load() {
+  const r = await fetch("/jobs?limit=200");
+  const all = await r.json();
+  const plans = all.filter(j => j.kind === "plan");
+  // Hydrate tier + viability for completed plans (single fetch each)
+  const enriched = await Promise.all(plans.map(async (j) => {
+    if (j.state !== "complete") return { ...j };
+    try {
+      const full = await (await fetch(`/jobs/${j.id}`)).json();
+      const v = (full.result || {}).viability || {};
+      const profile = (full.result || {}).profile || {};
+      return {
+        ...j,
+        viability_score: v.viability_score,
+        tier: v.tier || "unknown",
+        idea_name: profile.name || "(unnamed)",
+        idea_summary: profile.summary || "",
+      };
+    } catch {
+      return { ...j, idea_name: "(error loading)" };
+    }
+  }));
+  render(enriched);
+}
+
+function render(rows) {
+  const search = ($("#search").value || "").toLowerCase();
+  const tierF = $("#tier-filter").value;
+  const filtered = rows.filter(r => {
+    if (search && !(r.idea_name || "").toLowerCase().includes(search)) return false;
+    if (tierF && (r.tier || "").toLowerCase() !== tierF) return false;
+    return true;
+  });
+
+  $("#counts").textContent = `${filtered.length} of ${rows.length} reports`;
+
+  if (filtered.length === 0) {
+    $("#table-wrap").innerHTML = `<div class="empty">No reports yet. <a href="/" style="color:var(--accent)">Generate your first →</a></div>`;
+    return;
+  }
+
+  const html = `
+    <table class="report-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Idea</th>
+          <th>Tier</th>
+          <th>Viability</th>
+          <th>State</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${filtered.map(r => row(r)).join("")}
+      </tbody>
+    </table>
+  `;
+  $("#table-wrap").innerHTML = html;
+
+  // Wire up checkboxes + row clicks
+  document.querySelectorAll("input[data-id]").forEach(cb => {
+    cb.addEventListener("change", (e) => {
+      e.stopPropagation();
+      const id = cb.getAttribute("data-id");
+      if (cb.checked) selected.add(id); else selected.delete(id);
+      updateCompareBar();
+    });
+  });
+  document.querySelectorAll("tr[data-row-id]").forEach(tr => {
+    tr.addEventListener("click", (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "A") return;
+      const id = tr.getAttribute("data-row-id");
+      const state = tr.getAttribute("data-state");
+      window.location.href = state === "complete"
+        ? `/jobs/${id}/report.html`
+        : `/progress.html?job=${id}`;
+    });
+  });
+}
+
+function row(r) {
+  const tier = (r.tier || "unknown").toLowerCase().replace(/\s+/g, "-");
+  const score = r.viability_score != null ? r.viability_score : "—";
+  const date = new Date(r.created_at * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const isComplete = r.state === "complete";
+  return `
+    <tr data-row-id="${r.id}" data-state="${r.state}" style="cursor:pointer">
+      <td><input type="checkbox" data-id="${r.id}" ${isComplete ? "" : "disabled"}/></td>
+      <td>
+        <div class="idea">${escapeHtml(r.idea_name || "(unnamed)")}</div>
+        <div class="muted" style="font-size:11px">${escapeHtml((r.idea_summary || "").slice(0, 90))}${(r.idea_summary || "").length > 90 ? "…" : ""}</div>
+      </td>
+      <td>${isComplete ? `<span class="tier-pill ${tier}">${tier}</span>` : `<span class="muted">—</span>`}</td>
+      <td class="score-cell">${score}</td>
+      <td><span class="muted">${r.state}</span></td>
+      <td class="muted">${date}</td>
+      <td><a href="${isComplete ? `/jobs/${r.id}/report.html` : `/progress.html?job=${r.id}`}" style="color:var(--accent);font-size:12px">Open →</a></td>
+    </tr>
+  `;
+}
+
+function updateCompareBar() {
+  const bar = $("#compare-bar");
+  if (selected.size === 0) { bar.hidden = true; return; }
+  bar.hidden = false;
+  $("#compare-count").textContent = `${selected.size} selected`;
+}
+
+$("#compare-btn").addEventListener("click", () => {
+  if (selected.size < 2) { alert("Select 2 reports to compare."); return; }
+  const ids = Array.from(selected);
+  window.location.href = `/compare?left=${ids[0]}&right=${ids[1]}`;
+});
+$("#clear-btn").addEventListener("click", () => {
+  selected.clear();
+  document.querySelectorAll("input[data-id]:checked").forEach(c => c.checked = false);
+  updateCompareBar();
+});
+
+$("#search").addEventListener("input", () => load().catch(() => {}));
+$("#tier-filter").addEventListener("change", () => load().catch(() => {}));
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+load().catch(e => $("#table-wrap").innerHTML = `<div class="empty">Failed to load: ${e.message}</div>`);
+</script>
+</body>
+</html>

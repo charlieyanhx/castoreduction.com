@@ -1,0 +1,83 @@
+{
+  "_doc": "Tier-3 OOS: real venture (Clay Labs) — outbound prospecting / data-enrichment platform. Raised $46M Series B from Sequoia + First Round (mid-2024); valued ~$1.25B. Strict OOS — venture and case constructed from public press only.",
+  "_oos_tier": 3,
+  "_oos_provenance": "Clay Labs Series B announcement (Sequoia 2024); ProductHunt launch; G2 reviews",
+  "venture_under_test": {
+    "name": "Clay Labs",
+    "description": "Clay Labs is a B2B SaaS prospecting + data-enrichment platform combining 75+ data providers (Apollo, ZoomInfo, Clearbit, etc.) into a spreadsheet-like UI for revenue teams to build custom outbound campaigns. Target customers: B2B SaaS companies with 50-1000 employees running outbound sales. Pricing: $149-$800/month tiered by enrichment credits + per-seat. Target buyer: Director of Sales Development, RevOps Manager, and Growth Marketer. Competes with Apollo.io, ZoomInfo, Lusha, Cognism, and Outreach. Differentiation: spreadsheet-native workflow with formula-style logic combining multiple data providers in one row, AI-research agents that scrape websites + LinkedIn for non-templated personalization, and credit-based pricing (vs flat per-seat).",
+    "category": "B2B SaaS sales prospecting / data enrichment",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "clay_seriesb_2024",
+      "source": "Clay Labs Series B announcement (Sequoia + First Round)",
+      "title": "Clay Series B $46M (Aug 2024)",
+      "url": "https://www.clay.com/blog",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale",
+      "claims": [
+        {"key": "clay_seriesb_size_usd_m", "value": 46, "unit": "USD million", "source_quote": "Clay raised $46M Series B"},
+        {"key": "clay_valuation_2024_usd_b", "value": 1.25, "unit": "USD billion", "source_quote": "valued at ~$1.25B post-money"},
+        {"key": "clay_lead_investor", "value": "Sequoia + First Round", "unit": "qualitative", "source_quote": "led by Sequoia and First Round Capital"}
+      ]
+    },
+    {
+      "id": "zoominfo_q4_2024",
+      "source": "ZoomInfo Q4 2024 earnings",
+      "title": "ZoomInfo revenue + customer count (analog comp)",
+      "url": "https://ir.zoominfo.com/",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale",
+      "claims": [
+        {"key": "zoominfo_revenue_fy24_usd_b", "value": 1.21, "unit": "USD billion", "source_quote": "ZoomInfo total revenue FY24 ~$1.21B"},
+        {"key": "zoominfo_customers_count_k", "value": 35, "unit": "thousand customers", "source_quote": "approximately 35k customers"}
+      ]
+    },
+    {
+      "id": "apollo_growth_2024",
+      "source": "Apollo.io public press 2024",
+      "title": "Apollo.io scale (analog comp)",
+      "url": "https://www.apollo.io/about",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale",
+      "claims": [
+        {"key": "apollo_arr_estimate_2024_usd_m", "value": 250, "unit": "USD million ARR", "source_quote": "Apollo.io estimated ~$250M ARR (2024)"},
+        {"key": "apollo_users_count_m", "value": 3, "unit": "million users", "source_quote": "3M+ users on platform (PLG model)"}
+      ]
+    },
+    {
+      "id": "idc_sales_intel_2024",
+      "source": "IDC sales intelligence + B2B data market",
+      "title": "Sales intelligence + data enrichment market",
+      "url": "https://www.idc.com/sales-intelligence",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "TAM",
+      "claims": [
+        {"key": "global_sales_intel_2024_usd_b", "value": 4.5, "unit": "USD billion", "source_quote": "global sales intelligence + data enrichment $4-5B in 2024"},
+        {"key": "us_share_pct", "value": 60, "unit": "%", "source_quote": "US dominates ~55-65% of category"},
+        {"key": "us_sales_intel_2024_usd_b", "value": 2.7, "unit": "USD billion (derived)", "source_quote": "Derived: 60% × $4.5B"},
+        {"key": "category_cagr_pct", "value": 18, "unit": "% CAGR", "source_quote": "category CAGR 15-22%"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low":  500000000,
+    "tam_us_corporate_wellness_usd_mid":  2500000000,
+    "tam_us_corporate_wellness_usd_high": 8000000000,
+    "_tam_note": "Defensible US sales intel + enrichment scoping: narrow $0.5-1.5B (B2B SaaS midmarket ICP slice), mid-narrow $2-3.5B (US data-enrichment + sales intel), broad $5-8B (US sales-tech stack including engagement). Pipeline TAM mid acceptable in $0.5B-$8B range.",
+    "growth_cagr_pct_low": 10,
+    "growth_cagr_pct_high": 25,
+    "_cagr_note": "Sales intel/data-enrichment 15-22% CAGR; AI-personalization subsegment 18-25%.",
+    "competitor_must_include": ["Apollo", "ZoomInfo", "Lusha", "Cognism", "Outreach"],
+    "_competitor_note": "5 named in description.",
+    "icp_employee_band": "50-1000",
+    "buyer_role_keywords": ["Director of Sales Development", "RevOps", "Head of Sales", "VP Sales", "Growth Marketer"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}

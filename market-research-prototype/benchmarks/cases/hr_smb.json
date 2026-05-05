@@ -1,0 +1,65 @@
+{
+  "_doc": "Reference data for benchmarking the Castor pipeline against an SMB HRIS / payroll B2B SaaS venture.",
+  "venture_under_test": {
+    "name": "Workhive",
+    "description": "Workhive is a B2B SaaS HRIS and payroll platform for SMBs with 10-200 employees. We bundle payroll, benefits administration, time tracking, and onboarding in one product priced at $40/month base + $8/employee/month. Target buyer: founder-CEOs and Office Managers at SMBs without a dedicated HR function. We compete with Gusto, Rippling, BambooHR, Justworks, and ADP RUN. Differentiation: AI-driven onboarding flows, one-click multi-state tax registration, and a transparent flat-rate pricing model versus competitors' opaque per-feature add-ons.",
+    "category": "B2B SaaS HRIS / payroll for SMB",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "kff_ehbs_2024_smb",
+      "source": "Kaiser Family Foundation",
+      "title": "Employer Health Benefits Survey 2024 — small-firm sections",
+      "url": "https://www.kff.org/report-section/ehbs-2024-summary-of-findings/",
+      "fetched_date": "2026-04-29",
+      "publicly_accessible": true,
+      "domain": "SMB benefits adoption",
+      "claims": [
+        {"key": "small_firms_offering_health_benefits_pct", "value": 53, "unit": "%", "source_quote": "53% of small firms (3-199 workers) offer health benefits"},
+        {"key": "very_small_firms_offering_pct", "value": 41, "unit": "%", "source_quote": "41% of firms with 3-9 workers offer health benefits"}
+      ]
+    },
+    {
+      "id": "gusto_filings_2024",
+      "source": "Gusto private filings + press (publicly cited)",
+      "title": "Gusto customer count + revenue scale",
+      "url": "https://gusto.com/about",
+      "fetched_date": "2026-04-29",
+      "publicly_accessible": true,
+      "domain": "competitor scale / analog comp",
+      "claims": [
+        {"key": "gusto_customers_count_k", "value": 300, "unit": "thousand customers", "source_quote": "Gusto serves over 300,000 small businesses"},
+        {"key": "gusto_arr_estimate_usd_b", "value": 0.5, "unit": "USD billion ARR (estimate)", "source_quote": "estimated $500M ARR (2023 reports)"}
+      ]
+    },
+    {
+      "id": "us_smb_count_susb_2022",
+      "source": "US Census SUSB 2022",
+      "title": "US small-business firm counts by employee band",
+      "url": "https://www.census.gov/programs-surveys/susb.html",
+      "fetched_date": "2026-04-29",
+      "publicly_accessible": true,
+      "domain": "TAM / firm count",
+      "claims": [
+        {"key": "us_firms_10_to_99_employees_count_k", "value": 600, "unit": "thousand firms", "source_quote": "approximately 600k US firms with 10-99 employees"},
+        {"key": "us_firms_100_to_499_employees_count_k", "value": 90, "unit": "thousand firms", "source_quote": "approximately 90k US firms with 100-499 employees"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low": 3000000000,
+    "tam_us_corporate_wellness_usd_mid": 12000000000,
+    "tam_us_corporate_wellness_usd_high": 30000000000,
+    "_tam_note": "Defensible US SMB HRIS+payroll scoping: bottom-up 600k firms × $1k-3k ACV = $0.6-1.8B narrow band; with adjacencies $5-30B.",
+    "growth_cagr_pct_low": 5,
+    "growth_cagr_pct_high": 18,
+    "_cagr_note": "HRIS/payroll SaaS market trades 8-15% CAGR; SMB subsegment slightly higher with cloud migration.",
+    "competitor_must_include": ["Gusto", "Rippling", "BambooHR", "Justworks", "ADP"],
+    "_competitor_note": "Five named in description (ADP RUN matches 'ADP').",
+    "icp_employee_band": "10-200",
+    "buyer_role_keywords": ["founder", "CEO", "Office Manager", "HR", "people"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}

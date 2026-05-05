@@ -1,0 +1,44 @@
+requests>=2.31
+beautifulsoup4>=4.12
+pytrends>=4.9.2
+python-dotenv>=1.0
+lxml>=5.0
+fastapi>=0.110
+uvicorn>=0.29
+httpx>=0.27
+# Data & ML (open source)
+trafilatura>=2.0          # article extraction (replaces hand-rolled HTML stripper)
+ddgs>=8.0                 # DuckDuckGo Python API (replaces fragile HTML scrape)
+scikit-learn>=1.4         # K-Means + PCA for competitor clustering (spec step 3c)
+numpy>=1.26               # sklearn dependency + vector ops
+
+# Reliability
+tenacity>=8.0             # retry decorator (replaces hand-rolled retry loop in net.py)
+json-repair>=0.25         # salvage truncated/malformed LLM JSON output
+
+# Reporting + headless browser fallback
+jinja2>=3.1               # HTML report templating
+vaderSentiment>=3.3       # rule-based sentiment scoring on Reddit comments (no torch dep)
+
+# Iter 36 OSS upgrades
+fastembed>=0.8            # BAAI/bge-small-en-v1.5 semantic embeddings via ONNX (no torch dep)
+hdbscan>=0.8              # density-based clustering (no k required, handles noise)
+umap-learn>=0.5           # UMAP 2D projection for competitor maps (better local structure than PCA)
+instructor>=1.15          # structured-output Pydantic wrapper for LLM calls (reserved for follow-up adoption)
+diskcache>=5.6            # tested LRU/TTL cache (reserved — replaces our 40-line cache.py incrementally)
+extruct>=0.18             # structured-data extraction (JSON-LD, microdata) from competitor pages
+price-parser>=0.5         # robust price extraction from arbitrary HTML
+python-whois>=0.9         # domain age + registrar signals
+
+# Iter 38 scraping stack overhaul
+crawl4ai>=0.8             # browser pool + robots.txt + rate limit + markdown output
+requests-cache>=1.3       # SQLite-backed HTTP cache (auto-installed at app start)
+waybackpy>=3.0            # Wayback Machine fallback for timed-out sources
+selectolax>=0.4           # 5-25× faster HTML parsing than bs4 (used in hot paths)
+playwright>=1.40          # headless browser fallback for sites with JS challenges (Trustpilot AWS WAF)
+playwright-stealth>=1.0   # bypass bot detection on Trustpilot
+
+# LLM backends (install all; only one key needed)
+anthropic>=0.39
+groq>=0.9
+google-genai>=1.0

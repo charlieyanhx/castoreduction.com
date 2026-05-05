@@ -1,0 +1,74 @@
+{
+  "_doc": "Tier-3 OOS: real venture (Vanta) — automated security compliance / GRC platform. Raised $150M Series B (Sequoia, 2023) at $2.45B valuation. Strict OOS — venture and case constructed from public press only.",
+  "_oos_tier": 3,
+  "_oos_provenance": "Vanta Series B announcement Sequoia 2023; G2 reviews; Vanta blog public claims; Drata/Secureframe public funding rounds for analog comps",
+  "venture_under_test": {
+    "name": "Vanta",
+    "description": "Vanta is a B2B SaaS automated security compliance platform helping companies achieve and maintain SOC 2, ISO 27001, HIPAA, GDPR, and PCI compliance through continuous monitoring of their cloud infrastructure and processes. Target customers: Series A through pre-IPO B2B SaaS companies with 20-2000 employees pursuing enterprise sales that require compliance certifications. Pricing: $7,500-$50,000/year tiered by company size and number of frameworks. Target buyer: Head of Security, Chief Information Security Officer (CISO), or VP of Engineering at startups without a dedicated compliance team. Competes with Drata, Secureframe, Tugboat Logic, Hyperproof, and OneTrust. Differentiation: deepest pre-built control library (1,000+ controls vs competitors' 200-500), native auditor partnership network reduces audit cycle time 50%, and bundled vendor security review automation.",
+    "category": "B2B SaaS automated security compliance / GRC",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "vanta_seriesb_sequoia_2023",
+      "source": "Vanta press release / Sequoia announcement",
+      "title": "Vanta $150M Series B (Sequoia, 2023)",
+      "url": "https://www.vanta.com/resources/vanta-series-b",
+      "fetched_date": "2026-05-01",
+      "publicly_accessible": true,
+      "domain": "competitor scale / venture stage",
+      "claims": [
+        {"key": "vanta_seriesb_size_usd_m", "value": 150, "unit": "USD million", "source_quote": "Vanta raised $150M Series B"},
+        {"key": "vanta_valuation_2023_usd_b", "value": 2.45, "unit": "USD billion", "source_quote": "valued at $2.45B post-money"},
+        {"key": "vanta_lead_investor", "value": "Sequoia Capital", "unit": "qualitative", "source_quote": "led by Sequoia Capital"},
+        {"key": "vanta_customers_count_k", "value": 5, "unit": "thousand customers", "source_quote": "5,000+ customers globally (2023 disclosure)"}
+      ]
+    },
+    {
+      "id": "drata_funding_2023",
+      "source": "Drata public press 2023",
+      "title": "Drata Series C scale (analog comp)",
+      "url": "https://drata.com/blog",
+      "fetched_date": "2026-05-01",
+      "publicly_accessible": true,
+      "domain": "competitor scale",
+      "claims": [
+        {"key": "drata_seriesc_size_usd_m", "value": 200, "unit": "USD million", "source_quote": "Drata $200M Series C (2022)"},
+        {"key": "drata_valuation_2022_usd_b", "value": 2, "unit": "USD billion", "source_quote": "valued at $2B"},
+        {"key": "drata_customers_count_k", "value": 3, "unit": "thousand customers", "source_quote": "3,000+ customers (2023)"}
+      ]
+    },
+    {
+      "id": "global_grc_software_2024",
+      "source": "Gartner / Statista GRC software market",
+      "title": "Global GRC + compliance automation market sizing",
+      "url": "https://www.statista.com/topics/governance-risk-compliance/",
+      "fetched_date": "2026-05-01",
+      "publicly_accessible": true,
+      "domain": "TAM",
+      "claims": [
+        {"key": "global_grc_software_2024_usd_b", "value": 18, "unit": "USD billion", "source_quote": "global GRC software market $16-20B in 2024"},
+        {"key": "us_share_pct", "value": 50, "unit": "%", "source_quote": "US share approximately 45-55%"},
+        {"key": "us_grc_2024_usd_b", "value": 9, "unit": "USD billion (derived)", "source_quote": "Derived: 50% × $18B"},
+        {"key": "compliance_automation_subsegment_pct", "value": 25, "unit": "%", "source_quote": "compliance automation approximately 20-30% of category (newer subsegment)"},
+        {"key": "us_compliance_automation_2024_usd_b", "value": 2.25, "unit": "USD billion (derived)", "source_quote": "Derived: 25% × $9B"},
+        {"key": "category_cagr_pct", "value": 14, "unit": "% CAGR", "source_quote": "compliance automation 12-18% CAGR; broader GRC 8-12%"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low":  500000000,
+    "tam_us_corporate_wellness_usd_mid":  3000000000,
+    "tam_us_corporate_wellness_usd_high": 10000000000,
+    "_tam_note": "Defensible US compliance automation scoping: narrow $0.5-1.5B (startup/scaleup ICP slice), mid-narrow $1.5-3B (US compliance automation subsegment), broad $7-10B (US GRC + compliance + risk management total). Pipeline TAM mid acceptable in $0.5B-$10B range.",
+    "growth_cagr_pct_low": 8,
+    "growth_cagr_pct_high": 22,
+    "_cagr_note": "Compliance automation 12-18% CAGR; AI-driven subsegment 18-22%.",
+    "competitor_must_include": ["Drata", "Secureframe", "Tugboat Logic", "Hyperproof", "OneTrust"],
+    "_competitor_note": "5 named in description.",
+    "icp_employee_band": "20-2000",
+    "buyer_role_keywords": ["CISO", "Head of Security", "VP Engineering", "Security Lead", "Compliance Manager"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}

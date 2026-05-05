@@ -1,0 +1,1345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Market Research Report — {{ profile.name or 'Untitled' }}</title>
+<style>
+@page { size: letter; margin: 0.75in; @bottom-right { content: counter(page) " / " counter(pages); font-size: 9pt; color: #6b7280; } }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; color: #1f2937; line-height: 1.55; max-width: 720px; margin: 40px auto; padding: 0 30px; font-size: 14px; }
+.cover { page-break-after: always; padding: 80px 0; }
+.cover .label { font-size: 10pt; letter-spacing: 0.18em; text-transform: uppercase; color: #6b7280; }
+.cover h1 { font-size: 36pt; font-weight: 700; color: #0f172a; margin: 16px 0 8px; line-height: 1.15; }
+.cover .subtitle { font-size: 14pt; color: #4b5563; font-weight: 400; }
+.cover .meta { margin-top: 80px; font-size: 10pt; color: #6b7280; }
+.cover .meta strong { color: #1f2937; }
+
+.viability-hero { display: flex; align-items: center; gap: 30px; padding: 24px; background: #f9fafb; border-radius: 12px; margin: 30px 0; border-left: 6px solid {{ viability_color }}; }
+.viability-hero .score { font-size: 64pt; font-weight: 800; color: {{ viability_color }}; line-height: 1; }
+.viability-hero .label { font-size: 9pt; text-transform: uppercase; letter-spacing: 0.12em; color: #6b7280; }
+.viability-hero .tier { font-size: 12pt; font-weight: 600; text-transform: uppercase; color: {{ viability_color }}; margin-top: 4px; }
+.viability-hero .headline { font-size: 16pt; font-weight: 600; color: #0f172a; margin-top: 8px; }
+
+h2 { font-size: 18pt; color: #0f172a; margin-top: 36px; padding-bottom: 6px; border-bottom: 2px solid #e5e7eb; }
+h3 { font-size: 13pt; color: #1f2937; margin-top: 22px; }
+
+.exec-summary { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 18px 22px; border-radius: 6px; margin: 20px 0; }
+.exec-summary h2 { color: #78350f; border: none; padding: 0; margin: 0 0 8px; font-size: 12pt; text-transform: uppercase; letter-spacing: 0.08em; }
+.exec-summary ul { margin: 0; padding-left: 22px; }
+.exec-summary li { margin: 6px 0; color: #422006; font-size: 11.5pt; }
+
+.method-box { background: #f3f4f6; border: 1px solid #e5e7eb; padding: 12px 18px; border-radius: 6px; margin: 16px 0; font-size: 10.5pt; color: #4b5563; }
+.method-box strong { color: #1f2937; }
+
+.p-section { margin: 22px 0; padding: 20px 24px; border-radius: 8px; page-break-inside: avoid; }
+.p-section.product { background: #eff6ff; border-left: 4px solid #2563eb; }
+.p-section.price { background: #ecfdf5; border-left: 4px solid #10b981; }
+.p-section.place { background: #f5f3ff; border-left: 4px solid #7c3aed; }
+.p-section.promotion { background: #fef3c7; border-left: 4px solid #f59e0b; }
+.p-section h3 { margin: 0 0 10px; color: #0f172a; font-size: 14pt; text-transform: uppercase; letter-spacing: 0.06em; }
+.p-section .narrative { color: #1f2937; }
+.p-section .takeaways { margin-top: 14px; padding: 10px 16px; background: rgba(255,255,255,0.6); border-radius: 4px; }
+.p-section .takeaways .label { font-size: 9pt; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #4b5563; }
+.p-section .takeaways ul { margin: 4px 0 0; padding-left: 20px; }
+.p-section .takeaways li { font-size: 11pt; margin: 3px 0; }
+
+.split { display: flex; gap: 16px; margin: 16px 0; }
+.split > div { flex: 1; padding: 14px 18px; border-radius: 6px; }
+.split .strengths { background: #ecfdf5; border-left: 3px solid #10b981; }
+.split .risks { background: #fef2f2; border-left: 3px solid #ef4444; }
+.split h4 { margin: 0 0 6px; font-size: 10pt; text-transform: uppercase; letter-spacing: 0.08em; }
+.split .strengths h4 { color: #047857; } .split .risks h4 { color: #b91c1c; }
+.split ul { margin: 0; padding-left: 18px; font-size: 11pt; }
+
+.competitors { margin-top: 20px; }
+.comp-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid #e5e7eb; font-size: 11pt; }
+.comp-row .rank { width: 22px; height: 22px; border-radius: 50%; background: #1f2937; color: #fff; font-weight: 700; font-size: 10pt; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.comp-row .brand { flex: 1; font-weight: 600; color: #0f172a; }
+.comp-row .domain { color: #6b7280; font-size: 10pt; }
+.comp-row .score { font-weight: 700; color: #2563eb; min-width: 50px; text-align: right; }
+
+.pricing-tiers { display: flex; gap: 12px; margin: 14px 0; }
+.tier-card { flex: 1; padding: 14px; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; }
+.tier-card .name { font-size: 10pt; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; }
+.tier-card .price { font-size: 22pt; font-weight: 700; color: #10b981; margin: 4px 0; }
+.tier-card .for-whom { font-size: 10pt; color: #4b5563; }
+
+sup { color: #2563eb; font-weight: 600; cursor: pointer; }
+
+.citations { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 10pt; color: #4b5563; }
+.citations h2 { font-size: 12pt; color: #1f2937; border: none; padding: 0; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+.citations ol { padding-left: 22px; }
+.citations li { margin: 4px 0; }
+.citations .source { color: #2563eb; font-weight: 600; }
+
+.flags { background: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 18px; border-radius: 4px; margin: 16px 0; }
+.flags .label { font-size: 10pt; font-weight: 700; color: #b91c1c; text-transform: uppercase; }
+.flags ul { margin: 4px 0 0; padding-left: 18px; font-size: 10.5pt; color: #991b1b; }
+
+footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 9pt; color: #9ca3af; text-align: center; }
+
+@media print {
+  body { margin: 0; padding: 0; max-width: none; }
+  .no-print { display: none; }
+  .p-section, .split, .viability-hero { break-inside: avoid; }
+}
+.print-bar { position: sticky; top: 0; background: #1f2937; color: white; padding: 10px 20px; text-align: center; font-size: 12px; }
+.print-bar a { color: #93c5fd; margin-left: 12px; }
+</style>
+</head>
+<body>
+
+<!-- Iter 37: product chrome (KPI strip + action bar). Hidden in print. -->
+<div class="no-print" style="background:rgba(10,12,16,0.97);backdrop-filter:blur(8px);border-bottom:1px solid #1e2330;padding:14px 24px;color:#e4e4e7;font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;position:sticky;top:0;z-index:40">
+  <div style="max-width:1180px;margin:0 auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <a href="/" style="color:#3b82f6;text-decoration:none;font-weight:700;font-size:15px">● Castor Research</a>
+        <span style="color:#4b5563">/</span>
+        <span style="color:#fff;font-weight:600;font-size:15px">{{ profile.name or 'Untitled' }}</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a href="/jobs/{{ job_id }}/report.pdf" style="background:#12151c;border:1px solid #2a2f3d;color:#e4e4e7;padding:7px 14px;border-radius:7px;font-size:13px;text-decoration:none">📄 Download PDF</a>
+        <a href="/jobs/{{ job_id }}/onepager.html" style="background:#12151c;border:1px solid #2a2f3d;color:#e4e4e7;padding:7px 14px;border-radius:7px;font-size:13px;text-decoration:none">📋 One-pager</a>
+        <a href="/dashboard.html" style="background:#12151c;border:1px solid #2a2f3d;color:#e4e4e7;padding:7px 14px;border-radius:7px;font-size:13px;text-decoration:none">My reports</a>
+        <a href="/" style="background:#3b82f6;border:1px solid #3b82f6;color:#fff;padding:7px 14px;border-radius:7px;font-size:13px;text-decoration:none">+ New report</a>
+      </div>
+    </div>
+    {% if profile.summary %}
+    <div style="color:#9ca3af;font-size:13px;margin-bottom:12px;max-width:900px">{{ profile.summary }}</div>
+    {% endif %}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+      <div style="background:#12151c;border:1px solid #1e2330;border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6b7280">Viability</div>
+        <div style="font-size:20px;font-weight:700;color:#fff;font-variant-numeric:tabular-nums">{{ viability.viability_score or '—' }}<span style="font-size:11px;color:#6b7280;font-weight:400">/100</span></div>
+        <div style="font-size:11px;color:#9ca3af">{{ viability.tier or '' }}</div>
+      </div>
+      <div style="background:#12151c;border:1px solid #1e2330;border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6b7280">Confidence</div>
+        <div style="font-size:20px;font-weight:700;color:#fff">{{ viability.confidence_in_score or '—' }}</div>
+        <div style="font-size:11px;color:#9ca3af">in score</div>
+      </div>
+      {% if market_sizing and market_sizing.tam and market_sizing.tam.mid %}
+      <div style="background:#12151c;border:1px solid #1e2330;border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6b7280">TAM (mid)</div>
+        <div style="font-size:20px;font-weight:700;color:#fff;font-variant-numeric:tabular-nums">{{ format_currency(market_sizing.tam.mid) }}</div>
+        <div style="font-size:11px;color:#9ca3af">market size</div>
+      </div>
+      {% endif %}
+      {% if personas and personas.recommended_wedge_persona %}
+      {% set wp_id = personas.recommended_wedge_persona %}
+      {% set wp = none %}
+      {% for p in personas.personas %}{% if p.id == wp_id %}{% set wp = p %}{% endif %}{% endfor %}
+      {% if wp %}
+      <div style="background:#12151c;border:1px solid #1e2330;border-radius:8px;padding:10px 14px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6b7280">Wedge persona</div>
+        <div style="font-size:14px;font-weight:700;color:#fff;line-height:1.2;margin-top:2px">{{ wp.name }}</div>
+        <div style="font-size:11px;color:#10b981">⭐ recommended</div>
+      </div>
+      {% endif %}
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- COVER -->
+<div class="cover">
+  <div class="label">Market Research Report</div>
+  <h1>{{ profile.name or 'Untitled Venture' }}</h1>
+  <div class="subtitle">{{ profile.summary or '' }}</div>
+  <div class="meta">
+    <p><strong>Category:</strong> {{ profile.category or 'unknown' }}</p>
+    <p><strong>Geography:</strong> {{ profile.geography or 'US' }}</p>
+    <p><strong>Business model:</strong> {{ profile.business_model or 'unknown' }}</p>
+    <p><strong>Generated:</strong> {{ generated_date }}</p>
+    <p><strong>Pipeline:</strong> {{ steps_completed|length }} steps completed ({{ ', '.join(steps_completed) }})</p>
+  </div>
+</div>
+
+<!-- VIABILITY HERO -->
+<div class="viability-hero">
+  <div>
+    <div class="label">Viability Score</div>
+    <div class="score">{{ viability.viability_score or '?' }}<span style="font-size:18pt;color:#9ca3af">/100</span></div>
+    <div class="tier">{{ viability.tier or 'unrated' }}</div>
+  </div>
+  <div style="flex:1">
+    {% if viability.headline %}<div class="headline">{{ viability.headline }}</div>{% endif %}
+    {% if viability.summary %}<p style="margin-top:6px;font-size:11pt;color:#374151">{{ viability.summary }}</p>{% endif %}
+    <p style="margin-top:8px;font-size:9pt;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em">
+      Confidence: <strong style="color:#1f2937">{{ viability.confidence_in_score or 'unknown' }}</strong>
+    </p>
+  </div>
+</div>
+
+<!-- ITER 40: Per-dimension viability score breakdown — explains the composite -->
+{% if viability.score_composition %}
+<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 18px;margin:14px 0">
+  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;margin-bottom:8px">How the viability score breaks down — 5 dimensions, weighted to {{ viability.viability_score }}/100</div>
+  <table style="width:100%;font-size:11pt;border-collapse:collapse">
+    <thead>
+      <tr style="border-bottom:1px solid #e5e7eb">
+        <th style="text-align:left;padding:6px 4px;color:#6b7280;font-weight:600;font-size:10pt">Dimension</th>
+        <th style="text-align:right;padding:6px 4px;color:#6b7280;font-weight:600;font-size:10pt">Raw 1-100</th>
+        <th style="text-align:right;padding:6px 4px;color:#6b7280;font-weight:600;font-size:10pt">Weight</th>
+        <th style="text-align:right;padding:6px 4px;color:#6b7280;font-weight:600;font-size:10pt">Contribution</th>
+        <th style="text-align:left;padding:6px 4px;color:#6b7280;font-weight:600;font-size:10pt">Reasoning</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for c in viability.score_composition %}
+      {% set raw_color = '#10b981' if c.raw >= 70 else '#f59e0b' if c.raw >= 40 else '#ef4444' %}
+      <tr style="border-bottom:1px solid #f3f4f6">
+        <td style="padding:8px 4px;font-weight:600;color:#1f2937">{{ c.dimension|replace('_', ' ')|title }}</td>
+        <td style="padding:8px 4px;text-align:right;color:{{ raw_color }};font-weight:700;font-variant-numeric:tabular-nums">{{ c.raw }}</td>
+        <td style="padding:8px 4px;text-align:right;color:#6b7280;font-variant-numeric:tabular-nums">{{ "%.0f%%"|format(c.weight*100) }}</td>
+        <td style="padding:8px 4px;text-align:right;color:#1f2937;font-variant-numeric:tabular-nums">{{ "%.1f"|format(c.contribution) }}</td>
+        <td style="padding:8px 4px;color:#4b5563;font-size:10pt">{{ c.reasoning }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- ITER 40 (#3c): Cannot-decode audience flag — honest visibility into what we tried but couldn't decode -->
+{% if audiences_undecodable %}
+<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin:12px 0">
+  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#92400e;margin-bottom:6px">⚠ Audience could not be decoded for {{ audiences_undecodable|length }} brand(s)</div>
+  {% for u in audiences_undecodable %}
+  <div style="font-size:11pt;color:#1f2937;margin-top:4px"><strong>{{ u.brand }}</strong> — {{ u.reason }}</div>
+  {% endfor %}
+  <div style="font-size:9pt;color:#92400e;margin-top:6px">These brands were skipped from persona synthesis. Personas reflect the {{ (audiences|length) if audiences else 0 }} brand(s) where signal was sufficient.</div>
+</div>
+{% endif %}
+
+<!-- DELTAS VS PREVIOUS RUN -->
+{# cycle25: deltas previously framed as "Changes since last run" — but the matching
+   logic only fires when the input description is BYTE-IDENTICAL to a prior run, so
+   any "change" is actually LLM run-to-run variance, not real movement. Reframe as
+   a stability/variance check, with a clear caveat. #}
+{% if deltas %}
+<details style="background:#f9fafb;border:1px solid #e5e7eb;padding:8px 14px;border-radius:4px;margin:16px 0;font-size:10pt;color:#4b5563">
+  <summary style="cursor:pointer;font-weight:600;color:#6b7280">
+    🔁 Stability check — same input run again
+    {% if deltas.viability_direction == 'up' %}<span style="color:#10b981">(viability ▲ +{{ deltas.viability_delta }})</span>
+    {% elif deltas.viability_direction == 'down' %}<span style="color:#ef4444">(viability ▼ {{ deltas.viability_delta }})</span>
+    {% else %}<span style="color:#9ca3af">(viability flat)</span>{% endif %}
+  </summary>
+  <div style="margin-top:8px;color:#6b7280;font-size:9pt;font-style:italic">
+    Same description was run before (same input → re-sampled LLM output). Numbers below
+    measure run-to-run variance, NOT real change. Expect ±5 viability points and ±30%
+    TAM swing as model noise; bigger swings suggest the input is genuinely ambiguous.
+  </div>
+  <div style="margin-top:8px">
+    <strong>Viability:</strong> {{ deltas.previous_score }} → {{ deltas.current_score }}
+    {% if deltas.tam_change_pct is not none %}· <strong>TAM swing:</strong> {{ '+' if deltas.tam_change_pct > 0 else '' }}{{ deltas.tam_change_pct }}%{% endif %}
+  </div>
+  {% if deltas.new_competitors %}<div style="margin-top:4px"><strong>Competitors added this run:</strong> {{ deltas.new_competitors|join(', ') }}</div>{% endif %}
+  {% if deltas.dropped_competitors %}<div style="margin-top:4px"><strong>Competitors dropped this run:</strong> {{ deltas.dropped_competitors|join(', ') }}</div>{% endif %}
+  {% if deltas.score_changes %}<div style="margin-top:4px"><strong>Per-competitor score variance:</strong>
+    {% for c in deltas.score_changes %}{{ c.brand }} {{ '▲' if c.delta > 0 else '▼' }}{{ c.delta }}{% if not loop.last %}, {% endif %}{% endfor %}
+  </div>{% endif %}
+</details>
+{% endif %}
+
+<!-- ITER 36: TABLE OF CONTENTS (clickable navigation) -->
+<div class="no-print" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px;margin:16px 0;font-size:10pt">
+  <strong style="text-transform:uppercase;letter-spacing:.05em;color:#4b5563;font-size:9pt">Jump to</strong>
+  <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:10px 16px;color:#2563eb">
+    <a href="#executive-summary" style="color:inherit">Executive summary</a> ·
+    <a href="#differentiators" style="color:inherit">Differentiators</a> ·
+    <a href="#customer-universe" style="color:inherit">Customer universe</a> ·
+    <a href="#segment-ranking" style="color:inherit">Segment prioritization</a> ·
+    <a href="#competitive-landscape" style="color:inherit">Competitive landscape</a> ·
+    <a href="#features" style="color:inherit">Features</a> ·
+    <a href="#audiences" style="color:inherit">Audiences</a> ·
+    <a href="#pricing" style="color:inherit">Pricing</a> ·
+    <a href="#economics" style="color:inherit">Unit economics</a> ·
+    <a href="#sensitivity" style="color:inherit">Sensitivity</a> ·
+    <a href="#macro-anchors" style="color:inherit">Macro anchors</a> ·
+    <a href="#methodology" style="color:inherit">Methodology</a> ·
+    <a href="#citations" style="color:inherit">Citations</a>
+  </div>
+</div>
+
+<!-- VALIDATION FLAGS -->
+{% if validation.flags %}
+<div class="flags">
+  <div class="label">⚠ Validation flags · Pipeline confidence {{ (validation.confidence_score * 100)|round|int }}%</div>
+  <ul>
+    {% for f in validation.flags %}<li>{{ f }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<!-- METHODOLOGY -->
+<div class="method-box">
+  <strong>Methodology:</strong> Pipeline ran {{ steps_completed|length }} steps. LLM used for profile extraction, brand discovery, taste decoding, Max-Diff, PSM simulation, channel recommendation, 4Ps synthesis, and viability scoring. All quantitative claims anchored to observable signals — see citations.
+
+  <div style="margin-top:10px;font-size:9pt">
+    <strong>Data sources used in this report:</strong>
+    {% for source, fired in sources_used.items() %}
+      {% if fired %}<span style="color:#10b981;margin-right:6px">✓ {{ source.replace('_', ' ') }}</span>{% else %}<span style="color:#9ca3af;margin-right:6px;text-decoration:line-through">{{ source.replace('_', ' ') }}</span>{% endif %}
+    {% endfor %}
+  </div>
+
+  {% if competitor_pricing and competitor_pricing.category_median %}
+  <div style="margin-top:8px;font-size:9pt;color:#4b5563">
+    <strong>Pricing anchor:</strong> Scraped from {{ competitor_pricing.competitors_with_prices }} competitor homepages — category median ${{ competitor_pricing.category_median }}, range ${{ competitor_pricing.category_range[0] }}–${{ competitor_pricing.category_range[1] }}
+  </div>
+  {% endif %}
+</div>
+
+<!-- EXECUTIVE SUMMARY -->
+{% if four_ps.executive_summary %}
+<div class="exec-summary">
+  <h2 id="executive-summary">Executive Summary</h2>
+  {# Iter 42 (issue 1): summary now contains <strong> HTML, render with safe.
+     Split on " <strong>" boundary so each P shows on its own line. #}
+  {% if four_ps.executive_summary is string %}
+    {% set raw = four_ps.executive_summary %}
+    {# Split on the <strong> boundary marker; first chunk is empty so skip it. #}
+    {% set parts = raw.split(' <strong>') %}
+    <ul>
+    {% for part in parts %}
+      {% if part.strip() %}
+      <li style="margin-bottom:8px">{% if not loop.first %}<strong>{% endif %}{{ part | safe }}</li>
+      {% endif %}
+    {% endfor %}
+    </ul>
+  {% else %}
+    <ul>
+    {% for bullet in four_ps.executive_summary %}<li>{{ bullet | safe }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- TARGET PERSONAS -->
+{% if personas and not personas.error and personas.personas %}
+<h2>Target Personas</h2>
+<p style="font-size:11pt;color:#4b5563">Decoded from {{ personas.personas_count }} distinct buyer segments across {{ audiences|length if audiences else 1 }} competitor brands.
+{% if personas.recommended_wedge_persona %} Recommended wedge: <strong style="color:#10b981">{{ personas.recommended_wedge_persona }}</strong>.{% endif %}</p>
+
+<div style="display:grid;grid-template-columns:repeat({{ personas.personas|length }}, 1fr);gap:10px;margin:14px 0">
+  {% for p in personas.personas %}
+  {% set is_wedge = (p.id == personas.recommended_wedge_persona) %}
+  <div style="background:#fff;border:{{ '3px' if is_wedge else '1px' }} solid {{ '#10b981' if is_wedge else '#e5e7eb' }};border-radius:8px;padding:14px;position:relative">
+    {% if is_wedge %}<div style="position:absolute;top:-10px;right:10px;background:#10b981;color:#fff;font-size:8pt;padding:2px 8px;border-radius:4px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">⭐ Wedge</div>{% endif %}
+    <div style="font-size:9pt;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;font-weight:600">{{ p.id }} · {{ p.size_estimate or 'unknown size' }}</div>
+    <div style="font-size:14pt;font-weight:700;color:#0f172a;margin:4px 0">{{ p.name }}</div>
+    <div style="font-size:9pt;color:#9ca3af;margin-bottom:6px">Wedge attractiveness: <strong style="color:#1f2937">{{ p.attractiveness_for_wedge }}/100</strong></div>
+    {% if p.core_motivation %}<div style="font-size:10pt;margin-top:8px"><strong>Motivation:</strong> {{ p.core_motivation }}</div>{% endif %}
+    {% if p.key_pain %}<div style="font-size:10pt;margin-top:6px"><strong>Key pain:</strong> {{ p.key_pain }}</div>{% endif %}
+    {% if p.winning_message %}<blockquote style="border-left:3px solid #f59e0b;padding-left:8px;margin:8px 0;font-style:italic;color:#374151;font-size:10pt">{{ p.winning_message }}</blockquote>{% endif %}
+    {% if p.best_channel %}<div style="font-size:9pt;color:#6b7280"><strong>Reach via:</strong> {{ p.best_channel }}</div>{% endif %}
+    {% if not (p.core_motivation or p.key_pain or p.winning_message or p.best_channel) %}<div style="font-size:9pt;color:#92400e;font-style:italic">Persona detail incomplete — LLM produced only the name. Try regenerating or expand the input audience data.</div>{% endif %}
+    {% if p.what_makes_them_different and personas.personas|length > 1 %}
+    <div style="font-size:9pt;color:#6b7280;margin-top:6px;padding-top:6px;border-top:1px solid #f3f4f6"><em>vs others:</em> {{ p.what_makes_them_different }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+{% if personas.wedge_reasoning %}
+<div style="background:#ecfdf5;border-left:3px solid #10b981;padding:10px 14px;border-radius:4px;font-size:10pt;color:#065f46;margin-bottom:12px">
+  <strong>Why {{ personas.recommended_wedge_persona }} is the recommended wedge:</strong> {{ personas.wedge_reasoning }}
+</div>
+{% endif %}
+{% endif %}
+
+<!-- STRENGTHS / RISKS -->
+{% if viability.strengths or viability.risks %}
+<div class="split">
+  <div class="strengths">
+    <h4>Strengths</h4>
+    <ul>{% for s in viability.strengths or [] %}<li>{{ s }}</li>{% endfor %}</ul>
+  </div>
+  <div class="risks">
+    <h4>Risks</h4>
+    <ul>{% for r in viability.risks or [] %}<li>
+      {% if r is mapping %}
+        <strong>{{ r.risk or r.text or '' }}</strong>
+        {% if r.likelihood or r.impact %}
+        <span style="display:inline-block;margin-left:6px;font-size:9pt;color:#6b7280">
+          [likelihood: <strong>{{ r.likelihood or '?' }}</strong> · impact: <strong>{{ r.impact or '?' }}</strong>]
+        </span>
+        {% endif %}
+      {% else %}{{ r }}{% endif %}
+    </li>{% endfor %}</ul>
+  </div>
+</div>
+{% endif %}
+
+<!-- ITER 39: Kill criteria + regulatory considerations -->
+{% if viability.kill_criteria or viability.regulatory_considerations %}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0">
+  {% if viability.kill_criteria %}
+  <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:14px">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#dc2626;margin-bottom:8px">Kill criteria — what would change my mind?</div>
+    <ul style="margin:0;padding-left:18px;font-size:11pt;color:#1f2937">
+    {% for k in viability.kill_criteria %}<li>{{ k }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  {% if viability.regulatory_considerations %}
+  <div style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:14px">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#b45309;margin-bottom:8px">Regulatory considerations</div>
+    <div style="font-size:11pt;color:#1f2937">{{ viability.regulatory_considerations }}</div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- MARKET SIZING (TAM/SAM/SOM) -->
+{% if market_sizing and not market_sizing.error %}
+<h2>Market Size</h2>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:14px 0">
+  {% for key, label in [('tam','TAM'), ('sam','SAM'), ('som','SOM')] %}
+  {% set m = market_sizing[key] %}
+  {% if m %}
+  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px">
+    <div style="font-size:9pt;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;font-weight:600">{{ label }}</div>
+    <div style="font-size:10pt;color:#9ca3af">{{ m.label or label }}</div>
+    {# cycle22: guard against missing mid/low/high — som sometimes truncates #}
+    {% if m.get('mid') is not none %}
+    <div style="font-size:24pt;font-weight:700;color:#1f2937;margin:6px 0">{{ format_currency(m.mid) }}</div>
+    <div style="font-size:9pt;color:#6b7280">Range: {{ format_currency(m.low) }} – {{ format_currency(m.high) }}</div>
+    {% else %}
+    <div style="font-size:14pt;color:#9ca3af;margin:6px 0;font-style:italic">— not estimated</div>
+    {% endif %}
+    <div style="font-size:9pt;color:#9ca3af;margin-top:6px">{{ m.unit or '' }}</div>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+<!-- Iter 42 (issue 4): triangulated TAM via 3 methods + serviceability waterfall + analog SOM anchor -->
+{% set tam = market_sizing.tam %}
+{% if tam and (tam.method_top_down or tam.method_bottom_up or tam.method_analog) %}
+<h3 style="margin-top:14px">TAM Triangulation — 3 Independent Methods</h3>
+<table style="width:100%;border-collapse:collapse;font-size:10pt;margin-top:8px">
+  <thead style="background:#f3f4f6">
+    <tr>
+      <th style="text-align:left;padding:8px;border:1px solid #e5e7eb">Method</th>
+      <th style="text-align:right;padding:8px;border:1px solid #e5e7eb">TAM</th>
+      <th style="text-align:left;padding:8px;border:1px solid #e5e7eb">Calculation</th>
+      <th style="text-align:left;padding:8px;border:1px solid #e5e7eb">Source</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for label, m in [('Top-down (industry report)', tam.method_top_down), ('Bottom-up (firm count × ACV)', tam.method_bottom_up), ('Analog (comparable\'s implied TAM)', tam.method_analog)] %}
+    {% if m %}
+    <tr>
+      <td style="padding:8px;border:1px solid #e5e7eb;font-weight:600">{{ label }}</td>
+      <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;font-variant-numeric:tabular-nums">{{ format_currency(m.value_usd) }}</td>
+      <td style="padding:8px;border:1px solid #e5e7eb">{{ m.calculation }}</td>
+      <td style="padding:8px;border:1px solid #e5e7eb;font-size:9pt;color:#4b5563">{{ m.source }}</td>
+    </tr>
+    {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+{% if tam.reconciliation %}
+<p style="font-size:10pt;color:#4b5563;margin-top:8px"><strong>Reconciliation:</strong> {{ tam.reconciliation }}</p>
+{% endif %}
+{% else %}
+<div style="background:#f9fafb;border-radius:6px;padding:12px;font-size:10pt;color:#4b5563;margin-bottom:8px">
+  {% if market_sizing.tam %}<div><strong>TAM math:</strong> {{ market_sizing.tam.calculation or '' }}</div>{% endif %}
+  {% if market_sizing.sam %}<div style="margin-top:6px"><strong>SAM math:</strong> {{ market_sizing.sam.calculation or '' }}</div>{% endif %}
+  {% if market_sizing.som %}<div style="margin-top:6px"><strong>SOM math:</strong> {{ market_sizing.som.calculation or '' }}</div>{% endif %}
+</div>
+{% endif %}
+
+{% if market_sizing.sam and market_sizing.sam.serviceability_waterfall %}
+<div style="background:#eef2ff;border-left:3px solid #3730a3;padding:10px 14px;font-size:10pt;color:#1f2937;margin:10px 0">
+  <strong>SAM serviceability waterfall:</strong> {{ market_sizing.sam.serviceability_waterfall }}
+</div>
+{% endif %}
+{% if market_sizing.som and market_sizing.som.comparable_anchor %}
+<div style="background:#f0fdf4;border-left:3px solid #10b981;padding:10px 14px;font-size:10pt;color:#1f2937;margin:10px 0">
+  <strong>SOM analog anchor:</strong> {{ market_sizing.som.comparable_anchor }}
+</div>
+{% endif %}
+
+{% if market_sizing.segmentation %}
+<h3 style="margin-top:14px">TAM Segmentation</h3>
+<table style="width:100%;border-collapse:collapse;font-size:10pt;margin-top:6px">
+  <thead style="background:#f3f4f6"><tr><th style="text-align:left;padding:8px;border:1px solid #e5e7eb">Segment</th><th style="text-align:right;padding:8px;border:1px solid #e5e7eb">% of TAM</th><th style="text-align:right;padding:8px;border:1px solid #e5e7eb">Segment TAM</th></tr></thead>
+  <tbody>
+    {% for s in market_sizing.segmentation %}
+    <tr><td style="padding:8px;border:1px solid #e5e7eb">{{ s.segment }}</td><td style="padding:8px;border:1px solid #e5e7eb;text-align:right">{{ s.share_pct }}%</td><td style="padding:8px;border:1px solid #e5e7eb;text-align:right">{{ format_currency(s.tam_usd) }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if market_sizing.weakest_assumptions and market_sizing.weakest_assumptions|select|list|length > 0 %}
+<div style="background:#fef2f2;border-left:3px solid #dc2626;padding:10px 14px;font-size:10pt;margin:10px 0">
+  <strong>3 weakest assumptions in this model:</strong>
+  <ul style="margin:6px 0 0;padding-left:20px">{% for a in market_sizing.weakest_assumptions if a %}<li>{{ a }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+{% if market_sizing.growth_outlook or market_sizing.growth_cagr_pct %}
+<p style="font-size:11pt;color:#374151">
+  <strong>Growth outlook:</strong>
+  {% if market_sizing.growth_cagr_pct %}<span style="background:#10b98115;color:#047857;padding:2px 8px;border-radius:4px;font-weight:700;font-size:10pt">~{{ market_sizing.growth_cagr_pct }}% CAGR</span> {% endif %}
+  {{ market_sizing.growth_outlook or '' }}
+</p>
+{% endif %}
+<p style="font-size:9pt;color:#6b7280;margin-top:6px">
+  Data quality: <strong style="color:{{ '#10b981' if market_sizing.data_quality == 'high' else ('#f59e0b' if market_sizing.data_quality == 'medium' else '#ef4444') }}">{{ market_sizing.data_quality or 'unknown' }}</strong>.
+  {% if market_sizing.sources_to_validate %}
+    Recommended sources to validate: {{ market_sizing.sources_to_validate|join('; ') }}
+  {% endif %}
+</p>
+{% endif %}
+
+{% if financials and not financials.error %}
+<!-- 3-YEAR FINANCIAL PROJECTIONS -->
+<h2>3-Year Revenue Scenarios</h2>
+<p style="font-size:11pt;color:#4b5563">Three scenarios derived deterministically from SOM and PSM optimal price. Choose your scenario based on execution confidence.</p>
+
+<table style="width:100%;border-collapse:collapse;margin:14px 0;font-size:11pt">
+  <thead>
+    <tr style="background:#f3f4f6">
+      <th style="text-align:left;padding:10px;border-bottom:2px solid #d1d5db">Scenario</th>
+      <th style="text-align:right;padding:10px;border-bottom:2px solid #d1d5db">Year 1</th>
+      <th style="text-align:right;padding:10px;border-bottom:2px solid #d1d5db">Year 2</th>
+      <th style="text-align:right;padding:10px;border-bottom:2px solid #d1d5db">Year 3</th>
+      <th style="text-align:right;padding:10px;border-bottom:2px solid #d1d5db">Break-even</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for label in ['conservative','base','aggressive'] %}
+    {% set s = financials.scenarios[label] %}
+    {% set color = '#ef4444' if label == 'conservative' else ('#3b82f6' if label == 'base' else '#10b981') %}
+    <tr style="border-bottom:1px solid #e5e7eb">
+      <td style="padding:10px"><strong style="color:{{ color }};text-transform:capitalize">{{ label }}</strong><br><span style="font-size:9pt;color:#6b7280">{{ s.year3_market_share_pct }}% of SOM by Y3</span></td>
+      <td style="text-align:right;padding:10px">{{ format_currency(s.year_1.revenue_usd) }}<br><span style="font-size:9pt;color:#6b7280">{{ s.year_1.customers }} cust</span></td>
+      <td style="text-align:right;padding:10px">{{ format_currency(s.year_2.revenue_usd) }}<br><span style="font-size:9pt;color:#6b7280">{{ s.year_2.customers }} cust</span></td>
+      <td style="text-align:right;padding:10px"><strong>{{ format_currency(s.year_3.revenue_usd) }}</strong><br><span style="font-size:9pt;color:#6b7280">{{ s.year_3.customers }} cust</span></td>
+      <td style="text-align:right;padding:10px;color:{{ '#10b981' if s.break_even_year else '#ef4444' }}">
+        {% if s.break_even_year %}Y{{ s.break_even_year }}{% else %}Beyond Y3{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div style="background:#f9fafb;padding:10px 14px;border-radius:6px;font-size:9.5pt;color:#4b5563">
+  <strong>Assumptions:</strong>
+  Annual price per customer: ${{ financials.assumptions.annual_price_per_customer }} ({{ financials.assumptions.monthly_churn_pct }}%/mo churn assumed).
+  S-curve adoption: Y1=8%, Y2=35%, Y3=100% of year-3 ceiling.
+</div>
+{% endif %}
+
+<!-- ITER 36: DIFFERENTIATORS + MARKET GAPS (spec step 3d) -->
+{% if differentiators %}
+<h2 id="differentiators">Differentiators &amp; Market Gaps</h2>
+{% if differentiators.differentiation_strength %}
+<p style="font-size:10pt;color:#6b7280">Differentiation strength: <strong style="color:{% if differentiators.differentiation_strength == 'high' %}#059669{% elif differentiators.differentiation_strength == 'moderate' %}#b45309{% elif differentiators.differentiation_strength == 'moderate-low' %}#d97706{% else %}#dc2626{% endif %}">{{ differentiators.differentiation_strength }}</strong>. {{ differentiators.strength_reasoning }}</p>
+{% endif %}
+
+<!-- Iter 42 (issue 5): always show all 5 dimensions, even when empty -->
+{% set DIM_LABELS = {'feature': 'Feature', 'pricing': 'Pricing / packaging', 'channel': 'Channel / GTM', 'delivery': 'Delivery / experience', 'ip_credentials': 'IP / credentials / trust'} %}
+{% set per_dim = differentiators.differentiators_per_dimension or {} %}
+<h3 style="margin-top:14px;font-size:12pt">Differentiators by dimension (5 evaluated)</h3>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:8px 0">
+  {% for key, label in DIM_LABELS.items() %}
+  {% set entries = per_dim.get(key) or [] %}
+  <div style="background:{% if entries %}#f0fdf4{% else %}#f9fafb{% endif %};border:1px solid {% if entries %}#bbf7d0{% else %}#e5e7eb{% endif %};border-radius:6px;padding:12px">
+    <div style="font-size:9pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:{% if entries %}#166534{% else %}#9ca3af{% endif %};margin-bottom:6px">{{ label }} <span style="font-weight:400">({{ entries|length }})</span></div>
+    {% if entries %}
+    <ul style="margin:0;padding-left:18px;font-size:10pt">
+      {% for d in entries %}<li style="margin-bottom:4px"><strong>{{ d.feature }}</strong>{% if d.why_unique %} — <span style="color:#4b5563">{{ d.why_unique }}</span>{% endif %}{% if d._backstopped %} <span style="font-size:8pt;color:#b45309;background:#fef3c7;padding:1px 4px;border-radius:2px;margin-left:4px">⚠ heuristic — validate</span>{% endif %}</li>{% endfor %}
+    </ul>
+    {% else %}
+    <div style="font-size:10pt;color:#9ca3af;font-style:italic">No differentiator found on this dimension. Either competitors all do this OR our offer doesn't push here.</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+{% if differentiators.gaps %}
+<h3 style="margin-top:14px;font-size:12pt">Market gaps (unmet needs anyone could address)</h3>
+<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:12px;margin:6px 0">
+  <ol style="margin:0;padding-left:20px;font-size:10pt">
+    {% for g in differentiators.gaps %}
+    <li style="margin-bottom:6px"><strong>{{ g.need }}</strong>{% if g.why_unmet %} — <span style="color:#4b5563">{{ g.why_unmet }}</span>{% endif %}</li>
+    {% endfor %}
+  </ol>
+</div>
+{% endif %}
+{% if differentiators.positioning_summary %}
+<div style="background:#fafafa;border-left:3px solid #3730a3;padding:10px 14px;font-size:11pt;margin-top:10px"><strong>Positioning summary:</strong> {{ differentiators.positioning_summary }}</div>
+{% endif %}
+{% endif %}
+
+<!-- ITER 36: CUSTOMER UNIVERSE (spec step 5) -->
+{% if customer_universe and customer_universe.count and customer_universe.count > 0 %}
+<h2 id="customer-universe">Customer Universe — Real Companies to Target</h2>
+<p style="font-size:10pt;color:#6b7280">Identified {{ customer_universe.count }} real companies matching the ICP via {{ customer_universe.methods_used|join(' + ') }}.</p>
+{% if customer_universe.icp_summary %}
+<div style="background:#eef2ff;border-left:3px solid #3730a3;padding:10px 14px;font-size:10pt;margin-bottom:12px"><strong>ICP:</strong> {{ customer_universe.icp_summary }}</div>
+{% endif %}
+{% if customer_universe.icp_details %}
+<div style="font-size:9pt;color:#6b7280;margin-bottom:10px">
+  {# cycle24: build parts list and join with · so we never trail a separator #}
+  {%- set parts = [] -%}
+  {%- if customer_universe.icp_details.industry -%}
+    {%- set _ = parts.append('<strong>Industry:</strong> ' ~ customer_universe.icp_details.industry) -%}
+  {%- endif -%}
+  {%- if customer_universe.icp_details.company_size_employees -%}
+    {%- set emp_label = customer_universe.icp_details.company_size_employees ~ ('' if 'employee' in customer_universe.icp_details.company_size_employees|lower else ' employees') -%}
+    {%- set _ = parts.append('<strong>Size:</strong> ' ~ emp_label) -%}
+  {%- endif -%}
+  {%- if customer_universe.icp_details.company_size_revenue -%}
+    {%- set _ = parts.append(customer_universe.icp_details.company_size_revenue) -%}
+  {%- endif -%}
+  {%- if customer_universe.icp_details.buyer_role -%}
+    {%- set _ = parts.append('<strong>Buyer:</strong> ' ~ customer_universe.icp_details.buyer_role) -%}
+  {%- endif -%}
+  {{ parts | join(' · ') | safe }}
+</div>
+{% endif %}
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">
+  {% for c in customer_universe.companies[:24] %}
+  <span style="background:#f3f4f6;border:1px solid #e5e7eb;padding:4px 10px;border-radius:12px;font-size:9pt">
+    {{ c.name }}{% if c.domain %}<span style="color:#9ca3af"> · {{ c.domain }}</span>{% endif %}
+  </span>
+  {% endfor %}
+</div>
+{% if customer_universe.segments %}
+<h3 style="margin-top:8px">Customer Segments</h3>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+  {% for s in customer_universe.segments[:4] %}
+  <div style="border:1px solid #e5e7eb;border-radius:6px;padding:12px">
+    <div style="font-weight:700;font-size:11pt;color:#1f2937">{{ s.label }}</div>
+    {% if s.size_pct %}<div style="font-size:9pt;color:#6b7280;margin-bottom:6px">{{ s.size_pct }} of universe · {{ s.decision_maker_role or '' }}</div>{% endif %}
+    <div style="font-size:10pt;color:#4b5563;margin-bottom:6px">{{ s.description }}</div>
+    {% if s.buying_motivation %}<div style="font-size:9pt"><strong>Buys because:</strong> {{ s.buying_motivation }}</div>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endif %}
+
+<!-- ITER 36: SEGMENT RANKING (spec steps 7-8) -->
+{% if segment_ranking and segment_ranking.top_5 %}
+<h2 id="segment-ranking">Segment Prioritization (5-Metric Weighted Score)</h2>
+<p style="font-size:10pt;color:#6b7280">{{ segment_ranking.methodology }}
+{% if segment_ranking.weights_applied %}
+  Operator weights applied: {% for k, v in segment_ranking.weights_applied.items() %}{{ k }} ({{ v }}){% if not loop.last %} · {% endif %}{% endfor %}.
+{% endif %}
+</p>
+<table style="width:100%;border-collapse:collapse;font-size:10pt;margin-top:8px">
+  <thead style="background:#f3f4f6">
+    <tr>
+      <th style="text-align:left;padding:8px;border:1px solid #e5e7eb">Rank</th>
+      <th style="text-align:left;padding:8px;border:1px solid #e5e7eb">Segment</th>
+      <th style="text-align:center;padding:8px;border:1px solid #e5e7eb">WTP×Size</th>
+      <th style="text-align:center;padding:8px;border:1px solid #e5e7eb">Low Elasticity</th>
+      <th style="text-align:center;padding:8px;border:1px solid #e5e7eb">Low Competition</th>
+      <th style="text-align:center;padding:8px;border:1px solid #e5e7eb">Ease of Reach</th>
+      <th style="text-align:center;padding:8px;border:1px solid #e5e7eb">Growth</th>
+      <th style="text-align:center;padding:8px;border:1px solid #e5e7eb">Weighted Score</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in segment_ranking.top_5 %}
+    <tr style="{% if loop.first %}background:#f0fdf4{% endif %}">
+      <td style="padding:8px;border:1px solid #e5e7eb;font-weight:700">#{{ loop.index }}{% if loop.first and not r.error %} ⭐{% endif %}</td>
+      <td style="padding:8px;border:1px solid #e5e7eb"><strong>{{ r.label }}</strong>{% if r.description %}<div style="font-size:9pt;color:#6b7280">{{ r.description[:100] }}{% if r.description|length > 100 %}…{% endif %}</div>{% endif %}{% if r.error %}<div style="font-size:9pt;color:#dc2626;margin-top:4px">⚠ Scoring failed: {{ r.error }}</div>{% endif %}{% if r._scores_were_defaulted %}<div style="font-size:9pt;color:#b45309;margin-top:4px">⚠ LLM declined to score — values defaulted to 0.5 (median). Treat as directional placeholder.</div>{% endif %}</td>
+      {% if r.error %}
+      <td colspan="5" style="padding:8px;border:1px solid #e5e7eb;text-align:center;color:#9ca3af;font-style:italic">scoring unavailable</td>
+      {% else %}
+      {% for metric in ['wtp_x_market_size','low_price_elasticity','low_competition','ease_of_reach','growth_potential'] %}
+      <td style="padding:8px;border:1px solid #e5e7eb;text-align:center">{% if r.scores and r.scores[metric] %}{{ '%.2f'|format(r.scores[metric].score or 0) }}{% else %}—{% endif %}</td>
+      {% endfor %}
+      {% endif %}
+      <td style="padding:8px;border:1px solid #e5e7eb;text-align:center;font-weight:700">{% if r.error %}—{% else %}{{ '%.2f'|format(r.final_weighted_score) }}{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if segment_ranking.top_pick and segment_ranking.top_pick.key_risk %}
+<div style="margin-top:10px;background:#fef2f2;border-left:3px solid #dc2626;padding:8px 12px;font-size:10pt">
+  <strong>Risk of targeting #{{ 1 }} ({{ segment_ranking.top_pick.label }}):</strong> {{ segment_ranking.top_pick.key_risk }}
+</div>
+{% endif %}
+
+<!-- Iter 39: radar chart for the top pick — visual companion to the table -->
+{% if segment_ranking.top_pick and segment_ranking.top_pick.scores and segment_radar %}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start;margin-top:14px">
+  <div>{{ segment_radar | safe }}</div>
+  <div>
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;margin-bottom:8px">Top-pick segment radar</div>
+    <div style="font-size:13px;color:#1f2937;margin-bottom:10px"><strong>{{ segment_ranking.top_pick.label }}</strong></div>
+    <p style="font-size:11pt;color:#4b5563;line-height:1.5">{{ segment_ranking.top_pick.description or '' }}</p>
+    {% if segment_ranking.top_pick.confidence %}
+    <p style="font-size:10pt;color:#6b7280;margin-top:8px">Confidence: <strong>{{ segment_ranking.top_pick.confidence }}</strong></p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endif %}
+
+<!-- COMPETITIVE LANDSCAPE -->
+<h2 id="competitive-landscape">Competitive Landscape</h2>
+
+{% if competitor_chart %}
+<div style="margin: 16px 0">
+  {{ competitor_chart|safe }}
+</div>
+{% if whitespace and whitespace.whitespace_found %}
+<p style="font-size:10pt;color:#6b7280;margin-top:-8px">
+  <strong style="color:#b45309">Whitespace detected</strong> — the dashed orange region shows the largest gap in the competitive map (4×4 grid analysis). This is where positioning is least crowded.
+</p>
+{% endif %}
+{% endif %}
+
+{% if competitors %}
+<div class="competitors">
+  {% for c in competitors[:6] %}
+  <div class="comp-row">
+    <div class="rank">{{ loop.index }}</div>
+    <div class="brand">{{ c.brand }} <span class="domain">{{ c.domain or '' }}</span>
+      {% if c.relevance %}
+        {% set rcolor = '#10b981' if c.relevance == 'direct' else ('#f59e0b' if c.relevance == 'adjacent' else '#6b7280') %}
+        <span style="display:inline-block;background:{{ rcolor }}22;color:{{ rcolor }};font-size:8pt;padding:2px 6px;border-radius:3px;margin-left:6px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">{{ c.relevance }}</span>
+      {% endif %}
+    </div>
+    <div class="score">{{ c.opportunity_score|default('?') }}</div>
+  </div>
+  {% if c.thesis %}<div style="font-size:10pt;color:#4b5563;padding:0 14px 4px 50px">{{ c.thesis }}</div>{% endif %}
+  {% if c.firmographics and c.firmographics.sources %}
+    {% set firm = c.firmographics %}
+    {% set firm_parts = [] %}
+    {% if firm.founded_year %}{% set _ = firm_parts.append('Founded ' ~ firm.founded_year) %}{% endif %}
+    {% if firm.hq %}{% set _ = firm_parts.append(firm.hq) %}{% endif %}
+    {% if firm.employee_band %}{% set _ = firm_parts.append(firm.employee_band ~ ' employees') %}{% elif firm.employee_count_exact %}{% set _ = firm_parts.append(firm.employee_count_exact ~ ' employees') %}{% endif %}
+    {% if firm.total_raised_usd_m %}{% set _ = firm_parts.append('$' ~ firm.total_raised_usd_m ~ 'M raised') %}{% elif firm.last_round_stage %}{% set _ = firm_parts.append(firm.last_round_stage) %}{% endif %}
+    {% if firm.last_round_year and firm.last_round_stage %}{% set _ = firm_parts.append('(' ~ firm.last_round_stage ~ ' ' ~ firm.last_round_year ~ ')') %}{% endif %}
+    {% if firm.primary_language %}{% set _ = firm_parts.append('built on ' ~ firm.primary_language) %}{% endif %}
+    {% if firm_parts %}
+      <div style="font-size:9pt;color:#6b7280;padding:0 14px 4px 50px;font-style:italic">
+        🏢 {{ firm_parts|join(' · ') }}
+        <span style="font-size:7pt;color:#9ca3af;font-style:normal">[{{ firm.sources|join(', ') }}]</span>
+      </div>
+    {% endif %}
+  {% endif %}
+  <div style="border-bottom:1px solid #e5e7eb;height:4px"></div>
+  {% endfor %}
+</div>
+{% else %}
+<p style="color:#9ca3af">No competitor data available.</p>
+{% endif %}
+
+<!-- CUSTOMER VOICE (REDDIT) -->
+{% if reddit_signal and reddit_signal.threads_found is defined %}
+<h2>Customer Voice — Multi-Source</h2>
+<p style="font-size:10pt;color:#6b7280;margin-bottom:8px">Aggregated organic mentions from <strong>5 free public sources</strong>: Reddit (pullpush.io + DDG), HackerNews (Algolia), Stack Exchange API, DEV.to, Lobsters. All no-key, no-auth.</p>
+<h3 style="margin-top:14px">From Reddit</h3>
+{% if reddit_signal.threads_found == 0 %}
+<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:12px;font-size:10pt;color:#92400e">
+  <strong>No relevant Reddit signal for "{{ reddit_signal.query }}" in last 6 months.</strong><br/>
+  Searched via pullpush.io + DDG; results either empty or filtered out as off-topic
+  (celebrity gossip, irrelevant subreddits). For B2B brands with celebrity ties or limited
+  organic discussion, this is expected. Consider adding REDDIT_CLIENT_ID/SECRET env vars
+  to enable PRAW for richer search.
+</div>
+{% endif %}
+{% if reddit_signal.threads_found and reddit_signal.threads_found > 0 %}
+<p style="font-size:10pt;color:#6b7280;margin-bottom:14px">
+  Unfiltered voice from {{ reddit_signal.threads_found }} organic Reddit threads in the last 6 months mentioning <strong>{{ reddit_signal.query }}</strong>.
+  {% if reddit_signal.sentiment and reddit_signal.sentiment.available %}
+    Sentiment skew: <strong style="color:{% if reddit_signal.sentiment.skew == 'positive' %}#10b981{% elif reddit_signal.sentiment.skew == 'negative' %}#dc2626{% else %}#6b7280{% endif %}">{{ reddit_signal.sentiment.skew }}</strong>
+    ({{ reddit_signal.sentiment.pos_count }} positive · {{ reddit_signal.sentiment.neg_count }} negative · {{ reddit_signal.sentiment.neu_count }} neutral across {{ reddit_signal.sentiment.n_scored }} comments).
+  {% endif %}
+</p>
+
+{% if reddit_signal.themes %}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+  {% if reddit_signal.themes.complaint_themes %}
+  <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px">
+    <div style="font-size:9pt;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#991b1b;margin-bottom:8px">Top complaints</div>
+    <ul style="margin:0;padding-left:18px;font-size:10pt;color:#1f2937">
+      {% for t in reddit_signal.themes.complaint_themes %}<li>{{ t }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  {% if reddit_signal.themes.praise_themes %}
+  <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:12px">
+    <div style="font-size:9pt;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#166534;margin-bottom:8px">Top praise</div>
+    <ul style="margin:0;padding-left:18px;font-size:10pt;color:#1f2937">
+      {% for t in reddit_signal.themes.praise_themes %}<li>{{ t }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+
+{% if reddit_signal.themes.powerful_quotes %}
+<div style="background:#fafafa;border-left:3px solid #6b7280;padding:10px 14px;margin-bottom:14px">
+  <div style="font-size:9pt;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#4b5563;margin-bottom:6px">Verbatim customer quotes</div>
+  {% for q in reddit_signal.themes.powerful_quotes %}
+    <div style="font-size:10pt;color:#1f2937;font-style:italic;margin-bottom:4px">&ldquo;{{ q }}&rdquo;</div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if reddit_signal.themes.conversation_summary %}
+<p style="font-size:10pt;color:#4b5563;margin-bottom:14px"><strong>What the conversation sounds like:</strong> {{ reddit_signal.themes.conversation_summary }}</p>
+{% endif %}
+{% endif %}
+
+{% if reddit_signal.top_subreddits %}
+<div style="font-size:10pt;color:#4b5563">
+  <strong>Where the conversation lives:</strong>
+  {% for s in reddit_signal.top_subreddits %}<span style="background:#eef2ff;color:#3730a3;padding:2px 8px;border-radius:3px;margin-right:6px;font-size:9pt">{{ s.name }} ({{ s.count }})</span>{% endfor %}
+</div>
+{% endif %}
+{% endif %}
+
+{# cycle25: HN customer voice as second source #}
+<h3 style="margin-top:18px">From HackerNews</h3>
+{% if hn_signal and hn_signal.hits_found and hn_signal.hits_found > 0 %}
+<p style="font-size:10pt;color:#6b7280;margin-bottom:8px">{{ hn_signal.hits_found }} HN mentions of <strong>{{ hn_signal.query }}</strong> (stories + comments, ranked by relevance).</p>
+<div style="display:flex;flex-direction:column;gap:8px">
+  {% for h in hn_signal.hits[:6] %}
+  <div style="border-left:3px solid #ff6600;background:#fff7ed;padding:8px 12px;font-size:10pt">
+    <div style="font-size:9pt;color:#9a3412;margin-bottom:2px">
+      <strong>{{ h.kind }}</strong> · {{ h.points or 0 }} points · by {{ h.author or '?' }}{% if h.created_at %} · {{ h.created_at[:10] }}{% endif %}
+    </div>
+    {% if h.title %}<div style="font-weight:600;color:#1f2937;margin-bottom:2px">{{ h.title }}</div>{% endif %}
+    {% if h.text %}<div style="color:#4b5563">{{ h.text[:240] }}{% if h.text|length > 240 %}…{% endif %}</div>{% endif %}
+    {% if h.url %}<a href="{{ h.url }}" style="font-size:9pt;color:#2563eb">View ↗</a>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:10px;font-size:10pt;color:#92400e">
+  No HackerNews mentions of <strong>{{ (hn_signal and hn_signal.query) or 'this brand' }}</strong> found via Algolia. Common for non-tech-leaning B2B brands.
+</div>
+{% endif %}
+
+{# cycle27: Stack Exchange + DEV.to + Lobsters #}
+{% if multi_source_signal %}
+<h3 style="margin-top:18px">From Stack Exchange (Stack Overflow)</h3>
+{% if multi_source_signal.stackoverflow %}
+<p style="font-size:10pt;color:#6b7280;margin-bottom:8px">{{ multi_source_signal.counts.stackoverflow }} Q&A threads mentioning <strong>{{ multi_source_signal.query }}</strong>.</p>
+<div style="display:flex;flex-direction:column;gap:8px">
+  {% for s in multi_source_signal.stackoverflow %}
+  <div style="border-left:3px solid #f48024;background:#fff7ed;padding:8px 12px;font-size:10pt">
+    <div style="font-size:9pt;color:#92400e;margin-bottom:2px">
+      <strong>Q&A</strong> · score {{ s.score or 0 }} · {{ s.answer_count or 0 }} answers{% if s.is_answered %} · ✓ answered{% endif %}{% if s.tags %} · tags: {{ s.tags|join(', ') }}{% endif %}
+    </div>
+    {% if s.title %}<div style="font-weight:600;color:#1f2937;margin-bottom:2px">{{ s.title }}</div>{% endif %}
+    {% if s.body %}<div style="color:#4b5563">{{ s.body[:240] }}{% if s.body|length > 240 %}…{% endif %}</div>{% endif %}
+    {% if s.url %}<a href="{{ s.url }}" style="font-size:9pt;color:#2563eb">View ↗</a>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div style="background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;padding:10px;font-size:10pt;color:#6b7280">No Stack Overflow Q&A found for <strong>{{ multi_source_signal.query }}</strong>.</div>
+{% endif %}
+
+<h3 style="margin-top:18px">From DEV.to</h3>
+{% if multi_source_signal.devto %}
+<p style="font-size:10pt;color:#6b7280;margin-bottom:8px">{{ multi_source_signal.counts.devto }} DEV.to articles mentioning <strong>{{ multi_source_signal.query }}</strong>.</p>
+<div style="display:flex;flex-direction:column;gap:8px">
+  {% for d in multi_source_signal.devto %}
+  <div style="border-left:3px solid #08090a;background:#f4f4f5;padding:8px 12px;font-size:10pt">
+    <div style="font-size:9pt;color:#3f3f46;margin-bottom:2px">
+      <strong>article</strong> · 👍 {{ d.positive_reactions or 0 }} · 💬 {{ d.comments_count or 0 }} · by {{ d.author or '?' }}{% if d.published_at %} · {{ d.published_at[:10] }}{% endif %}
+    </div>
+    {% if d.title %}<div style="font-weight:600;color:#1f2937;margin-bottom:2px">{{ d.title }}</div>{% endif %}
+    {% if d.description %}<div style="color:#4b5563">{{ d.description[:200] }}{% if d.description|length > 200 %}…{% endif %}</div>{% endif %}
+    {% if d.url %}<a href="{{ d.url }}" style="font-size:9pt;color:#2563eb">View ↗</a>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div style="background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;padding:10px;font-size:10pt;color:#6b7280">No DEV.to articles found for <strong>{{ multi_source_signal.query }}</strong>.</div>
+{% endif %}
+
+<h3 style="margin-top:18px">From Lobsters</h3>
+{% if multi_source_signal.lobsters %}
+<p style="font-size:10pt;color:#6b7280;margin-bottom:8px">{{ multi_source_signal.counts.lobsters }} Lobsters discussions mentioning <strong>{{ multi_source_signal.query }}</strong>.</p>
+<div style="display:flex;flex-direction:column;gap:8px">
+  {% for l in multi_source_signal.lobsters %}
+  <div style="border-left:3px solid #ac130d;background:#fef2f2;padding:8px 12px;font-size:10pt">
+    <div style="font-size:9pt;color:#7f1d1d;margin-bottom:2px">
+      <strong>discussion</strong> · score {{ l.score or 0 }} · 💬 {{ l.comment_count or 0 }} · by {{ l.submitter or '?' }}{% if l.tags %} · tags: {{ l.tags|join(', ') }}{% endif %}
+    </div>
+    {% if l.title %}<div style="font-weight:600;color:#1f2937;margin-bottom:2px">{{ l.title }}</div>{% endif %}
+    {% if l.description %}<div style="color:#4b5563">{{ l.description[:200] }}{% if l.description|length > 200 %}…{% endif %}</div>{% endif %}
+    {% if l.url %}<a href="{{ l.url }}" style="font-size:9pt;color:#2563eb">View ↗</a>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div style="background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;padding:10px;font-size:10pt;color:#6b7280">No Lobsters discussions found for <strong>{{ multi_source_signal.query }}</strong>.</div>
+{% endif %}
+
+{# cycle31-r2: vertical trade publications (freight, healthcare, etc) #}
+{% if multi_source_signal.vertical_pubs %}
+<h3 style="margin-top:18px">From Vertical Trade Publications</h3>
+<p style="font-size:10pt;color:#6b7280;margin-bottom:8px">{{ multi_source_signal.counts.vertical_pubs }} mentions across category-specific trade publications (freightwaves, modernhealthcare, etc).</p>
+<div style="display:flex;flex-direction:column;gap:8px">
+  {% for v in multi_source_signal.vertical_pubs[:8] %}
+  <div style="border-left:3px solid #6b21a8;background:#faf5ff;padding:8px 12px;font-size:10pt">
+    <div style="font-size:9pt;color:#581c87;margin-bottom:2px">
+      <strong>trade pub</strong> · {{ v.publication }}
+    </div>
+    {% if v.title %}<div style="font-weight:600;color:#1f2937;margin-bottom:2px">{{ v.title }}</div>{% endif %}
+    {% if v.snippet %}<div style="color:#4b5563">{{ v.snippet[:240] }}{% if v.snippet|length > 240 %}…{% endif %}</div>{% endif %}
+    {% if v.url %}<a href="{{ v.url }}" style="font-size:9pt;color:#2563eb">View ↗</a>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endif %}
+{% endif %}
+
+<!-- ITER 39: Max-Diff feature importance — was being computed but never displayed -->
+{% if max_diff and max_diff.ranked_features %}
+<h2 id="features">Feature Importance (Max-Diff Simulation)</h2>
+<p style="font-size:10pt;color:#6b7280">Simulated panel of {{ max_diff.panel_size or 30 }} target-segment buyers ranked features by importance using Best-Worst Scaling. Total importance sums to 100 — bigger bars = stronger purchase driver.</p>
+<div style="margin:12px 0">
+{% for f in max_diff.ranked_features[:10] %}
+  {% set pct = (f.importance_score or 0) * 100 / 30 %}
+  {% if pct > 100 %}{% set pct = 100 %}{% endif %}
+  <div style="display:flex;align-items:center;gap:10px;font-size:11pt;margin:6px 0">
+    <div style="width:30px;color:#6b7280;font-variant-numeric:tabular-nums;text-align:right">{{ f.rank }}.</div>
+    <div style="flex:0 0 220px;color:#1f2937">{{ f.feature }}</div>
+    <div style="flex:1;height:14px;background:#f3f4f6;border-radius:3px;position:relative">
+      <div style="height:100%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:3px;width:{{ pct }}%"></div>
+    </div>
+    <div style="width:50px;text-align:right;color:#1f2937;font-weight:600;font-variant-numeric:tabular-nums">{{ "%.1f"|format(f.importance_score or 0) }}</div>
+  </div>
+{% endfor %}
+</div>
+{% if max_diff.top_3_must_haves or max_diff.deprioritize %}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px">
+  {% if max_diff.top_3_must_haves %}
+  <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:10px 14px">
+    <div style="font-size:9pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#166534;margin-bottom:6px">Must-haves (MVP focus)</div>
+    <ul style="margin:0;padding-left:18px;font-size:11pt">{% for f in max_diff.top_3_must_haves %}<li>{{ f }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  {% if max_diff.deprioritize %}
+  <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:10px 14px">
+    <div style="font-size:9pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;margin-bottom:6px">Deprioritize (post-MVP)</div>
+    <ul style="margin:0;padding-left:18px;font-size:11pt">{% for f in max_diff.deprioritize %}<li>{{ f }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endif %}
+
+<!-- ITER 39: Decoded audiences across top-3 competitors (was being computed but only top-1 surfaced) -->
+{% if audiences and audiences|length > 1 %}
+<h2 id="audiences">Decoded Audiences (Top {{ audiences|length }} Competitors)</h2>
+<p style="font-size:10pt;color:#6b7280">Customer voice decoded for the top competitors via Trustpilot reviews + Reddit + article mentions. Used as input to persona synthesis.</p>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:12px 0">
+  {% for a in audiences %}
+  {# Iter 42 (issue 9b): if a card would be substantially empty (no motivation, no triggers),
+     show "data thin" badge + the source counts so the operator knows we tried but couldn't decode. #}
+  {% set has_motivation = a.purchase_motivation and a.purchase_motivation|length > 30 %}
+  {% set has_celebrated = a.emotional_triggers and a.emotional_triggers.celebrated and a.emotional_triggers.celebrated|length > 0 %}
+  {% set has_complained = a.emotional_triggers and a.emotional_triggers.complained and a.emotional_triggers.complained|length > 0 %}
+  {% set is_thin = not (has_motivation or has_celebrated or has_complained) %}
+  <div style="background:#fff;border:1px solid {% if is_thin %}#fde68a{% else %}#e5e7eb{% endif %};border-radius:8px;padding:14px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+      <div style="font-weight:700;font-size:12pt;color:#1f2937">{{ a.brand }}</div>
+      {% if is_thin %}<span style="background:#fef3c7;color:#92400e;font-size:8pt;padding:2px 6px;border-radius:3px;font-weight:600">DATA THIN</span>{% endif %}
+    </div>
+    {% if a.confidence is not none %}<div style="font-size:9pt;color:#6b7280;margin-bottom:8px">confidence: <strong style="color:{% if a.confidence >= 0.7 %}#10b981{% elif a.confidence >= 0.4 %}#f59e0b{% else %}#ef4444{% endif %}">{{ a.confidence }}</strong>{% if a._evidence %} · {{ a._evidence.total_sources }} signals ({{ a._evidence.trustpilot_review_count }} TP / {{ a._evidence.reddit_post_count }} Reddit / {{ a._evidence.article_count }} articles){% endif %}</div>{% endif %}
+    {% if has_motivation %}<div style="font-size:10pt;color:#1f2937;margin-bottom:6px"><strong>Buys because:</strong> {{ a.purchase_motivation[:200] }}</div>{% endif %}
+    {% if has_celebrated %}
+      <div style="font-size:9pt;color:#166534;margin-bottom:4px"><strong>Loves:</strong> {{ a.emotional_triggers.celebrated[:3]|join(' · ') }}</div>
+    {% endif %}
+    {% if has_complained %}
+      <div style="font-size:9pt;color:#991b1b"><strong>Hates:</strong> {{ a.emotional_triggers.complained[:3]|join(' · ') }}</div>
+    {% endif %}
+    {% if is_thin %}
+      <div style="font-size:9pt;color:#92400e;font-style:italic;margin-top:6px">Insufficient signal in scraped reviews / Reddit / articles to decode this audience reliably. Consider a manual customer interview round.</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- 4Ps -->
+<h2>4Ps Marketing Plan</h2>
+
+{% for p_key, p_label in [('product','Product'), ('price','Price'), ('place','Place'), ('promotion','Promotion')] %}
+{% set section = four_ps[p_key] %}
+{% if section %}
+<div class="p-section {{ p_key }}">
+  <h3>{{ p_label }}</h3>
+  <div class="narrative">
+    {% set raw = (section.narrative if section is mapping else section) or '' %}
+    {# Iter 41: render \n\n-separated paragraphs as proper <p> tags so the report
+       isn't a wall of text. #}
+    {% for para in raw.split('\n\n') %}
+      {% if para.strip() %}<p style="margin:0 0 12px;line-height:1.6">{{ para.strip() }}</p>{% endif %}
+    {% endfor %}
+  </div>
+  {% if section is mapping and section.key_takeaways %}
+  <div class="takeaways">
+    <div class="label">Key takeaways</div>
+    <ul>{% for t in section.key_takeaways %}<li>{{ t }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endfor %}
+
+<!-- PRICING DETAIL -->
+{% if psm.optimal_price_point or psm.recommended_tiers %}
+<h2 id="pricing">Pricing Detail</h2>
+<p style="font-size:11pt">Van Westendorp PSM simulation with 40 simulated buyers from the target segment.
+{% if pricing_benchmark %} Prices stated per <strong>{{ pricing_benchmark.pricing_unit }}</strong>.{% endif %}
+</p>
+{% if psm.recommended_tiers %}
+<div class="pricing-tiers">
+  {% for t in psm.recommended_tiers[:3] %}
+  <div class="tier-card">
+    <div class="name">{{ t.name }}</div>
+    <div class="price">${{ t.price }}{% if pricing_benchmark %}<span style="font-size:10pt;font-weight:400;color:#6b7280">/mo per {{ pricing_benchmark.pricing_unit }}</span>{% endif %}</div>
+    <div class="for-whom">{{ t.for_whom or '' }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% if psm.optimal_price_point %}
+<p style="font-size:11pt"><strong>Optimal price point:</strong> ${{ psm.optimal_price_point }}{% if pricing_benchmark %}/mo per {{ pricing_benchmark.pricing_unit }}{% endif %}.
+{% if psm.acceptable_range %} <strong>Acceptable range:</strong> ${{ psm.acceptable_range[0] }}–${{ psm.acceptable_range[1] }}.{% endif %}
+</p>
+{% endif %}
+
+<!-- ITER 35: COMPETITOR PRICE BENCHMARK (user feedback #3b) -->
+{% if pricing_benchmark and pricing_benchmark.rows %}
+<h3 style="margin-top:18px">Competitor Price Benchmark</h3>
+<p style="font-size:10pt;color:#6b7280">Scraped {{ pricing_benchmark.n_competitors_with_prices }} competitor median prices, all normalized to {{ pricing_benchmark.pricing_unit }}. Our Pro tier: <strong>{{ pricing_benchmark.our_pro_price_label }}</strong>{% if pricing_benchmark.vs_category_median_pct is not none %} ({{ pricing_benchmark.vs_category_median_pct }}% vs category median of {{ pricing_benchmark.category_median_label }}){% endif %}.</p>
+<table style="width:100%;border-collapse:collapse;font-size:10pt;margin-top:8px">
+  <thead style="background:#f3f4f6">
+    <tr>
+      <th style="text-align:left;padding:8px;border:1px solid #e5e7eb">Brand</th>
+      <th style="text-align:left;padding:8px;border:1px solid #e5e7eb">Price</th>
+      <th style="text-align:center;padding:8px;border:1px solid #e5e7eb">vs. our Pro</th>
+      <th style="text-align:left;padding:8px;border:1px solid #e5e7eb">Position</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in pricing_benchmark.rows %}
+    <tr>
+      <td style="padding:8px;border:1px solid #e5e7eb;font-weight:600">{{ r.brand }}</td>
+      <td style="padding:8px;border:1px solid #e5e7eb">{{ r.price_label }}</td>
+      <td style="padding:8px;border:1px solid #e5e7eb;text-align:center">{{ r.multiple_of_pro }}× ({{ '+' if r.delta_pct and r.delta_pct > 0 else '' }}{{ r.delta_pct }}%)</td>
+      <td style="padding:8px;border:1px solid #e5e7eb">
+        {% if r.cheaper_or_pricier == 'cheaper' %}<span style="color:#059669">cheaper</span>
+        {% elif r.cheaper_or_pricier == 'pricier' %}<span style="color:#dc2626">pricier</span>
+        {% else %}<span style="color:#6b7280">parity</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    <tr style="background:#fef3c7">
+      <td style="padding:8px;border:1px solid #e5e7eb;font-weight:700">⭐ Us (Pro)</td>
+      <td style="padding:8px;border:1px solid #e5e7eb;font-weight:600">{{ pricing_benchmark.our_pro_price_label }}</td>
+      <td style="padding:8px;border:1px solid #e5e7eb;text-align:center">1.0×</td>
+      <td style="padding:8px;border:1px solid #e5e7eb">—</td>
+    </tr>
+  </tbody>
+</table>
+{% endif %}
+
+<!-- ITER 35: UNIT ECONOMICS (CLV + CAC) + EVC (user feedback #2) -->
+{% if economics and not economics.error %}
+<h3 style="margin-top:22px" id="economics">Unit Economics</h3>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px">
+  {% if economics.clv and not economics.clv.error %}
+  <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:12px">
+    <div style="font-size:9pt;font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:.05em">CLV</div>
+    <div style="font-size:18pt;font-weight:700;color:#1f2937">${{ economics.clv.clv_usd }}</div>
+    <div style="font-size:9pt;color:#4b5563">{{ economics.clv.method }}{% if economics.clv.expansion_uplift_usd %} · +${{ economics.clv.expansion_uplift_usd }} expansion{% endif %}</div>
+  </div>
+  {% endif %}
+  {% if economics.cac_target and not economics.cac_target.error %}
+  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:12px">
+    <div style="font-size:9pt;font-weight:700;color:#1e40af;text-transform:uppercase;letter-spacing:.05em">Max Sustainable CAC</div>
+    <div style="font-size:18pt;font-weight:700;color:#1f2937">${{ economics.cac_target.max_sustainable_cac_usd }}</div>
+    <div style="font-size:9pt;color:#4b5563">{{ economics.cac_target.rule }}</div>
+  </div>
+  {% endif %}
+  {% if economics.unit_economics and economics.unit_economics.typical_cac_usd %}
+  <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:12px">
+    <div style="font-size:9pt;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.05em">Typical CAC (est.)</div>
+    <div style="font-size:18pt;font-weight:700;color:#1f2937">${{ economics.unit_economics.typical_cac_usd }}</div>
+    <div style="font-size:9pt;color:#4b5563">Segment benchmark</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- EVC arithmetic panel -->
+{% if economics.evc and not economics.evc.error %}
+<h3 style="margin-top:18px">Economic Value to Customer (EVC)</h3>
+<div style="background:#fafafa;border-left:4px solid #3730a3;padding:14px 16px;margin-bottom:10px">
+  <div style="font-size:11pt;margin-bottom:10px"><strong>EVC decomposition</strong> — what the customer would get in $/year:</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:10pt">
+    <div>Reference value <span style="color:#6b7280">(what they pay today for the alternative)</span></div>
+    <div style="text-align:right;font-weight:600">${{ economics.evc.reference_value_usd }}/year</div>
+    <div>+ Differentiation value <span style="color:#6b7280">(what we additionally deliver)</span></div>
+    <div style="text-align:right;font-weight:600">+ ${{ economics.evc.differentiation_value_usd }}/year</div>
+    <div style="border-top:1px solid #d1d5db;padding-top:6px"><strong>= Total EVC</strong></div>
+    <div style="border-top:1px solid #d1d5db;padding-top:6px;text-align:right;font-weight:700">= ${{ economics.evc.total_evc_usd }}/year</div>
+    <div style="margin-top:8px">Our annual price</div>
+    <div style="margin-top:8px;text-align:right;font-weight:600">${{ economics.evc.our_annual_price_usd }}/year{% if economics.evc.price_as_pct_of_evc is not none %} ({{ economics.evc.price_as_pct_of_evc }}% of EVC){% endif %}</div>
+    <div><strong>Customer annual ROI</strong></div>
+    <div style="text-align:right;font-weight:700;color:{% if economics.evc.customer_annual_roi_usd is not none and economics.evc.customer_annual_roi_usd > 0 %}#059669{% elif economics.evc.customer_annual_roi_usd is not none %}#dc2626{% else %}#6b7280{% endif %}">{% if economics.evc.customer_annual_roi_usd is not none %}${{ economics.evc.customer_annual_roi_usd }}/year{% if economics.evc.customer_roi_multiple %} ({{ economics.evc.customer_roi_multiple }}× return){% endif %}{% else %}—{% endif %}</div>
+  </div>
+  <div style="margin-top:12px;padding:10px;background:{% if economics.evc.verdict == 'healthy' %}#f0fdf4{% elif economics.evc.verdict == 'under-priced' %}#eff6ff{% elif economics.evc.verdict == 'priced-at-value' %}#fef3c7{% else %}#fef2f2{% endif %};border-radius:4px">
+    <strong style="text-transform:uppercase;font-size:9pt;letter-spacing:.05em">Verdict: {{ economics.evc.verdict }}</strong>
+    <div style="font-size:10pt;margin-top:4px">{{ economics.evc.verdict_detail }}</div>
+    {% if economics.evc.differentiation_reasoning %}
+    <div style="font-size:9pt;margin-top:4px;color:#4b5563;font-style:italic">Reasoning: {{ economics.evc.differentiation_reasoning }}</div>
+    {% endif %}
+  </div>
+</div>
+{% if economics.unit_economics and economics.unit_economics.reference_alternative_name %}
+<p style="font-size:10pt;color:#6b7280">Reference alternative: <strong>{{ economics.unit_economics.reference_alternative_name }}</strong> · Monthly churn est.: {{ economics.unit_economics.monthly_churn_pct }}% · Avg contract: {{ economics.unit_economics.avg_contract_months }} months · Confidence: {{ economics.unit_economics.confidence }}</p>
+{% endif %}
+{% endif %}
+
+<!-- ITER 36: SENSITIVITY ANALYSIS -->
+{% if economics.sensitivity and economics.sensitivity.churn_sensitivity %}
+<h3 style="margin-top:18px" id="sensitivity">Economics Sensitivity — Fragility Map</h3>
+{% if economics.sensitivity.headline_risk %}
+<div style="background:#fef2f2;border-left:3px solid #dc2626;padding:8px 12px;font-size:11pt;margin-bottom:12px"><strong>Headline risk:</strong> {{ economics.sensitivity.headline_risk }}</div>
+{% endif %}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+  <div>
+    <div style="font-size:9pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#4b5563;margin-bottom:6px">CLV vs. churn scenarios</div>
+    <table style="width:100%;border-collapse:collapse;font-size:9pt">
+      <thead style="background:#f3f4f6"><tr><th style="text-align:left;padding:4px 8px;border:1px solid #e5e7eb">Scenario</th><th style="text-align:right;padding:4px 8px;border:1px solid #e5e7eb">Churn</th><th style="text-align:right;padding:4px 8px;border:1px solid #e5e7eb">CLV</th><th style="text-align:right;padding:4px 8px;border:1px solid #e5e7eb">Months</th></tr></thead>
+      <tbody>
+      {% for r in economics.sensitivity.churn_sensitivity %}
+      <tr style="{% if r.scenario == 'base' %}background:#f0fdf4{% endif %}">
+        <td style="padding:4px 8px;border:1px solid #e5e7eb">{{ r.scenario }}</td>
+        <td style="padding:4px 8px;border:1px solid #e5e7eb;text-align:right">{{ r.monthly_churn_pct }}%</td>
+        <td style="padding:4px 8px;border:1px solid #e5e7eb;text-align:right">${{ r.clv_usd }}</td>
+        <td style="padding:4px 8px;border:1px solid #e5e7eb;text-align:right">{{ r.months_retained or '—' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div>
+    <div style="font-size:9pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#4b5563;margin-bottom:6px">EVC verdict vs. price moves</div>
+    <table style="width:100%;border-collapse:collapse;font-size:9pt">
+      <thead style="background:#f3f4f6"><tr><th style="text-align:right;padding:4px 8px;border:1px solid #e5e7eb">Δ Price</th><th style="text-align:right;padding:4px 8px;border:1px solid #e5e7eb">Monthly</th><th style="text-align:right;padding:4px 8px;border:1px solid #e5e7eb">% of EVC</th><th style="text-align:left;padding:4px 8px;border:1px solid #e5e7eb">Verdict</th></tr></thead>
+      <tbody>
+      {% for r in economics.sensitivity.price_sensitivity %}
+      <tr style="{% if r.price_change_pct == 0 %}background:#f0fdf4{% endif %}">
+        <td style="padding:4px 8px;border:1px solid #e5e7eb;text-align:right">{% if r.price_change_pct > 0 %}+{% endif %}{{ r.price_change_pct }}%</td>
+        <td style="padding:4px 8px;border:1px solid #e5e7eb;text-align:right">${{ r.monthly_price_usd }}</td>
+        <td style="padding:4px 8px;border:1px solid #e5e7eb;text-align:right;color:#9ca3af">{% if r.price_as_pct_of_evc is not none %}{{ r.price_as_pct_of_evc }}%{% else %}—{% endif %}</td>
+        <td style="padding:4px 8px;border:1px solid #e5e7eb;color:{% if r.verdict == 'healthy' %}#059669{% elif r.verdict == 'over-priced' %}#dc2626{% else %}#b45309{% endif %}">{{ r.verdict }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% if economics.sensitivity.break_points %}
+<p style="margin-top:10px;font-size:10pt;color:#4b5563"><strong>Break-points:</strong>
+{% if economics.sensitivity.break_points.price_break %}A price increase to {{ economics.sensitivity.break_points.price_break }} flips EVC to over-priced.{% endif %}
+{% if economics.sensitivity.break_points.differentiation_break %} At {{ economics.sensitivity.break_points.differentiation_break }}, EVC flips to over-priced.{% endif %}
+</p>
+{% endif %}
+{% endif %}
+
+{% endif %}
+
+<!-- ITER 35: PCA axis interpretation panel (user feedback #3a) -->
+{% if clustering and clustering.axis_labels %}
+<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px;margin-top:14px">
+  <div style="font-size:9pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#4b5563;margin-bottom:8px">How to read the competitor map axes</div>
+  {% set pc1 = clustering.axis_labels.pc1 %}
+  {% set pc2 = clustering.axis_labels.pc2 %}
+  {% if pc1 %}
+  <div style="font-size:10pt;margin-bottom:4px"><strong>PC1 — {{ pc1.label }}:</strong> {{ pc1.summary }}</div>
+  <div style="font-size:9pt;color:#6b7280;margin-bottom:8px">High end: {{ pc1.high_brands|join(', ') }} — {{ pc1.high_meaning }}. Low end: {{ pc1.low_brands|join(', ') }} — {{ pc1.low_meaning }}.</div>
+  {% endif %}
+  {% if pc2 %}
+  <div style="font-size:10pt;margin-bottom:4px"><strong>PC2 — {{ pc2.label }}:</strong> {{ pc2.summary }}</div>
+  <div style="font-size:9pt;color:#6b7280">High end: {{ pc2.high_brands|join(', ') }} — {{ pc2.high_meaning }}. Low end: {{ pc2.low_brands|join(', ') }} — {{ pc2.low_meaning }}.</div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% endif %}
+
+<!-- NEXT STEPS — iter 39: bucket by horizon (30d/60d/90d) when LLM returns dicts -->
+{% if viability.recommended_next_steps %}
+<h2>Recommended Next Steps — 30/60/90 Day Roadmap</h2>
+{% set has_horizons = viability.recommended_next_steps[0] is mapping %}
+{% if has_horizons %}
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
+  {% for horizon in ['30d','60d','90d'] %}
+  <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#3730a3;margin-bottom:8px">{{ horizon }}</div>
+    <ul style="margin:0;padding-left:18px;font-size:11pt;color:#1f2937">
+      {% for s in viability.recommended_next_steps %}
+        {% if s is mapping and (s.horizon == horizon) %}
+        <li style="margin-bottom:6px">{{ s.action or s.text }}{% if s.owner_role %} <span style="font-size:9pt;color:#6b7280">({{ s.owner_role }})</span>{% endif %}</li>
+        {% endif %}
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<ol style="font-size:12pt">
+  {% for s in viability.recommended_next_steps %}<li style="margin:6px 0">{{ s }}</li>{% endfor %}
+</ol>
+{% endif %}
+{% endif %}
+
+<!-- CRITICAL ASSUMPTIONS -->
+{% if viability.critical_assumptions %}
+<div class="method-box">
+  <strong>Critical assumptions</strong> — if these turn out wrong, the viability score doesn't hold:
+  <ul style="margin-top:6px;padding-left:20px">
+    {% for a in viability.critical_assumptions %}<li>{{ a }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<!-- ITER 36/40: MACRO ANCHORS (FRED + World Bank + IMF + curated industry benchmarks) -->
+{% if market_sizing and market_sizing.macro_anchors and (market_sizing.macro_anchors.series or market_sizing.macro_anchors.vertical_anchors) %}
+<h2 id="macro-anchors">Macro & Industry Anchors</h2>
+<p style="font-size:10pt;color:#6b7280">Claims anchored to free public economic data (FRED, World Bank, IMF) plus curated industry benchmarks.</p>
+{% if market_sizing.macro_anchors.series %}
+<h3 style="margin-top:14px">Macro indicators</h3>
+<table style="width:100%;border-collapse:collapse;font-size:10pt;margin-top:8px">
+  <thead style="background:#f3f4f6"><tr><th style="text-align:left;padding:8px;border:1px solid #e5e7eb">Indicator</th><th style="text-align:right;padding:8px;border:1px solid #e5e7eb">Latest</th><th style="text-align:right;padding:8px;border:1px solid #e5e7eb">YoY</th><th style="text-align:left;padding:8px;border:1px solid #e5e7eb">Source</th></tr></thead>
+  <tbody>
+    {% for k, a in market_sizing.macro_anchors.series.items() %}
+    <tr>
+      <td style="padding:8px;border:1px solid #e5e7eb"><strong>{{ a.label }}</strong><div style="font-size:9pt;color:#6b7280">{{ a.description }}</div></td>
+      <td style="padding:8px;border:1px solid #e5e7eb;text-align:right">{{ '{:,.1f}'.format(a.latest_value) }}<div style="font-size:8pt;color:#9ca3af">{{ a.unit }}</div></td>
+      <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;color:{% if (a.yoy_pct or 0) >= 0 %}#059669{% else %}#dc2626{% endif %}">{% if a.yoy_pct is not none %}{{ '{:+.1f}'.format(a.yoy_pct) }}%{% else %}—{% endif %}</td>
+      <td style="padding:8px;border:1px solid #e5e7eb;font-size:9pt"><a href="{{ a.source }}" style="color:#2563eb">{{ (a.provider or 'fred')|upper }} · {{ a.latest_date }}</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% if market_sizing.macro_anchors.vertical_anchors %}
+<h3 style="margin-top:14px">Industry benchmarks (curated)</h3>
+<table style="width:100%;border-collapse:collapse;font-size:10pt;margin-top:8px">
+  <thead style="background:#f3f4f6"><tr><th style="text-align:left;padding:8px;border:1px solid #e5e7eb">Benchmark</th><th style="text-align:right;padding:8px;border:1px solid #e5e7eb">Value</th><th style="text-align:left;padding:8px;border:1px solid #e5e7eb">Source</th></tr></thead>
+  <tbody>
+    {% for k, a in market_sizing.macro_anchors.vertical_anchors.items() %}
+    <tr>
+      <td style="padding:8px;border:1px solid #e5e7eb"><strong>{{ a.label }}</strong><div style="font-size:9pt;color:#6b7280">{{ a.description }}</div></td>
+      <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;font-weight:600">{{ a.value }}<div style="font-size:8pt;color:#9ca3af">{{ a.unit }}</div></td>
+      <td style="padding:8px;border:1px solid #e5e7eb;font-size:9pt"><a href="{{ a.source }}" style="color:#2563eb">View source ↗</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endif %}
+
+<!-- ITER 36: METHODOLOGY APPENDIX -->
+<h2 id="methodology">Methodology Appendix</h2>
+<div style="font-size:10pt;color:#4b5563">
+  <p><strong>Pipeline.</strong> This report is produced by a multi-step market research pipeline following the Castor Advisories Market Research Spec. Each step either extracts structured data, runs a deterministic calculation, or performs a simulated research exercise via LLM. {{ steps_completed|length }} steps completed for this run.</p>
+
+  <p><strong>Competitor discovery (spec 3a-3d).</strong> LLM-generated search queries surface candidate brands. Each candidate is scored on traffic momentum, Trustpilot velocity, Instagram followers, and Wayback-Machine activity. Parked domains and megabrand contamination are filtered out. Top candidates feed clustering.</p>
+
+  <p><strong>Clustering + projection (spec 3c).</strong> Method: <strong>{{ clustering.method if clustering else 'tfidf + kmeans + pca' }}</strong>. Semantic embeddings (BAAI/bge-small-en-v1.5, 384-dim, ONNX) with TF-IDF fallback. HDBSCAN for density-based clustering with K-Means fallback; UMAP for 2D projection with PCA fallback. {% if clustering and clustering.silhouette_score %}Silhouette score: {{ clustering.silhouette_score }}.{% endif %} {% if clustering and clustering.noise_count %}Noise points (don't fit any cluster): {{ clustering.noise_count }}.{% endif %} PCA/UMAP axes are LLM-interpreted from cluster extremes.</p>
+
+  <p><strong>Differentiators (spec 3d).</strong> Single LLM call cross-references our features against cluster members to identify features no cluster has. Null result ("no differentiators found") is treated as a critical finding, not a failure.</p>
+
+  <p><strong>Customer universe (spec 5).</strong> Two methods merged: (A) scrape competitor /customers and /case-studies pages for buyer names, (B) LLM-generated ICP → DDG searches. Target: 30 companies per run.</p>
+
+  <p><strong>Taste decoding (spec 6).</strong> Top 3 competitors each have their audience decoded from Trustpilot reviews (via playwright-stealth to bypass AWS WAF), Reddit mentions, and homepage scrapes. Outputs feed persona synthesis.</p>
+
+  <p><strong>Segment scoring (spec 7-8).</strong> Each customer segment scored on 5 metrics (WTP×size, low elasticity, low competition, reach ease, growth) normalized to 0-1. Operator weights applied; ranking is weighted mean. Top-5 surfaced for human override.</p>
+
+  <p><strong>Max-Diff + Van Westendorp PSM (spec 9a-9b).</strong> LLM simulation of 30 buyers for Max-Diff; 40 buyers for PSM with the four standard questions. Outputs: ranked features, optimal price point (OPP), acceptable price range (APR). Directional only — not a substitute for real surveys.</p>
+
+  <p><strong>Pricing + unit economics (spec 10).</strong> PSM optimal price + break-even + CLV ([price/churn] × [1+expansion]) + CAC target (CLV÷3) + EVC (reference value + differentiation value). Sensitivity analysis across churn scenarios (½×, 1×, 2×, 3×) and price moves (±20%) produces a fragility map.</p>
+
+  <p><strong>Place (spec 11).</strong> Competitor channel signals extracted from homepages (sales-led vs PLG vs community vs partner). Dominant vs outlier pattern identified. LLM recommendation grounded in the competitor distribution + target segment + differentiators.</p>
+
+  <p><strong>Validation gate (spec 12).</strong> 5 confidence checks: competitor count, cluster silhouette, PSM validity, audience confidence, differentiator count. Low-confidence flags surface to the operator.</p>
+
+  <p><strong>4Ps synthesis (spec 13).</strong> Each P (Product/Price/Place/Promotion) gets its own focused LLM call in parallel — not one monolithic prompt. Each receives only the context it needs. Per-section max_tokens=1200. Outputs are assembled into narrative + key_takeaways + citations.</p>
+
+  <p><strong>Viability score (spec 14).</strong> LLM grades the full plan on 1-100 scale with honest confidence flag and recommended-next-steps. Not a MiroFish sim — a rigorous LLM evaluation anchored to observable data quality.</p>
+
+  <p><strong>Reddit customer voice.</strong> pullpush.io + DDG fallback for thread discovery; VADER per-comment sentiment; LLM-extracted complaint/praise themes + verbatim customer quotes. Unfiltered, bypasses the curated Trustpilot/G2 surface.</p>
+
+  <p><strong>Firmographics.</strong> Wikidata SPARQL + GitHub Orgs REST + DDG→LLM extraction. B2B mode only. Conservative null-beats-wrong; 70% hit rate on small-cap SaaS.</p>
+
+  <p><strong>Macro anchors.</strong> FRED public API for GDP, e-commerce sales, services PPI. No key required, 24h cache. Provides external grounding for TAM/SAM/SOM claims.</p>
+
+  <p><strong>Delivery.</strong> HTML report (print-friendly for Cmd+P → PDF) and dedicated PDF endpoint via Playwright print-to-PDF. Investor one-pager rendered separately.</p>
+
+  <p><strong>Honest limitations.</strong> All "simulated" metrics (Max-Diff, PSM, segment scoring) are LLM estimates, not real surveys. Data age varies by source (Trustpilot live, Wayback up to weeks stale, Wikidata irregular). Use as directional signal, not ground truth.</p>
+</div>
+
+<!-- CITATIONS -->
+{% if four_ps.citations %}
+<div class="citations">
+  <h2 id="citations">Sources &amp; Citations</h2>
+  <ol>
+    {% for c in four_ps.citations %}
+    <li id="cite-{{ loop.index }}"><span class="source">{{ c.source }}</span>{% if c._section %} <span style="font-size:8pt;color:#9ca3af">({{ c._section }})</span>{% endif %}{% if c.claim %} — {{ c.claim }}{% endif %}</li>
+    {% endfor %}
+  </ol>
+</div>
+{% endif %}
+
+<!-- FEEDBACK WIDGET -->
+<div class="no-print" style="margin-top:40px;padding:20px;background:#f9fafb;border-radius:8px;border:1px dashed #e5e7eb">
+  <h3 style="margin:0 0 8px;font-size:11pt;color:#1f2937">Was this report useful?</h3>
+  <p style="font-size:10pt;color:#6b7280;margin:0 0 10px">Your feedback helps tune the pipeline. Anonymous, stored locally.</p>
+  <div id="feedback-buttons">
+    <button onclick="submitFeedback(1)" style="padding:8px 16px;background:#10b981;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-right:8px;font-weight:600">👍 Useful</button>
+    <button onclick="submitFeedback(-1)" style="padding:8px 16px;background:#ef4444;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-right:8px;font-weight:600">👎 Not useful</button>
+    <button onclick="submitFeedback(0)" style="padding:8px 16px;background:#9ca3af;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600">😐 Mixed</button>
+  </div>
+  <textarea id="feedback-comment" placeholder="What worked? What didn't? (optional)" style="width:100%;margin-top:10px;padding:8px;border:1px solid #d1d5db;border-radius:4px;font-size:10pt;font-family:inherit" rows="2"></textarea>
+  <div id="feedback-thanks" style="display:none;color:#10b981;font-weight:600;margin-top:10px">✓ Thanks for the feedback!</div>
+</div>
+<script>
+async function submitFeedback(rating) {
+  const comment = document.getElementById('feedback-comment').value;
+  try {
+    await fetch('/jobs/{{ job_id }}/feedback', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({rating, section: 'overall', comment}),
+    });
+    document.getElementById('feedback-buttons').style.display = 'none';
+    document.getElementById('feedback-comment').style.display = 'none';
+    document.getElementById('feedback-thanks').style.display = 'block';
+  } catch(e) {
+    alert('Feedback submit failed: ' + e.message);
+  }
+}
+</script>
+
+<footer>
+  Generated by Market Research Prototype · {{ generated_date }} · Pipeline duration {{ duration_seconds or '?' }}s · Job ID {{ job_id[:8] }}
+</footer>
+
+</body>
+</html>

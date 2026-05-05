@@ -1,0 +1,73 @@
+{
+  "_doc": "Tier-3 OOS: real venture (Glean) — enterprise AI search + knowledge work platform. Raised $260M Series E (Feb 2024) at $4.6B valuation, then reportedly $260M+ at $7.2B (mid-2024). Strict OOS — venture and case constructed from public press only.",
+  "_oos_tier": 3,
+  "_oos_provenance": "Glean Series E announcements 2024; G2 reviews; Glean blog public claims; Coveo / Lucidworks public funding for analog comps",
+  "venture_under_test": {
+    "name": "Glean",
+    "description": "Glean is an enterprise AI-powered search and knowledge platform that connects to 100+ workplace tools (Slack, Jira, Confluence, Notion, Google Workspace, Microsoft 365, GitHub, Salesforce) to surface unified semantic search results, AI-generated answers, and personalized work assistants. Target customers: enterprises with 500-50,000 employees facing knowledge fragmentation across many SaaS apps. Pricing: $30-$60 per seat per month, enterprise-only annual contracts. Target buyer: Chief Information Officer (CIO), Head of Workplace IT, Chief Knowledge Officer, or VP of Operations. Competes with Microsoft Copilot, Coveo, Lucidworks, Mendel.ai, and ChatGPT Enterprise. Differentiation: native connectors to 100+ apps (vs Microsoft Copilot's Microsoft-stack-only), permissions-aware search (respects every source app's ACLs natively), and personalized AI assistants tuned per role from organizational graph.",
+    "category": "B2B SaaS enterprise AI search and knowledge platform",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "glean_seriese_2024",
+      "source": "Glean press release / Series E announcement",
+      "title": "Glean $260M Series E (Feb 2024)",
+      "url": "https://www.glean.com/press",
+      "fetched_date": "2026-05-01",
+      "publicly_accessible": true,
+      "domain": "competitor scale / venture stage",
+      "claims": [
+        {"key": "glean_seriese_size_usd_m", "value": 260, "unit": "USD million", "source_quote": "Glean raised $260M Series E"},
+        {"key": "glean_valuation_2024_usd_b", "value": 4.6, "unit": "USD billion", "source_quote": "valued at $4.6B Feb 2024"},
+        {"key": "glean_revenue_growth_2024", "value": "5x YoY", "unit": "qualitative", "source_quote": "5x ARR growth YoY"},
+        {"key": "glean_lead_investors", "value": "Sequoia + Kleiner Perkins", "unit": "qualitative", "source_quote": "led by Kleiner Perkins, Sequoia"}
+      ]
+    },
+    {
+      "id": "ms_copilot_revenue_2024",
+      "source": "Microsoft Q4 2024 earnings call (Copilot disclosed metrics)",
+      "title": "Microsoft Copilot enterprise traction (analog comp)",
+      "url": "https://www.microsoft.com/en-us/Investor",
+      "fetched_date": "2026-05-01",
+      "publicly_accessible": true,
+      "domain": "competitor scale",
+      "claims": [
+        {"key": "microsoft_365_copilot_revenue_run_rate_usd_b", "value": 5, "unit": "USD billion (estimate)", "source_quote": "Microsoft 365 Copilot estimated $5B+ run-rate (2024)"},
+        {"key": "ms_copilot_customers_count_k", "value": 100, "unit": "thousand customers", "source_quote": "100k+ enterprise Copilot customers"}
+      ]
+    },
+    {
+      "id": "global_enterprise_search_2024",
+      "source": "IDC enterprise search + knowledge management 2024",
+      "title": "Global enterprise search + knowledge platform market",
+      "url": "https://www.statista.com/topics/enterprise-search/",
+      "fetched_date": "2026-05-01",
+      "publicly_accessible": true,
+      "domain": "TAM",
+      "claims": [
+        {"key": "global_enterprise_search_2024_usd_b", "value": 5.5, "unit": "USD billion", "source_quote": "global enterprise search software $4-7B in 2024"},
+        {"key": "us_share_pct", "value": 50, "unit": "%", "source_quote": "US share approximately 45-55%"},
+        {"key": "us_enterprise_search_2024_usd_b", "value": 2.75, "unit": "USD billion (derived)", "source_quote": "Derived: 50% × $5.5B"},
+        {"key": "ai_subsegment_growth_2024", "value": "explosive", "unit": "qualitative", "source_quote": "AI-augmented enterprise search exploding post-LLM (5-10x growth)"},
+        {"key": "broader_knowledge_mgmt_2024_usd_b", "value": 12, "unit": "USD billion", "source_quote": "broader knowledge management category $10-15B"},
+        {"key": "category_cagr_pct", "value": 22, "unit": "% CAGR", "source_quote": "AI search subsegment 18-30% CAGR"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low":  1000000000,
+    "tam_us_corporate_wellness_usd_mid":  4000000000,
+    "tam_us_corporate_wellness_usd_high": 12000000000,
+    "_tam_note": "Defensible US enterprise AI search scoping: narrow $1-2B (US enterprise search proper), mid-narrow $3-6B (search + AI knowledge work), broad $8-12B (knowledge management + AI productivity). Pipeline TAM mid acceptable in $1B-$12B range.",
+    "growth_cagr_pct_low": 12,
+    "growth_cagr_pct_high": 35,
+    "_cagr_note": "AI-augmented enterprise search 18-30% CAGR (post-LLM hot category); broader category 10-18%.",
+    "competitor_must_include": ["Microsoft Copilot", "Coveo", "Lucidworks", "Mendel", "ChatGPT Enterprise"],
+    "_competitor_note": "5 named in description.",
+    "icp_employee_band": "500-50000",
+    "buyer_role_keywords": ["CIO", "Chief Information Officer", "Head of Workplace IT", "Chief Knowledge Officer", "VP IT"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}

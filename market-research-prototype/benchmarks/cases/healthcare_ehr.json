@@ -1,0 +1,68 @@
+{
+  "_doc": "Reference data for benchmarking the Castor pipeline against a cloud-native EHR/practice-management B2B SaaS for independent medical practices.",
+  "venture_under_test": {
+    "name": "Carepath",
+    "description": "Carepath is a cloud-native Electronic Health Record (EHR) and practice-management B2B SaaS for independent primary-care, urgent-care, and specialty medical practices with 5-50 providers. We bundle EHR, e-prescribing, billing, patient portal, and telehealth in one product priced at $250 per provider per month. Target buyer: Practice Owner / Medical Director and Practice Administrator at independent practices not yet absorbed into hospital systems. We compete with athenahealth, eClinicalWorks, NextGen Healthcare, Allscripts, and DrChrono. Differentiation: HIPAA-native cloud architecture (vs legacy on-prem retrofits), AI-driven SOAP-note generation from voice recording, and transparent flat-rate pricing without per-feature add-ons or hidden implementation fees.",
+    "category": "B2B SaaS healthcare / EHR for independent practices",
+    "geography": "US"
+  },
+  "references": [
+    {
+      "id": "ahima_ehr_adoption_2024",
+      "source": "AHIMA / Office of the National Coordinator (publicly cited)",
+      "title": "EHR adoption rates among ambulatory practices",
+      "url": "https://www.healthit.gov/data/quickstats/office-based-physician-electronic-health-record-adoption",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "EHR adoption",
+      "claims": [
+        {"key": "us_office_based_physicians_with_ehr_pct", "value": 88, "unit": "%", "source_quote": "approximately 88% of US office-based physicians have adopted an EHR"},
+        {"key": "us_independent_practices_count_k", "value": 200, "unit": "thousand practices", "source_quote": "approximately 200k independent ambulatory practices in the US"}
+      ]
+    },
+    {
+      "id": "athenahealth_filings_2023",
+      "source": "athenahealth public filings + Bain acquisition press 2022",
+      "title": "athenahealth scale + acquisition value (analog comp)",
+      "url": "https://www.athenahealth.com/about/news",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "competitor scale / analog comp",
+      "claims": [
+        {"key": "athenahealth_acquisition_value_usd_b", "value": 17, "unit": "USD billion", "source_quote": "Bain Capital + Hellman & Friedman acquired athenahealth for $17B (2022)"},
+        {"key": "athenahealth_revenue_estimate_2022_usd_b", "value": 1.5, "unit": "USD billion", "source_quote": "athenahealth revenue ~$1.4-1.6B (2022 estimate)"},
+        {"key": "athenahealth_practices_count_k", "value": 140, "unit": "thousand providers", "source_quote": "platform serves 140k+ providers"}
+      ]
+    },
+    {
+      "id": "grand_view_ehr_2024",
+      "source": "Grand View Research",
+      "title": "U.S. EHR market size and forecast",
+      "url": "https://www.grandviewresearch.com/industry-analysis/electronic-health-records-ehr-market",
+      "fetched_date": "2026-04-30",
+      "publicly_accessible": true,
+      "domain": "TAM / market sizing",
+      "claims": [
+        {"key": "us_ehr_market_2024_usd_b", "value": 13.5, "unit": "USD billion", "source_quote": "U.S. EHR market estimated $12-15B in 2024"},
+        {"key": "us_ehr_cagr_pct", "value": 4.5, "unit": "% CAGR", "source_quote": "expected CAGR 4-6% through 2030 (mature market)"},
+        {"key": "ambulatory_segment_share_pct", "value": 42, "unit": "%", "source_quote": "ambulatory segment is approximately 42% of total EHR spend"},
+        {"key": "us_ambulatory_ehr_2024_usd_b", "value": 5.7, "unit": "USD billion (derived)", "source_quote": "Derived: 42% × $13.5B"}
+      ]
+    }
+  ],
+  "expected_pipeline_outputs": {
+    "tam_us_corporate_wellness_usd_low":  500000000,
+    "tam_us_corporate_wellness_usd_mid":  3000000000,
+    "tam_us_corporate_wellness_usd_high": 8000000000,
+    "_tam_note": "Defensible US ambulatory EHR scoping: narrow $0.5-1.5B (independent practices 5-50 providers, the ICP slice), mid-narrow $2-4B (full ambulatory cloud EHR), broad $5-8B (ambulatory EHR + e-prescribing + practice management). Pipeline TAM mid acceptable in $0.5B-$8B range.",
+    "growth_cagr_pct_low": 3,
+    "growth_cagr_pct_high": 12,
+    "_cagr_note": "Mature EHR market 4-6% CAGR overall; cloud-native subsegment 8-12% as legacy on-prem migrates.",
+    "competitor_must_include": ["athenahealth", "eClinicalWorks", "NextGen", "Allscripts", "DrChrono"],
+    "_competitor_note": "Five named in description.",
+    "icp_employee_band": "5-50",
+    "buyer_role_keywords": ["Practice Owner", "Medical Director", "Practice Administrator", "Chief Medical Officer", "physician"],
+    "minimum_pipeline_steps": 14,
+    "minimum_customer_voice_sources": 5
+  }
+}
