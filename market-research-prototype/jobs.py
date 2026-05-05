@@ -19,7 +19,10 @@ from logger import get
 
 log = get("jobs")
 
-DB = Path(__file__).parent / ".jobs.sqlite"
+import os
+# cycle32 deploy: allow env override so a Docker volume at /data is usable.
+DB = Path(os.environ.get("JOBS_DB_PATH") or (Path(__file__).parent / ".jobs.sqlite"))
+DB.parent.mkdir(parents=True, exist_ok=True)
 _lock = threading.Lock()
 
 

@@ -4,11 +4,14 @@ Default TTL: 7 days.
 """
 from __future__ import annotations
 import json
+import os
 import sqlite3
 import time
 from pathlib import Path
 
-DB = Path(__file__).parent / ".cache.sqlite"
+# cycle32 deploy: allow env override so a Docker volume at /data is usable.
+DB = Path(os.environ.get("LLM_CACHE_PATH") or (Path(__file__).parent / ".cache.sqlite"))
+DB.parent.mkdir(parents=True, exist_ok=True)
 TTL_SECONDS = 7 * 24 * 3600
 
 

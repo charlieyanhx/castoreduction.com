@@ -9,6 +9,7 @@ Per-host throttle: a tiny in-memory rate-limit so we don't hammer one host
 with 10 concurrent requests (which gets us banned). Default 2/sec per host.
 """
 from __future__ import annotations
+import os
 import threading
 import time
 from collections import defaultdict
@@ -16,7 +17,9 @@ from pathlib import Path
 
 import requests  # module-level so tests can patch scrape.http.requests.request
 
-CACHE_PATH = Path(__file__).parent.parent / ".http_cache.sqlite"
+# cycle32 deploy: env override for Docker volume / non-default cache location
+CACHE_PATH = Path(os.environ.get("HTTP_CACHE_PATH") or (Path(__file__).parent.parent / ".http_cache.sqlite"))
+CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
 DEFAULT_TTL = 24 * 3600  # 24h
 USER_AGENT = "MarketResearchPrototype/0.2 (+https://github.com/anthropics/claude-code)"
 

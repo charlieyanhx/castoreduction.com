@@ -1,0 +1,17 @@
+# Don't copy local dev junk into the deploy image
+.venv
+__pycache__
+*.pyc
+.env
+.cache.sqlite
+.jobs.sqlite
+.http_cache.sqlite
+.cache/
+out/
+.pytest_cache
+.git
+.gitignore
+.DS_Store
+node_modules
+*.log
+/tmp

@@ -1,0 +1,46 @@
+# render.yaml — one-click deploy for Castor research pipeline
+# https://render.com/docs/blueprint-spec
+#
+# To deploy:
+#   1. Push this repo to GitHub (already done)
+#   2. Go to https://dashboard.render.com/blueprints
+#   3. Click "New Blueprint Instance" and connect to this repo
+#   4. Render reads this file, provisions everything, and deploys
+#   5. Set the API key env vars in the Render dashboard (see "Secret env vars" below)
+
+services:
+  - type: web
+    name: castor-research
+    runtime: docker
+    repo: https://github.com/charlieyanhx/castoreduction.com
+    branch: master
+    rootDir: market-research-prototype
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter             # $7/mo, always-on (free tier sleeps which breaks long /plan jobs)
+    region: oregon            # change to closest to you
+    healthCheckPath: /healthz
+    autoDeploy: true          # redeploy on every git push to master
+
+    # Persistent disk: SQLite caches survive across deploys
+    disk:
+      name: castor-data
+      mountPath: /data
+      sizeGB: 5
+
+    envVars:
+      # Public, non-secret — set inline
+      - key: PIPELINE_PROFILE
+        value: default
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+      # SECRET — set these manually in the Render dashboard after first deploy:
+      #   Dashboard → castor-research → Environment → "Add Environment Variable"
+      #   (sync: false here means Render won't try to autopopulate them)
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
