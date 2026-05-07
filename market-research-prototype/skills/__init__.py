@@ -24,8 +24,9 @@ from .registry import (
 )
 
 # Trigger registration of all skill modules
-from . import pipeline_steps  # noqa: F401
-from . import narration       # noqa: F401
+from . import pipeline_steps  # noqa: F401  — 9 individual step skills
+from . import narration       # noqa: F401  — prose generation (template + LLM)
+from . import pipeline        # noqa: F401  — TOP-LEVEL composition (the full /plan)
 
 __all__ = [
     "SkillMeta", "SKILL_REGISTRY", "skill",

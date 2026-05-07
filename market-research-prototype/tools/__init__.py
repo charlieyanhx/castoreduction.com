@@ -30,9 +30,15 @@ from .registry import (
     describe_all,
 )
 
-# Trigger registration of all tool modules
-from . import customer_voice  # noqa: F401  — side-effect: registers tools
-from . import firmographic    # noqa: F401  — side-effect: registers tools
+# Trigger registration of all tool modules (cycle32 round 2: now consistent —
+# every external-touching primitive is a registered tool)
+from . import customer_voice  # noqa: F401  — voice scrapers
+from . import firmographic    # noqa: F401  — Wikidata/GitHub enrich
+from . import scrape          # noqa: F401  — low-level scrape utilities (search, structured, wayback)
+from . import trend           # noqa: F401  — Google Trends, Wayback activity, Trustpilot momentum
+from . import domain          # noqa: F401  — domain validation, parking detection, age
+from . import social          # noqa: F401  — Instagram signals
+from . import ads             # noqa: F401  — Meta Ad Library
 
 __all__ = [
     "Evidence", "ToolMeta", "TOOL_REGISTRY", "tool",
