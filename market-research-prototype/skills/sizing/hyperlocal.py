@@ -1,0 +1,199 @@
+"""
+skills/sizing/hyperlocal.py — trade-area catchment sizing (Method 1).
+
+The method generic TAM tools get most wrong: a single physical premise (the
+restaurant in LA) sized from REAL local demand, not a national market ÷ players.
+
+Flow (all numbers from authoritative sources — the LLM invents nothing here):
+  geocode_address   → lat/lng + county FIPS           [US Census Geocoder]
+  acs_demographics  → households, median HH income    [US Census ACS 5-yr]
+  poi_competition   → competing-venue count           [OpenStreetMap Overpass]
+  BLS CEX line item → annual $/household for category  [BLS Consumer Expenditure]
+
+  TAM_local = households × annual_spend_per_hh
+  SAM_local = TAM_local × serviceable_fraction
+  SOM (demand) = SAM_local × 1/(competitors+1) × ramp     (fair-share)
+  SOM (supply) = seats × turns/day × avg_check × days/yr  (capacity, triangulation)
+  SOM_local = min(demand, supply)  — the binding constraint
+
+Every figure ships as {value_usd, label, source, formula}. Output is run through
+validate_numbers before returning; a hard block sets Evidence.error.
+"""
+from __future__ import annotations
+
+from typing import Optional
+
+from skills.registry import skill
+from tools import Evidence, get_tool
+from .validate import validate_numbers
+
+# Optional session cache (category → annual $/household estimate). Empty by default.
+_SPEND_CACHE: dict[str, float] = {}
+
+
+def resolve_annual_spend(category: str) -> tuple[Optional[float], bool]:
+    """Annual household spend ($/yr) for a category.
+
+    C1: tries the REAL source first — BLS CEX via the `bls_cex_spend` tool — and only
+    falls back to a labeled LLM estimate if BLS is unavailable. Returns
+    (value, sourced) where `sourced` is True iff the number came from BLS, so callers
+    label provenance honestly. (None, False) if nothing resolves.
+    """
+    if not category:
+        return None, False
+    # 1) Real source: BLS Consumer Expenditure Survey (module-level get_tool).
+    try:
+        ev = get_tool("bls_cex_spend").fn(category=category)
+        if not ev.skeleton and ev.payload and ev.payload.get("annual_usd"):
+            return float(ev.payload["annual_usd"]), True
+    except Exception:
+        pass
+    # 2) Fallback: LLM estimate (caller labels it unsourced).
+    key = category.lower().strip()
+    if key in _SPEND_CACHE:
+        return _SPEND_CACHE[key], False
+    try:
+        from llm import call_json
+        raw = call_json(
+            system=("Give the typical US annual household spend in USD for the "
+                    "category, grounded in BLS Consumer Expenditure Survey line "
+                    "items. Reply ONLY JSON: {\"annual_usd\": <number>}."),
+            user=f"Category: {category}",
+            max_tokens=60,
+        ) or {}
+        val = raw.get("annual_usd")
+        if isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
+            _SPEND_CACHE[key] = float(val)
+            return float(val), False
+        return None, False
+    except Exception:
+        return None, False
+
+
+def _fig(value: Optional[float], label: str, source: str, formula: str) -> dict:
+    return {"value_usd": value, "label": label, "source": source, "formula": formula}
+
+
+@skill(produces="market_sizing", consumes=["market_scale"])
+def size_hyperlocal(
+    address: str,
+    category: str = "food_away_from_home",
+    osm_value: str = "restaurant",
+    radius_m: int = 3000,
+    serviceable_fraction: float = 0.35,
+    ramp_factor: float = 0.6,
+    annual_spend_per_hh: Optional[float] = None,
+    supply_seats: Optional[int] = None,
+    supply_turns_per_day: float = 2.0,
+    supply_avg_check: float = 35.0,
+    supply_days_per_year: int = 360,
+    year: int = 2022,
+) -> Evidence:
+    """Size a single-location business by its real local trade area.
+
+    Args mostly default to a restaurant; override category/osm_value/spend for
+    other formats (gym, salon, clinic). supply_* enables the capacity-side SOM
+    used for triangulation; omit supply_seats to skip it.
+
+    Returns Evidence(produces="market_sizing") with tam/sam/som + provenance
+    figures, pre-validated. Evidence.error is set if validation hard-blocks.
+    """
+    geocode = get_tool("geocode_address").fn
+    acs = get_tool("acs_demographics").fn
+    poi = get_tool("poi_competition").fn
+
+    # 1. Geocode.
+    g = geocode(address)
+    if g.error or not g.payload:
+        return Evidence(source="size_hyperlocal", category="skill_output", count=0,
+                        skeleton=True, error=f"geocode failed: {g.error}")
+    lat, lng = g.payload.get("lat"), g.payload.get("lng")
+    state_fips, county_fips = g.payload.get("state_fips"), g.payload.get("county_fips")
+
+    # 2. Demographics (county-level catchment baseline).
+    d = acs(state_fips=state_fips, county_fips=county_fips, year=year)
+    households = (d.payload or {}).get("households") if not d.error else None
+
+    # 3. Competition.
+    c = poi(lat=lat, lng=lng, radius_m=radius_m, osm_value=osm_value)
+    competitors = c.count if not c.error else None
+
+    # 4. Spend per household. C1 (audit): prefer the real BLS source; an LLM estimate
+    # is labeled UNSOURCED and caps confidence (invariant #1: the LLM never invents a
+    # *sourced* number).
+    spend_is_sourced = False
+    if annual_spend_per_hh is not None:
+        spend, spend_src = annual_spend_per_hh, "caller-provided"
+        spend_is_sourced = True
+    else:
+        spend, spend_is_sourced = resolve_annual_spend(category)
+        spend_src = ("BLS Consumer Expenditure Survey" if spend_is_sourced
+                     else "LLM estimate (UNSOURCED — validate vs BLS CEX)")
+
+    figures: list[dict] = []
+    tam = sam = som = None
+    som_demand = som_supply = None
+    confidence = "high"
+    notes: list[str] = []
+    if not spend_is_sourced and spend:
+        # Estimated spend is the load-bearing per-unit input → TAM can't be "high".
+        confidence = "medium"
+        notes.append("Annual spend/household is an LLM estimate, not BLS-sourced — "
+                     "validate against BLS Consumer Expenditure Survey before relying on TAM.")
+
+    if households and spend:
+        tam = households * spend
+        figures.append(_fig(tam, "TAM_local", f"US Census ACS 5-yr {year} + {spend_src}",
+                             f"{households:,.0f} households × ${spend:,.0f}/hh/yr"))
+        sam = tam * serviceable_fraction
+        figures.append(_fig(sam, "SAM_local", "derived",
+                            f"TAM × {serviceable_fraction:.0%} serviceable"))
+
+        if competitors is not None:
+            fair_share = 1.0 / (competitors + 1)
+            som_demand = sam * fair_share * ramp_factor
+            figures.append(_fig(
+                som_demand, "SOM_demand",
+                "OpenStreetMap Overpass + derived",
+                f"SAM × 1/({competitors}+1) fair-share × {ramp_factor:.0%} ramp"))
+        else:
+            confidence = "medium"
+            notes.append("competition count unavailable — SOM demand-side skipped")
+    else:
+        confidence = "low"
+        notes.append("households or spend unavailable — TAM not computed")
+
+    # Supply-side SOM (capacity) for triangulation.
+    if supply_seats:
+        som_supply = (supply_seats * supply_turns_per_day
+                      * supply_avg_check * supply_days_per_year)
+        figures.append(_fig(
+            som_supply, "SOM_supply", "capacity model",
+            f"{supply_seats} seats × {supply_turns_per_day}/day × "
+            f"${supply_avg_check} × {supply_days_per_year}d"))
+
+    # Binding constraint.
+    candidates = [v for v in (som_demand, som_supply) if isinstance(v, (int, float))]
+    if candidates:
+        som = min(candidates)
+
+    sizing = {
+        "tam_usd": tam, "sam_usd": sam, "som_usd": som,
+        "som_demand_usd": som_demand, "som_supply_usd": som_supply,
+        "trade_area_spend_usd": tam,  # catchment ceiling
+        "figures": figures,
+        "households": households, "competitors": competitors,
+        "method": "trade_area_catchment", "confidence": confidence, "notes": notes,
+    }
+
+    # Mandatory validation gate.
+    v = validate_numbers(sizing)
+    sizing["validation"] = v.payload
+
+    return Evidence(
+        source="size_hyperlocal", category="skill_output",
+        count=1, payload=sizing,
+        error=v.error,  # propagate hard blocks
+        cost_meta={"tam_usd": tam, "som_usd": som, "confidence": confidence,
+                   "validation_passed": v.payload["passed"]},
+    )

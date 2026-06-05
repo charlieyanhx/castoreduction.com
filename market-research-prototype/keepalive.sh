@@ -52,7 +52,7 @@ start_tunnel() {
     pkill -f cloudflared 2>/dev/null
     sleep 2
     echo "[$(date)] starting cloudflared..."
-    nohup cloudflared tunnel --url http://localhost:8765 > "$TUNNEL_LOG" 2>&1 &
+    nohup cloudflared --config /dev/null tunnel --url http://127.0.0.1:8765 > "$TUNNEL_LOG" 2>&1 &
     # Wait up to 20s for cloudflared to print its URL
     for i in $(seq 1 20); do
         URL=$(grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" "$TUNNEL_LOG" | head -1)

@@ -591,6 +591,49 @@ ALL fields REQUIRED. growth_cagr_pct must be a SINGLE number (e.g. 23, not "18-2
     except Exception as e:
         log.warning(f"[market_sizing] macro anchors failed (non-fatal): {e}")
 
+    # cycle33 (Manus-benchmark fix): enforce SOM ≤ SAM ≤ TAM. The 3 layers are
+    # independent LLM calls, so SAM could exceed TAM (caught live by the validation
+    # gate: "SAM $3.0B > TAM $950M"). Clamp deterministically; record the fix.
+    result = _enforce_sizing_ordering(result)
+
+    return result
+
+
+def _enforce_sizing_ordering(result: dict) -> dict:
+    """Clamp SAM ≤ TAM and SOM ≤ SAM on the headline mids (and scale low/high to
+    match). Independent LLM layers can violate the funnel; this guarantees it.
+    Records any correction under result['_ordering_corrections']."""
+    def _mid(block):
+        try:
+            v = (result.get(block) or {}).get("mid")
+            return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+        except (TypeError, ValueError):
+            return None
+
+    tam, sam, som = _mid("tam"), _mid("sam"), _mid("som")
+    corrections = []
+
+    def _clamp(block: str, value: float, ceiling: float, ceiling_name: str) -> None:
+        ratio = ceiling / value if value else 0
+        b = dict(result.get(block) or {})
+        b["mid"] = round(ceiling * 0.9)  # sit just under the ceiling, not exactly on it
+        for edge in ("low", "high"):
+            if isinstance(b.get(edge), (int, float)) and not isinstance(b.get(edge), bool):
+                b[edge] = round(float(b[edge]) * ratio)
+        result[block] = b
+        corrections.append(
+            f"{block.upper()} {value:,.0f} exceeded {ceiling_name} {ceiling:,.0f} "
+            f"→ clamped to {b['mid']:,.0f}")
+
+    if sam is not None and tam is not None and sam > tam:
+        _clamp("sam", sam, tam, "TAM")
+        sam = float(result["sam"]["mid"])
+    if som is not None and sam is not None and som > sam:
+        _clamp("som", som, sam, "SAM")
+
+    if corrections:
+        log.warning("[market_sizing] ordering corrections: %s", corrections)
+        result["_ordering_corrections"] = corrections
     return result
 
 

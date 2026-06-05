@@ -120,6 +120,14 @@ class PlanRequest(BaseModel):
     operator_weights: OperatorWeights = Field(default_factory=OperatorWeights)
 
 
+class CrewRequest(BaseModel):
+    """Run the multi-agent research crew (parallel specialists → synthesis)."""
+    description: str = Field(..., min_length=10)
+    geo: str = "US"
+    address: str | None = None
+    dynamic: bool = True  # let the planner pick which specialists to dispatch
+
+
 class RegenSectionRequest(BaseModel):
     """Regenerate one 4Ps section with operator steering."""
     section: str = Field(..., pattern="^(product|price|place|promotion)$")
@@ -294,6 +302,24 @@ def post_full(req: DiscoverRequest):
                 except Exception as e:
                     tastes[b] = {"error": str(e)}
         return {"discover": disc, "tastes": tastes}
+
+    jobs.run_async(job_id, work)
+    return {"job_id": job_id}
+
+
+@app.post("/research/crew")
+def post_research_crew(req: CrewRequest):
+    """Run the multi-agent research crew as an async job (H2: the agents are now an
+    invokable product capability, not an idle layer). Parallel specialist agents
+    (market scan / demand / pricing / local) → lead synthesis brief.
+    """
+    job_id = jobs.create("crew", req.model_dump())
+
+    def work(progress=None):
+        from agents import run_research_crew
+        ev = run_research_crew(req.description, geo=req.geo,
+                               address=req.address, dynamic=req.dynamic)
+        return ev.payload or {"error": ev.error}
 
     jobs.run_async(job_id, work)
     return {"job_id": job_id}
@@ -608,6 +634,11 @@ def get_job_report_html(job_id: str):
                       if (r.get("segment_ranking") or {}).get("top_pick") else ""),
         # Iter 41: max_diff was being computed (11 features in cycle 5) but never passed to template
         max_diff=r.get("max_diff"),
+        # cycle33: STORM-style multi-perspective consumer research
+        consumer_research=r.get("consumer_research"),
+        market_scale=r.get("market_scale"),
+        # cycle33 C5: stated-vs-recommended price reconciliation (no silent re-pricing)
+        price_reconciliation=r.get("price_reconciliation"),
     )
     return HTMLResponse(content=html)
 
@@ -850,6 +881,31 @@ def describe_skill_api(name: str):
     """Detailed description of one skill."""
     import skills
     return skills.describe_skill(name)
+
+
+# ---------------------------------------------------------------------------
+# Agent registry endpoints (cycle33) — specialized research agents + crew
+# ---------------------------------------------------------------------------
+@app.get("/api/agents")
+def list_agents_api(produces: str | None = None):
+    """List all registered research agents, optionally filtered by output."""
+    import agents
+    items = agents.list_agents(produces=produces)
+    return {
+        "count": len(items),
+        "agents": [{
+            "name": a.name, "role": a.role, "produces": a.produces,
+            "categories": a.categories, "max_steps": a.max_steps,
+            "signature": a.signature, "docstring": a.docstring,
+        } for a in items],
+    }
+
+
+@app.get("/api/agents/{name}")
+def describe_agent_api(name: str):
+    """Detailed description of one agent."""
+    import agents
+    return agents.describe_agent(name)
 
 
 # ---------------------------------------------------------------------------

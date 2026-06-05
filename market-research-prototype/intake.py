@@ -205,6 +205,16 @@ def process_message(session_id: str, user_message: str) -> dict:
     if next_action == "ready" and missing_required and user_msg_count < 6:
         next_action = "ask"
 
+    # cycle33 (browser-test fix): the model sometimes loops on "ask" forever even
+    # when all required fields are already filled — observed re-asking the SAME
+    # question verbatim, so the session never reached ready and report generation
+    # was blocked. Once the 4 required fields are present and the user has spoken
+    # at least twice, force ready rather than waiting for the model to volunteer it.
+    if next_action != "ready" and not missing_required and user_msg_count >= 2:
+        log.info("intake force-ready (session=%s): all required filled but model kept asking",
+                 session_id[:8])
+        next_action = "ready"
+
     if next_action == "ready":
         final = resp.get("final_description") or ""
         if len(final) < 30:

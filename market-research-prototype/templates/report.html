@@ -391,9 +391,86 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 </div>
 {% endif %}
 
+<!-- CONSUMER RESEARCH (STORM-style multi-perspective) — cycle33 -->
+{% if consumer_research and consumer_research.synthesis %}
+{% set cr = consumer_research %}
+{% set syn = cr.synthesis %}
+<h2 id="consumer-research">Consumer Research — Multi-Perspective Simulation</h2>
+<p style="font-size:11pt;color:#4b5563">Synthetic interviews across {{ syn.n_segments }} distinct buyer perspectives. Needs and objections are ranked by how many segments raised them; items shared across segments signal broad demand.</p>
+
+{% if syn.willingness_to_pay %}
+{% set wtp = syn.willingness_to_pay %}
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:14px 0">
+  <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:14px;text-align:center">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#047857">WTP — Low</div>
+    <div style="font-size:20px;font-weight:700;color:#065f46;font-variant-numeric:tabular-nums">{{ format_currency(wtp.low) }}<span style="font-size:11px;color:#6b7280">/mo</span></div>
+  </div>
+  <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.4);border-radius:8px;padding:14px;text-align:center">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#047857">WTP — Median</div>
+    <div style="font-size:24px;font-weight:800;color:#064e3b;font-variant-numeric:tabular-nums">{{ format_currency(wtp.median) }}<span style="font-size:11px;color:#6b7280">/mo</span></div>
+  </div>
+  <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:14px;text-align:center">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#047857">WTP — High</div>
+    <div style="font-size:20px;font-weight:700;color:#065f46;font-variant-numeric:tabular-nums">{{ format_currency(wtp.high) }}<span style="font-size:11px;color:#6b7280">/mo</span></div>
+  </div>
+</div>
+<p style="font-size:9pt;color:#6b7280;margin:-4px 0 10px">{{ wtp.n_would_pay }} of {{ wtp.n_total }} simulated segments indicated they would pay.</p>
+{% endif %}
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0">
+  <div>
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#1d4ed8;margin-bottom:8px">Top Needs</div>
+    <ul style="margin:0;padding-left:18px;font-size:11pt;color:#1f2937">
+    {% for n in syn.top_needs %}
+      <li style="margin-bottom:4px">{{ n.need }}{% if n.mentions > 1 %} <span style="font-size:9pt;color:#1d4ed8;font-weight:700">×{{ n.mentions }}</span>{% endif %}</li>
+    {% endfor %}
+    </ul>
+  </div>
+  <div>
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#b91c1c;margin-bottom:8px">Top Objections</div>
+    <ul style="margin:0;padding-left:18px;font-size:11pt;color:#1f2937">
+    {% for o in syn.top_objections %}
+      <li style="margin-bottom:4px">{{ o.objection }}{% if o.mentions > 1 %} <span style="font-size:9pt;color:#b91c1c;font-weight:700">×{{ o.mentions }}</span>{% endif %}</li>
+    {% endfor %}
+    </ul>
+  </div>
+</div>
+
+{% if syn.shared_needs %}
+<div style="background:rgba(29,78,216,0.06);border:1px solid rgba(29,78,216,0.25);border-radius:8px;padding:12px;margin:10px 0">
+  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#1d4ed8;margin-bottom:6px">Cross-Segment Agreement (broad demand)</div>
+  <div style="font-size:11pt;color:#1f2937">{{ syn.shared_needs|join(' · ') }}</div>
+</div>
+{% endif %}
+
+{% if cr.interviews %}
+<div style="margin:14px 0">
+  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#374151;margin-bottom:8px">Per-Segment Voice</div>
+  <div style="display:grid;grid-template-columns:repeat({{ cr.interviews|length if cr.interviews|length <= 4 else 4 }}, 1fr);gap:10px">
+  {% for iv in cr.interviews %}
+    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:12px">
+      <div style="font-weight:700;font-size:11pt;color:#111827;margin-bottom:4px">{{ iv.persona }}</div>
+      {% if iv.willingness_to_pay_usd %}<div style="font-size:9pt;color:#047857;font-weight:700;margin-bottom:6px">would pay {{ format_currency(iv.willingness_to_pay_usd) }}/mo</div>{% else %}<div style="font-size:9pt;color:#9ca3af;margin-bottom:6px">would not buy</div>{% endif %}
+      {% if iv.quotes %}<div style="font-size:10pt;color:#4b5563;font-style:italic">"{{ iv.quotes[0] }}"</div>{% endif %}
+    </div>
+  {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endif %}
+
 <!-- MARKET SIZING (TAM/SAM/SOM) -->
 {% if market_sizing and not market_sizing.error %}
 <h2>Market Size</h2>
+{% if market_sizing.validation and market_sizing.validation.passed == false %}
+<div style="border:2px solid #b91c1c;background:rgba(185,28,28,0.08);border-radius:8px;padding:14px;margin:10px 0">
+  <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#991b1b;margin-bottom:6px">⚠ Numbers failed validation — do not rely on these figures</div>
+  <div style="font-size:10pt;color:#7f1d1d">The sizing below did not pass the integrity gate and is flagged unpublishable. Issues:</div>
+  <ul style="margin:6px 0 0;padding-left:18px;font-size:10pt;color:#7f1d1d">
+  {% for b in market_sizing.validation.blocks %}<li>{{ b.msg }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:14px 0">
   {% for key, label in [('tam','TAM'), ('sam','SAM'), ('som','SOM')] %}
   {% set m = market_sizing[key] %}
@@ -1000,6 +1077,18 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <!-- PRICING DETAIL -->
 {% if psm.optimal_price_point or psm.recommended_tiers %}
 <h2 id="pricing">Pricing Detail</h2>
+{% if price_reconciliation %}
+{% set pr = price_reconciliation %}
+<div style="border-left:3px solid {% if pr.verdict == 'aligned' %}#10b981{% else %}#f59e0b{% endif %};background:rgba(245,158,11,0.06);border-radius:6px;padding:12px 14px;margin:10px 0">
+  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#b45309;margin-bottom:4px">Your price vs. model recommendation</div>
+  <div style="font-size:11pt;color:#1f2937">
+    You stated <strong>${{ '%.0f'|format(pr.stated_usd) }}/mo</strong> ·
+    model recommends <strong>${{ '%.0f'|format(pr.recommended_usd) }}/mo</strong>
+    <span style="color:{% if pr.delta_pct > 0 %}#047857{% else %}#b91c1c{% endif %}">({{ '%+.0f'|format(pr.delta_pct) }}%)</span>
+  </div>
+  <div style="font-size:10pt;color:#4b5563;margin-top:4px">{{ pr.note }}</div>
+</div>
+{% endif %}
 <p style="font-size:11pt">Van Westendorp PSM simulation with 40 simulated buyers from the target segment.
 {% if pricing_benchmark %} Prices stated per <strong>{{ pricing_benchmark.pricing_unit }}</strong>.{% endif %}
 </p>

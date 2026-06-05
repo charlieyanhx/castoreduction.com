@@ -39,6 +39,8 @@ from . import trend           # noqa: F401  — Google Trends, Wayback activity,
 from . import domain          # noqa: F401  — domain validation, parking detection, age
 from . import social          # noqa: F401  — Instagram signals
 from . import ads             # noqa: F401  — Meta Ad Library
+from . import geo             # noqa: F401  — Census geocoder/ACS + OSM (trade-area sizing)
+from . import econ            # noqa: F401  — BLS CEX spend (authoritative per-household spend)
 
 __all__ = [
     "Evidence", "ToolMeta", "TOOL_REGISTRY", "tool",

@@ -21,6 +21,8 @@ Steps (spec mapping):
 """
 from __future__ import annotations
 import json
+import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
@@ -155,6 +157,181 @@ def _validation_gate(result: dict) -> dict:
         "flags": flags,
         "confidence_score": round(max(0.0, confidence), 2),
     }
+
+
+def gate_and_annotate_sizing(sizing: dict, scale_decision: dict | None) -> dict:
+    """Run legacy sizing output through the numbers-right validation gate.
+
+    Non-mutating contract: returns a new dict (sizing + validation + scale_decision
+    + physical-venture caveat). The legacy tam/sam/som shape is left untouched so
+    downstream readers (som.mid, etc.) keep working. cycle33.
+    """
+    out = dict(sizing or {})
+    try:
+        from skills.sizing.validate import validate_numbers
+        tam_block = out.get("tam") or {}
+        # C7: feed the per-method figures (with their calculation as the formula)
+        # and the segmentation into the gate, so formula-reconciliation and
+        # segmentation-sum checks actually run on live reports — not just unit tests.
+        figures = []
+        for key in ("method_top_down", "method_bottom_up", "method_analog"):
+            blk = tam_block.get(key) or {}
+            if isinstance(blk.get("value_usd"), (int, float)):
+                figures.append({
+                    "value_usd": float(blk["value_usd"]), "label": f"TAM_{key}",
+                    "source": blk.get("source") or "estimate_market_size",
+                    "formula": blk.get("calculation") or "",
+                })
+        adapted = {
+            "tam_usd": tam_block.get("mid"),
+            "sam_usd": (out.get("sam") or {}).get("mid"),
+            "som_usd": (out.get("som") or {}).get("mid"),
+            "figures": figures,
+            "segmentation": out.get("segmentation") or [],
+        }
+        v = validate_numbers(adapted)
+        out["validation"] = v.payload
+        # C3 (audit remediation): a failed gate makes the sizing UNPUBLISHABLE.
+        # The renderer hard-banners this and downstream consumers can refuse it —
+        # "validate loud" now actually blocks instead of silently annotating.
+        out["publishable"] = bool(v.payload.get("passed"))
+        if not v.payload["passed"]:
+            log.warning("[plan] SIZING BLOCKED by validation gate (unpublishable): %s", v.error)
+    except Exception as e:  # gate machinery failure is non-fatal, but mark unknown
+        log.warning("[plan] sizing validation failed (non-fatal): %s", e)
+        out["publishable"] = out.get("publishable", True)
+
+    if scale_decision:
+        out["scale_decision"] = scale_decision
+        if scale_decision.get("scale") in ("hyperlocal", "regional", "national_physical"):
+            out["notes"] = list(out.get("notes") or []) + [
+                "Physical/local venture: national TAM method is an upper bound — "
+                "trade-area sizing (size_hyperlocal) needs a specific address for "
+                "a defensible SOM."]
+    return out
+
+
+_STATED_PRICE_RE = re.compile(
+    r"\$\s*(\d[\d,]*\.?\d*)\s*(?:/|\s*per\s*)?\s*(?:mo|month|monthly|/mo\b|/month\b)",
+    re.I)
+
+
+def extract_stated_price(text: str) -> float | None:
+    """Pull the user's stated monthly price from free text ($99/month, $99/mo, …).
+
+    Returns the first monthly price found, or None. cycle33 / C5.
+    """
+    if not text:
+        return None
+    m = _STATED_PRICE_RE.search(text)
+    if not m:
+        return None
+    try:
+        return float(m.group(1).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def reconcile_pricing(stated: float | None, recommended) -> dict | None:
+    """Compare the user's stated price to the model's recommendation, visibly.
+
+    Returns a reconciliation dict (or None if nothing to reconcile) so the report
+    can show "you said $X, model recommends $Y, here's the gap" instead of silently
+    re-pricing. cycle33 / C5 — the gap Manus handled and Castor didn't.
+    """
+    try:
+        rec = float(recommended)
+    except (TypeError, ValueError):
+        return None
+    if stated is None or stated <= 0 or rec <= 0:
+        return None
+    delta_pct = round((rec - stated) / stated * 100, 1)
+    if abs(delta_pct) <= 15:
+        verdict = "aligned"
+        note = (f"Your ${stated:,.0f}/mo aligns with the model's recommended "
+                f"${rec:,.0f}/mo ({delta_pct:+.0f}%).")
+    elif rec < stated:
+        verdict = "model_suggests_lower"
+        note = (f"You stated ${stated:,.0f}/mo; the model's price simulation suggests "
+                f"${rec:,.0f}/mo ({delta_pct:+.0f}%) may capture more of the market. "
+                f"Validate before changing.")
+    else:
+        verdict = "model_suggests_higher"
+        note = (f"You stated ${stated:,.0f}/mo; willingness-to-pay analysis suggests "
+                f"${rec:,.0f}/mo ({delta_pct:+.0f}%) — you may be under-pricing.")
+    return {"stated_usd": stated, "recommended_usd": rec,
+            "delta_pct": delta_pct, "verdict": verdict, "note": note}
+
+
+def build_consumer_research(description: str, geo: str, profile: dict,
+                            opps: list[dict]) -> dict | None:
+    """STORM-style multi-perspective consumer research, grounded in known context.
+
+    Env-gated (CASTOR_CONSUMER_RESEARCH=0 disables) and non-fatal — returns the
+    payload dict on success, or None if disabled, skeletoned, or it errored.
+    cycle33.
+    """
+    if os.getenv("CASTOR_CONSUMER_RESEARCH", "1") == "0":
+        return None
+    try:
+        from skills.perspective import consumer_research_skill
+        comp_names = ", ".join(o.get("brand", "") for o in (opps or [])[:5] if o.get("brand"))
+        summary = (profile or {}).get("summary", "")
+        context = f"Product: {summary}. Known competitors: {comp_names}." if comp_names else summary
+        log.info("[plan] Step 6c: consumer research (multi-perspective)")
+        cr = consumer_research_skill(description=description, geo=geo, context=context)
+        if cr.payload and not cr.skeleton:
+            return cr.payload
+    except Exception as e:  # never sink the run on a research-enrichment failure
+        log.warning("[plan] consumer research failed (non-fatal): %s", e)
+    return None
+
+
+def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict) -> dict:
+    """C2 (audit remediation): replace the LLM's hallucinated bottom-up TAM method
+    with a LIVE Census-grounded one (target-customer establishment count × ARPU).
+
+    For a B2B SaaS, bottom-up TAM = (# target-customer businesses, from Census CBP)
+    × (annual contract value, from the stated price). Degrades gracefully: if there's
+    no stated price or the live count is unavailable, returns sizing unchanged.
+    Recomputes the TAM headline from the available methods after injection.
+    """
+    stated = extract_stated_price(description)
+    if not stated:
+        return sizing  # no ARPU → can't ground; leave legacy bottom-up
+    target = (profile or {}).get("target_customer") or description
+    try:
+        from skills.sizing.bottom_up import grounded_bottom_up
+        gb = grounded_bottom_up(annual_arpu=stated * 12.0, category=target)
+    except Exception as e:
+        log.warning("[plan] grounded bottom-up failed (non-fatal): %s", e)
+        return sizing
+    if gb.skeleton or not gb.payload or not gb.payload.get("tam_usd"):
+        return sizing  # no live count → keep legacy
+
+    out = dict(sizing)
+    tam = dict(out.get("tam") or {})
+    fig0 = (gb.payload.get("figures") or [{}])[0]
+    tam["method_bottom_up"] = {
+        "value_usd": gb.payload["tam_usd"],
+        "calculation": fig0.get("formula", ""),
+        "source": fig0.get("source", "US Census CBP"),
+    }
+    vals = [tam[k]["value_usd"] for k in
+            ("method_top_down", "method_bottom_up", "method_analog")
+            if isinstance((tam.get(k) or {}).get("value_usd"), (int, float))]
+    if vals:
+        tam["mid"] = round(sum(vals) / len(vals))
+        tam["low"] = round(min(vals) * 0.85)
+        tam["high"] = round(max(vals) * 1.15)
+    out["tam"] = tam
+    out["notes"] = list(out.get("notes") or []) + [
+        f"Bottom-up grounded in live Census count "
+        f"({gb.payload['establishments']:,} establishments × "
+        f"${stated * 12:,.0f}/yr)."]
+    log.info("[plan] C2: grounded bottom-up TAM = %s (%s establishments)",
+             gb.payload["tam_usd"], gb.payload["establishments"])
+    return out
 
 
 def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progress=None,
@@ -486,6 +663,13 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             result["_steps_completed"].append("personas")
             checkpoint()
 
+    # --- Step 6c: STORM-style consumer research (multi-perspective) — cycle33 ---
+    cr_payload = build_consumer_research(description, geo, profile, opps)
+    if cr_payload:
+        result["consumer_research"] = cr_payload
+        result["_steps_completed"].append("consumer_research")
+        checkpoint()
+
     if competitor_pricing_data and competitor_pricing_data.get("competitors_with_prices", 0) > 0:
         result["competitor_pricing"] = competitor_pricing_data
         result["_steps_completed"].append("competitor_pricing")
@@ -565,6 +749,15 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     if not psm_result.get("error"):
         result["_steps_completed"].append("pricing")
         checkpoint()
+
+    # C5 (Manus-parity): the user's stated price must not be silently dropped.
+    # Reconcile it against the model's recommended optimal price, visibly.
+    recon = reconcile_pricing(extract_stated_price(description),
+                              psm_result.get("optimal_price_point"))
+    if recon:
+        result["price_reconciliation"] = recon
+        log.info("[plan] price reconciliation: stated=%s recommended=%s verdict=%s",
+                 recon["stated_usd"], recon["recommended_usd"], recon["verdict"])
 
     if psm_result.get("optimal_price_point"):
         try:
@@ -652,6 +845,20 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             reddit_signal=reddit_data,
         )
 
+    # cycle33: classify market scale (numbers-right engine). Non-breaking — the
+    # legacy estimate_market_size shape is preserved downstream; we annotate the
+    # result with the scale decision and route physical ventures' caveats.
+    scale_decision = None
+    try:
+        from skills.sizing.classify import classify_market_scale
+        scale_decision = classify_market_scale(description, geo).payload
+        result["market_scale"] = scale_decision
+        result["_steps_completed"].append("market_scale")
+        log.info("[plan] Step 7a: market scale = %s → %s",
+                 scale_decision.get("scale"), scale_decision.get("sizing_skill"))
+    except Exception as e:
+        log.warning("[plan] scale classification failed (non-fatal): %s", e)
+
     sizing = {}
     four_ps = {}
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -669,6 +876,11 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             four_ps = {"error": "timed out"}
 
     if sizing and not sizing.get("error"):
+        # C2: ground the bottom-up TAM in a live Census count BEFORE the gate, so
+        # the report uses the real establishment count, not the LLM's guess.
+        sizing = ground_sizing_bottom_up(sizing, description, profile)
+        # cycle33: gate + annotate via the numbers-right engine (non-breaking).
+        sizing = gate_and_annotate_sizing(sizing, scale_decision)
         result["market_sizing"] = sizing
         result["_steps_completed"].append("market_sizing")
         checkpoint()
