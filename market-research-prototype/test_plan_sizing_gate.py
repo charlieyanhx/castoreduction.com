@@ -11,7 +11,8 @@ from unittest.mock import patch
 
 from tools import Evidence
 from plan import (gate_and_annotate_sizing, build_consumer_research,
-                  extract_stated_price, reconcile_pricing, ground_sizing_bottom_up)
+                  extract_stated_price, reconcile_pricing, ground_sizing_bottom_up,
+                  refine_pipeline_result)
 
 
 def _legacy(tam, sam, som):
@@ -198,6 +199,28 @@ class TestPricingReconciliation(unittest.TestCase):
     def test_bad_recommended_returns_none(self):
         self.assertIsNone(reconcile_pricing(99, None))
         self.assertIsNone(reconcile_pricing(99, "n/a"))
+
+
+class TestRefinePipelineWiring(unittest.TestCase):
+    """The refine loop is wired into run_plan (opt-in) and non-fatal."""
+
+    def test_refine_attaches_audit_and_keeps_result(self):
+        result = {"market_sizing": {"validation": {"passed": True}}, "_steps_completed": []}
+        from harness import RefineResult
+        fake = RefineResult(artifact={**result, "improved": True}, passed=True, rounds=1,
+                            score_trajectory=[60.0, 72.0], final_scores={}, weak_dims=[])
+        with patch("skills.refine_report.refine_report", return_value=fake):
+            out = refine_pipeline_result(result, "a SaaS", "US", {"summary": "x"}, [])
+        self.assertTrue(out["improved"])
+        self.assertEqual(out["_refine"]["rounds"], 1)
+        self.assertEqual(out["_refine"]["score_trajectory"], [60.0, 72.0])
+        self.assertTrue(out["_refine"]["passed"])
+
+    def test_refine_is_non_fatal(self):
+        result = {"market_sizing": {}, "_steps_completed": []}
+        with patch("skills.refine_report.refine_report", side_effect=RuntimeError("judge down")):
+            out = refine_pipeline_result(result, "a SaaS", "US", {}, [])
+        self.assertIs(out, result)  # original returned unchanged, no crash
 
 
 if __name__ == "__main__":

@@ -334,13 +334,57 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict) -> di
     return out
 
 
+def refine_pipeline_result(result: dict, description: str, geo: str, profile: dict,
+                           opps: list[dict], max_rounds: int = 1) -> dict:
+    """Generator-evaluator-refine pass over a finished pipeline result (opt-in).
+
+    Wires `skills.refine_report` (independent judge anchored by the deterministic
+    gate) to real section regenerators: weak sizing → re-ground bottom-up + re-gate;
+    weak consumer insight → re-run consumer research. Bounded + non-fatal: returns
+    the original result on any failure. Attaches `_refine` audit. cycle33."""
+    try:
+        from skills.refine_report import refine_report
+    except Exception as e:
+        log.warning("[plan] refine unavailable (non-fatal): %s", e)
+        return result
+
+    def _regen_sizing(rep: dict) -> dict:
+        ms = ground_sizing_bottom_up(rep.get("market_sizing") or {}, description, profile)
+        ms = gate_and_annotate_sizing(ms, rep.get("market_scale"))
+        new = dict(rep); new["market_sizing"] = ms; return new
+
+    def _regen_consumer(rep: dict) -> dict:
+        cr = build_consumer_research(description, geo, profile, opps)
+        new = dict(rep)
+        if cr:
+            new["consumer_research"] = cr
+        return new
+
+    try:
+        rr = refine_report(result, description,
+                           regenerators={"market_sizing": _regen_sizing,
+                                         "consumer_research": _regen_consumer},
+                           max_rounds=max_rounds)
+        out = dict(rr.artifact)
+        out["_refine"] = {"passed": rr.passed, "rounds": rr.rounds,
+                          "score_trajectory": rr.score_trajectory,
+                          "weak_dims": rr.weak_dims}
+        return out
+    except Exception as e:
+        log.warning("[plan] refine loop failed (non-fatal): %s", e)
+        return result
+
+
 def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progress=None,
-             operator_weights: dict | None = None) -> dict:
+             operator_weights: dict | None = None, refine: bool = False) -> dict:
     """
     Run the full market research pipeline on a raw description.
 
     If `progress` callback is provided, it's called with the partial result
     after every step so the UI can show live progress.
+    If `refine=True`, runs the generator-evaluator-refine loop after the pipeline
+    (independent judge + deterministic gate → regenerate weak sections). Opt-in
+    because it adds LLM cost; default path is unchanged.
     """
     t_start = time.time()
     result: dict = {"_steps_completed": []}
@@ -982,6 +1026,13 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         result["validation"] = {"flags": merged_flags, "confidence_score": merged_conf}
     else:
         result["validation"] = final_val
+
+    # cycle33: opt-in generator-evaluator-refine pass (Anthropic harness pattern).
+    if refine:
+        log.info("[plan] running generator-evaluator-refine loop")
+        result = refine_pipeline_result(result, description, geo, profile, opps)
+        if "refine" not in (result.get("_steps_completed") or []):
+            result.setdefault("_steps_completed", []).append("refine")
 
     result["_duration_seconds"] = round(time.time() - t_start, 1)
     return result

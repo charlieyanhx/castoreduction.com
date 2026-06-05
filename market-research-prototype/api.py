@@ -118,6 +118,7 @@ class PlanRequest(BaseModel):
     geo: str = "US"
     max_candidates: int = 20  # iter 36: bumped from 8 (spec step 3b says 50; we aim for 30 after filters)
     operator_weights: OperatorWeights = Field(default_factory=OperatorWeights)
+    refine: bool = False  # cycle33: opt-in generator-evaluator-refine pass (adds LLM cost)
 
 
 class CrewRequest(BaseModel):
@@ -265,6 +266,7 @@ def post_plan(req: PlanRequest):
             max_candidates=req.max_candidates,
             progress=progress,
             operator_weights=req.operator_weights.model_dump(),
+            refine=req.refine,
         )
         # Embed previous_job_id + computed deltas in the final result
         if previous_job_id and not result.get("error"):
@@ -639,6 +641,8 @@ def get_job_report_html(job_id: str):
         market_scale=r.get("market_scale"),
         # cycle33 C5: stated-vs-recommended price reconciliation (no silent re-pricing)
         price_reconciliation=r.get("price_reconciliation"),
+        # cycle33: generator-evaluator-refine audit (present only when refine=True)
+        refine_audit=r.get("_refine"),
     )
     return HTMLResponse(content=html)
 

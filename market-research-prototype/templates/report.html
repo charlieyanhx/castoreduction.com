@@ -152,6 +152,12 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     <p><strong>Business model:</strong> {{ profile.business_model or 'unknown' }}</p>
     <p><strong>Generated:</strong> {{ generated_date }}</p>
     <p><strong>Pipeline:</strong> {{ steps_completed|length }} steps completed ({{ ', '.join(steps_completed) }})</p>
+    {% if refine_audit %}
+    <p><strong>Quality loop:</strong>
+      {% if refine_audit.passed %}<span style="color:#047857">✓ passed evaluator contract</span>{% else %}<span style="color:#b45309">⚠ {{ refine_audit.weak_dims|join(', ') }} below contract</span>{% endif %}
+      after {{ refine_audit.rounds }} refine round(s){% if refine_audit.score_trajectory %} · score {{ refine_audit.score_trajectory|join(' → ') }}{% endif %}
+    </p>
+    {% endif %}
   </div>
 </div>
 
