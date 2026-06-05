@@ -24,6 +24,7 @@ from .agent import (
     Step,
     MAX_STEPS_CEILING,
 )
+from .refine import evaluate_refine, RefineResult
 
 __all__ = [
     "run_agent",
@@ -31,4 +32,6 @@ __all__ = [
     "AgentResult",
     "Step",
     "MAX_STEPS_CEILING",
+    "evaluate_refine",
+    "RefineResult",
 ]

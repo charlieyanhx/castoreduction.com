@@ -30,6 +30,7 @@ from . import discovery       # noqa: F401  — harness-driven competitor discov
 from . import discovery_multi # noqa: F401  — multi-strategy fan-out discovery + direct/indirect
 from . import perspective     # noqa: F401  — STORM-style consumer research (multi-perspective)
 from . import sizing          # noqa: F401  — numbers-right engine (scale classifier, sizing)
+from . import refine_report   # noqa: F401  — generator-evaluator-refine loop for reports
 from . import pipeline        # noqa: F401  — TOP-LEVEL composition (the full /plan)
 
 __all__ = [

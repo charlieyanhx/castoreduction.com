@@ -94,6 +94,23 @@ Harness-core design rules (lifted from Manus + Claude Code, both independently v
 5. **Filesystem/parquet as memory.** Heavy intermediate results (scrapes, embeddings,
    Census joins) persist to disk and are read back, not re-stuffed into context.
 
+### Generator-evaluator-refine loop (Anthropic harness pattern)
+
+Closing the #1 gap from Anthropic's "Harness design for long-running apps": an
+artifact is generated, scored by an **independent evaluator** against a **contract
+agreed up front**, and **refined until it passes** — not generated once and shipped.
+
+- `harness/evaluate_refine` — generic loop: keep-the-best (never regress), bounded
+  rounds, stops on contract-met / no-improvement. Knows nothing about reports.
+- `skills/refine_report` — the report adapter: evaluator = the independent judge
+  (`benchmarks/judge`) **anchored by the deterministic `validate_numbers` gate** (a
+  blocked gate forces `validation→0` regardless of the judge, closing the
+  "evaluator talks itself into approval" anti-pattern); refiner regenerates only the
+  sections feeding the failing dimensions; contract = per-dimension thresholds.
+
+This makes external evaluation + concrete criteria + a refine loop first-class, and
+reuses the judge we built for the Manus benchmark as the product's quality engine.
+
 ### Layer 2 — Agentic limbs (fork, don't rebuild)
 
 Open-ended research is delegated to forked OSS, wrapped as `@skill`s:
