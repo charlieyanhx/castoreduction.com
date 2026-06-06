@@ -329,7 +329,15 @@ def post_research_crew(req: CrewRequest):
 
 @app.get("/jobs")
 def get_jobs(limit: int = 50):
-    return jobs.list_recent(limit=limit)
+    """Recent jobs. Enriched with a short `params_title` for the workspace sidebar."""
+    recent = jobs.list_recent(limit=limit)
+    for j in recent:
+        full = jobs.get(j["id"]) or {}
+        desc = ((full.get("params") or {}).get("description")
+                or (full.get("result") or {}).get("profile", {}).get("summary") or "")
+        if desc:
+            j["params_title"] = (desc[:48] + "…") if len(desc) > 48 else desc
+    return recent
 
 
 @app.get("/jobs/{job_id}")
@@ -728,6 +736,23 @@ def index():
     if f.exists():
         return FileResponse(f)
     return JSONResponse({"ok": True, "hint": "no web/index.html found"})
+
+
+@app.get("/workspace", response_class=HTMLResponse)
+def workspace_page():
+    """The Manus-parity 3-zone agentic workspace (cycle34)."""
+    f = WEB_DIR / "workspace.html"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="workspace not built")
+    return FileResponse(f)
+
+
+@app.get("/workspace.js")
+def workspace_js():
+    f = WEB_DIR / "workspace.js"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="workspace.js not found")
+    return FileResponse(f, media_type="application/javascript")
 
 
 @app.get("/dashboard.html", response_class=HTMLResponse)
