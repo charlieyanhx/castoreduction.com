@@ -160,20 +160,27 @@ def process_message(session_id: str, user_message: str) -> dict:
     session["messages"].append({"role": "user", "content": user_message})
     user_msg_count = sum(1 for m in session["messages"] if m["role"] == "user")
 
-    # Call LLM to update extracted state + decide next action
-    try:
-        resp = call_json(
-            system="You interview founders for market research intake. Be concise, warm, never interrogative. Return only JSON.",
-            user=INTAKE_PROMPT.format(
-                transcript=_format_transcript(session["messages"]),
-                extracted=json.dumps(session["extracted"], indent=2),
-                user_msg_count=user_msg_count,
-            ),
-            max_tokens=1200,
-        )
-    except Exception as e:
-        log.warning("intake LLM failed: %s", e)
-        resp = {}
+    # Call LLM to update extracted state + decide next action.
+    # Retry on transient LLM hiccups (empty / _parse_error) before salvaging — a
+    # single flaky response must NOT dead-end the chat into re-asking given info.
+    prompt = INTAKE_PROMPT.format(
+        transcript=_format_transcript(session["messages"]),
+        extracted=json.dumps(session["extracted"], indent=2),
+        user_msg_count=user_msg_count,
+    )
+    resp = {}
+    for attempt in range(3):
+        try:
+            resp = call_json(
+                system="You interview founders for market research intake. Be concise, warm, never interrogative. Return only JSON.",
+                user=prompt, max_tokens=1200,
+            )
+        except Exception as e:
+            log.warning("intake LLM failed (attempt %d): %s", attempt + 1, e)
+            resp = {}
+        if resp and "_parse_error" not in resp:
+            break  # got a usable response
+        log.info("intake retry %d (empty/parse_error)", attempt + 1)
 
     # Salvage: if LLM hard-failed, give a generic prompt
     if not resp or "_parse_error" in resp:
