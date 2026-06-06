@@ -12,7 +12,7 @@ from unittest.mock import patch
 from tools import Evidence
 from plan import (gate_and_annotate_sizing, build_consumer_research,
                   extract_stated_price, reconcile_pricing, ground_sizing_bottom_up,
-                  refine_pipeline_result)
+                  refine_pipeline_result, triangulate_sizing)
 
 
 def _legacy(tam, sam, som):
@@ -221,6 +221,37 @@ class TestRefinePipelineWiring(unittest.TestCase):
         with patch("skills.refine_report.refine_report", side_effect=RuntimeError("judge down")):
             out = refine_pipeline_result(result, "a SaaS", "US", {}, [])
         self.assertIs(out, result)  # original returned unchanged, no crash
+
+
+class TestTriangulateSizing(unittest.TestCase):
+    """Real origin-independent triangulation replaces the naive 3-method average."""
+
+    def _tam(self, td, bu, an, bu_source):
+        return {"tam": {
+            "method_top_down": {"value_usd": td, "source": "Gartner (LLM)"},
+            "method_bottom_up": {"value_usd": bu, "source": bu_source},
+            "method_analog": {"value_usd": an, "source": "Toast IR (LLM)"},
+        }}
+
+    def test_all_llm_methods_are_single_source(self):
+        # 3 LLM methods → ONE independent origin → not real triangulation.
+        out = triangulate_sizing(self._tam(1.2e9, 0.8e9, 3.5e9, "estimate_market_size"))
+        tri = out["tam"]["triangulation"]
+        self.assertEqual(tri["n_independent"], 1)
+        self.assertEqual(tri["confidence"], "single_source")
+        self.assertFalse(tri["converged"])
+
+    def test_census_grounded_bottom_up_adds_independent_origin(self):
+        # bottom-up sourced to Census → a second independent origin.
+        out = triangulate_sizing(self._tam(1.2e9, 1.0e9, 1.1e9,
+                                           "US Census County Business Patterns 2022"))
+        tri = out["tam"]["triangulation"]
+        self.assertEqual(tri["n_independent"], 2)   # census + llm
+        # mid is the median across the two origins, not the 3-value average.
+        self.assertEqual(out["tam"]["mid"], tri["point"])
+
+    def test_no_methods_returns_unchanged(self):
+        self.assertEqual(triangulate_sizing({"tam": {}}), {"tam": {}})
 
 
 if __name__ == "__main__":

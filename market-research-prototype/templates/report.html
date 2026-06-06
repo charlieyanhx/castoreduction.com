@@ -539,6 +539,23 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 {% if tam.reconciliation %}
 <p style="font-size:10pt;color:#4b5563;margin-top:8px"><strong>Reconciliation:</strong> {{ tam.reconciliation }}</p>
 {% endif %}
+{% if tam.triangulation %}
+{% set tri = tam.triangulation %}
+{% set conf_color = {'high':'#047857','medium':'#b45309','low':'#b91c1c','single_source':'#6b7280'} %}
+<div style="border:1px solid {{ conf_color.get(tri.confidence, '#6b7280') }};border-radius:8px;padding:12px 14px;margin-top:10px;background:rgba(0,0,0,0.02)">
+  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:{{ conf_color.get(tri.confidence,'#6b7280') }};margin-bottom:6px">
+    Triangulation · {{ tri.n_independent }} independent source{{ 's' if tri.n_independent != 1 else '' }} ·
+    convergence: {{ tri.confidence|replace('_',' ') }}{% if tri.spread is not none %} (spread {{ (tri.spread*100)|round|int }}%){% endif %}
+  </div>
+  <div style="font-size:10.5pt;color:#1f2937">
+    Headline TAM is the <strong>median across independent data origins</strong> ({{ format_currency(tri.point) }}), not an average of correlated estimates.
+    {% if tri.flag %}<span style="color:{{ conf_color.get(tri.confidence,'#6b7280') }}"> ⚠ {{ tri.flag }}.</span>{% endif %}
+  </div>
+  {% if tri.cross_origin %}
+  <div style="font-size:9pt;color:#6b7280;margin-top:6px">By origin: {% for c in tri.cross_origin %}{{ c.origin }} = {{ format_currency(c.value) }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
+  {% endif %}
+</div>
+{% endif %}
 {% else %}
 <div style="background:#f9fafb;border-radius:6px;padding:12px;font-size:10pt;color:#4b5563;margin-bottom:8px">
   {% if market_sizing.tam %}<div><strong>TAM math:</strong> {{ market_sizing.tam.calculation or '' }}</div>{% endif %}

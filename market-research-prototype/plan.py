@@ -334,6 +334,50 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict) -> di
     return out
 
 
+def triangulate_sizing(sizing: dict) -> dict:
+    """Replace the naive 3-method average with REAL origin-independent triangulation.
+
+    The 3 TAM methods are tagged by data origin: a Census/BLS-grounded bottom-up is an
+    independent origin ('census'); LLM-generated top-down/analog collapse to one 'llm'
+    origin (they're correlated draws from one model — not independent). The headline
+    `mid` becomes the median ACROSS origins, with the triangulation object attached so
+    the report can show convergence/divergence honestly. cycle33 / TRIANGULATION.md.
+    """
+    tam = sizing.get("tam") or {}
+    try:
+        from skills.triangulate import triangulate, Estimate
+    except Exception:
+        return sizing
+    ests = []
+    for key, method in (("method_top_down", "top_down"),
+                        ("method_bottom_up", "bottom_up"),
+                        ("method_analog", "analog")):
+        blk = tam.get(key) or {}
+        v = blk.get("value_usd")
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            src = str(blk.get("source") or "")
+            # Real independent origin only if the value came from a fetched source.
+            origin = "census" if any(t in src for t in ("Census", "CBP", "BLS")) else "llm"
+            ests.append(Estimate(float(v), src or "estimate_market_size", method, origin))
+    if not ests:
+        return sizing
+
+    tri = triangulate("TAM", ests)
+    out = dict(sizing)
+    out_tam = dict(tam)
+    if tri.get("point") is not None:
+        out_tam["mid"] = tri["point"]  # median across independent origins (robust)
+        cross = [c["value"] for c in tri.get("cross_origin") or []]
+        if cross:
+            out_tam["low"] = round(min(cross) * 0.85)
+            out_tam["high"] = round(max(cross) * 1.15)
+    out_tam["triangulation"] = tri
+    out["tam"] = out_tam
+    log.info("[plan] triangulated TAM: point=%s n_independent=%s confidence=%s",
+             tri.get("point"), tri.get("n_independent"), tri.get("confidence"))
+    return out
+
+
 def refine_pipeline_result(result: dict, description: str, geo: str, profile: dict,
                            opps: list[dict], max_rounds: int = 1) -> dict:
     """Generator-evaluator-refine pass over a finished pipeline result (opt-in).
@@ -350,6 +394,7 @@ def refine_pipeline_result(result: dict, description: str, geo: str, profile: di
 
     def _regen_sizing(rep: dict) -> dict:
         ms = ground_sizing_bottom_up(rep.get("market_sizing") or {}, description, profile)
+        ms = triangulate_sizing(ms)
         ms = gate_and_annotate_sizing(ms, rep.get("market_scale"))
         new = dict(rep); new["market_sizing"] = ms; return new
 
@@ -923,6 +968,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         # C2: ground the bottom-up TAM in a live Census count BEFORE the gate, so
         # the report uses the real establishment count, not the LLM's guess.
         sizing = ground_sizing_bottom_up(sizing, description, profile)
+        # cycle33: real origin-independent triangulation (replaces naive averaging).
+        sizing = triangulate_sizing(sizing)
         # cycle33: gate + annotate via the numbers-right engine (non-breaking).
         sizing = gate_and_annotate_sizing(sizing, scale_decision)
         result["market_sizing"] = sizing
