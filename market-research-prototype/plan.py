@@ -350,25 +350,32 @@ def triangulate_sizing(sizing: dict) -> dict:
     except Exception:
         return sizing
     ests = []
+    from skills.sizing.validate import safe_eval_formula
+    out = dict(sizing)
+    out_tam = dict(tam)
     for key, method in (("method_top_down", "top_down"),
                         ("method_bottom_up", "bottom_up"),
                         ("method_analog", "analog")):
-        blk = tam.get(key) or {}
+        blk = dict(tam.get(key) or {})
         v = blk.get("value_usd")
         if isinstance(v, (int, float)) and not isinstance(v, bool):
+            # Self-heal: if the stated value grossly disagrees with its OWN formula
+            # (LLM arithmetic hallucination), trust the auditable formula. Keeps the
+            # number self-consistent so it publishes; cross-method divergence then
+            # surfaces honestly as low triangulation confidence (not a hard block).
+            computed = safe_eval_formula(str(blk.get("calculation") or ""))
+            if computed and computed > 0 and (computed / v > 10 or computed / v < 0.1):
+                blk["value_usd"] = round(computed)
+                blk["_healed_from"] = v
+                out_tam[key] = blk          # write the healed value back
+                v = computed
             src = str(blk.get("source") or "")
-            # Independence by REAL provenance only: a method is an independent origin
-            # iff a fetched tool actually produced it (data_origin set explicitly).
-            # An LLM *claiming* a Census/BLS source is NOT independent — string-
-            # matching the source would manufacture false convergence (TRIANGULATION.md).
             origin = str(blk.get("data_origin") or "llm")
             ests.append(Estimate(float(v), src or "estimate_market_size", method, origin))
     if not ests:
         return sizing
 
     tri = triangulate("TAM", ests)
-    out = dict(sizing)
-    out_tam = dict(tam)
     if tri.get("point") is not None:
         out_tam["mid"] = tri["point"]  # median across independent origins (robust)
         cross = [c["value"] for c in tri.get("cross_origin") or []]
@@ -377,8 +384,38 @@ def triangulate_sizing(sizing: dict) -> dict:
             out_tam["high"] = round(max(cross) * 1.15)
     out_tam["triangulation"] = tri
     out["tam"] = out_tam
+    # Triangulation moved the headline TAM → re-derive any dependent figures from
+    # the NEW mid so they stay consistent (else the gate's segmentation_sum check
+    # correctly blocks every report). Segments rescale by share_pct, else proportionally.
+    out = _renormalize_segmentation(out, tri.get("point"))
     log.info("[plan] triangulated TAM: point=%s n_independent=%s confidence=%s",
              tri.get("point"), tri.get("n_independent"), tri.get("confidence"))
+    return out
+
+
+def _renormalize_segmentation(sizing: dict, new_tam_mid) -> dict:
+    """Rescale segmentation tam_usd to a new TAM headline (after triangulation).
+    Uses share_pct when present; otherwise scales by the old segment-sum. Keeps
+    segments consistent with the headline so the validation gate doesn't block."""
+    if not isinstance(new_tam_mid, (int, float)) or new_tam_mid <= 0:
+        return sizing
+    segs = sizing.get("segmentation") or []
+    if not segs:
+        return sizing
+    old_sum = sum(float(s.get("tam_usd") or 0) for s in segs if isinstance(s, dict))
+    out = dict(sizing)
+    new_segs = []
+    for s in segs:
+        if not isinstance(s, dict):
+            new_segs.append(s); continue
+        s2 = dict(s)
+        share = s.get("share_pct")
+        if isinstance(share, (int, float)) and share:
+            s2["tam_usd"] = round(float(share) / 100.0 * new_tam_mid)
+        elif old_sum > 0 and isinstance(s.get("tam_usd"), (int, float)):
+            s2["tam_usd"] = round(float(s["tam_usd"]) / old_sum * new_tam_mid)
+        new_segs.append(s2)
+    out["segmentation"] = new_segs
     return out
 
 

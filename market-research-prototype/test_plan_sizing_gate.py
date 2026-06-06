@@ -263,6 +263,30 @@ class TestTriangulateSizing(unittest.TestCase):
     def test_no_methods_returns_unchanged(self):
         self.assertEqual(triangulate_sizing({"tam": {}}), {"tam": {}})
 
+    def test_segmentation_renormalized_to_new_tam(self):
+        # The live SOC2 bug: triangulation lowers TAM to the median; segments sized
+        # against the old TAM must be rescaled, else segmentation_sum blocks.
+        sizing = {
+            "tam": {
+                "method_top_down": {"value_usd": 180e6, "source": "Gartner (LLM)"},
+                "method_bottom_up": {"value_usd": 567e6, "source": "x"},
+                "method_analog": {"value_usd": 2250e6, "source": "y"},
+            },
+            "segmentation": [
+                {"share_pct": 50, "tam_usd": 500e6},   # sized vs old ~$1B TAM
+                {"share_pct": 30, "tam_usd": 300e6},
+                {"share_pct": 20, "tam_usd": 199e6},
+            ],
+        }
+        out = triangulate_sizing(sizing)
+        new_mid = out["tam"]["mid"]                       # median(180,567,2250)=567M
+        seg_sum = sum(s["tam_usd"] for s in out["segmentation"])
+        self.assertAlmostEqual(seg_sum, new_mid, delta=new_mid * 0.02)  # now ≈ TAM
+        # and it now passes the segmentation_sum gate
+        from skills.sizing.validate import _check
+        blocks, _ = _check({"tam_usd": new_mid, "segmentation": out["segmentation"]}, 0.4)
+        self.assertFalse(any(b["check"] == "segmentation_sum" for b in blocks))
+
 
 if __name__ == "__main__":
     unittest.main()
