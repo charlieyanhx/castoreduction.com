@@ -730,14 +730,17 @@ def get_job_report(job_id: str):
 
 
 # Static frontend — the workspace is now the front door (cycle34).
+_NO_CACHE = {"Cache-Control": "no-cache, must-revalidate"}
+
+
 @app.get("/")
 def index():
     ws = WEB_DIR / "workspace.html"
     if ws.exists():
-        return FileResponse(ws)
+        return FileResponse(ws, headers=_NO_CACHE)
     f = WEB_DIR / "index.html"
     if f.exists():
-        return FileResponse(f)
+        return FileResponse(f, headers=_NO_CACHE)
     return JSONResponse({"ok": True, "hint": "no web/workspace.html found"})
 
 
