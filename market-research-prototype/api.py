@@ -729,13 +729,25 @@ def get_job_report(job_id: str):
     return {"job_id": job_id, "kind": kind, "markdown": md}
 
 
-# Static frontend
+# Static frontend — the workspace is now the front door (cycle34).
 @app.get("/")
 def index():
+    ws = WEB_DIR / "workspace.html"
+    if ws.exists():
+        return FileResponse(ws)
     f = WEB_DIR / "index.html"
     if f.exists():
         return FileResponse(f)
-    return JSONResponse({"ok": True, "hint": "no web/index.html found"})
+    return JSONResponse({"ok": True, "hint": "no web/workspace.html found"})
+
+
+@app.get("/home", response_class=HTMLResponse)
+def home_landing():
+    """The previous marketing/chat landing, kept available at /home."""
+    f = WEB_DIR / "index.html"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="home not found")
+    return FileResponse(f)
 
 
 @app.get("/workspace", response_class=HTMLResponse)
