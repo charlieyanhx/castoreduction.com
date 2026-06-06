@@ -50,6 +50,10 @@
     transition: filter var(--ease) .2s;
   }
   .new-btn:hover { filter: brightness(1.08); }
+  .side-nav { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+  .nav-item { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--sidebar-text); transition: background var(--ease) .15s; }
+  .nav-item:hover { background: oklch(28% 0.02 270); }
+  .nav-item.active { background: oklch(31% 0.03 264); color: #fff; }
   .nav-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: oklch(60% 0.01 270); padding: 8px 8px 4px; }
   .task { display: flex; flex-direction: column; gap: 2px; padding: 9px 10px; border-radius: 8px; cursor: pointer; transition: background var(--ease) .15s; }
   .task:hover { background: oklch(28% 0.02 270); }
@@ -117,6 +121,21 @@
   .tabs { display: flex; gap: 6px; }
   .tab { font-size: 11.5px; padding: 4px 10px; border-radius: 7px; cursor: pointer; color: var(--text-dim); }
   .tab.on { background: var(--text); color: #fff; }
+
+  /* ---------- full-width view (Library / Capabilities) ---------- */
+  .fullview { grid-column: 2 / 4; grid-row: 1; background: var(--bg); overflow-y: auto; padding: 28px 40px; }
+  .fv-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 22px; }
+  .fv-head h1 { font-family: var(--serif); font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
+  .fv-head .sub { font-size: 13px; color: var(--text-faint); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; cursor: pointer; transition: transform var(--ease) .2s, box-shadow var(--ease) .2s; }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px oklch(50% 0.02 270 / 0.10); }
+  .card .c-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .c-meta { font-size: 11.5px; color: var(--text-faint); display: flex; gap: 8px; align-items: center; }
+  .card .c-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; padding: 2px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .card .c-desc { font-size: 12px; color: var(--text-dim); margin-top: 8px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .cat-head { font-family: var(--serif); font-size: 16px; font-weight: 600; margin: 24px 0 10px; }
+  .cat-head:first-child { margin-top: 0; }
 </style>
 </head>
 <body>
@@ -124,6 +143,11 @@
   <aside class="sidebar">
     <div class="brand"><span class="dot"></span> Castor</div>
     <button class="new-btn" id="newBtn">＋ New report</button>
+    <nav class="side-nav">
+      <a class="nav-item active" data-view="workspace">◧ Workspace</a>
+      <a class="nav-item" data-view="library">▦ Library</a>
+      <a class="nav-item" data-view="plugins">⊞ Capabilities</a>
+    </nav>
     <div class="nav-label">Reports</div>
     <div class="task-list" id="taskList"></div>
     <div class="side-foot" id="sideFoot">Triangulated · sourced · reproducible</div>
@@ -164,6 +188,12 @@
       <input type="range" id="scrub" min="0" max="0" value="0" />
       <span class="lbl" id="scrubLbl">step 0 / 0</span>
     </div>
+  </section>
+
+  <!-- FULL-WIDTH VIEW (Library / Capabilities) overlays center+right -->
+  <section class="fullview" id="fullview" hidden>
+    <div class="fv-head"><h1 id="fvTitle"></h1><span class="sub" id="fvSub"></span></div>
+    <div class="fv-body" id="fvBody"></div>
   </section>
 
   <script src="/workspace.js"></script>

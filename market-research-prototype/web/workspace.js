@@ -280,8 +280,56 @@ function resetCenter() {
   $("scrubber").classList.remove("on");
 }
 
+/* ---------------- views: Library / Capabilities ---------------- */
+function setView(view) {
+  document.querySelectorAll(".nav-item").forEach((n) =>
+    n.classList.toggle("active", n.dataset.view === view));
+  const fv = $("fullview");
+  if (view === "workspace") { fv.hidden = true; }
+  else if (view === "library") { fv.hidden = false; loadLibrary(); }
+  else if (view === "plugins") { fv.hidden = false; loadCapabilities(); }
+}
+
+async function loadLibrary() {
+  $("fvTitle").textContent = "Library";
+  $("fvSub").textContent = "Every report you've generated";
+  let jobs = await api("GET", "/jobs?limit=60").catch(() => []);
+  jobs = (jobs || []).filter((j) => j.kind === "plan" && j.state === "complete");
+  $("fvBody").innerHTML = '<div class="grid">' + jobs.map((j) =>
+    `<div class="card" data-id="${j.id}">
+       <div class="c-title">${j.params_title || j.id.slice(0, 8)}</div>
+       <div class="c-meta"><span class="c-badge">report</span> ${relTime(j.updated_at)}</div>
+     </div>`).join("") + "</div>";
+  $("fvBody").querySelectorAll(".card").forEach((c) =>
+    c.onclick = () => { setView("workspace"); openCompletedJob(c.dataset.id); });
+}
+
+async function loadCapabilities() {
+  $("fvTitle").textContent = "Capabilities";
+  $("fvSub").textContent = "The registry powering every report — tools, skills, agents";
+  const [tools, skills, agents] = await Promise.all([
+    api("GET", "/api/tools").catch(() => ({ tools: [] })),
+    api("GET", "/api/skills").catch(() => ({ skills: [] })),
+    api("GET", "/api/agents").catch(() => ({ agents: [] })),
+  ]);
+  const card = (name, desc, badge) =>
+    `<div class="card"><div class="c-title">${name}</div>
+       <div class="c-meta"><span class="c-badge">${badge || ""}</span></div>
+       <div class="c-desc">${(desc || "").slice(0, 160)}</div></div>`;
+  const sec = (title, items, render) =>
+    `<div class="cat-head">${title} · ${items.length}</div><div class="grid">` +
+    items.map(render).join("") + "</div>";
+  $("fvBody").innerHTML =
+    sec("Tools", tools.tools || [], (t) => card(t.name, t.docstring || t.returns, t.category)) +
+    sec("Skills", skills.skills || [], (s) => card(s.name, s.docstring, s.produces)) +
+    sec("Agents", agents.agents || [], (a) => card(a.name, a.docstring || a.role, a.produces));
+}
+
+document.querySelectorAll(".nav-item").forEach((n) =>
+  n.onclick = () => setView(n.dataset.view));
+
 /* ---------------- wire up ---------------- */
-$("newBtn").onclick = startIntake;
+$("newBtn").onclick = () => { setView("workspace"); startIntake(); };
 $("sendBtn").onclick = sendMessage;
 $("launchBtn").onclick = launch;
 $("input").addEventListener("keydown", (e) => {
