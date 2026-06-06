@@ -4,15 +4,35 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const api = async (method, path, body, timeoutMs = 90000) => {
+
+// Cloudflare-tunnel blips return 502/503/504 (origin briefly unreachable) — these
+// mean the request never completed at the origin, so they're safe to retry. We also
+// retry network errors ("Failed to fetch") for everything except POST /plan (the one
+// non-idempotent create, where a retry could double-launch a job).
+const RETRY_STATUS = new Set([502, 503, 504]);
+const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const api = async (method, path, body, timeoutMs = 90000, _attempt = 0) => {
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), timeoutMs);
   const opt = { method, headers: { "Content-Type": "application/json" }, signal: ctrl.signal };
   if (body) opt.body = JSON.stringify(body);
+  const idempotent = !(method === "POST" && path === "/plan");
   try {
     const r = await fetch(path, opt);
+    if (RETRY_STATUS.has(r.status) && _attempt < 3) {
+      await _sleep(500 * (_attempt + 1));                       // 0.5s, 1s, 1.5s
+      return api(method, path, body, timeoutMs, _attempt + 1);
+    }
     if (!r.ok) throw new Error(`${method} ${path} → ${r.status}`);
     return r.json();
+  } catch (e) {
+    // Network-level failure (TypeError "Failed to fetch") — retry if safe.
+    if (e && e.name === "TypeError" && idempotent && _attempt < 3) {
+      await _sleep(500 * (_attempt + 1));
+      return api(method, path, body, timeoutMs, _attempt + 1);
+    }
+    throw e;
   } finally { clearTimeout(to); }
 };
 
