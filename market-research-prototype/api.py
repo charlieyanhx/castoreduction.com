@@ -567,6 +567,15 @@ def get_job_report_html(job_id: str):
 
     r = j["result"] or {}
     profile = r.get("profile", {})
+    # Title fallback: the LLM often returns name="Unknown" for description-only input.
+    # Derive a real display title from category/summary so the report never reads "Unknown".
+    _nm = str(profile.get("name") or "").strip()
+    if _nm.lower() in ("", "unknown", "untitled", "n/a", "none", "null"):
+        derived = (profile.get("category") or "").strip()
+        if not derived:
+            summ = str(profile.get("summary") or "").strip()
+            derived = (summ.split(".")[0][:60] if summ else "Market Research")
+        profile = {**profile, "name": derived}
     four_ps = r.get("four_ps", {})
     viability = r.get("viability", {})
     validation = r.get("validation", {})
