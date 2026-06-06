@@ -316,6 +316,7 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict) -> di
         "value_usd": gb.payload["tam_usd"],
         "calculation": fig0.get("formula", ""),
         "source": fig0.get("source", "US Census CBP"),
+        "data_origin": "census",   # REAL provenance — a fetched count actually fired
     }
     vals = [tam[k]["value_usd"] for k in
             ("method_top_down", "method_bottom_up", "method_analog")
@@ -356,8 +357,11 @@ def triangulate_sizing(sizing: dict) -> dict:
         v = blk.get("value_usd")
         if isinstance(v, (int, float)) and not isinstance(v, bool):
             src = str(blk.get("source") or "")
-            # Real independent origin only if the value came from a fetched source.
-            origin = "census" if any(t in src for t in ("Census", "CBP", "BLS")) else "llm"
+            # Independence by REAL provenance only: a method is an independent origin
+            # iff a fetched tool actually produced it (data_origin set explicitly).
+            # An LLM *claiming* a Census/BLS source is NOT independent — string-
+            # matching the source would manufacture false convergence (TRIANGULATION.md).
+            origin = str(blk.get("data_origin") or "llm")
             ests.append(Estimate(float(v), src or "estimate_market_size", method, origin))
     if not ests:
         return sizing
