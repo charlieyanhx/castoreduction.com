@@ -660,6 +660,8 @@ def get_job_report_html(job_id: str):
         price_reconciliation=r.get("price_reconciliation"),
         # cycle33: generator-evaluator-refine audit (present only when refine=True)
         refine_audit=r.get("_refine"),
+        # cycle35: surface backend rigor to the UX (no dark capabilities)
+        integrity=__import__("plan").build_integrity_summary(r),
     )
     return HTMLResponse(content=html)
 

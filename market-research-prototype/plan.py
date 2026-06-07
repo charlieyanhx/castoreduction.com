@@ -338,6 +338,45 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
     return out
 
 
+def build_integrity_summary(result: dict) -> dict:
+    """Surface the (otherwise invisible) backend rigor as a user-facing trust object.
+
+    'Dark' capabilities are a red flag — the validation gate, triangulation, determinism,
+    and provenance only matter if the user can SEE them. Pure read over existing result
+    data; no new computation. cycle35.
+    """
+    ms = (result or {}).get("market_sizing") or {}
+    tam = ms.get("tam") or {}
+    val = ms.get("validation") or {}
+    tri = tam.get("triangulation") or {}
+
+    # Provenance: how many headline TAM methods carry a real source string.
+    methods = [tam.get(k) or {} for k in ("method_top_down", "method_bottom_up", "method_analog")]
+    methods = [m for m in methods if isinstance(m.get("value_usd"), (int, float))]
+    n_sourced = sum(1 for m in methods if str(m.get("source") or "").strip())
+
+    # Distinct data origins that actually fired (census/bls/llm…).
+    origins = sorted({str(m.get("data_origin") or "llm") for m in methods}) if methods else []
+
+    has_gate = bool(val)
+    return {
+        "reproducible": True,  # F2: temperature=0 + seed → same input, same number
+        "validation": {
+            "ran": has_gate,
+            "passed": val.get("passed") if has_gate else None,
+            "n_blocks": len(val.get("blocks") or []),
+            "n_warns": len(val.get("warns") or []),
+        },
+        "triangulation": {
+            "confidence": tri.get("confidence"),
+            "n_independent": tri.get("n_independent"),
+        } if tri else None,
+        "provenance": {"n_sourced": n_sourced, "n_total": len(methods)},
+        "data_origins": origins,
+        "grounded": any(o in ("census", "bls", "acs") for o in origins),
+    }
+
+
 def triangulate_sizing(sizing: dict) -> dict:
     """Replace the naive 3-method average with REAL origin-independent triangulation.
 

@@ -282,6 +282,35 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   </div>
 </div>
 
+<!-- REPORT INTEGRITY (cycle35: surface backend rigor — no dark capabilities) -->
+{% if integrity %}
+{% set ok = 'background:#ecfdf5;color:#047857' %}
+{% set warn = 'background:#fffbeb;color:#b45309' %}
+{% set bad = 'background:#fef2f2;color:#b91c1c' %}
+{% macro chip(style, label, sub) %}<span style="display:inline-flex;flex-direction:column;gap:1px;padding:8px 12px;border-radius:8px;font-size:11px;font-weight:700;{{ style }}">{{ label }}<span style="font-weight:400;font-size:9.5px;opacity:.8">{{ sub }}</span></span>{% endmacro %}
+<div style="border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;margin:16px 0;background:#fafafa">
+  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#374151;margin-bottom:10px">Report integrity — how to trust these numbers</div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px">
+    {{ chip(ok, '✓ Reproducible', 'deterministic — same input, same numbers') }}
+    {% if integrity.validation.ran %}
+      {% if integrity.validation.passed %}{{ chip(ok, '✓ Validated', 'passed the integrity gate') }}
+      {% else %}{{ chip(bad, '✗ Failed validation', integrity.validation.n_blocks|string + ' blocking issue(s) — figures withheld') }}{% endif %}
+    {% endif %}
+    {% if integrity.triangulation %}
+      {{ chip(ok if (integrity.triangulation.n_independent or 0) >= 2 else warn,
+              'Triangulation: ' + (integrity.triangulation.confidence or '?')|replace('_',' '),
+              (integrity.triangulation.n_independent|string) + ' independent source' + ('s' if integrity.triangulation.n_independent != 1 else '')) }}
+    {% endif %}
+    {{ chip(ok if (integrity.provenance.n_total and integrity.provenance.n_sourced == integrity.provenance.n_total) else warn,
+            'Sourced: ' + integrity.provenance.n_sourced|string + '/' + integrity.provenance.n_total|string,
+            'headline methods with a cited source') }}
+    {{ chip(ok if integrity.grounded else warn,
+            'Census/BLS-grounded' if integrity.grounded else 'Model-estimated',
+            'origins: ' + (integrity.data_origins|join(', ') or 'llm')) }}
+  </div>
+</div>
+{% endif %}
+
 <!-- VALIDATION FLAGS -->
 {% if validation.flags %}
 <div class="flags">
