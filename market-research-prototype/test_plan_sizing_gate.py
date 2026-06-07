@@ -263,6 +263,31 @@ class TestTriangulateSizing(unittest.TestCase):
     def test_no_methods_returns_unchanged(self):
         self.assertEqual(triangulate_sizing({"tam": {}}), {"tam": {}})
 
+    def test_gross_mismatch_not_silently_rewritten(self):
+        # F5: bottom-up value $845M but formula "166k * $50" computes $8.3M (≈100× off).
+        # Must NOT be healed/overwritten — leave it flagged so the gate blocks it.
+        sizing = {"tam": {
+            "method_top_down": {"value_usd": 1_200_000_000, "source": "Gartner",
+                                "calculation": "$1.5T * 10% * 0.8%"},
+            "method_bottom_up": {"value_usd": 845_000_000, "source": "Census",
+                                 "calculation": "166k restaurants * $50 ACV"},
+        }}
+        out = triangulate_sizing(sizing)
+        bu = out["tam"]["method_bottom_up"]
+        self.assertEqual(bu["value_usd"], 845_000_000)      # NOT rewritten to ~8.3M
+        self.assertIn("_formula_mismatch", bu)              # flagged instead
+        self.assertNotIn("_healed_from", bu)                # old laundering gone
+
+    def test_gross_mismatch_then_blocks_at_gate(self):
+        # F5 + F1: the un-laundered mismatch must fail the validation gate.
+        sizing = {"tam": {
+            "method_bottom_up": {"value_usd": 845_000_000, "source": "Census",
+                                 "calculation": "166k restaurants * $50 ACV"},
+        }, "sam": {"mid": 1}, "som": {"mid": 1}}
+        out = gate_and_annotate_sizing(triangulate_sizing(sizing), None)
+        self.assertFalse(out["validation"]["passed"])
+        self.assertFalse(out["publishable"])
+
     def test_segmentation_renormalized_to_new_tam(self):
         # The live SOC2 bug: triangulation lowers TAM to the median; segments sized
         # against the old TAM must be rescaled, else segmentation_sum blocks.

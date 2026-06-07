@@ -359,16 +359,14 @@ def triangulate_sizing(sizing: dict) -> dict:
         blk = dict(tam.get(key) or {})
         v = blk.get("value_usd")
         if isinstance(v, (int, float)) and not isinstance(v, bool):
-            # Self-heal: if the stated value grossly disagrees with its OWN formula
-            # (LLM arithmetic hallucination), trust the auditable formula. Keeps the
-            # number self-consistent so it publishes; cross-method divergence then
-            # surfaces honestly as low triangulation confidence (not a hard block).
+            # F5: do NOT silently rewrite a value to match its own formula. A gross
+            # value/formula mismatch is an arithmetic hallucination — FLAG it and let
+            # the validation gate block it (F1 then withholds the numbers), instead of
+            # laundering an incoherent figure into a publishable one.
             computed = safe_eval_formula(str(blk.get("calculation") or ""))
             if computed and computed > 0 and (computed / v > 10 or computed / v < 0.1):
-                blk["value_usd"] = round(computed)
-                blk["_healed_from"] = v
-                out_tam[key] = blk          # write the healed value back
-                v = computed
+                blk["_formula_mismatch"] = {"stated": v, "computed": round(computed)}
+                out_tam[key] = blk          # record the flag; keep the stated value
             src = str(blk.get("source") or "")
             origin = str(blk.get("data_origin") or "llm")
             ests.append(Estimate(float(v), src or "estimate_market_size", method, origin))
