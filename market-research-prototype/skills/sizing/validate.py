@@ -181,6 +181,35 @@ def _check(sizing: dict, max_share: float) -> tuple[list[dict], list[dict]]:
             warns.append({"check": "segmentation_sum",
                           "msg": f"segments sum to {seg_ratio:.0%} of TAM (expected ~100%)"})
 
+    # F6: EXTERNAL cross-check — a GROUNDED (Census/BLS/ACS) figure vs a MODELED (LLM)
+    # figure for TAM. Unlike the formula/segmentation checks (which compare LLM output
+    # to itself and pass by construction), this can genuinely FAIL: real data and the
+    # model disagreeing is signal, not noise.
+    _grounded_src = ("census", "cbp", "bls", "acs")
+    grounded, modeled = [], []
+    for fig in (sizing.get("figures") or []):
+        if not isinstance(fig, dict) or not _num(fig.get("value_usd")) or fig["value_usd"] <= 0:
+            continue
+        src = str(fig.get("source") or "").lower()
+        (grounded if any(t in src for t in _grounded_src) else modeled).append(float(fig["value_usd"]))
+    if grounded and modeled:
+        def _med(xs):
+            s = sorted(xs)
+            return s[len(s) // 2]
+        g, m = _med(grounded), _med(modeled)
+        if g > 0 and m > 0:
+            ratio = max(g, m) / min(g, m)
+            if ratio > 5:
+                warns.append({"check": "external_grounding_divergence", "kind": "external",
+                              "msg": f"grounded estimate {g:,.0f} and modeled estimate "
+                                     f"{m:,.0f} diverge {ratio:.1f}× — at least one is wrong"})
+
+    # F6: tag the circular/by-construction checks honestly as internal-consistency
+    # (they verify the model against itself), distinct from rule + external checks.
+    _internal = {"formula_reconciliation", "segmentation_sum"}
+    for item in blocks + warns:
+        item.setdefault("kind", "internal" if item["check"] in _internal else "rule")
+
     return blocks, warns
 
 

@@ -98,6 +98,39 @@ class TestSegmentationSum(unittest.TestCase):
         self.assertFalse(any(w["check"] == "segmentation_sum" for w in warns))
 
 
+class TestExternalGroundingCheck(unittest.TestCase):
+    """F6: a check that compares a GROUNDED (Census/BLS) figure against a MODELED (LLM)
+    figure for the same quantity — the one validation that can actually fail on real
+    disagreement, not LLM-vs-LLM circularity."""
+
+    def test_grounded_vs_modeled_divergence_warns(self):
+        sizing = {"figures": [
+            {"value_usd": 500_000_000, "label": "TAM_bottom_up", "source": "US Census CBP 2022"},
+            {"value_usd": 5_000_000_000, "label": "TAM_top_down", "source": "Gartner (LLM)"},
+        ]}
+        _, warns = _check(sizing, 0.4)
+        ext = [w for w in warns if w["check"] == "external_grounding_divergence"]
+        self.assertTrue(ext, "10x grounded-vs-modeled gap should raise an external warn")
+        self.assertEqual(ext[0]["kind"], "external")
+
+    def test_grounded_and_modeled_agree_no_warn(self):
+        sizing = {"figures": [
+            {"value_usd": 1_000_000_000, "label": "bu", "source": "US Census CBP"},
+            {"value_usd": 1_200_000_000, "label": "td", "source": "Gartner"},
+        ]}
+        _, warns = _check(sizing, 0.4)
+        self.assertFalse([w for w in warns if w["check"] == "external_grounding_divergence"])
+
+    def test_only_modeled_figures_no_external_check(self):
+        sizing = {"figures": [
+            {"value_usd": 1e9, "label": "td", "source": "Gartner"},
+            {"value_usd": 9e9, "label": "an", "source": "Toast IR"},
+        ]}
+        _, warns = _check(sizing, 0.4)
+        # No grounded figure → external check cannot run (correctly silent).
+        self.assertFalse([w for w in warns if w["check"] == "external_grounding_divergence"])
+
+
 class TestEndToEndGate(unittest.TestCase):
     def test_full_castor_bug_payload_blocks(self):
         # Reconstruct the actual Castor report payload that wrongly passed.
