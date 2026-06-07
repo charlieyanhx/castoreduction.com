@@ -137,6 +137,7 @@ def _call_anthropic(system: str, user: str, max_tokens: int, model: str) -> tupl
     client = anthropic.Anthropic(api_key=key)
     msg = client.messages.create(
         model=model, max_tokens=max_tokens,
+        temperature=0,  # F2: deterministic — same input → same number
         system=system, messages=[{"role": "user", "content": user}],
     )
     return msg.content[0].text, msg.usage.input_tokens, msg.usage.output_tokens
@@ -148,6 +149,7 @@ def _call_groq(system: str, user: str, max_tokens: int, model: str) -> tuple[str
     client = Groq(api_key=key)
     resp = client.chat.completions.create(
         model=model, max_tokens=max_tokens,
+        temperature=0, seed=42,  # F2: deterministic (Groq supports a seed)
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": system},
@@ -191,7 +193,10 @@ def _call_gemini(system: str, user: str, max_tokens: int, model: str) -> tuple[s
             response = client.models.generate_content(
                 model=m,
                 contents=full_prompt,
-                config={"response_mime_type": "application/json", "max_output_tokens": max_tokens},
+                config={"response_mime_type": "application/json",
+                        "max_output_tokens": max_tokens,
+                        "temperature": 0,  # F2: deterministic — same input → same number
+                        "seed": 42},
             )
             text = response.text or ""
             usage_meta = getattr(response, "usage_metadata", None)
