@@ -132,7 +132,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
         <div style="font-size:20px;font-weight:700;color:#fff">{{ viability.confidence_in_score or '—' }}</div>
         <div style="font-size:11px;color:#9ca3af">in score</div>
       </div>
-      {% if market_sizing and market_sizing.tam and market_sizing.tam.mid %}
+      {% if market_sizing and market_sizing.tam and market_sizing.tam.mid and not (market_sizing.validation and market_sizing.validation.passed == false) %}
       <div style="background:#12151c;border:1px solid #1e2330;border-radius:8px;padding:10px 14px">
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6b7280">TAM (mid)</div>
         <div style="font-size:20px;font-weight:700;color:#fff;font-variant-numeric:tabular-nums">{{ format_currency(market_sizing.tam.mid) }}</div>
@@ -482,7 +482,8 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <!-- MARKET SIZING (TAM/SAM/SOM) -->
 {% if market_sizing and not market_sizing.error %}
 <h2>Market Size</h2>
-{% if market_sizing.validation and market_sizing.validation.passed == false %}
+{% set sizing_blocked = market_sizing.validation and market_sizing.validation.passed == false %}
+{% if sizing_blocked %}
 <div style="border:2px solid #b91c1c;background:rgba(185,28,28,0.08);border-radius:8px;padding:14px;margin:10px 0">
   <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#991b1b;margin-bottom:6px">⚠ Numbers failed validation — do not rely on these figures</div>
   <div style="font-size:10pt;color:#7f1d1d">The sizing below did not pass the integrity gate and is flagged unpublishable. Issues:</div>
@@ -491,6 +492,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   </ul>
 </div>
 {% endif %}
+{% if not sizing_blocked %}
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:14px 0">
   {% for key, label in [('tam','TAM'), ('sam','SAM'), ('som','SOM')] %}
   {% set m = market_sizing[key] %}
@@ -608,6 +610,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   {% endif %}
 </p>
 {% endif %}
+{% endif %}{# /sizing_blocked — withhold all numeric sizing when the gate fails (F1) #}
 
 {% if financials and not financials.error %}
 <!-- 3-YEAR FINANCIAL PROJECTIONS -->
