@@ -163,13 +163,17 @@ independent disagreement).
 
 ---
 
-## Order & status
-1. **F1** gate withholds — _next_
-2. **F2** determinism
-3. **F5** stop self-heal (pairs with F1)
-4. **F4** kill convergence theatre
-5. **F3** route to grounded primary (biggest)
-6. **F6** external check
+## Order & status — ALL COMPLETE (cycle35)
+1. **F1** gate withholds — ✅ DONE (test_report_render.py; numbers suppressed when blocked)
+2. **F2** determinism — ✅ DONE (temperature=0+seed; live double-run identical $15B==$15B)
+3. **F5** stop self-heal — ✅ DONE (flag, don't rewrite; chains F5→gate→F1)
+4. **F4** kill convergence theatre — ✅ DONE (LLM reconciliation string removed)
+5. **F3** route to grounded primary — ✅ DONE (PSM-price fallback; grounding fires beyond typed $/mo).
+   *Remaining sub-item:* dispatch physical ventures to hyperlocal/regional — needs intake
+   location capture (the C2 follow-on), tracked separately.
+6. **F6** external check — ✅ DONE (grounded-vs-modeled divergence; internal checks relabeled)
+
+Every fix shipped failure-test-first (the test fails on the pre-fix code) and is committed.
 
 Each: write the FAILURE test first (must fail on current code), implement, make SUCCESS
 test green, run full regression, commit. No fix is "done" until its test would have
