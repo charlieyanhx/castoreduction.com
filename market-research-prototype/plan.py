@@ -287,22 +287,25 @@ def build_consumer_research(description: str, geo: str, profile: dict,
     return None
 
 
-def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict) -> dict:
-    """C2 (audit remediation): replace the LLM's hallucinated bottom-up TAM method
+def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
+                            arpu_monthly_fallback: float | None = None) -> dict:
+    """C2/F3 (audit remediation): replace the LLM's hallucinated bottom-up TAM method
     with a LIVE Census-grounded one (target-customer establishment count × ARPU).
 
-    For a B2B SaaS, bottom-up TAM = (# target-customer businesses, from Census CBP)
-    × (annual contract value, from the stated price). Degrades gracefully: if there's
-    no stated price or the live count is unavailable, returns sizing unchanged.
-    Recomputes the TAM headline from the available methods after injection.
+    ARPU basis, in order: the user's stated $/mo, else a modeled monthly price
+    (`arpu_monthly_fallback`, e.g. the PSM optimal price) — so grounding fires for most
+    digital ventures, not only when a price was typed (F3). Degrades gracefully: with
+    no ARPU basis or no live count, returns sizing unchanged.
     """
     stated = extract_stated_price(description)
-    if not stated:
-        return sizing  # no ARPU → can't ground; leave legacy bottom-up
+    arpu_monthly = stated or arpu_monthly_fallback
+    if not arpu_monthly or arpu_monthly <= 0:
+        return sizing  # no ARPU basis → can't ground; leave legacy bottom-up
+    arpu_sourced = "stated price" if stated else "modeled price (PSM optimal)"
     target = (profile or {}).get("target_customer") or description
     try:
         from skills.sizing.bottom_up import grounded_bottom_up
-        gb = grounded_bottom_up(annual_arpu=stated * 12.0, category=target)
+        gb = grounded_bottom_up(annual_arpu=arpu_monthly * 12.0, category=target)
     except Exception as e:
         log.warning("[plan] grounded bottom-up failed (non-fatal): %s", e)
         return sizing
@@ -329,7 +332,7 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict) -> di
     out["notes"] = list(out.get("notes") or []) + [
         f"Bottom-up grounded in live Census count "
         f"({gb.payload['establishments']:,} establishments × "
-        f"${stated * 12:,.0f}/yr)."]
+        f"${arpu_monthly * 12:,.0f}/yr from {arpu_sourced})."]
     log.info("[plan] C2: grounded bottom-up TAM = %s (%s establishments)",
              gb.payload["tam_usd"], gb.payload["establishments"])
     return out
@@ -1006,7 +1009,11 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     if sizing and not sizing.get("error"):
         # C2: ground the bottom-up TAM in a live Census count BEFORE the gate, so
         # the report uses the real establishment count, not the LLM's guess.
-        sizing = ground_sizing_bottom_up(sizing, description, profile)
+        # F3: ARPU basis = stated price, else the modeled PSM optimal price, so the
+        # Census-grounded bottom-up fires for most digital ventures (not only typed $/mo).
+        _psm_price = (psm_result or {}).get("optimal_price_point")
+        sizing = ground_sizing_bottom_up(sizing, description, profile,
+                                         arpu_monthly_fallback=_psm_price)
         # cycle33: real origin-independent triangulation (replaces naive averaging).
         sizing = triangulate_sizing(sizing)
         # cycle33: gate + annotate via the numbers-right engine (non-breaking).

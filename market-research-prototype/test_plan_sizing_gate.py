@@ -223,6 +223,34 @@ class TestRefinePipelineWiring(unittest.TestCase):
         self.assertIs(out, result)  # original returned unchanged, no crash
 
 
+class TestGroundingBroadened(unittest.TestCase):
+    """F3: grounded bottom-up must fire from a modeled ARPU (PSM optimal price), not
+    only when the user typed a $/mo in the description."""
+
+    def _gb(self):
+        return Evidence("grounded_bottom_up", "skill_output", 1, payload={
+            "tam_usd": 500_000_000, "establishments": 412498, "naics": "722511",
+            "figures": [{"value_usd": 5e8, "formula": "412,498 × $1,188/yr",
+                         "source": "US Census CBP 2022"}]})
+
+    def test_grounds_via_arpu_fallback_without_stated_price(self):
+        from unittest.mock import patch
+        with patch("skills.sizing.bottom_up.grounded_bottom_up", return_value=self._gb()):
+            out = ground_sizing_bottom_up(
+                {"tam": {"method_top_down": {"value_usd": 1_000_000_000}}},
+                "a SaaS with no price mentioned in the text",   # no $/mo
+                {"target_customer": "restaurants"},
+                arpu_monthly_fallback=99.0)
+        bu = out["tam"]["method_bottom_up"]
+        self.assertEqual(bu["data_origin"], "census")
+        self.assertEqual(bu["value_usd"], 500_000_000)
+
+    def test_no_price_and_no_fallback_leaves_unchanged(self):
+        before = {"tam": {"method_top_down": {"value_usd": 1_000_000_000}}}
+        out = ground_sizing_bottom_up(before, "a SaaS, no price", {}, arpu_monthly_fallback=None)
+        self.assertNotIn("method_bottom_up", out["tam"])
+
+
 class TestTriangulateSizing(unittest.TestCase):
     """Real origin-independent triangulation replaces the naive 3-method average."""
 
