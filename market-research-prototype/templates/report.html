@@ -538,9 +538,9 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     {% endfor %}
   </tbody>
 </table>
-{% if tam.reconciliation %}
-<p style="font-size:10pt;color:#4b5563;margin-top:8px"><strong>Reconciliation:</strong> {{ tam.reconciliation }}</p>
-{% endif %}
+{# F4: the LLM "3-method triangulation … unweighted average / converged" reconciliation
+   string is removed — it contradicted the engine's honest triangulation badge below.
+   The badge (real n_independent, median, convergence, by-origin) is the only source of truth. #}
 {% if tam.triangulation %}
 {% set tri = tam.triangulation %}
 {% set conf_color = {'high':'#047857','medium':'#b45309','low':'#b91c1c','single_source':'#6b7280'} %}

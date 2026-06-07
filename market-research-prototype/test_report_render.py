@@ -60,6 +60,27 @@ class TestGateWithholdsNumbers(unittest.TestCase):
         self.assertIn("$5.0B", out)   # TAM rendered normally when it passed
         self.assertIn("$1.0B", out)   # SAM rendered
 
+    def test_no_convergence_theatre_for_single_source(self):
+        # F4: when the engine says single_source/not-triangulated, the report must NOT
+        # also print the LLM "3-method triangulation … unweighted average" theatre.
+        ms = {
+            "tam": {"mid": 5e9, "low": 4e9, "high": 6e9, "label": "TAM",
+                    "method_top_down": {"value_usd": 5e9, "calculation": "a", "source": "LLM"},
+                    "method_bottom_up": {"value_usd": 5e9, "calculation": "b", "source": "LLM"},
+                    "reconciliation": "3-method triangulation: headline mid is the unweighted average. converged.",
+                    "triangulation": {"confidence": "single_source", "n_independent": 1,
+                                      "point": 5e9, "converged": False, "spread": 0,
+                                      "flag": "only 1 independent origin (llm) — not triangulated",
+                                      "cross_origin": [{"origin": "llm", "value": 5e9}]}},
+            "sam": {"mid": 1e9, "low": 8e8, "high": 1.2e9},
+            "som": {"mid": 5e7, "low": 4e7, "high": 6e7},
+            "validation": {"passed": True, "blocks": []},
+        }
+        out = _render(ms)
+        self.assertNotIn("unweighted average", out)   # theatre gone
+        self.assertNotIn("Reconciliation:", out)
+        self.assertIn("not triangulated", out)        # honest badge remains
+
     def test_no_validation_key_still_shows_numbers(self):
         # Backward-compat: legacy reports without a validation block still render.
         d = {k: dict(v) for k, v in _PASS.items() if k != "validation"}
