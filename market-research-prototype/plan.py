@@ -497,8 +497,12 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
             if _figs.get(k, {}).get("formula"):
                 formula = _figs[k]["formula"]
                 break
+        # cycle36 (audit): the low/high is a fixed ±30% MODELING band around the mid, not a
+        # measured confidence interval. band_note is surfaced so the reader is not misled into
+        # reading the range as researched uncertainty.
         return {"mid": v, "low": round(v * 0.7), "high": round(v * 1.3),
                 "label": full_label, "calculation": formula,
+                "band_pct": 30, "band_note": "Range is a ±30% modeling band around the estimate, not a measured confidence interval.",
                 "unit": "annual revenue · trade area"}
 
     # Named geographic competitors — a local venture's rivals are the nearby venues
@@ -1193,7 +1197,16 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
 
     if psm_result.get("optimal_price_point"):
         try:
-            result["pricing"]["break_even"] = compute_break_even(float(psm_result["optimal_price_point"]))
+            # cycle36 (audit): cost structure is category-estimated + disclosed, not a
+            # universal hardcoded $5000/$2 placeholder hidden from the reader.
+            from pricing import estimate_cost_structure
+            _cost = estimate_cost_structure(profile.get("category", ""),
+                                            float(psm_result["optimal_price_point"]))
+            result["pricing"]["break_even"] = compute_break_even(
+                float(psm_result["optimal_price_point"]),
+                monthly_fixed_cost=_cost["monthly_fixed_cost"],
+                variable_cost_per_customer=_cost["variable_cost_per_customer"],
+                cost_source=_cost["source"])
         except (TypeError, ValueError):
             pass
 
@@ -1397,6 +1410,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             som_mid=float(som_mid),
             optimal_price=float(optimal_price),
             break_even_customers=be_customers,
+            break_even_costs=be,  # cycle36: surface the cost assumptions in the report
         )
         if not proj.get("error"):
             result["financials"] = proj

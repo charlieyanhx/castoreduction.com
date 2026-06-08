@@ -620,10 +620,16 @@ def _enforce_sizing_ordering(result: dict) -> dict:
         for edge in ("low", "high"):
             if isinstance(b.get(edge), (int, float)) and not isinstance(b.get(edge), bool):
                 b[edge] = round(float(b[edge]) * ratio)
+        # cycle36 (audit): the original `calculation` described the pre-clamp value, so the
+        # math line contradicted the displayed mid. Disclose the rewrite on the block itself
+        # so the report never shows a number that silently disagrees with its own formula.
+        b["clamp_note"] = (f"Adjusted to 90% of {ceiling_name} (${ceiling:,.0f}) to keep the "
+                           f"funnel consistent — the model's raw {block.upper()} estimate "
+                           f"(${value:,.0f}) exceeded {ceiling_name}.")
         result[block] = b
         corrections.append(
             f"{block.upper()} {value:,.0f} exceeded {ceiling_name} {ceiling:,.0f} "
-            f"→ clamped to {b['mid']:,.0f}")
+            f"→ clamped to {b['mid']:,.0f} (90% of {ceiling_name})")
 
     if sam is not None and tam is not None and sam > tam:
         _clamp("sam", sam, tam, "TAM")
@@ -634,6 +640,11 @@ def _enforce_sizing_ordering(result: dict) -> dict:
     if corrections:
         log.warning("[market_sizing] ordering corrections: %s", corrections)
         result["_ordering_corrections"] = corrections
+        # Disclose to the reader (weakest_assumptions renders in the report).
+        wa = list(result.get("weakest_assumptions") or [])
+        for c in corrections:
+            wa.append("Funnel correction: " + c)
+        result["weakest_assumptions"] = wa
     return result
 
 

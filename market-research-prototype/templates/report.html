@@ -556,6 +556,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     {% if m.get('mid') is not none %}
     <div style="font-size:24pt;font-weight:700;color:#1f2937;margin:6px 0">{{ format_currency(m.mid) }}</div>
     <div style="font-size:9pt;color:#6b7280">Range: {{ format_currency(m.low) }} – {{ format_currency(m.high) }}</div>
+    {% if m.clamp_note %}<div style="font-size:8pt;color:#b45309;margin-top:4px;font-style:italic">⚠ {{ m.clamp_note }}</div>{% endif %}
     {% else %}
     <div style="font-size:14pt;color:#9ca3af;margin:6px 0;font-style:italic">— not estimated</div>
     {% endif %}
@@ -564,6 +565,10 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   {% endif %}
   {% endfor %}
 </div>
+{# cycle36 (audit): disclose how the low/high band is derived so it is never mistaken for a measured CI. #}
+{% set _band = market_sizing.tam.band_note or market_sizing.sam.band_note or market_sizing.som.band_note %}
+{% if _band %}<div style="font-size:8.5pt;color:#9ca3af;margin:-4px 0 4px;font-style:italic">{{ _band }}</div>
+{% else %}<div style="font-size:8.5pt;color:#9ca3af;margin:-4px 0 4px;font-style:italic">Range spans the highest and lowest of the independent estimation methods, padded ±15%; it is a modeling band, not a measured confidence interval.</div>{% endif %}
 <!-- Iter 42 (issue 4): triangulated TAM via 3 methods + serviceability waterfall + analog SOM anchor -->
 {% set tam = market_sizing.tam %}
 {% if tam and (tam.method_top_down or tam.method_bottom_up or tam.method_analog) %}
@@ -700,6 +705,9 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   <strong>Assumptions:</strong>
   Annual price per customer: ${{ financials.assumptions.annual_price_per_customer }} ({{ financials.assumptions.monthly_churn_pct }}%/mo churn assumed).
   S-curve adoption: Y1=8%, Y2=35%, Y3=100% of year-3 ceiling.
+  {% if financials.assumptions.break_even_monthly_fixed_cost %}<br><strong>Break-even basis:</strong>
+  assumes ${{ '{:,.0f}'.format(financials.assumptions.break_even_monthly_fixed_cost) }}/mo fixed cost and ${{ financials.assumptions.break_even_variable_cost_per_customer }}/customer variable cost
+  <span style="color:#9ca3af">({{ financials.assumptions.break_even_cost_source }})</span>. The break-even column is illustrative until the operator sets a real cost structure.{% endif %}
 </div>
 {% endif %}
 

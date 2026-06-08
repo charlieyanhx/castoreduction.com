@@ -22,6 +22,7 @@ def project_three_year(
     optimal_price: float | None,
     break_even_customers: int | None = None,
     monthly_churn_pct: float = 5.0,
+    break_even_costs: dict | None = None,
 ) -> dict:
     """
     Build a simple 3-year revenue projection from the upstream estimates.
@@ -79,5 +80,10 @@ def project_three_year(
             "monthly_churn_pct": monthly_churn_pct,
             "som_mid_used": round(som_mid, 0),
             "growth_curve": "S-curve: y1=8%, y2=35%, y3=100% of year-3 ceiling",
+            # cycle36 (audit): disclose the break-even cost inputs so the Break-even column
+            # is never driven by hidden constants. Present only when break-even was computed.
+            "break_even_monthly_fixed_cost": (break_even_costs or {}).get("monthly_fixed_cost_assumed"),
+            "break_even_variable_cost_per_customer": (break_even_costs or {}).get("variable_cost_per_customer_assumed"),
+            "break_even_cost_source": (break_even_costs or {}).get("cost_source"),
         },
     }

@@ -288,8 +288,43 @@ def build_benchmark_table(
     }
 
 
-def compute_break_even(monthly_price: float, monthly_fixed_cost: float = 5000, variable_cost_per_customer: float = 2) -> dict:
-    """Simple break-even math. Default assumptions are placeholder — operator should override."""
+def estimate_cost_structure(category: str, monthly_price: float | None = None) -> dict:
+    """Per-category estimate of a single-unit MONTHLY fixed cost (rent/staff/utilities) and
+    per-customer VARIABLE cost, in USD. cycle36 (audit): the old break-even used a universal
+    hardcoded $5000/mo + $2/customer for EVERY venture — a cafe is not a SaaS app. This
+    estimates them for the actual category (LLM, labeled UNSOURCED) so the break-even rests
+    on category-appropriate, disclosed inputs. Safe fallback to the generic placeholder on
+    failure. Returns {monthly_fixed_cost, variable_cost_per_customer, sourced, source}."""
+    if category:
+        try:
+            from llm import call_json
+            raw = call_json(
+                system=("Estimate, for a SINGLE early-stage location/unit in the given "
+                        "business category, the typical MONTHLY fixed operating cost (rent + "
+                        "staff + utilities, USD) and the VARIABLE cost per customer/transaction "
+                        "(USD). Reply ONLY JSON: {\"monthly_fixed_cost\": <number>, "
+                        "\"variable_cost_per_customer\": <number>}."),
+                user=f"Category: {category}" + (f"\nUnit price: ${monthly_price}" if monthly_price else ""),
+                max_tokens=80,
+            ) or {}
+            f, v = raw.get("monthly_fixed_cost"), raw.get("variable_cost_per_customer")
+            if (isinstance(f, (int, float)) and not isinstance(f, bool) and f > 0
+                    and isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0):
+                return {"monthly_fixed_cost": float(f), "variable_cost_per_customer": float(v),
+                        "sourced": False,
+                        "source": "LLM estimate (UNSOURCED — operator should validate)"}
+        except Exception:
+            pass
+    return {"monthly_fixed_cost": 5000.0, "variable_cost_per_customer": 2.0, "sourced": False,
+            "source": "generic placeholder — operator should set real cost structure"}
+
+
+def compute_break_even(monthly_price: float, monthly_fixed_cost: float = 5000,
+                       variable_cost_per_customer: float = 2,
+                       cost_source: str = "generic placeholder — operator should set real cost structure") -> dict:
+    """Simple break-even math. Costs SHOULD be category-estimated (see estimate_cost_structure)
+    and are echoed in the result so the report can disclose them — they are never silently
+    hidden. Defaults remain a labeled placeholder for callers that omit them."""
     margin = monthly_price - variable_cost_per_customer
     if margin <= 0:
         return {"error": "price below variable cost", "break_even_customers": None}
@@ -297,6 +332,7 @@ def compute_break_even(monthly_price: float, monthly_fixed_cost: float = 5000, v
         "break_even_customers": round(monthly_fixed_cost / margin),
         "monthly_fixed_cost_assumed": monthly_fixed_cost,
         "variable_cost_per_customer_assumed": variable_cost_per_customer,
+        "cost_source": cost_source,
         "margin_per_customer": round(margin, 2),
     }
 

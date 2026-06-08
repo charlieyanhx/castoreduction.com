@@ -255,5 +255,60 @@ class TestRunHealth(unittest.TestCase):
         self.assertEqual(h["n_failed"], 2)
 
 
+class TestHardcodingDisclosures(unittest.TestCase):
+    """cycle36 audit: undisclosed constants that shape displayed numbers must be surfaced."""
+
+    def test_break_even_costs_estimated_per_category(self):
+        from pricing import estimate_cost_structure
+        with patch("llm.call_json", return_value={"monthly_fixed_cost": 18000, "variable_cost_per_customer": 1.5}):
+            c = estimate_cost_structure("specialty coffee cafe", 6.0)
+        self.assertEqual(c["monthly_fixed_cost"], 18000)        # category-specific, not $5000
+        self.assertFalse(c["sourced"])
+        self.assertIn("UNSOURCED", c["source"])
+
+    def test_break_even_falls_back_safely_and_labeled(self):
+        from pricing import estimate_cost_structure
+        with patch("llm.call_json", side_effect=Exception("llm down")):
+            c = estimate_cost_structure("anything", 10.0)
+        self.assertEqual(c["monthly_fixed_cost"], 5000.0)       # safe placeholder
+        self.assertIn("placeholder", c["source"])               # but honestly labeled
+
+    def test_break_even_echoes_cost_source(self):
+        from pricing import compute_break_even
+        be = compute_break_even(50.0, monthly_fixed_cost=18000, variable_cost_per_customer=1.5,
+                                cost_source="LLM estimate (UNSOURCED — operator should validate)")
+        self.assertEqual(be["monthly_fixed_cost_assumed"], 18000)
+        self.assertIn("UNSOURCED", be["cost_source"])           # disclosed, not hidden
+
+    def test_financials_surfaces_break_even_costs(self):
+        from financials import project_three_year
+        be_costs = {"monthly_fixed_cost_assumed": 18000, "variable_cost_per_customer_assumed": 1.5,
+                    "cost_source": "LLM estimate (UNSOURCED — operator should validate)"}
+        proj = project_three_year(som_mid=450000, optimal_price=6.0, break_even_customers=100,
+                                  break_even_costs=be_costs)
+        a = proj["assumptions"]
+        self.assertEqual(a["break_even_monthly_fixed_cost"], 18000)   # reaches the report
+        self.assertIn("UNSOURCED", a["break_even_cost_source"])
+
+    def test_funnel_clamp_is_disclosed_not_silent(self):
+        from market_sizing import _enforce_sizing_ordering
+        # SOM > SAM violates the funnel → clamp, but it must be disclosed.
+        r = {"tam": {"mid": 1000000, "low": 700000, "high": 1300000},
+             "sam": {"mid": 500000, "low": 350000, "high": 650000},
+             "som": {"mid": 900000, "low": 600000, "high": 1100000}}  # SOM > SAM
+        out = _enforce_sizing_ordering(r)
+        self.assertEqual(out["som"]["mid"], round(500000 * 0.9))       # clamped to 90% of SAM
+        self.assertIn("clamp_note", out["som"])                        # per-card disclosure
+        self.assertTrue(any("Funnel correction" in a for a in out["weakest_assumptions"]))  # in report
+
+    def test_no_clamp_leaves_funnel_untouched(self):
+        from market_sizing import _enforce_sizing_ordering
+        r = {"tam": {"mid": 1000000}, "sam": {"mid": 400000}, "som": {"mid": 200000}}
+        out = _enforce_sizing_ordering(r)
+        self.assertEqual(out["som"]["mid"], 200000)                    # already ordered → no change
+        self.assertNotIn("clamp_note", out["som"])
+        self.assertIsNone(out.get("_ordering_corrections"))
+
+
 if __name__ == "__main__":
     unittest.main()
