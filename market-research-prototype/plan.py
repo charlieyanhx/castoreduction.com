@@ -297,12 +297,33 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
     digital ventures, not only when a price was typed (F3). Degrades gracefully: with
     no ARPU basis or no live count, returns sizing unchanged.
     """
+    target = (profile or {}).get("target_customer") or description
+    # ARPU basis priority: (1) user's stated $/mo → (2) SCRAPED competitor price (real,
+    # geographic, origin='scrape') → (3) LLM-modeled fallback (PSM optimal). Preferring a
+    # scraped price over the modeled one grounds the soft multiplier in real data (M2).
     stated = extract_stated_price(description)
-    arpu_monthly = stated or arpu_monthly_fallback
+    arpu_monthly = stated
+    arpu_sourced = "stated price"
+    arpu_origin = "stated"
+    if not arpu_monthly and os.getenv("CASTOR_SCRAPE_PRICE", "1") != "0":
+        try:
+            from skills.price_intel import scrape_market_price
+            geo = (profile or {}).get("geography") or "US"
+            spe = scrape_market_price(target, geo)
+            if not spe.skeleton and (spe.payload or {}).get("median_monthly_usd"):
+                arpu_monthly = float(spe.payload["median_monthly_usd"])
+                arpu_sourced = spe.payload.get("source_label", "scraped competitor pricing")
+                arpu_origin = "scrape"
+                log.info("[plan] ARPU grounded from scrape: $%s/mo (%s)",
+                         arpu_monthly, arpu_sourced)
+        except Exception as e:
+            log.warning("[plan] price scrape failed (non-fatal): %s", e)
+    if not arpu_monthly:
+        arpu_monthly = arpu_monthly_fallback
+        arpu_sourced = "modeled price (PSM optimal)"
+        arpu_origin = "llm"
     if not arpu_monthly or arpu_monthly <= 0:
         return sizing  # no ARPU basis → can't ground; leave legacy bottom-up
-    arpu_sourced = "stated price" if stated else "modeled price (PSM optimal)"
-    target = (profile or {}).get("target_customer") or description
     try:
         from skills.sizing.bottom_up import grounded_bottom_up
         gb = grounded_bottom_up(annual_arpu=arpu_monthly * 12.0, category=target)
