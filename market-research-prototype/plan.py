@@ -359,6 +359,80 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
     return out
 
 
+_STREET_RE = re.compile(
+    r"\b\d{1,6}\s+[A-Z0-9][\w.'-]*(?:\s+[\w.'-]+){0,4}\s+"
+    r"(?:St|Street|Ave|Avenue|Blvd|Boulevard|Rd|Road|Dr|Drive|Ln|Lane|Way|Ct|Court|Pl|Plaza)\b",
+    re.I)
+_PLACE_RE = re.compile(
+    r"\b(?:in|at|near|around|located in)\s+"
+    r"([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3}(?:,\s*[A-Z]{2})?)")
+
+
+def extract_location(text: str) -> str | None:
+    """Best-effort physical-location extraction: a street address, else 'in <Place>'.
+
+    Returns a geocodable-ish string or None. cycle35 — feeds hyperlocal routing.
+    """
+    if not text:
+        return None
+    m = _STREET_RE.search(text)
+    if m:
+        return m.group(0).strip()
+    m = _PLACE_RE.search(text)
+    return m.group(1).strip() if m else None
+
+
+# Map common physical categories to an OSM amenity value for competitor density.
+_OSM_BY_CATEGORY = {
+    "restaurant": "restaurant", "food": "restaurant", "cafe": "cafe", "coffee": "cafe",
+    "bar": "bar", "gym": "gym", "fitness": "gym", "salon": "hairdresser",
+    "clinic": "clinic", "pharmacy": "pharmacy", "bakery": "bakery",
+}
+
+
+def size_by_scale(scale_decision: dict | None, description: str, profile: dict) -> dict | None:
+    """For physical ventures with a location, size by trade-area (size_hyperlocal) and
+    adapt to the legacy tam/sam/som shape so the report + gate work. Returns None to
+    let the caller keep the legacy digital sizing. cycle35 (F3, location path).
+
+    The competitor count here is GEOGRAPHIC — size_hyperlocal uses OSM poi_competition
+    within the trade-area radius, not LLM guesses.
+    """
+    if not scale_decision or scale_decision.get("scale") not in ("hyperlocal", "regional"):
+        return None
+    location = extract_location(description)
+    if not location:
+        return None  # caller keeps legacy + the existing "needs an address" caveat
+    cat = (profile or {}).get("category") or ""
+    osm = next((v for k, v in _OSM_BY_CATEGORY.items() if k in cat.lower()), "restaurant")
+    try:
+        from skills.sizing.hyperlocal import size_hyperlocal
+        ev = size_hyperlocal(address=location, category=cat or "food_away_from_home",
+                             osm_value=osm)
+    except Exception as e:
+        log.warning("[plan] hyperlocal sizing failed (non-fatal): %s", e)
+        return None
+    if ev.skeleton or not ev.payload:
+        return None
+    p = ev.payload
+
+    def _block(v):
+        return ({"mid": v, "low": round(v * 0.7), "high": round(v * 1.3)}
+                if isinstance(v, (int, float)) and not isinstance(v, bool) else {})
+
+    val = p.get("validation") or {}
+    return {
+        "tam": _block(p.get("tam_usd")), "sam": _block(p.get("sam_usd")),
+        "som": _block(p.get("som_usd")),
+        "method": p.get("method"), "figures": p.get("figures"),
+        "households": p.get("households"), "competitors": p.get("competitors"),
+        "notes": p.get("notes"), "validation": val,
+        "publishable": val.get("passed", True),
+        "scale_decision": scale_decision,
+        "_hyperlocal_location": location, "_osm_value": osm,
+    }
+
+
 def build_integrity_summary(result: dict) -> dict:
     """Surface the (otherwise invisible) backend rigor as a user-facing trust object.
 
@@ -1079,6 +1153,20 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         # cycle33: gate + annotate via the numbers-right engine (non-breaking).
         sizing = gate_and_annotate_sizing(sizing, scale_decision)
         result["market_sizing"] = sizing
+
+    # F3 (location path): for a PHYSICAL venture with a location, override the digital
+    # sizing with a real trade-area model (Census households × BLS spend, OSM competitor
+    # density). Falls back silently to the digital sizing if no location / unavailable.
+    try:
+        hl = size_by_scale(scale_decision, description, profile)
+        if hl:
+            result["market_sizing"] = hl
+            if "market_sizing" not in result["_steps_completed"]:
+                result["_steps_completed"].append("market_sizing")
+            log.info("[plan] hyperlocal sizing override (%s @ %s)",
+                     (scale_decision or {}).get("scale"), hl.get("_hyperlocal_location"))
+    except Exception as e:
+        log.warning("[plan] hyperlocal override failed (non-fatal): %s", e)
         result["_steps_completed"].append("market_sizing")
         checkpoint()
 
