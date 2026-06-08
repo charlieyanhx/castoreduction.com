@@ -136,11 +136,15 @@ class TestHyperlocalRestaurantInLA(unittest.TestCase):
         self.assertNotEqual(e.payload["confidence"], "high")
         self.assertTrue(any("LLM estimate" in n for n in e.payload["notes"]))
 
-    def test_missing_demographics_degrades_confidence(self):
+    def test_missing_demographics_estimates_households_and_caps_confidence(self):
+        # cycle36: ACS down no longer blanks the TAM. Households fall back to a labeled
+        # estimate so TAM still computes, but confidence is capped to "low".
         geo, _, poi = self._patches()
         acs_fail = Evidence(source="acs_demographics", category="geo", count=0,
                             skeleton=True, error="ACS down")
-        with patch("skills.sizing.hyperlocal.get_tool") as gt:
+        with patch("skills.sizing.hyperlocal.get_tool") as gt, \
+             patch("skills.sizing.hyperlocal._estimate_households", return_value=120000.0), \
+             patch("skills.sizing.hyperlocal.resolve_annual_spend", return_value=(3360.0, True)):
             gt.side_effect = lambda n: type("T", (), {"fn": staticmethod({
                 "geocode_address": lambda *a, **k: geo,
                 "acs_demographics": lambda *a, **k: acs_fail,
@@ -148,16 +152,26 @@ class TestHyperlocalRestaurantInLA(unittest.TestCase):
             }[n])})
             e = size_hyperlocal(address="x")
         self.assertEqual(e.payload["confidence"], "low")
-        self.assertIsNone(e.payload["tam_usd"])
+        self.assertEqual(e.payload["tam_usd"], 120000 * 3360.0)   # computes, not None
+        tam_fig = next(f for f in e.payload["figures"] if f["label"] == "TAM_local")
+        self.assertIn("UNSOURCED", tam_fig["source"])             # households labeled estimate
 
-    def test_geocode_failure_returns_skeleton(self):
+    def test_geocode_failure_is_non_fatal_and_still_sizes_trade_area(self):
+        # cycle36: a geocode failure must NOT collapse the hyperlocal path (it used to
+        # return a skeleton → caller fell back to a national TAM). Trade-area TAM still
+        # computes from an estimated household count; competition is skipped, not fatal.
         bad = Evidence(source="geocode_address", category="geo", count=0,
                        skeleton=True, error="no match")
-        with patch("skills.sizing.hyperlocal.get_tool") as gt:
+        with patch("skills.sizing.hyperlocal.get_tool") as gt, \
+             patch("skills.sizing.hyperlocal._estimate_households", return_value=90000.0), \
+             patch("skills.sizing.hyperlocal.resolve_annual_spend", return_value=(3360.0, True)):
             gt.side_effect = lambda n: type("T", (), {"fn": staticmethod(lambda *a, **k: bad)})
-            e = size_hyperlocal(address="nowhere")
-        self.assertTrue(e.skeleton)
-        self.assertEqual(e.count, 0)
+            e = size_hyperlocal(address="nowhere precise")
+        self.assertFalse(e.skeleton)                              # NOT a skeleton
+        self.assertEqual(e.payload["tam_usd"], 90000 * 3360.0)    # trade-area TAM computes
+        self.assertIsNone(e.payload["competitors"])               # OSM skipped (no coords)
+        self.assertEqual(e.payload["confidence"], "low")
+        self.assertTrue(any("could not be geocoded" in n for n in e.payload["notes"]))
 
 
 class TestRegistration(unittest.TestCase):
