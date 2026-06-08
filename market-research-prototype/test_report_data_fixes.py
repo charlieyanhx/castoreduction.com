@@ -212,5 +212,48 @@ class TestValidationGateHyperlocal(unittest.TestCase):
         self.assertTrue(any("methods filled" in f for f in flags))    # 1/3 → still flagged
 
 
+class TestRunHealth(unittest.TestCase):
+    def _ok_result(self):
+        return {
+            "four_ps": {s: {"narrative": "good content"} for s in ("product", "price", "place", "promotion")},
+            "market_sizing": {"tam": {"mid": 1500000}, "notes": []},
+            "consumer_research": {"synthesis": {"willingness_to_pay": {"median": 7}}},
+            "viability": {"viability_score": 58},
+        }
+
+    def test_clean_run_is_healthy(self):
+        from plan import assess_run_health
+        h = assess_run_health(self._ok_result())
+        self.assertFalse(h["degraded"])
+        self.assertEqual(h["severity"], "ok")
+
+    def test_tam_zero_is_severe(self):
+        from plan import assess_run_health
+        r = self._ok_result()
+        r["market_sizing"] = {"tam": {"mid": 0}, "notes": ["households or spend unavailable — TAM not computed"]}
+        h = assess_run_health(r)
+        self.assertTrue(h["degraded"])
+        self.assertEqual(h["severity"], "severe")          # TAM failure is always severe
+        self.assertIn("Market sizing · TAM", h["failed"])
+
+    def test_single_failed_section_is_partial(self):
+        from plan import assess_run_health
+        r = self._ok_result()
+        r["four_ps"]["product"] = {"narrative": "(Section generation failed for product)"}
+        h = assess_run_health(r)
+        self.assertTrue(h["degraded"])
+        self.assertEqual(h["severity"], "partial")
+        self.assertIn("4Ps · Product", h["failed"])
+
+    def test_two_failures_escalate_to_severe(self):
+        from plan import assess_run_health
+        r = self._ok_result()
+        r["four_ps"]["place"] = {"narrative": "(Section generation failed)"}
+        r["four_ps"]["promotion"] = {"narrative": "(Section generation failed)"}
+        h = assess_run_health(r)
+        self.assertEqual(h["severity"], "severe")           # >=2 failures
+        self.assertEqual(h["n_failed"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

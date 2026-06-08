@@ -582,6 +582,63 @@ def build_integrity_summary(result: dict) -> dict:
     }
 
 
+def assess_run_health(result: dict) -> dict:
+    """Detect when a run was crippled by transient LLM/network failures so the report
+    can say so LOUDLY instead of presenting $0 TAM / '(generation failed)' as if they
+    were real findings. Pure read over the result; no mutation, no LLM. cycle36.
+
+    The honest-numbers bar: a number that failed to compute must read as "temporarily
+    unavailable — regenerate", never as a real $0 or blank a reader could mistake for signal.
+    """
+    failed: list[str] = []
+
+    # 4Ps sections that the LLM failed to generate.
+    fp = result.get("four_ps") or {}
+    for sect in ("product", "price", "place", "promotion"):
+        nar = str((fp.get(sect) or {}).get("narrative") or "")
+        if "generation failed" in nar.lower():
+            failed.append(f"4Ps · {sect.capitalize()}")
+    if fp.get("error"):
+        failed.append("4Ps plan")
+
+    # Market sizing produced no headline TAM despite the step running.
+    ms = result.get("market_sizing") or {}
+    tam_mid = (ms.get("tam") or {}).get("mid")
+    notes = " ".join(ms.get("notes") or []).lower()
+    sizing_failed = (not isinstance(tam_mid, (int, float)) or tam_mid == 0) and (
+        "not computed" in notes or "unavailable" in notes or bool(ms))
+    if sizing_failed and ms:
+        failed.append("Market sizing · TAM")
+
+    # Consumer research WTP / synthesis empty.
+    syn = (result.get("consumer_research") or {}).get("synthesis") or {}
+    wtp = syn.get("willingness_to_pay")
+    if result.get("consumer_research") and not wtp:
+        failed.append("Consumer research · willingness-to-pay")
+
+    # Viability never scored.
+    if (result.get("viability") or {}).get("error"):
+        failed.append("Viability score")
+
+    # Any raw parse_error leaking into the persisted result is a hard tell.
+    try:
+        import json as _json
+        if "_parse_error" in _json.dumps(result):
+            if "LLM responses (parse_error)" not in failed:
+                failed.append("LLM responses (parse_error)")
+    except Exception:
+        pass
+
+    # Severity: TAM or >=2 sections failing = severe; a single failure = partial.
+    severe = ("Market sizing · TAM" in failed) or (len(failed) >= 2)
+    return {
+        "degraded": bool(failed),
+        "severity": "severe" if severe else ("partial" if failed else "ok"),
+        "failed": failed,
+        "n_failed": len(failed),
+    }
+
+
 def triangulate_sizing(sizing: dict) -> dict:
     """Replace the naive 3-method average with REAL origin-independent triangulation.
 

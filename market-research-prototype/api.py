@@ -662,6 +662,9 @@ def get_job_report_html(job_id: str):
         refine_audit=r.get("_refine"),
         # cycle35: surface backend rigor to the UX (no dark capabilities)
         integrity=__import__("plan").build_integrity_summary(r),
+        # cycle36: flag a run crippled by transient LLM/network failures (never present
+        # $0 TAM / failed sections as real findings — tell the reader to regenerate).
+        run_health=__import__("plan").assess_run_health(r),
     )
     return HTMLResponse(content=html)
 

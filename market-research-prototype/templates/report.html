@@ -175,6 +175,19 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   </div>
 </div>
 
+{% if run_health and run_health.degraded %}
+<!-- cycle36: degraded-run banner. Never let $0 / blank read as a real finding. -->
+<div style="margin:0 0 22px;border:2px solid {{ '#dc2626' if run_health.severity == 'severe' else '#d97706' }};border-radius:12px;background:{{ '#fef2f2' if run_health.severity == 'severe' else '#fffbeb' }};padding:16px 18px">
+  <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:12pt;color:{{ '#991b1b' if run_health.severity == 'severe' else '#92400e' }};margin-bottom:6px">
+    ⚠ {{ 'Incomplete report — regenerate before relying on it' if run_health.severity == 'severe' else 'Partial report — some sections did not generate' }}
+  </div>
+  <div style="font-size:10pt;color:#374151;line-height:1.55">
+    {{ run_health.n_failed }} part(s) of this report could not be generated due to a transient LLM/network failure during this run, and are shown as blank or zero — <strong>those are not real findings</strong>. Re-run the report (same input → cached steps return instantly) for a complete version.
+    <div style="margin-top:8px;font-size:9pt;color:#6b7280">Affected: {{ run_health.failed|join(' · ') }}</div>
+  </div>
+</div>
+{% endif %}
+
 <!-- VIABILITY HERO -->
 <div class="viability-hero">
   <div>
