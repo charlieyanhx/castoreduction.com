@@ -198,10 +198,19 @@ def _call_gemini(system: str, user: str, max_tokens: int, model: str) -> tuple[s
             response = client.models.generate_content(
                 model=m,
                 contents=full_prompt,
+                # cycle36 CRITICAL FIX: thinking_budget=0 disables internal "thinking".
+                # The newer Gemini models (2.5+/3.x) spend the ENTIRE max_output_tokens
+                # budget on hidden thinking tokens, leaving nothing for the JSON →
+                # truncated/empty output → parse_error. This was the real root cause of
+                # TAM $0 and intermittent dropped sections (any tight-budget call —
+                # spend/households use max_tokens=60 — got eaten by thinking). Verified:
+                # with thinking off, 60 tokens emits clean JSON; with it on, even 512
+                # tokens truncates mid-object. Also faster + cheaper.
                 config={"response_mime_type": "application/json",
                         "max_output_tokens": max_tokens,
                         "temperature": 0,  # F2: deterministic — same input → same number
-                        "seed": 42},
+                        "seed": 42,
+                        "thinking_config": {"thinking_budget": 0}},
             )
             text = response.text or ""
             usage_meta = getattr(response, "usage_metadata", None)
