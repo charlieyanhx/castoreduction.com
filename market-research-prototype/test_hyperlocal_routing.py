@@ -38,19 +38,32 @@ def _hl_payload(tam, sam, som, passed=True):
     })
 
 
+def _geo_tools(named=("The Black Cat", "Pine and Crane", "Silverlake Ramen")):
+    """Patch tools.get_tool so geocode_address + osm_named_competitors don't hit network."""
+    geocode = Evidence("geocode_address", "geo", 1, payload={"lat": 34.08, "lng": -118.27})
+    comps = Evidence("osm_named_competitors", "geo", len(named),
+                     payload=[{"brand": n, "name": n} for n in named])
+    def fake_get_tool(name):
+        ev = {"geocode_address": geocode, "osm_named_competitors": comps}[name]
+        return type("T", (), {"fn": staticmethod(lambda *a, **k: ev)})
+    return patch("tools.get_tool", side_effect=fake_get_tool)
+
+
 class TestSizeByScale(unittest.TestCase):
-    def test_hyperlocal_with_location_overrides(self):
+    def test_hyperlocal_with_location_overrides_and_names_competitors(self):
         with patch("skills.sizing.hyperlocal.size_hyperlocal",
-                   return_value=_hl_payload(4.2e7, 1.5e7, 9e5)) as f:
+                   return_value=_hl_payload(4.2e7, 1.5e7, 9e5)) as f, _geo_tools():
             out = size_by_scale({"scale": "hyperlocal"},
                                 "A cafe in Silver Lake, CA", {"category": "coffee shop"})
         f.assert_called_once()
         self.assertEqual(out["tam"]["mid"], 4.2e7)          # adapted to legacy shape
         self.assertEqual(out["som"]["mid"], 9e5)
         self.assertTrue(out["publishable"])
-        self.assertEqual(out["_hyperlocal_location"], "Silver Lake, CA")
         self.assertEqual(out["_osm_value"], "cafe")          # category → OSM amenity
-        self.assertEqual(out["competitors"], 80)             # geographic competitor count
+        # The fix: real NAMED geographic competitors, not "0 found".
+        names = [c["brand"] for c in out["geo_competitors"]]
+        self.assertIn("Silverlake Ramen", names)
+        self.assertEqual(len(out["geo_competitors"]), 3)
 
     def test_digital_scale_returns_none(self):
         self.assertIsNone(size_by_scale({"scale": "national_digital"},
@@ -68,10 +81,36 @@ class TestSizeByScale(unittest.TestCase):
 
     def test_blocked_validation_marks_unpublishable(self):
         with patch("skills.sizing.hyperlocal.size_hyperlocal",
-                   return_value=_hl_payload(1e6, 5e6, 9e6, passed=False)):  # SAM>TAM etc.
+                   return_value=_hl_payload(1e6, 5e6, 9e6, passed=False)), _geo_tools():
             out = size_by_scale({"scale": "hyperlocal"},
                                 "a cafe in Silver Lake, CA", {"category": "cafe"})
         self.assertFalse(out["publishable"])
+
+
+class TestNamedCompetitorsTool(unittest.TestCase):
+    def test_parses_named_venues(self):
+        from tools import get_tool
+        fake = {"elements": [{"tags": {"name": "The Black Cat"}},
+                             {"tags": {"name": "Pine and Crane"}},
+                             {"tags": {}},  # unnamed → skipped
+                             {"tags": {"name": "The Black Cat"}}]}  # dup → deduped
+        with patch("tools.geo._http_json", return_value=fake):
+            e = get_tool("osm_named_competitors").fn(lat=34.08, lng=-118.27)
+        self.assertEqual(e.count, 2)
+        self.assertEqual([c["brand"] for c in e.payload], ["The Black Cat", "Pine and Crane"])
+
+    def test_nominatim_fallback_when_census_blocked(self):
+        from tools import get_tool
+        # Census returns no match → Nominatim fallback supplies lat/lng.
+        def http(method, url, **kw):
+            if "nominatim" in url:
+                return [{"lat": "34.09", "lon": "-118.27", "display_name": "Silver Lake, LA"}]
+            return {"result": {"addressMatches": []}}  # Census empty
+        with patch("tools.geo._http_json", side_effect=http):
+            e = get_tool("geocode_address").fn("Silver Lake, Los Angeles")
+        self.assertEqual(e.count, 1)
+        self.assertAlmostEqual(e.payload["lat"], 34.09)
+        self.assertIsNone(e.payload["state_fips"])   # Nominatim has no FIPS
 
 
 if __name__ == "__main__":

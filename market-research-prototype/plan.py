@@ -420,12 +420,29 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
         return ({"mid": v, "low": round(v * 0.7), "high": round(v * 1.3)}
                 if isinstance(v, (int, float)) and not isinstance(v, bool) else {})
 
+    # Named geographic competitors — a local venture's rivals are the nearby venues
+    # (OSM), not blocked web-search brands. Fetch the actual names so the report shows
+    # real competitors instead of "0 found".
+    geo_competitors: list[dict] = []
+    try:
+        from tools import get_tool
+        g = get_tool("geocode_address").fn(location)
+        if g.payload and g.payload.get("lat") is not None:
+            ne = get_tool("osm_named_competitors").fn(
+                lat=g.payload["lat"], lng=g.payload["lng"], osm_value=osm, limit=30)
+            if not ne.skeleton and ne.payload:
+                geo_competitors = ne.payload
+    except Exception as e:
+        log.warning("[plan] named geo-competitors failed (non-fatal): %s", e)
+
     val = p.get("validation") or {}
     return {
         "tam": _block(p.get("tam_usd")), "sam": _block(p.get("sam_usd")),
         "som": _block(p.get("som_usd")),
         "method": p.get("method"), "figures": p.get("figures"),
-        "households": p.get("households"), "competitors": p.get("competitors"),
+        "households": p.get("households"),
+        "competitors": p.get("competitors") or len(geo_competitors),
+        "geo_competitors": geo_competitors,
         "notes": p.get("notes"), "validation": val,
         "publishable": val.get("passed", True),
         "scale_decision": scale_decision,
@@ -1165,6 +1182,21 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                 result["_steps_completed"].append("market_sizing")
             log.info("[plan] hyperlocal sizing override (%s @ %s)",
                      (scale_decision or {}).get("scale"), hl.get("_hyperlocal_location"))
+            # Surface the REAL geographic competitors (OSM) when web discovery was empty,
+            # so the report shows actual nearby rivals instead of "0 competitors found".
+            geo = hl.get("geo_competitors") or []
+            existing = ((result.get("discover") or {}).get("ranked_opportunities")
+                        or (result.get("discover") or {}).get("competitors") or [])
+            if geo and not existing:
+                result["discover"] = {
+                    **(result.get("discover") or {}),
+                    "ranked_opportunities": geo,
+                    "geo_sourced": True,
+                    "category": (profile or {}).get("category", ""),
+                }
+                if "discover" not in result["_steps_completed"]:
+                    result["_steps_completed"].append("discover")
+                log.info("[plan] geo-competitors surfaced: %d nearby venues", len(geo))
     except Exception as e:
         log.warning("[plan] hyperlocal override failed (non-fatal): %s", e)
         result["_steps_completed"].append("market_sizing")

@@ -29,6 +29,7 @@ _ACS_POPULATION = "B01003_001E"        # total population
 _GEOCODER_URL = "https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress"
 _ACS_URL = "https://api.census.gov/data/{year}/acs/acs5"
 _OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+_NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 _CBP_URL = "https://api.census.gov/data/{year}/cbp"
 
 # Optional, config-supplied NAICS cache (category → code). Empty by default — the
@@ -60,6 +61,20 @@ def geocode_address(address: str) -> Evidence:
     )
     matches = ((data or {}).get("result") or {}).get("addressMatches") or []
     if not matches:
+        # Fallback: OSM Nominatim (a different host than the Census geocoder, so it
+        # survives when Census is unreachable). Gives lat/lng — enough for OSM
+        # competitor lookups — but no Census FIPS, so ACS demographics degrade.
+        nom = _http_json(
+            "GET", _NOMINATIM_URL,
+            params={"q": address, "format": "json", "limit": 1},
+            headers={"User-Agent": "castor-research/1.0"}, timeout=12)
+        if isinstance(nom, list) and nom:
+            return Evidence(
+                source="geocode_address", category="geo", count=1,
+                payload={"lat": float(nom[0]["lat"]), "lng": float(nom[0]["lon"]),
+                         "matched_address": nom[0].get("display_name"),
+                         "state_fips": None, "county_fips": None, "tract": None},
+                cost_meta={"source": "OSM Nominatim (fallback)"})
         return Evidence(source="geocode_address", category="geo", count=0,
                         skeleton=True, error=f"no geocoder match for {address!r}")
     m = matches[0]
@@ -191,6 +206,42 @@ def census_business_counts(naics: Optional[str] = None, category: Optional[str] 
                  "source": f"US Census County Business Patterns {year}"},
         cost_meta={"naics": code, "establishments": estab,
                    "source": f"US Census CBP {year}"},
+    )
+
+
+@tool(category="geo", returns="list[{name}] — named nearby competitors")
+def osm_named_competitors(lat: float, lng: float, radius_m: int = 3000,
+                          osm_value: str = "restaurant", osm_key: str = "amenity",
+                          limit: int = 40) -> Evidence:
+    """Named nearby competitors of a given POI type — the real geographic competitor
+    set for a local business (a restaurant's rivals are the restaurants around it, not
+    web-search brands). Source: OpenStreetMap Overpass (`out tags`)."""
+    query = (
+        f'[out:json][timeout:25];'
+        f'(node["{osm_key}"="{osm_value}"](around:{radius_m},{lat},{lng});'
+        f'way["{osm_key}"="{osm_value}"](around:{radius_m},{lat},{lng}););'
+        f'out tags {max(1, min(limit * 3, 200))};'
+    )
+    data = _http_json("POST", _OVERPASS_URL, data={"data": query}, timeout=30)
+    names: list[str] = []
+    if isinstance(data, dict):
+        seen = set()
+        for el in (data.get("elements") or []):
+            nm = ((el.get("tags") or {}).get("name") or "").strip()
+            key = nm.lower()
+            if nm and key not in seen:
+                seen.add(key)
+                names.append(nm)
+            if len(names) >= limit:
+                break
+    if not names:
+        return Evidence(source="osm_named_competitors", category="geo", count=0,
+                        skeleton=True, error="Overpass returned no named venues")
+    return Evidence(
+        source="osm_named_competitors", category="geo", count=len(names),
+        payload=[{"brand": n, "name": n} for n in names],
+        cost_meta={"source": "OpenStreetMap Overpass", "radius_m": radius_m,
+                   "category": f"{osm_key}={osm_value}"},
     )
 
 
