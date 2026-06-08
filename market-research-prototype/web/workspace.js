@@ -143,6 +143,14 @@ function renderFields() {
   }).join("");
   const ready = REQUIRED.every((k) => extracted[k] && String(extracted[k]).toLowerCase() !== "null");
   $("launchBtn").disabled = !ready;
+  // Felt rigor: once we have enough to run, preview HOW the numbers get made (one-time).
+  if (ready && !window._rigorShown) {
+    window._rigorShown = true;
+    addMsg("bot", "Got what I need. When you generate, I'll size the market from real " +
+      "data — Census business counts, BLS spending, and live competitor pricing I scrape — " +
+      "triangulate each figure across independent sources, validate every number, and " +
+      "flag (or withhold) anything I can't stand behind. Hit Generate when ready.");
+  }
 }
 
 function buildDescription() {
@@ -160,7 +168,7 @@ function startIntake() {
   // Render instantly; the LLM session is created lazily on first send so the
   // page never hangs on a slow/rate-limited intake call.
   resetCenter();
-  session = null; extracted = {};
+  session = null; extracted = {}; window._rigorShown = false;
   addMsg("bot", "Hi — I'll put together a market-research report. In a sentence or two, what does your product do and who is it for?");
   renderFields();
 }
