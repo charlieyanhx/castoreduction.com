@@ -40,6 +40,47 @@ class TestWtpBand(unittest.TestCase):
         self.assertIsNone(agg["willingness_to_pay"])
 
 
+class TestSomCapacityAnchor(unittest.TestCase):
+    """The live bug: SOM = bare fair-share ÷ (competitors+1) → $5,164 for a cafe in a
+    market with 60 rivals (absurd — less than one month's rent). SOM must be
+    capacity-anchored (single-unit revenue × ramp, capped by SAM), with fair-share
+    demoted to a saturation note."""
+    def _tools(self, competitors):
+        geo = Evidence("geocode_address", "geo", 1, payload={
+            "lat": 34.08, "lng": -118.27, "matched_address": "Silver Lake, LA",
+            "state_fips": "06", "county_fips": "037"})
+        acs = Evidence("acs_demographics", "geo", 1, payload={"households": 50000})
+        poi = Evidence("poi_competition", "geo", competitors, payload={"count": competitors})
+        return lambda n: type("T", (), {"fn": staticmethod({
+            "geocode_address": lambda *a, **k: geo,
+            "acs_demographics": lambda *a, **k: acs,
+            "poi_competition": lambda *a, **k: poi,
+        }[n])})
+
+    def test_som_is_capacity_anchored_not_tiny_fair_share(self):
+        with patch("skills.sizing.hyperlocal.get_tool", self._tools(60)), \
+             patch("skills.sizing.hyperlocal.resolve_annual_spend", return_value=(600.0, True)), \
+             patch("skills.sizing.hyperlocal._estimate_unit_revenue", return_value=450000.0):
+            e = size_hyperlocal(address="cafe in Silver Lake", category="coffee", osm_value="cafe")
+        p = e.payload
+        # TAM 50k×600=$30M, SAM 35%=$10.5M, SOM = min(450k×0.6, 10.5M) = $270k.
+        self.assertEqual(p["som_usd"], 450000.0 * 0.6)
+        # NOT the fair-share ÷61 (~$103k here, and ~$5k in the live case) — capacity wins.
+        self.assertGreater(p["som_usd"], p["som_demand_usd"])
+        som_fig = next(f for f in p["figures"] if f["label"] == "SOM_obtainable")
+        self.assertIn("single-unit", som_fig["formula"])
+        self.assertTrue(any("fair share" in n for n in p["notes"]))
+
+    def test_som_capped_by_sam_when_unit_revenue_huge(self):
+        # A single-unit revenue larger than the whole serviceable market can't exceed SAM.
+        with patch("skills.sizing.hyperlocal.get_tool", self._tools(5)), \
+             patch("skills.sizing.hyperlocal.resolve_annual_spend", return_value=(50.0, True)), \
+             patch("skills.sizing.hyperlocal._estimate_unit_revenue", return_value=9_000_000.0):
+            e = size_hyperlocal(address="x", category="coffee", osm_value="cafe")
+        p = e.payload
+        self.assertEqual(p["som_usd"], p["sam_usd"])   # SAM is the binding cap
+
+
 class TestTamHouseholdsFallback(unittest.TestCase):
     def _tools(self, geo, acs, poi):
         return lambda n: type("T", (), {"fn": staticmethod({
@@ -98,6 +139,45 @@ class TestTamHouseholdsFallback(unittest.TestCase):
         fig = next(f for f in e.payload["figures"] if f["label"] == "TAM_local")
         self.assertIn("Census", fig["source"])               # real source, not UNSOURCED
         self.assertNotIn("UNSOURCED", fig["source"])
+
+
+class TestWtpUnitInference(unittest.TestCase):
+    def test_per_drink_cafe_is_not_monthly(self):
+        from plan import infer_wtp_unit
+        u = infer_wtp_unit("A specialty cafe, about $6 per drink, single location", {})
+        self.assertEqual(u, "/drink")   # NOT "/mo" — fixes "$5/mo < $6/drink"
+
+    def test_subscription_is_monthly(self):
+        from plan import infer_wtp_unit
+        self.assertEqual(infer_wtp_unit("A SaaS analytics subscription billed monthly", {}), "/mo")
+
+    def test_unspecified_defaults_monthly(self):
+        from plan import infer_wtp_unit
+        self.assertEqual(infer_wtp_unit("A platform for teams to collaborate", {}), "/mo")
+
+    def test_per_visit_phrasing(self):
+        from plan import infer_wtp_unit
+        self.assertEqual(infer_wtp_unit("A climbing gym, $25 per visit", {}), "/visit")
+
+
+class TestPsmCitationScrub(unittest.TestCase):
+    def test_failed_psm_citation_relabeled(self):
+        from plan import scrub_failed_psm_citations
+        four_ps = {"price": {"narrative": "...", "citations": [
+            {"id": 1, "source": "PSM simulation", "claim": "tiers"},
+            {"id": 2, "source": "Competitor benchmark", "claim": "median"},
+        ]}}
+        out = scrub_failed_psm_citations(four_ps, {"psm": {"error": "malformed JSON", "_raw": ""}})
+        cites = out["price"]["citations"]
+        self.assertIn("PSM simulation failed", cites[0]["source"])  # relabeled honestly
+        self.assertEqual(cites[0]["id"], 1)                          # id preserved
+        self.assertEqual(cites[1]["source"], "Competitor benchmark") # untouched
+
+    def test_successful_psm_citation_untouched(self):
+        from plan import scrub_failed_psm_citations
+        four_ps = {"price": {"citations": [{"id": 1, "source": "PSM simulation", "claim": "x"}]}}
+        out = scrub_failed_psm_citations(four_ps, {"psm": {"optimal_price_point": 29.0}})
+        self.assertEqual(out["price"]["citations"][0]["source"], "PSM simulation")  # kept
 
 
 if __name__ == "__main__":

@@ -53,6 +53,31 @@ def _estimate_households(location: str, radius_m: int) -> Optional[float]:
         return None
 
 
+def _estimate_unit_revenue(category: str, location: str) -> Optional[float]:
+    """LLM estimate of typical ANNUAL REVENUE for ONE established location of this
+    category in this kind of area — the capacity-realistic ceiling for a single
+    premise. Used to anchor SOM so it reflects what one store can actually earn,
+    NOT an equal split of the whole market across every competitor (which
+    pathologically understates a single differentiated store). UNSOURCED — the
+    caller labels it and caps confidence. Returns a float or None."""
+    if not category:
+        return None
+    try:
+        from llm import call_json
+        raw = call_json(
+            system=("Estimate the typical ANNUAL REVENUE in USD for ONE established, "
+                    "independently-run location of the given business category in the "
+                    "given area — a single premise in a mature year, not a chain total. "
+                    "Reply ONLY JSON: {\"annual_revenue_usd\": <number>}."),
+            user=f"Business category: {category}\nArea: {location}",
+            max_tokens=60,
+        ) or {}
+        v = raw.get("annual_revenue_usd")
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else None
+    except Exception:
+        return None
+
+
 def resolve_annual_spend(category: str) -> tuple[Optional[float], bool]:
     """Annual household spend ($/yr) for a category.
 
@@ -210,33 +235,60 @@ def size_hyperlocal(
         figures.append(_fig(sam, "SAM_local", "derived",
                             f"TAM × {serviceable_fraction:.0%} serviceable"))
 
+        # Demand-side fair share is a SATURATION SIGNAL, not the headline SOM. With
+        # many competitors an equal split pathologically understates what one
+        # differentiated store earns (a cafe does NOT capture 1/60th of all
+        # neighborhood coffee spend), so it must not drive the headline number.
+        fair_share_usd = None
         if competitors is not None:
-            fair_share = 1.0 / (competitors + 1)
-            som_demand = sam * fair_share * ramp_factor
+            fair_share_usd = sam * (1.0 / (competitors + 1)) * ramp_factor
+            som_demand = fair_share_usd  # retained for triangulation/back-compat
+
+        # Capacity-side SOM — what ONE premise can realistically earn, ramped, then
+        # capped by serviceable demand (SAM). THIS is the headline SOM. Prefer an
+        # explicit seats model when given; else estimate single-unit revenue (labeled).
+        if supply_seats:
+            unit_rev = (supply_seats * supply_turns_per_day
+                        * supply_avg_check * supply_days_per_year)
+            unit_src = (f"capacity model: {supply_seats} seats × "
+                        f"{supply_turns_per_day}/day × ${supply_avg_check} × "
+                        f"{supply_days_per_year}d")
+        else:
+            unit_rev = _estimate_unit_revenue(category, matched)
+            unit_src = "single-unit revenue benchmark (LLM estimate, UNSOURCED)"
+            if unit_rev:
+                _lower("low")  # estimated capacity is load-bearing for SOM
+
+        if unit_rev:
+            som_supply = unit_rev  # mature single-unit ceiling
+            som = min(unit_rev * ramp_factor, sam)
             figures.append(_fig(
-                som_demand, "SOM_demand",
-                "OpenStreetMap Overpass + derived",
+                som, "SOM_obtainable", unit_src,
+                f"min(${unit_rev:,.0f} single-unit rev × {ramp_factor:.0%} ramp, "
+                f"${sam:,.0f} SAM)"))
+            # Surface saturation honestly when fair share sits far below capacity SOM.
+            if fair_share_usd is not None and som and fair_share_usd < 0.5 * som:
+                notes.append(
+                    f"Trade area has ~{competitors} comparable venues — an equal-split "
+                    f"fair share would be only ~${fair_share_usd:,.0f}/yr. The SOM above "
+                    f"is capacity-based and assumes real differentiation/location, not "
+                    f"average share in a fragmented market.")
+        elif fair_share_usd is not None:
+            # No capacity anchor — fall back to fair share, flagged (likely low).
+            som = fair_share_usd
+            _lower("low")
+            figures.append(_fig(
+                som, "SOM_demand",
+                "OpenStreetMap Overpass + derived (fair-share fallback)",
                 f"SAM × 1/({competitors}+1) fair-share × {ramp_factor:.0%} ramp"))
+            notes.append("SOM is a fair-share fallback (no single-unit revenue anchor) "
+                         "— likely understates a differentiated single store.")
         else:
             _lower("medium")
-            notes.append("competition count unavailable — SOM demand-side skipped")
+            notes.append("competition count + capacity unavailable — SOM not computed")
     else:
         _lower("low")
         notes.append("households or spend unavailable — TAM not computed")
-
-    # Supply-side SOM (capacity) for triangulation.
-    if supply_seats:
-        som_supply = (supply_seats * supply_turns_per_day
-                      * supply_avg_check * supply_days_per_year)
-        figures.append(_fig(
-            som_supply, "SOM_supply", "capacity model",
-            f"{supply_seats} seats × {supply_turns_per_day}/day × "
-            f"${supply_avg_check} × {supply_days_per_year}d"))
-
-    # Binding constraint.
-    candidates = [v for v in (som_demand, som_supply) if isinstance(v, (int, float))]
-    if candidates:
-        som = min(candidates)
 
     sizing = {
         "tam_usd": tam, "sam_usd": sam, "som_usd": som,

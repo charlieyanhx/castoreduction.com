@@ -41,9 +41,16 @@ _INTERVIEW_SYSTEM = (
     "a product. Answer in character, concretely and critically — real buyers have "
     "objections. Return ONLY JSON: {\"needs\": [str], \"objections\": [str], "
     "\"must_haves\": [str], \"willingness_to_pay_usd\": number|null, "
-    "\"quotes\": [str]}. willingness_to_pay_usd is what THIS persona would pay "
-    "per month (or null if they wouldn't buy)."
+    "\"quotes\": [str]}. willingness_to_pay_usd is the MAX this persona would pay "
+    "in the PRICING UNIT stated in the prompt (or null if they wouldn't buy). Reason "
+    "in that exact unit — do not silently switch between per-purchase and per-month."
 )
+
+
+def _unit_phrase(wtp_unit: str) -> str:
+    """Render a WTP unit token ('/mo', '/drink', '/visit') as a natural prompt phrase."""
+    u = (wtp_unit or "/mo").lstrip("/").strip().lower()
+    return "per month" if u in ("mo", "month", "") else f"per {u}"
 
 
 def simulate_perspectives(description: str, n: int, geo: str) -> list[dict]:
@@ -57,7 +64,8 @@ def simulate_perspectives(description: str, n: int, geo: str) -> list[dict]:
     return [p for p in perspectives if isinstance(p, dict) and p.get("persona")][:n]
 
 
-def _interview(description: str, perspective: dict, geo: str, context: str) -> dict:
+def _interview(description: str, perspective: dict, geo: str, context: str,
+               wtp_unit: str = "/mo") -> dict:
     """Run one grounded simulated interview; returns the structured result."""
     ctx = f"\n\nKNOWN MARKET CONTEXT:\n{context}" if context else ""
     raw = call_json(
@@ -65,7 +73,8 @@ def _interview(description: str, perspective: dict, geo: str, context: str) -> d
         user=(f"YOU ARE: {perspective.get('persona')} — {perspective.get('role', '')}\n"
               f"YOUR GOALS: {perspective.get('goals')}\n"
               f"YOUR CONCERNS: {perspective.get('concerns')}\n"
-              f"GEOGRAPHY: {geo}{ctx}\n\nPRODUCT:\n{description}"),
+              f"GEOGRAPHY: {geo}{ctx}\n\nPRODUCT:\n{description}\n\n"
+              f"PRICING UNIT: state willingness_to_pay_usd as USD {_unit_phrase(wtp_unit)}."),
         max_tokens=700,
     ) or {}
     return {
@@ -78,7 +87,7 @@ def _interview(description: str, perspective: dict, geo: str, context: str) -> d
     }
 
 
-def _aggregate(interviews: list[dict]) -> dict:
+def _aggregate(interviews: list[dict], wtp_unit: str = "/mo") -> dict:
     """Deterministic synthesis: rank shared needs/objections, derive WTP band."""
     need_counts = Counter(n.strip().lower() for iv in interviews for n in iv["needs"] if n.strip())
     obj_counts = Counter(o.strip().lower() for iv in interviews for o in iv["objections"] if o.strip())
@@ -98,11 +107,15 @@ def _aggregate(interviews: list[dict]) -> dict:
         wtp_band = {"point": wtps_sorted[0], "single_point": True,
                     "n_would_pay": 1, "n_total": len(interviews)}
 
+    if wtp_band is not None:
+        wtp_band["unit"] = wtp_unit  # so the renderer never hardcodes "/mo"
+
     return {
         "top_needs": [{"need": k, "mentions": c} for k, c in need_counts.most_common(8)],
         "top_objections": [{"objection": k, "mentions": c} for k, c in obj_counts.most_common(8)],
         "shared_needs": [k for k, c in need_counts.items() if c >= 2],  # cross-segment agreement
         "willingness_to_pay": wtp_band,
+        "wtp_unit": wtp_unit,
         "n_segments": len(interviews),
     }
 
@@ -114,6 +127,7 @@ def consumer_research_skill(
     n_perspectives: int = 4,
     context: str = "",
     max_workers: int = 4,
+    wtp_unit: str = "/mo",
 ) -> Evidence:
     """STORM-style synthetic consumer research: perspectives → interviews → brief.
 
@@ -130,9 +144,9 @@ def consumer_research_skill(
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         interviews = list(pool.map(
-            lambda p: _interview(description, p, geo, context), perspectives))
+            lambda p: _interview(description, p, geo, context, wtp_unit), perspectives))
 
-    synthesis = _aggregate(interviews)
+    synthesis = _aggregate(interviews, wtp_unit)
     return Evidence(
         source="consumer_research_skill", category="skill_output",
         count=len(interviews),

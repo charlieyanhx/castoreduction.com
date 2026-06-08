@@ -255,6 +255,12 @@ penalize if you violate any one):
 7. NO FABRICATED CITATIONS. Only cite the artifacts in the evidence pool. Don't
    invent "HR Leader Interviews (N=20)" or quarterly date stamps. Operator-validate
    tag is fine.
+8. ARITHMETIC MUST CHECK OUT. Any comparative claim — "discount", "cheaper",
+   "savings", "X% more", "Nx" — must be arithmetically true against the OTHER numbers
+   you state in this same section. Before writing "a discount vs two bags", compute
+   2 × the bag price and confirm your bundle is actually lower. A self-contradicting
+   number (e.g. "$45 for two $18 bags is a discount" — it is $9 more) is an instant
+   trust failure the judge will penalize hardest.
 
 COMPANY PROFILE:
 {profile}
@@ -290,13 +296,32 @@ def _product_prompt(profile_blob, features_blob, competitors_blob, audience_cele
     return _P_BASE.format(section_label="Product", profile=profile_blob, section_context=ctx)
 
 
-def _price_prompt(profile_blob, pricing_blob, benchmark_blob, economics_blob):
+def _price_prompt(profile_blob, pricing_blob, benchmark_blob, economics_blob, psm_ok=True):
+    if psm_ok:
+        psm_ctx = f"PSM PRICING OUTPUT:\n{pricing_blob}\n\n"
+    else:
+        # The Van Westendorp PSM simulation produced no usable output. Do NOT let the
+        # model narrate tier numbers and attribute them to a method that never ran —
+        # that is false provenance (audit cycle36).
+        psm_ctx = (
+            "PSM PRICING: UNAVAILABLE — the Van Westendorp simulation did not return "
+            "usable output this run. DO NOT cite 'PSM simulation' or 'Van Westendorp' "
+            "as a source anywhere. Derive any price points from the COMPETITOR "
+            "BENCHMARK below and label them explicitly as estimates the operator must "
+            "validate (e.g. 'estimate — no PSM backing this run').\n\n")
     ctx = (
-        f"PSM PRICING OUTPUT:\n{pricing_blob}\n\n"
+        f"{psm_ctx}"
         f"COMPETITOR BENCHMARK (normalized per-unit):\n{benchmark_blob}\n\n"
         f"UNIT ECONOMICS (CLV / CAC / EVC):\n{economics_blob}\n\n"
-        "Focus the Price section on: the recommended tier structure with per-unit pricing (state the UNIT explicitly — "
-        "per seat, per account, per box), rationale for each tier price, CLV:CAC implication, and how EVC shapes the pricing verdict."
+        "Focus the Price section on the PRIMARY product FIRST, in its natural transaction "
+        "unit. If the COMPANY PROFILE states a price (e.g. '$6 per drink', '$15 per visit'), "
+        "that price IS the headline of this section: analyze it directly — contribution "
+        "margin and break-even per unit, and how it compares to LOCAL competitor norms for "
+        "the SAME unit (a per-cup price benchmarks against per-cup prices, not bagged-bean "
+        "prices). Only AFTER the core product is priced may you cover secondary/retail lines "
+        "(e.g. packaged goods, subscriptions) — and label them as secondary. State every "
+        "UNIT explicitly (per drink, per visit, per seat, per box, per month). Cover the "
+        "CLV:CAC implication and how EVC shapes the verdict."
     )
     return _P_BASE.format(section_label="Price", profile=profile_blob, section_context=ctx)
 
@@ -468,9 +493,10 @@ def assemble_4ps_split(
             log.warning("[4Ps split] %s narrative appears truncated (no terminal punctuation)", section_name)
         return out
 
+    psm_ok = bool((van_westendorp or {}).get("optimal_price_point")) and not (van_westendorp or {}).get("error")
     tasks = {
         "product": _product_prompt(profile_blob, features_blob, competitors_blob, audience_celebrated),
-        "price": _price_prompt(profile_blob, pricing_blob, benchmark_blob, economics_blob),
+        "price": _price_prompt(profile_blob, pricing_blob, benchmark_blob, economics_blob, psm_ok=psm_ok),
         "place": _place_prompt(profile_blob, place_blob, audience_life_context),
         "promotion": _promotion_prompt(profile_blob, audience_blob, reddit_themes_blob),
     }

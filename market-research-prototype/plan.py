@@ -263,6 +263,33 @@ def reconcile_pricing(stated: float | None, recommended) -> dict | None:
             "delta_pct": delta_pct, "verdict": verdict, "note": note}
 
 
+# A per-transaction price phrase ("$6 per drink", "$15/cut") makes the natural WTP unit
+# the purchase unit, NOT a month — labeling a per-visit cafe's WTP "/mo" produces the
+# nonsensical "$5/mo < $6/drink". Recurring signals keep the monthly unit.
+_PER_UNIT_RE = re.compile(
+    r"(?:per|/|each|a)\s+"
+    r"(drink|cup|coffee|latte|espresso|beverage|meal|plate|dish|entree|entr[ée]e|cover|"
+    r"visit|ticket|session|class|lesson|ride|trip|haircut|cut|treatment|item|bag|slice|"
+    r"pint|glass|scoop|cone|order|box|night|booking|appointment|seat|round|game)\b",
+    re.I)
+_RECURRING_RE = re.compile(
+    r"\b(subscription|subscribe|saas|membership|member|per\s+month|/\s*mo\b|monthly|"
+    r"recurring|per\s+seat|per\s+user|retainer)\b", re.I)
+
+
+def infer_wtp_unit(description: str, profile: dict | None = None) -> str:
+    """Pick the willingness-to-pay unit for the consumer research. A stated per-purchase
+    price ('$6 per drink') wins → '/drink'; else a recurring signal → '/mo'; else '/mo'
+    (the safe default for digital/unspecified). cycle36."""
+    text = f"{description or ''} {(profile or {}).get('summary', '')}"
+    m = _PER_UNIT_RE.search(text)
+    if m:
+        return f"/{m.group(1).lower()}"
+    if _RECURRING_RE.search(text):
+        return "/mo"
+    return "/mo"
+
+
 def build_consumer_research(description: str, geo: str, profile: dict,
                             opps: list[dict]) -> dict | None:
     """STORM-style multi-perspective consumer research, grounded in known context.
@@ -278,13 +305,38 @@ def build_consumer_research(description: str, geo: str, profile: dict,
         comp_names = ", ".join(o.get("brand", "") for o in (opps or [])[:5] if o.get("brand"))
         summary = (profile or {}).get("summary", "")
         context = f"Product: {summary}. Known competitors: {comp_names}." if comp_names else summary
-        log.info("[plan] Step 6c: consumer research (multi-perspective)")
-        cr = consumer_research_skill(description=description, geo=geo, context=context)
+        wtp_unit = infer_wtp_unit(description, profile)
+        log.info("[plan] Step 6c: consumer research (multi-perspective), WTP unit=%s", wtp_unit)
+        cr = consumer_research_skill(description=description, geo=geo, context=context,
+                                     wtp_unit=wtp_unit)
         if cr.payload and not cr.skeleton:
             return cr.payload
     except Exception as e:  # never sink the run on a research-enrichment failure
         log.warning("[plan] consumer research failed (non-fatal): %s", e)
     return None
+
+
+def scrub_failed_psm_citations(four_ps: dict, pricing: dict | None) -> dict:
+    """If the Van Westendorp PSM simulation FAILED, relabel any 4Ps citation that credits
+    it — so the report never attributes prices to a method that produced no output (audit
+    cycle36: false provenance). Citation ids are kept intact (¹ references still resolve);
+    only the source text changes. Non-mutating; returns four_ps unchanged when PSM is fine."""
+    psm = (pricing or {}).get("psm") or {}
+    if not (bool(psm.get("error")) or not psm) or not isinstance(four_ps, dict):
+        return four_ps
+    honest = "LLM estimate (PSM simulation failed this run — unvalidated)"
+    price = four_ps.get("price")
+    if not (isinstance(price, dict) and isinstance(price.get("citations"), list)):
+        return four_ps
+    new_price = dict(price)
+    new_price["citations"] = [
+        ({**c, "source": honest}
+         if isinstance(c, dict)
+         and re.search(r"psm|van\s*westendorp", str(c.get("source") or ""), re.I)
+         else c)
+        for c in price["citations"]
+    ]
+    return {**four_ps, "price": new_price}
 
 
 def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
@@ -426,9 +478,22 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
         return None
     p = ev.payload
 
-    def _block(v):
-        return ({"mid": v, "low": round(v * 0.7), "high": round(v * 1.3)}
-                if isinstance(v, (int, float)) and not isinstance(v, bool) else {})
+    # Map the hyperlocal figures (which carry the real `formula`) so the report's
+    # TAM/SAM/SOM "math" lines render instead of going blank — the template reads
+    # block.calculation, but the hyperlocal payload keeps formulas in figures[].
+    _figs = {f.get("label"): f for f in (p.get("figures") or []) if isinstance(f, dict)}
+
+    def _block(v, full_label, fig_keys):
+        if not (isinstance(v, (int, float)) and not isinstance(v, bool)):
+            return {}
+        formula = ""
+        for k in fig_keys:
+            if _figs.get(k, {}).get("formula"):
+                formula = _figs[k]["formula"]
+                break
+        return {"mid": v, "low": round(v * 0.7), "high": round(v * 1.3),
+                "label": full_label, "calculation": formula,
+                "unit": "annual revenue · trade area"}
 
     # Named geographic competitors — a local venture's rivals are the nearby venues
     # (OSM), not blocked web-search brands. Fetch the actual names so the report shows
@@ -446,15 +511,27 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
         log.warning("[plan] named geo-competitors failed (non-fatal): %s", e)
 
     val = p.get("validation") or {}
+    notes = p.get("notes") or []
     return {
-        "tam": _block(p.get("tam_usd")), "sam": _block(p.get("sam_usd")),
-        "som": _block(p.get("som_usd")),
+        "tam": _block(p.get("tam_usd"), "Total trade-area market", ["TAM_local"]),
+        "sam": _block(p.get("sam_usd"), "Serviceable (reachable demand)", ["SAM_local"]),
+        "som": _block(p.get("som_usd"), "Obtainable Year 1–3 (one location)",
+                      ["SOM_obtainable", "SOM_demand"]),
         "method": p.get("method"), "figures": p.get("figures"),
         "households": p.get("households"),
         "competitors": p.get("competitors") or len(geo_competitors),
         "geo_competitors": geo_competitors,
-        "notes": p.get("notes"), "validation": val,
+        "notes": notes, "validation": val,
         "publishable": val.get("passed", True),
+        # Surface the engine's honest confidence + caveats in the template's existing
+        # "data quality" and "weakest assumptions" slots (otherwise they read "unknown").
+        "data_quality": p.get("confidence") or "low",
+        "weakest_assumptions": notes[:3],
+        "sources_to_validate": [
+            "US Census ACS (trade-area households)",
+            "BLS Consumer Expenditure Survey (category spend/household)",
+            "local single-unit revenue benchmarks (SOM anchor)",
+        ],
         "scale_decision": scale_decision,
         "_hyperlocal_location": location, "_osm_value": osm,
     }
@@ -1212,6 +1289,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         result["_steps_completed"].append("market_sizing")
         checkpoint()
 
+    # Honesty gate: never credit a PSM simulation that didn't actually run (audit cycle36).
+    four_ps = scrub_failed_psm_citations(four_ps, result.get("pricing"))
     result["four_ps"] = four_ps
     if not four_ps.get("error"):
         result["_steps_completed"].append("four_ps")
