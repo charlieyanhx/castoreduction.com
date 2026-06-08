@@ -31,6 +31,7 @@ from . import discovery_multi # noqa: F401  — multi-strategy fan-out discovery
 from . import perspective     # noqa: F401  — STORM-style consumer research (multi-perspective)
 from . import sizing          # noqa: F401  — numbers-right engine (scale classifier, sizing)
 from . import triangulate     # noqa: F401  — central triangulation engine (origin-independent)
+from . import price_intel     # noqa: F401  — web-scraper price intelligence (scrape-origin)
 from . import refine_report   # noqa: F401  — generator-evaluator-refine loop for reports
 from . import pipeline        # noqa: F401  — TOP-LEVEL composition (the full /plan)
 
