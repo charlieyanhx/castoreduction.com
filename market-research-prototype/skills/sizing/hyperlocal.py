@@ -31,6 +31,28 @@ from .validate import validate_numbers
 _SPEND_CACHE: dict[str, float] = {}
 
 
+def _estimate_households(location: str, radius_m: int) -> Optional[float]:
+    """LLM estimate of households within `radius_m` of `location` — a labeled fallback
+    used ONLY when Census ACS is unavailable. The caller marks it UNSOURCED and caps
+    confidence; never presented as a Census figure. Returns a float or None."""
+    if not location:
+        return None
+    try:
+        from llm import call_json
+        km = round(radius_m / 1000.0, 1)
+        raw = call_json(
+            system=("Estimate the number of households within the given radius of a "
+                    "location, using typical US urban/suburban density. Reply ONLY JSON: "
+                    "{\"households\": <integer>}."),
+            user=f"Location: {location}\nRadius: {km} km",
+            max_tokens=60,
+        ) or {}
+        v = raw.get("households")
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else None
+    except Exception:
+        return None
+
+
 def resolve_annual_spend(category: str) -> tuple[Optional[float], bool]:
     """Annual household spend ($/yr) for a category.
 
@@ -111,8 +133,19 @@ def size_hyperlocal(
     state_fips, county_fips = g.payload.get("state_fips"), g.payload.get("county_fips")
 
     # 2. Demographics (county-level catchment baseline).
-    d = acs(state_fips=state_fips, county_fips=county_fips, year=year)
-    households = (d.payload or {}).get("households") if not d.error else None
+    households = households_src = None
+    households_sourced = False
+    if state_fips and county_fips:
+        d = acs(state_fips=state_fips, county_fips=county_fips, year=year)
+        households = (d.payload or {}).get("households") if not d.error else None
+    if households is not None:
+        households_sourced = True
+        households_src = f"US Census ACS 5-yr {year}"
+    else:
+        # Fallback: estimate trade-area households via the LLM, clearly UNSOURCED.
+        # (Census ACS unreachable, or geocode fell back to Nominatim → no FIPS.)
+        households = _estimate_households(g.payload.get("matched_address") or address, radius_m)
+        households_src = "LLM estimate (UNSOURCED — validate vs US Census ACS)"
 
     # 3. Competition.
     c = poi(lat=lat, lng=lng, radius_m=radius_m, osm_value=osm_value)
@@ -140,10 +173,14 @@ def size_hyperlocal(
         confidence = "medium"
         notes.append("Annual spend/household is an LLM estimate, not BLS-sourced — "
                      "validate against BLS Consumer Expenditure Survey before relying on TAM.")
+    if not households_sourced and households:
+        confidence = "low"  # estimated catchment size is the other load-bearing input
+        notes.append("Trade-area households is an LLM estimate, not Census-sourced — "
+                     "validate against US Census ACS before relying on TAM.")
 
     if households and spend:
         tam = households * spend
-        figures.append(_fig(tam, "TAM_local", f"US Census ACS 5-yr {year} + {spend_src}",
+        figures.append(_fig(tam, "TAM_local", f"{households_src} + {spend_src}",
                              f"{households:,.0f} households × ${spend:,.0f}/hh/yr"))
         sam = tam * serviceable_fraction
         figures.append(_fig(sam, "SAM_local", "derived",

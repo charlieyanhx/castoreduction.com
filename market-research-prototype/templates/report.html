@@ -449,6 +449,13 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 
 {% if syn.willingness_to_pay %}
 {% set wtp = syn.willingness_to_pay %}
+{% if wtp.single_point %}
+<div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:14px;margin:14px 0;max-width:340px">
+  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#047857">Willingness to pay (single estimate)</div>
+  <div style="font-size:24px;font-weight:800;color:#064e3b;font-variant-numeric:tabular-nums">{{ format_currency(wtp.point) }}<span style="font-size:11px;color:#6b7280">/mo</span></div>
+  <div style="font-size:9pt;color:#b45309;margin-top:4px">⚠ Only {{ wtp.n_would_pay }} of {{ wtp.n_total }} simulated segments committed to a recurring price — not enough for a range. (A per-visit business may not fit a monthly model.)</div>
+</div>
+{% else %}
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:14px 0">
   <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:14px;text-align:center">
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#047857">WTP — Low</div>
@@ -464,6 +471,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   </div>
 </div>
 <p style="font-size:9pt;color:#6b7280;margin:-4px 0 10px">{{ wtp.n_would_pay }} of {{ wtp.n_total }} simulated segments indicated they would pay.</p>
+{% endif %}
 {% endif %}
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0">

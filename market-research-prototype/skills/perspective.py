@@ -88,10 +88,15 @@ def _aggregate(interviews: list[dict]) -> dict:
             and not isinstance(iv["willingness_to_pay_usd"], bool)]
     wtps_sorted = sorted(wtps)
     wtp_band = None
-    if wtps_sorted:
+    if len(wtps_sorted) >= 2:
         mid = wtps_sorted[len(wtps_sorted) // 2]
         wtp_band = {"low": wtps_sorted[0], "median": mid, "high": wtps_sorted[-1],
+                    "single_point": False,
                     "n_would_pay": len(wtps_sorted), "n_total": len(interviews)}
+    elif len(wtps_sorted) == 1:
+        # Only one segment committed to a price — NOT a band. Don't fake low/high.
+        wtp_band = {"point": wtps_sorted[0], "single_point": True,
+                    "n_would_pay": 1, "n_total": len(interviews)}
 
     return {
         "top_needs": [{"need": k, "mentions": c} for k, c in need_counts.most_common(8)],
