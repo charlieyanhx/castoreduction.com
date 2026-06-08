@@ -39,9 +39,13 @@ _PERSPECTIVE_SYSTEM = (
 _INTERVIEW_SYSTEM = (
     "You role-play a specific customer being interviewed about whether they'd buy "
     "a product. Answer in character, concretely and critically — real buyers have "
-    "objections. Return ONLY JSON: {\"needs\": [str], \"objections\": [str], "
-    "\"must_haves\": [str], \"willingness_to_pay_usd\": number|null, "
-    "\"quotes\": [str]}. willingness_to_pay_usd is the MAX this persona would pay "
+    "objections. Return ONLY JSON with keys IN THIS EXACT ORDER: "
+    "{\"willingness_to_pay_usd\": number|null, \"needs\": [str], "
+    "\"objections\": [str], \"must_haves\": [str], \"quotes\": [str]}. "
+    # cycle36: willingness_to_pay_usd is requested FIRST on purpose — it is the
+    # load-bearing number, and if the response is truncated mid-stream (flaky network),
+    # the first key survives while the verbose arrays (quotes) are what get dropped.
+    "willingness_to_pay_usd is the MAX this persona would pay "
     "in the PRICING UNIT stated in the prompt (or null if they wouldn't buy). Reason "
     "in that exact unit — do not silently switch between per-purchase and per-month."
 )
