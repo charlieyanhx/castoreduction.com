@@ -102,10 +102,14 @@ def resolve_annual_spend(category: str) -> tuple[Optional[float], bool]:
     try:
         from llm import call_json
         raw = call_json(
-            system=("Give the typical US annual household spend in USD for the "
-                    "category, grounded in BLS Consumer Expenditure Survey line "
-                    "items. Reply ONLY JSON: {\"annual_usd\": <number>}."),
-            user=f"Category: {category}",
+            system=("Estimate the typical annual USD a US household spends AT this type "
+                    "of business — away-from-home / out-of-pocket purchases at such "
+                    "venues, NOT the at-home grocery equivalent. For a coffee shop this "
+                    "is yearly spend on drinks bought OUT at cafes (hundreds of dollars), "
+                    "not retail coffee for home. Ground it in BLS Consumer Expenditure "
+                    "Survey 'food away from home' style categories. Reply ONLY JSON: "
+                    "{\"annual_usd\": <number>}."),
+            user=f"Business category: {category}",
             max_tokens=60,
         ) or {}
         val = raw.get("annual_usd")

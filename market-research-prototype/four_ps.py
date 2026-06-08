@@ -102,10 +102,22 @@ Be precise. If you'd give 47, give 47, not "around 50".
 ═══════════════════════════════════════════════════════════════════
 
 DIMENSION 1: MARKET OPPORTUNITY (size × growth × saturation)
+  These $-buckets are for NATIONAL / digital-scale ventures:
   1-25:   Niche/declining; <$50M TAM or shrinking demand
   26-50:  Stable mid-size; $50M-$1B TAM, flat-to-modest growth
   51-75:  Large + growing; $1B-$10B TAM, secular tailwind
   76-100: Massive + accelerating; $10B+ TAM, structural growth (AI, climate, demographic shift)
+  ⚠ SCALE-AWARENESS (read the MARKET SIZING block below FIRST): if the sizing method is
+  "trade_area_catchment" (a single physical location — a cafe, gym, salon), the venture is
+  HYPERLOCAL and the national $-buckets DO NOT APPLY. Do NOT map a single neighborhood
+  cafe to "<$50M = niche/declining". Instead score market opportunity on the LOCAL picture:
+   - obtainable SOM vs a viable single-unit revenue (is the trade area big enough to
+     support one healthy location?),
+   - local competitive density and saturation,
+   - whether differentiation can win share in THIS trade area.
+  A single location with a healthy obtainable SOM (e.g. several hundred $K/yr) in a dense,
+  growing neighborhood is a 55-70 opportunity, NOT a 20. Judge it as "can ONE location
+  thrive here?", never "is the national category $1B+?".
 
 DIMENSION 2: DIFFERENTIATION STRENGTH
   1-25:   Pure copycat; no defensible angle; "me too"
@@ -457,13 +469,23 @@ def assemble_4ps_split(
     }, indent=2)[:900] if reddit_signal else "(no Reddit signal available)"
 
     def _run(section_name, prompt_text):
-        out = call_json(
-            system=f"You write the {section_name.capitalize()} section of paid-grade 4Ps plans. Return only JSON.",
-            user=prompt_text,
-            max_tokens=3500,  # iter 41: bumped 2000→3500. Narrative was truncating mid-sentence at ~360 chars.
-        )
+        # cycle36: retry once on malformed JSON. Under LLM rate-limiting (the free-tier
+        # backend throttles concurrent 4Ps calls), a single bad parse was leaving the
+        # report with a visible "(Section generation failed for product)" — two of four
+        # sections were dropping. A second attempt recovers nearly all of them.
+        out = None
+        for attempt in range(2):
+            out = call_json(
+                system=f"You write the {section_name.capitalize()} section of paid-grade 4Ps plans. Return only JSON.",
+                user=prompt_text,
+                max_tokens=3500,  # iter 41: bumped 2000→3500. Narrative was truncating mid-sentence at ~360 chars.
+            )
+            if "_parse_error" not in out:
+                break
+            log.warning("[4Ps split] %s section returned malformed JSON (attempt %d/2)",
+                        section_name, attempt + 1)
         if "_parse_error" in out:
-            log.warning("[4Ps split] %s section returned malformed JSON", section_name)
+            log.warning("[4Ps split] %s section failed after retry", section_name)
             return {"narrative": f"(Section generation failed for {section_name})", "key_takeaways": [], "citations": []}
 
         # Iter 41 (#2): if key_takeaways missing/empty (LLM truncated or skipped),
@@ -708,11 +730,29 @@ def score_viability(
     customer_universe_count: int | None = None,
     economics_evc: str | None = None,
     economics_clv: float | None = None,
+    market_sizing: dict | None = None,
 ) -> dict:
     """Score viability 1-100 from the completed 4Ps plan + supporting metrics."""
 
     # Build a "REAL pipeline metrics" addendum the LLM should anchor against
     real_metrics = []
+    # cycle36: feed the AUTHORITATIVE market sizing so market_opportunity is scored on the
+    # venture's real TAM/SOM and scale — not the LLM's guess of the national category size
+    # (which made a single cafe score against "$1B-$10B" national buckets).
+    ms = market_sizing or {}
+    if ms.get("tam") or ms.get("method"):
+        _t = (ms.get("tam") or {}).get("mid")
+        _s = (ms.get("som") or {}).get("mid")
+        _method = ms.get("method") or "national/digital"
+        _scale = (ms.get("scale_decision") or {}).get("scale") or ("hyperlocal" if _method == "trade_area_catchment" else "national")
+        real_metrics.append(
+            f"- MARKET SIZING (authoritative — score market_opportunity against THIS, not "
+            f"the national category): scale='{_scale}', method='{_method}', "
+            f"TAM={_t}, obtainable SOM={_s}, confidence='{ms.get('data_quality') or ms.get('confidence')}'. "
+            + ("This is a HYPERLOCAL single-location venture — apply the scale-awareness "
+               "rule in DIMENSION 1; do NOT use national $-buckets."
+               if _method == "trade_area_catchment" else
+               "National/digital scale — the standard $-buckets apply."))
     if differentiators_strength is not None:
         real_metrics.append(f"- Differentiators block: strength='{differentiators_strength}', {differentiators_count or 0} concrete differentiators found across the 5-dimension analysis. **Anchor differentiation_strength score against THIS finding** — if 0 differentiators were found by the dimension-by-dimension audit, do NOT score >40 for differentiation.")
     if customer_universe_count is not None:

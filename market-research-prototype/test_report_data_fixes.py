@@ -180,5 +180,37 @@ class TestPsmCitationScrub(unittest.TestCase):
         self.assertEqual(out["price"]["citations"][0]["source"], "PSM simulation")  # kept
 
 
+class TestFormatCurrency(unittest.TestCase):
+    def test_one_and_a_half_million_is_not_rounded_to_two(self):
+        from market_sizing import format_currency
+        self.assertEqual(format_currency(1_500_000), "$1.5M")   # was "$2M"
+        self.assertEqual(format_currency(2_000_000), "$2M")      # whole numbers stay clean
+        self.assertEqual(format_currency(525_000), "$525K")
+        self.assertEqual(format_currency(17_100_000), "$17.1M")
+
+
+class TestValidationGateHyperlocal(unittest.TestCase):
+    def test_trade_area_sizing_not_flagged_for_missing_3_methods(self):
+        from plan import _validation_gate
+        result = {
+            "_steps_completed": ["market_sizing", "viability"],
+            "market_sizing": {"method": "trade_area_catchment",
+                              "tam": {"mid": 1_500_000}},   # no method_top_down/bottom_up/analog
+            "viability": {"viability_score": 52},
+        }
+        flags = _validation_gate(result)["flags"]
+        self.assertFalse(any("methods filled" in f for f in flags))   # no false "0/3" alarm
+        self.assertFalse(any("Viability step was skipped" in f for f in flags))
+
+    def test_national_sizing_still_flags_incomplete_triangulation(self):
+        from plan import _validation_gate
+        result = {
+            "_steps_completed": ["market_sizing"],
+            "market_sizing": {"tam": {"mid": 5_000_000, "method_top_down": {"value_usd": 5_000_000}}},
+        }
+        flags = _validation_gate(result)["flags"]
+        self.assertTrue(any("methods filled" in f for f in flags))    # 1/3 → still flagged
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -111,15 +111,21 @@ def _validation_gate(result: dict) -> dict:
         flags.append(f"Only {sources_with_data} customer-voice sources returned data — opinion signals are thin")
         confidence -= 0.10
 
-    # cycle30 NEW: TAM 3-method completion check
-    tam = (result.get("market_sizing") or {}).get("tam") or {}
-    n_tam_methods = sum(
-        1 for k in ("method_top_down", "method_bottom_up", "method_analog")
-        if (tam.get(k) or {}).get("value_usd")
-    )
-    if n_tam_methods < 3:
-        flags.append(f"TAM only has {n_tam_methods}/3 methods filled — triangulation incomplete")
-        confidence -= 0.08
+    # cycle30 NEW: TAM 3-method completion check. cycle36: ONLY applies to the national
+    # 3-method (top-down/bottom-up/analog) sizing. Hyperlocal trade-area sizing
+    # (households × spend) is single-method BY DESIGN — flagging it "0/3 methods" is a
+    # false alarm, so skip the check entirely for that path.
+    ms_for_flags = result.get("market_sizing") or {}
+    tam = ms_for_flags.get("tam") or {}
+    is_trade_area = ms_for_flags.get("method") == "trade_area_catchment"
+    if not is_trade_area:
+        n_tam_methods = sum(
+            1 for k in ("method_top_down", "method_bottom_up", "method_analog")
+            if (tam.get(k) or {}).get("value_usd")
+        )
+        if n_tam_methods < 3:
+            flags.append(f"TAM only has {n_tam_methods}/3 methods filled — triangulation incomplete")
+            confidence -= 0.08
     # cycle31-r2 (BUG B): market_sizing returned EMPTY tam.mid silently — surface it
     if "market_sizing" in (result.get("_steps_completed") or []) and not tam.get("mid"):
         flags.append("Market sizing produced no headline TAM (all 3 methods returned no usable values)")
@@ -1363,6 +1369,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         customer_universe_count=(result.get("customer_universe") or {}).get("count"),
         economics_evc=(result.get("economics") or {}).get("evc", {}).get("verdict"),
         economics_clv=(result.get("economics") or {}).get("clv", {}).get("clv_usd"),
+        market_sizing=result.get("market_sizing"),  # cycle36: score opportunity on the real TAM/scale
     )
     viability = _run_with_timeout(score_viability, timeout_s=90, label="viability", **viability_kwargs)
     if viability.get("error"):
@@ -1378,14 +1385,15 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
 
     # cycle30: re-run validation gate at end so viability/segment/source flags
     # surface — the early gate ran before downstream signals existed.
+    # cycle36 FIX: the final gate runs on the COMPLETE result, so it strictly supersedes
+    # the early pass. We must NOT union the two flag lists — the early pass (run before
+    # sizing+viability) emitted stale "Viability step was skipped" / "TAM 0/3 methods"
+    # flags that the final pass correctly omits. Use the final flags; keep MIN confidence.
     final_val = _validation_gate(result)
-    # Merge with the earlier validation pass: keep both flag lists, take the
-    # MIN confidence (more conservative).
     if result.get("validation"):
         prev = result["validation"]
-        merged_flags = list(dict.fromkeys((prev.get("flags") or []) + (final_val.get("flags") or [])))
         merged_conf = min(prev.get("confidence_score", 1.0), final_val.get("confidence_score", 1.0))
-        result["validation"] = {"flags": merged_flags, "confidence_score": merged_conf}
+        result["validation"] = {"flags": final_val.get("flags") or [], "confidence_score": merged_conf}
     else:
         result["validation"] = final_val
 

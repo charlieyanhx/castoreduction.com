@@ -645,10 +645,12 @@ def format_currency(n) -> str:
         n = float(n)
     except (ValueError, TypeError):
         return str(n)
+    # cycle36: show one decimal so $1.5M renders "$1.5M", not a misleading "$2M"
+    # (the TAM card was rounding 1.5M → 2M while the math line said $100/hh/yr × 15k).
     if n >= 1_000_000_000:
         return f"${n/1_000_000_000:.1f}B"
     if n >= 1_000_000:
-        return f"${n/1_000_000:.0f}M"
+        return f"${('%.1f' % (n/1_000_000)).rstrip('0').rstrip('.')}M"
     if n >= 1_000:
-        return f"${n/1_000:.0f}K"
+        return f"${('%.1f' % (n/1_000)).rstrip('0').rstrip('.')}K"
     return f"${n:.0f}"
