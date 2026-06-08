@@ -49,6 +49,39 @@ def _is_multi_location(description: str) -> bool:
             pass
     return bool(_CHAIN_RE.search(description or ""))
 
+
+# Deterministic physical-local detector — an obvious bricks-and-mortar venue WITH a
+# location and NO digital framing. Used to override the classifier when the LLM
+# degrades (rate-limited → unsafe national/online defaults), which otherwise mis-routes
+# a "pizzeria in Echo Park" to national_digital and skips the trade-area path.
+_VENUE_RE = re.compile(
+    r"\b(restaurant|pizzeria|pizza|cafe|café|coffee\s?shop|bar|pub|brewery|gym|"
+    r"fitness|yoga|pilates|salon|barber|spa|clinic|dental|dentist|store|shop|"
+    r"boutique|bakery|deli|diner|grocery|food\s?truck|studio|gallery|nail\s?salon)s?\b",
+    re.I)
+# Location: a street address, OR "in <Capitalized place>" (excluding country-level).
+_LOC_RE = re.compile(
+    r"\b\d{1,6}\s+[A-Z][\w.]*\s+(st|street|ave|avenue|blvd|boulevard|rd|road|dr|"
+    r"drive|way|ln|lane|pl|place)\b|\bin\s+[A-Z][a-zA-Z]+", re.I)
+_COUNTRY_RE = re.compile(r"\bin\s+(the\s+)?(us|u\.s\.|usa|america|canada|uk|europe)\b", re.I)
+_DIGITAL_RE = re.compile(
+    r"\b(saas|software|app|platform|online|api|web\s?app|mobile\s?app|marketplace|"
+    r"b2b|b2c|e-?commerce|website|cloud)\b", re.I)
+
+
+def _is_physical_local(description: str) -> bool:
+    """True for an obvious single physical local venue with a location (no digital framing)."""
+    d = description or ""
+    if _DIGITAL_RE.search(d):
+        return False                      # a SaaS *for* restaurants is not a restaurant
+    if not _VENUE_RE.search(d):
+        return False
+    # Needs a real location signal that isn't merely country-level ("in the US").
+    loc = _LOC_RE.search(d)
+    if not loc:
+        return False
+    return not _COUNTRY_RE.search(d) or "," in d  # "in US" alone doesn't count
+
 # Scale constants.
 HYPERLOCAL = "hyperlocal"
 REGIONAL = "regional"
@@ -124,7 +157,17 @@ def classify_market_scale(description: str, geo: str = "US") -> Evidence:
     """
     signals = _extract_signals(description, geo)
 
-    # Deterministic correction: explicit multi-location language upgrades a
+    # Deterministic override #1: an obvious physical local venue (with a location, no
+    # digital framing) is physical + local — even if the LLM degraded to national/online
+    # defaults. This is the fix for "pizzeria in Echo Park → national_digital → 0 competitors".
+    if _is_physical_local(description):
+        scope = "regional" if _is_multi_location(description) else "local_metro"
+        signals = {**signals, "is_physical": True,
+                   "delivery": signals["delivery"]
+                   if signals["delivery"] in ("in_person", "local_delivery") else "in_person",
+                   "geo_scope": scope}
+
+    # Deterministic correction #2: explicit multi-location language upgrades a
     # physical venture from a single trade area to a regional rollout.
     physical = signals["is_physical"] or signals["delivery"] in ("in_person", "local_delivery")
     if physical and signals["geo_scope"] in ("single_site", "local_metro") \
