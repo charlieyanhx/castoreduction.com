@@ -17,6 +17,7 @@ lower confidence instead of crashing.
 from __future__ import annotations
 
 import json
+import time
 from typing import Optional
 
 from .registry import tool, Evidence
@@ -29,7 +30,28 @@ _ACS_POPULATION = "B01003_001E"        # total population
 _GEOCODER_URL = "https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress"
 _ACS_URL = "https://api.census.gov/data/{year}/acs/acs5"
 _OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# Mirrors for resilience — Overpass throttles (429/504) under load; a transient
+# rate-limit was zeroing out competitor counts mid-pipeline (no retry). We round-robin
+# mirrors and back off, retrying only on a hard failure (None), never on a genuine
+# empty result (a real "no venues nearby").
+_OVERPASS_MIRRORS = (
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+)
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+
+
+def _overpass(query: str, timeout: int = 30, attempts: int = 3):
+    """POST an Overpass query with mirror round-robin + backoff. Returns parsed JSON,
+    or None only after all mirrors/attempts fail (rate-limit/error)."""
+    for i in range(attempts):
+        for url in _OVERPASS_MIRRORS:
+            data = _http_json("POST", url, data={"data": query}, timeout=timeout)
+            if data is not None:
+                return data
+        time.sleep(1.5 * (i + 1))  # 1.5s, 3s backoff between full mirror rounds
+    return None
 _CBP_URL = "https://api.census.gov/data/{year}/cbp"
 
 # Optional, config-supplied NAICS cache (category → code). Empty by default — the
@@ -222,7 +244,7 @@ def osm_named_competitors(lat: float, lng: float, radius_m: int = 3000,
         f'way["{osm_key}"="{osm_value}"](around:{radius_m},{lat},{lng}););'
         f'out tags {max(1, min(limit * 3, 200))};'
     )
-    data = _http_json("POST", _OVERPASS_URL, data={"data": query}, timeout=30)
+    data = _overpass(query, timeout=30)
     names: list[str] = []
     if isinstance(data, dict):
         seen = set()
@@ -258,7 +280,7 @@ def poi_competition(lat: float, lng: float, radius_m: int = 3000,
         f'way["{osm_key}"="{osm_value}"](around:{radius_m},{lat},{lng}););'
         f'out count;'
     )
-    data = _http_json("POST", _OVERPASS_URL, data={"data": query}, timeout=30)
+    data = _overpass(query, timeout=30)
     # Overpass `out count;` → elements with a "tags"/"count" total.
     count = None
     if isinstance(data, dict):
