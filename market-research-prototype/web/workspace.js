@@ -65,7 +65,58 @@ let extracted = {};        // intake fields
 let activeJob = null;      // current job id
 let pollTimer = null;
 let lastSteps = [];        // completed step keys for the active job
+let lastResult = {};       // partial job result — drives live evidence detail
 let compTab = "steps";     // "steps" | "report"
+
+// Make the backend rigor FELT: turn a completed step into a one-line evidence detail
+// pulled from the live result (Census count, scraped price, triangulation, gate…).
+function _usd(n) {
+  if (typeof n !== "number") return "?";
+  if (n >= 1e9) return "$" + (n / 1e9).toFixed(1) + "B";
+  if (n >= 1e6) return "$" + (n / 1e6).toFixed(0) + "M";
+  if (n >= 1e3) return "$" + (n / 1e3).toFixed(0) + "K";
+  return "$" + Math.round(n);
+}
+function stepDetail(key, r) {
+  if (!r) return "";
+  const ms = r.market_sizing || {}, tam = ms.tam || {};
+  if (key === "discover") {
+    const c = (r.discover || {}).ranked_opportunities || (r.discover || {}).competitors || [];
+    return c.length ? c.length + " competitors found" : "";
+  }
+  if (key === "competitor_pricing") {
+    const n = (r.competitor_pricing || {}).competitors_with_prices;
+    return n ? n + " competitor prices scraped" : "";
+  }
+  if (key === "customer_universe") {
+    const n = ((r.customer_universe || {}).segments || []).length;
+    return n ? n + " target segments" : "";
+  }
+  if (key === "consumer_research") {
+    const syn = (r.consumer_research || {}).synthesis || {}, wtp = syn.willingness_to_pay || {};
+    return syn.n_segments ? syn.n_segments + " segments · WTP $" + (wtp.median || "?") + "/mo" : "";
+  }
+  if (key === "market_sizing") {
+    const tri = tam.triangulation || {};
+    if (tam.mid) {
+      const ni = tri.n_independent || 1;
+      const grounded = (tri.cross_origin || []).some((o) => ["census", "bls"].includes(o.origin));
+      return "TAM " + _usd(tam.mid) + " · " + ni + " independent source" + (ni !== 1 ? "s" : "") +
+             (grounded ? " · Census-grounded" : "");
+    }
+    return "";
+  }
+  if (key === "validation") {
+    const v = ms.validation;
+    if (!v) return "";
+    return v.passed ? "integrity gate: passed" : "gate: " + (v.blocks || []).length + " blocking issue(s)";
+  }
+  if (key === "viability") {
+    const s = (r.viability || {}).viability_score;
+    return s ? "viability " + s + "/100" : "";
+  }
+  return "";
+}
 
 /* ---------------- conversation ---------------- */
 function addMsg(role, text) {
@@ -169,8 +220,10 @@ function renderTimeline(uptoIdx) {
     const active = running && i === firstPending && uptoIdx == null;
     const cls = isDone ? "done" : active ? "active" : "pending";
     const mk = isDone ? "✓" : active ? "•" : "";
+    const detail = isDone ? stepDetail(key, lastResult) : "";
     return `<div class="step ${cls}"><div class="mk">${mk}</div>` +
-      `<div><div class="lbl">${lbl}</div></div></div>`;
+      `<div><div class="lbl">${lbl}</div>` +
+      (detail ? `<div class="lbl-detail">${detail}</div>` : "") + `</div></div>`;
   }).join("");
   $("compBody").innerHTML = rows;
 }
@@ -188,7 +241,7 @@ function renderComputer() {
 }
 
 function openJob(jobId, fresh) {
-  activeJob = jobId; lastSteps = []; activeJobState = "running"; compTab = "steps";
+  activeJob = jobId; lastSteps = []; lastResult = {}; activeJobState = "running"; compTab = "steps";
   $("compStatus").innerHTML = `<span class="live-dot">working</span>`;
   $("scrubber").classList.remove("on");
   renderComputer();
@@ -205,6 +258,7 @@ async function pollJob() {
   try { j = await api("GET", `/jobs/${activeJob}`); } catch { return; }
   activeJobState = j.state;
   const r = j.result || {};
+  lastResult = r;                       // feed live evidence detail
   lastSteps = r._steps_completed || [];
   if (j.state === "running") {
     const nextLbl = (STEPS.find(([k]) => !lastSteps.includes(k)) || [, "wrapping up"])[1];
