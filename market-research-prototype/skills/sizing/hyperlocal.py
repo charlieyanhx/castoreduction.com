@@ -124,13 +124,16 @@ def size_hyperlocal(
     acs = get_tool("acs_demographics").fn
     poi = get_tool("poi_competition").fn
 
-    # 1. Geocode.
+    # 1. Geocode. A failure here is NON-FATAL: a physical-local venture must always be
+    # sized at TRADE-AREA scale, never collapse to a national TAM just because a free
+    # geocoder hiccuped. Geocode only adds PRECISION — FIPS → real ACS households,
+    # lat/lng → OSM competitor density. Both already degrade to labeled estimates below.
     g = geocode(address)
-    if g.error or not g.payload:
-        return Evidence(source="size_hyperlocal", category="skill_output", count=0,
-                        skeleton=True, error=f"geocode failed: {g.error}")
-    lat, lng = g.payload.get("lat"), g.payload.get("lng")
-    state_fips, county_fips = g.payload.get("state_fips"), g.payload.get("county_fips")
+    gp = g.payload or {}
+    lat, lng = gp.get("lat"), gp.get("lng")
+    state_fips, county_fips = gp.get("state_fips"), gp.get("county_fips")
+    matched = gp.get("matched_address") or address
+    geocoded = bool(gp) and not g.error
 
     # 2. Demographics (county-level catchment baseline).
     households = households_src = None
@@ -143,13 +146,15 @@ def size_hyperlocal(
         households_src = f"US Census ACS 5-yr {year}"
     else:
         # Fallback: estimate trade-area households via the LLM, clearly UNSOURCED.
-        # (Census ACS unreachable, or geocode fell back to Nominatim → no FIPS.)
-        households = _estimate_households(g.payload.get("matched_address") or address, radius_m)
+        # (Census ACS unreachable, OR geocode fell back to Nominatim / failed → no FIPS.)
+        households = _estimate_households(matched, radius_m)
         households_src = "LLM estimate (UNSOURCED — validate vs US Census ACS)"
 
-    # 3. Competition.
-    c = poi(lat=lat, lng=lng, radius_m=radius_m, osm_value=osm_value)
-    competitors = c.count if not c.error else None
+    # 3. Competition (needs coordinates — skipped, not fatal, if geocode didn't resolve).
+    competitors = None
+    if lat is not None and lng is not None:
+        c = poi(lat=lat, lng=lng, radius_m=radius_m, osm_value=osm_value)
+        competitors = c.count if not c.error else None
 
     # 4. Spend per household. C1 (audit): prefer the real BLS source; an LLM estimate
     # is labeled UNSOURCED and caps confidence (invariant #1: the LLM never invents a
@@ -166,15 +171,34 @@ def size_hyperlocal(
     figures: list[dict] = []
     tam = sam = som = None
     som_demand = som_supply = None
-    confidence = "high"
     notes: list[str] = []
+
+    # Confidence ratchets DOWN only — never up. Each missing/estimated input can lower
+    # it; a later weaker input must not UPGRADE it (an estimated household count must
+    # stay "low" even when competition is also unavailable). cycle36.
+    _RANK = {"high": 3, "medium": 2, "low": 1}
+    confidence = "high"
+
+    def _lower(level: str) -> None:
+        nonlocal confidence
+        if _RANK[level] < _RANK[confidence]:
+            confidence = level
+
+    if not geocoded:
+        # Geocoders (Census + Nominatim) were unreachable. We still size the trade
+        # area from an estimated household count — far better than a national TAM —
+        # but coordinates were unavailable, so OSM competitor density is skipped.
+        _lower("low")
+        notes.append("Address could not be geocoded (Census + OSM Nominatim "
+                     "unavailable) — trade-area sized from an estimated household "
+                     "count; competitor density via OSM was skipped.")
     if not spend_is_sourced and spend:
         # Estimated spend is the load-bearing per-unit input → TAM can't be "high".
-        confidence = "medium"
+        _lower("medium")
         notes.append("Annual spend/household is an LLM estimate, not BLS-sourced — "
                      "validate against BLS Consumer Expenditure Survey before relying on TAM.")
     if not households_sourced and households:
-        confidence = "low"  # estimated catchment size is the other load-bearing input
+        _lower("low")  # estimated catchment size is the other load-bearing input
         notes.append("Trade-area households is an LLM estimate, not Census-sourced — "
                      "validate against US Census ACS before relying on TAM.")
 
@@ -194,10 +218,10 @@ def size_hyperlocal(
                 "OpenStreetMap Overpass + derived",
                 f"SAM × 1/({competitors}+1) fair-share × {ramp_factor:.0%} ramp"))
         else:
-            confidence = "medium"
+            _lower("medium")
             notes.append("competition count unavailable — SOM demand-side skipped")
     else:
-        confidence = "low"
+        _lower("low")
         notes.append("households or spend unavailable — TAM not computed")
 
     # Supply-side SOM (capacity) for triangulation.

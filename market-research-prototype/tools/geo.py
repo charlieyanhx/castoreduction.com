@@ -52,6 +52,22 @@ def _overpass(query: str, timeout: int = 30, attempts: int = 3):
                 return data
         time.sleep(1.5 * (i + 1))  # 1.5s, 3s backoff between full mirror rounds
     return None
+
+
+def _nominatim(address: str, attempts: int = 3):
+    """Geocode via OSM Nominatim with backoff. Nominatim caps at ~1 req/s and 429s
+    under pipeline load — a single unretried call was letting a transient rate-limit
+    collapse the whole hyperlocal path to a national TAM. Returns the first result
+    dict, or None only after all attempts fail."""
+    for i in range(attempts):
+        nom = _http_json(
+            "GET", _NOMINATIM_URL,
+            params={"q": address, "format": "json", "limit": 1},
+            headers={"User-Agent": "castor-research/1.0"}, timeout=12)
+        if isinstance(nom, list) and nom:
+            return nom[0]
+        time.sleep(1.1 * (i + 1))  # 1.1s, 2.2s backoff — respect Nominatim's 1 req/s
+    return None
 _CBP_URL = "https://api.census.gov/data/{year}/cbp"
 
 # Optional, config-supplied NAICS cache (category → code). Empty by default — the
@@ -86,15 +102,12 @@ def geocode_address(address: str) -> Evidence:
         # Fallback: OSM Nominatim (a different host than the Census geocoder, so it
         # survives when Census is unreachable). Gives lat/lng — enough for OSM
         # competitor lookups — but no Census FIPS, so ACS demographics degrade.
-        nom = _http_json(
-            "GET", _NOMINATIM_URL,
-            params={"q": address, "format": "json", "limit": 1},
-            headers={"User-Agent": "castor-research/1.0"}, timeout=12)
-        if isinstance(nom, list) and nom:
+        nom = _nominatim(address)
+        if nom:
             return Evidence(
                 source="geocode_address", category="geo", count=1,
-                payload={"lat": float(nom[0]["lat"]), "lng": float(nom[0]["lon"]),
-                         "matched_address": nom[0].get("display_name"),
+                payload={"lat": float(nom["lat"]), "lng": float(nom["lon"]),
+                         "matched_address": nom.get("display_name"),
                          "state_fips": None, "county_fips": None, "tract": None},
                 cost_meta={"source": "OSM Nominatim (fallback)"})
         return Evidence(source="geocode_address", category="geo", count=0,

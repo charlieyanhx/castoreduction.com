@@ -66,6 +66,27 @@ class TestTamHouseholdsFallback(unittest.TestCase):
         self.assertIn("UNSOURCED", fig["source"])            # honestly labeled
         self.assertEqual(p["confidence"], "low")             # estimated count caps confidence
 
+    def test_geocode_failure_still_sizes_trade_area_not_skeleton(self):
+        # The live bug: a transient geocode failure (Census + Nominatim both down)
+        # made size_hyperlocal return a skeleton → the whole hyperlocal path collapsed
+        # to a NATIONAL TAM ($505M for one Silver Lake cafe). Geocode is precision-only;
+        # TAM must still compute at trade-area scale from an estimated household count.
+        geo = Evidence("geocode_address", "geo", 0, skeleton=True,
+                       error="no geocoder match")
+        acs = Evidence("acs_demographics", "geo", 0, skeleton=True, error="blocked")
+        poi = Evidence("poi_competition", "geo", 0, skeleton=True, error="blocked")
+        with patch("skills.sizing.hyperlocal.get_tool", self._tools(geo, acs, poi)), \
+             patch("skills.sizing.hyperlocal._estimate_households", return_value=15000.0), \
+             patch("skills.sizing.hyperlocal.resolve_annual_spend", return_value=(1140.0, False)):
+            e = size_hyperlocal(address="cafe in Silver Lake, Los Angeles",
+                                category="coffee", osm_value="cafe")
+        self.assertFalse(e.skeleton)                         # NOT a skeleton
+        p = e.payload
+        self.assertEqual(p["tam_usd"], 15000 * 1140)         # trade-area TAM still computes
+        self.assertIsNone(p["competitors"])                  # OSM skipped (no coords) — not fatal
+        self.assertEqual(p["confidence"], "low")
+        self.assertTrue(any("could not be geocoded" in n for n in p["notes"]))
+
     def test_census_sourced_keeps_high_provenance(self):
         geo = Evidence("geocode_address", "geo", 1, payload={
             "lat": 34.08, "lng": -118.27, "state_fips": "06", "county_fips": "037"})
