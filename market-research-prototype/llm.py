@@ -98,7 +98,9 @@ def get_usage() -> Usage:
 # ---------------------------------------------------------------------------
 BACKEND_DEFAULTS = {
     "groq": {"model": "llama-3.3-70b-versatile", "key_env": "GROQ_API_KEY"},
-    "gemini": {"model": "gemini-2.0-flash", "key_env": "GEMINI_API_KEY"},
+    # cycle36: gemini-2.0-flash now 404s for this key tier. gemini-flash-latest is a
+    # live, non-deprecating alias (verified generateContent OK). See _call_gemini fallbacks.
+    "gemini": {"model": "gemini-flash-latest", "key_env": "GEMINI_API_KEY"},
     "anthropic": {"model": "claude-haiku-4-5", "key_env": "ANTHROPIC_API_KEY"},
 }
 
@@ -176,9 +178,12 @@ def _call_gemini(system: str, user: str, max_tokens: int, model: str) -> tuple[s
     if elapsed < 4:
         time.sleep(4 - elapsed)
 
-    # Try multiple models on 429 — different models have separate quota pools
+    # Try multiple models on 429 — different models have separate quota pools.
+    # cycle36: these are the models VERIFIED available for this key tier (gemini-2.0-flash
+    # and gemini-2.5-flash now 404). Ordered live → fast-lite → quality backup.
     models_to_try = [model]
-    fallbacks = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"]
+    fallbacks = ["gemini-flash-latest", "gemini-flash-lite-latest",
+                 "gemini-2.5-flash-lite", "gemini-3.5-flash"]
     for fb in fallbacks:
         if fb != model and fb not in models_to_try:
             models_to_try.append(fb)
@@ -260,9 +265,18 @@ def _try_one_backend(backend: str, system: str, user: str, max_tokens: int) -> t
         return text, in_tok, out_tok, model
     except Exception as e:
         es = str(e).lower()
-        # Treat as transient: rate-limit, server error, timeout
-        if any(t in es for t in ("429", "503", "timeout", "timed out", "rate limit",
-                                  "resource_exhausted", "unavailable", "overloaded")):
+        # Treat as transient: rate-limit, server error, timeout, AND transient network
+        # faults. cycle36: the free Gemini tier frequently drops the TLS connection
+        # ("SSL: UNEXPECTED_EOF_WHILE_READING", "server disconnected", "connection reset"),
+        # which were NOT matched here → treated as a HARD failure with no retry → with no
+        # second provider key set, the whole call returned parse_error (TAM $0, dropped
+        # report sections). Classifying them transient lets the outer retry recover them.
+        if any(t in es for t in ("429", "503", "500", "502", "504", "timeout", "timed out",
+                                  "rate limit", "resource_exhausted", "unavailable",
+                                  "overloaded", "unexpected_eof", "ssl", "eof occurred",
+                                  "server disconnected", "connection reset",
+                                  "connection aborted", "remotedisconnected",
+                                  "connection error", "broken pipe", "deadline")):
             log.info("[llm] %s transient failure (%s) — falling through", backend, str(e)[:120])
             return None
         # Non-transient: re-raise so caller can decide
@@ -296,21 +310,37 @@ def call_json(system: str, user: str, max_tokens: int = 2000) -> dict:
     chain = [primary] + [b for b in BACKEND_DEFAULTS.keys() if b != primary]
 
     text = None; in_tok = 0; out_tok = 0; model_used = ""
-    for backend in chain:
-        t0 = time.time()
-        out = _try_one_backend(backend, system, user, max_tokens)
-        if out is None:
-            continue
-        text, in_tok, out_tok, model_used = out
-        dur = time.time() - t0
-        usage.add(model_used, in_tok, out_tok)
-        log.debug("call_json [%s/%s] %d→%d tok, %.1fs", backend, model_used, in_tok, out_tok, dur)
-        if backend != primary:
-            log.info("[llm] cross-provider fallback succeeded on %s (primary %s exhausted)", backend, primary)
-        break
+    # cycle36: retry the WHOLE chain with backoff. With a single provider configured
+    # (no Groq/Anthropic keys), one transient SSL/network/429 used to return parse_error
+    # immediately → TAM $0, dropped 4Ps sections, thin signals. A few backoff'd attempts
+    # recover the vast majority of these transient free-tier failures. Successful results
+    # are cached, so the cost is paid only on calls that actually fail.
+    _CHAIN_BACKOFF = (0.0, 3.0, 8.0, 15.0)  # backoff before attempts 1-4; free Gemini tier
+    # can be unreachable for ~10s stretches, so a 4th attempt past that window matters
+    for attempt, delay in enumerate(_CHAIN_BACKOFF):
+        if delay:
+            time.sleep(delay)
+        for backend in chain:
+            t0 = time.time()
+            out = _try_one_backend(backend, system, user, max_tokens)
+            if out is None:
+                continue
+            text, in_tok, out_tok, model_used = out
+            dur = time.time() - t0
+            usage.add(model_used, in_tok, out_tok)
+            log.debug("call_json [%s/%s] %d→%d tok, %.1fs", backend, model_used, in_tok, out_tok, dur)
+            if backend != primary:
+                log.info("[llm] cross-provider fallback succeeded on %s (primary %s exhausted)", backend, primary)
+            break
+        if text is not None:
+            break
+        if attempt < len(_CHAIN_BACKOFF) - 1:
+            log.info("[llm] chain exhausted (attempt %d/%d) — backing off %.0fs and retrying",
+                     attempt + 1, len(_CHAIN_BACKOFF), _CHAIN_BACKOFF[attempt + 1])
 
     if text is None:
-        log.warning("[llm] ALL backends exhausted — returning parse_error")
+        log.warning("[llm] ALL backends exhausted after %d attempts — returning parse_error",
+                    len(_CHAIN_BACKOFF))
         return {"_parse_error": "all backends exhausted (rate-limited or unavailable)",
                 "_raw": "", "_chain_tried": chain}
 
