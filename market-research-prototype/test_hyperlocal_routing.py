@@ -27,6 +27,18 @@ class TestExtractLocation(unittest.TestCase):
     def test_digital_has_no_location(self):
         self.assertIsNone(extract_location("A B2B SaaS for dental scheduling, US"))
 
+    def test_captures_city_qualifier_for_disambiguation(self):
+        # The Highland Park bug: must keep ", Los Angeles" so Nominatim doesn't resolve
+        # to Highland Park, Illinois. Ambiguous neighborhood names need the city.
+        self.assertEqual(
+            extract_location("a craft taqueria in Highland Park, Los Angeles, casual dinner"),
+            "Highland Park, Los Angeles")
+
+    def test_captures_state_after_city(self):
+        self.assertEqual(
+            extract_location("a cafe in Silver Lake, Los Angeles, CA serving locals"),
+            "Silver Lake, Los Angeles, CA")
+
 
 def _hl_payload(tam, sam, som, passed=True):
     return Evidence("size_hyperlocal", "skill_output", 1, payload={

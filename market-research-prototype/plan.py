@@ -364,8 +364,13 @@ _STREET_RE = re.compile(
     r"(?:St|Street|Ave|Avenue|Blvd|Boulevard|Rd|Road|Dr|Drive|Ln|Lane|Way|Ct|Court|Pl|Plaza)\b",
     re.I)
 _PLACE_RE = re.compile(
+    # "in <Neighborhood>[, <City>][, <State>]" — capture the full comma-chain of
+    # Capitalized localities so an ambiguous neighborhood keeps its city qualifier
+    # (e.g. "Highland Park, Los Angeles" → not Highland Park, Illinois). A lowercase
+    # word after a comma (", casual dinner") ends the chain.
     r"\b(?:in|at|near|around|located in)\s+"
-    r"([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3}(?:,\s*[A-Z]{2})?)")
+    r"([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3}"
+    r"(?:,\s*[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,2}){0,2})")
 
 
 def extract_location(text: str) -> str | None:
@@ -403,6 +408,11 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
     location = extract_location(description)
     if not location:
         return None  # caller keeps legacy + the existing "needs an address" caveat
+    # Disambiguate a bare neighborhood with the venture's geography so geocoding doesn't
+    # pick the wrong city (e.g. "Highland Park" → Illinois instead of LA).
+    geog = str((profile or {}).get("geography") or "").strip()
+    if "," not in location and geog and geog.lower() not in ("us", "u.s.", "usa", "united states", "global", ""):
+        location = f"{location}, {geog}"
     cat = (profile or {}).get("category") or ""
     osm = next((v for k, v in _OSM_BY_CATEGORY.items() if k in cat.lower()), "restaurant")
     try:
