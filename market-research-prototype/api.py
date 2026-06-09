@@ -665,6 +665,9 @@ def get_job_report_html(job_id: str):
         # cycle36: flag a run crippled by transient LLM/network failures (never present
         # $0 TAM / failed sections as real findings — tell the reader to regenerate).
         run_health=__import__("plan").assess_run_health(r),
+        # cycle37: business model (transactional retail vs subscription) → model-aware
+        # pricing / unit-economics / financials rendering.
+        business_model_kind=r.get("business_model_kind"),
     )
     return HTMLResponse(content=html)
 

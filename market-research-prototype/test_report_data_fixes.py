@@ -310,5 +310,65 @@ class TestHardcodingDisclosures(unittest.TestCase):
         self.assertIsNone(out.get("_ordering_corrections"))
 
 
+class TestBusinessModelAware(unittest.TestCase):
+    """cycle37: a per-visit cafe must NOT be modeled as a B2B SaaS subscription."""
+
+    def test_physical_premise_is_transactional(self):
+        from business_model import classify_business_model
+        ms = {"scale": "hyperlocal", "signals": {"is_physical": True}}
+        self.assertEqual(classify_business_model({"category": "specialty coffee cafe"}, ms), "transactional")
+
+    def test_explicit_subscription_stays_subscription(self):
+        from business_model import classify_business_model
+        ms = {"scale": "national_digital", "signals": {"is_physical": False}}
+        self.assertEqual(classify_business_model({"business_model": "B2B SaaS subscription"}, ms), "subscription")
+
+    def test_membership_first_physical_is_subscription(self):
+        from business_model import classify_business_model
+        ms = {"scale": "hyperlocal", "signals": {"is_physical": True}}
+        # a members-only gym is recurring despite being physical
+        self.assertEqual(classify_business_model({"business_model": "members-only club"}, ms), "subscription")
+
+    def test_ambiguous_defaults_subscription(self):
+        from business_model import classify_business_model
+        self.assertEqual(classify_business_model({"business_model": "a platform for teams"}, None), "subscription")
+
+    def test_retail_economics_no_clv_no_churn(self):
+        from business_model import retail_unit_economics
+        e = retail_unit_economics(6.0, 1.5, 14500, unit="drink", annual_revenue_usd=450000)
+        self.assertEqual(e["model"], "transactional")
+        self.assertEqual(e["contribution_margin_per_unit"], 4.5)
+        self.assertEqual(e["contribution_margin_pct"], 75.0)
+        self.assertGreater(e["break_even_units_per_day"], 0)
+        self.assertNotIn("clv", e)                    # no SaaS CLV
+        self.assertNotIn("cac_target", e)             # no SaaS CAC
+        self.assertIn("at_som_volume", e)             # retail profitability at volume
+
+    def test_retail_economics_flags_negative_margin(self):
+        from business_model import retail_unit_economics
+        e = retail_unit_economics(5.0, 6.0, 10000, unit="drink")  # price < variable cost
+        self.assertIn("error", e)
+        self.assertNotIn("break_even_units_per_day", e)
+
+    def test_transactional_financials_use_units_not_customers(self):
+        from financials import project_three_year
+        econ = {"model": "transactional", "price_per_unit": 6.0,
+                "contribution_margin_pct": 70.0, "monthly_fixed_cost": 14500, "unit": "drink"}
+        proj = project_three_year(som_mid=450000, optimal_price=6.0, model="transactional", economics=econ)
+        self.assertEqual(proj["model"], "transactional")
+        s = proj["scenarios"]["base"]
+        self.assertIn("units", s["year_3"])                    # covers, not subscription customers
+        self.assertIn("monthly_operating_profit_usd", s["year_3"])
+        self.assertNotIn("customers", s["year_3"])
+        self.assertEqual(proj["assumptions"]["model"], "transactional")
+
+    def test_subscription_financials_unchanged(self):
+        from financials import project_three_year
+        proj = project_three_year(som_mid=1000000, optimal_price=38.0, break_even_customers=100)
+        s = proj["scenarios"]["base"]
+        self.assertIn("customers", s["year_3"])                # original subscription shape intact
+        self.assertEqual(proj["assumptions"]["annual_price_per_customer"], 456.0)
+
+
 if __name__ == "__main__":
     unittest.main()

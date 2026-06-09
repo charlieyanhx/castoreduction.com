@@ -17,12 +17,70 @@ from logger import get
 log = get("financials")
 
 
+def project_three_year_transactional(
+    som_mid: float,
+    price_per_unit: float,
+    contribution_margin_pct: float,
+    monthly_fixed_cost: float,
+    unit: str = "unit",
+) -> dict:
+    """3-year projection for a TRANSACTIONAL retail venture (cycle37).
+
+    SOM is the year-3 obtainable annual revenue ceiling. Each scenario ramps to a share of it
+    on a retail curve (60% / 85% / 100% — a physical location builds clientele fast, unlike a
+    SaaS land-and-expand 8%/35%/100%). We report annual revenue, annual units (covers), and
+    monthly operating profit = monthly_revenue × margin − fixed cost. Break-even year = the first
+    year monthly operating profit turns positive. No churn, no CLV, no "customers/accounts".
+    """
+    margin_frac = (contribution_margin_pct or 0) / 100.0
+    monthly_fixed = monthly_fixed_cost or 0
+    ramp = {1: 0.60, 2: 0.85, 3: 1.0}
+    scenarios = {}
+    for label, y3_capture in [("conservative", 0.05), ("base", 0.20), ("aggressive", 0.60)]:
+        y3_rev = som_mid * y3_capture
+        years = {}
+        be_year = None
+        for yr in (1, 2, 3):
+            annual_rev = round(y3_rev * ramp[yr])
+            units = round(annual_rev / price_per_unit) if price_per_unit else 0
+            monthly_profit = round(annual_rev / 12.0 * margin_frac - monthly_fixed)
+            years[f"year_{yr}"] = {
+                "revenue_usd": annual_rev,
+                "units": units,                       # annual covers/transactions
+                "units_per_day": round(units / 360.0, 1),
+                "monthly_operating_profit_usd": monthly_profit,
+            }
+            if be_year is None and monthly_profit > 0:
+                be_year = yr
+        scenarios[label] = {
+            "year3_market_share_pct": round(y3_capture * 100, 1),
+            **years,
+            "break_even_year": be_year,
+        }
+    return {
+        "model": "transactional",
+        "scenarios": scenarios,
+        "assumptions": {
+            "model": "transactional",
+            "unit": unit,
+            "price_per_unit": round(price_per_unit, 2),
+            "contribution_margin_pct": round(contribution_margin_pct, 1),
+            "monthly_fixed_cost": round(monthly_fixed, 0),
+            "som_mid_used": round(som_mid, 0),
+            "growth_curve": "Retail ramp: y1=60%, y2=85%, y3=100% of year-3 ceiling",
+            "break_even_note": "Break-even year = first year monthly operating profit (revenue×margin − fixed cost) turns positive.",
+        },
+    }
+
+
 def project_three_year(
     som_mid: float | None,
     optimal_price: float | None,
     break_even_customers: int | None = None,
     monthly_churn_pct: float = 5.0,
     break_even_costs: dict | None = None,
+    model: str = "subscription",
+    economics: dict | None = None,
 ) -> dict:
     """
     Build a simple 3-year revenue projection from the upstream estimates.
@@ -31,11 +89,22 @@ def project_three_year(
     Base:         20% of SOM by year 3
     Aggressive:   60% of SOM by year 3
 
-    Customer count derived assuming subscription model (annual price = optimal × 12).
-    Break-even year computed.
+    cycle37: routes TRANSACTIONAL ventures to the retail projection (revenue + monthly operating
+    profit + break-even year), and SUBSCRIPTION ventures to the original customer-count model.
     """
     if not som_mid or not optimal_price or optimal_price <= 0:
         return {"error": "Need SOM and optimal price to project financials"}
+
+    # cycle37: transactional retail uses its own projection (no subscription customer counts).
+    if model == "transactional" and economics and "error" not in economics:
+        ppu = economics.get("price_per_unit") or optimal_price
+        margin_pct = economics.get("contribution_margin_pct")
+        fixed = economics.get("monthly_fixed_cost")
+        if ppu and margin_pct is not None and fixed is not None:
+            return project_three_year_transactional(
+                som_mid=som_mid, price_per_unit=float(ppu),
+                contribution_margin_pct=float(margin_pct), monthly_fixed_cost=float(fixed),
+                unit=economics.get("unit") or "unit")
 
     annual_price_per_customer = optimal_price * 12  # subscription assumption
 

@@ -1186,6 +1186,24 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         result["_steps_completed"].append("pricing")
         checkpoint()
 
+    # cycle37: classify market scale + business model EARLY so the economics/financials spine
+    # below routes to the right monetization model (transactional retail vs subscription) instead
+    # of assuming B2B SaaS for every venture. Scale is cheap (description+geo) and is reused by
+    # the later sizing step (which no longer recomputes it).
+    if result.get("market_scale") is None:
+        try:
+            from skills.sizing.classify import classify_market_scale
+            result["market_scale"] = classify_market_scale(description, geo).payload
+            result["_steps_completed"].append("market_scale")
+            log.info("[plan] Step 7a (early): market scale = %s",
+                     (result.get("market_scale") or {}).get("scale"))
+        except Exception as e:
+            log.warning("[plan] early scale classification failed (non-fatal): %s", e)
+    from business_model import classify_business_model
+    biz_kind = classify_business_model(profile, result.get("market_scale"))
+    result["business_model_kind"] = biz_kind
+    log.info("[plan] business model = %s", biz_kind)
+
     # C5 (Manus-parity): the user's stated price must not be silently dropped.
     # Reconcile it against the model's recommended optimal price, visibly.
     recon = reconcile_pricing(extract_stated_price(description),
@@ -1196,25 +1214,38 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                  recon["stated_usd"], recon["recommended_usd"], recon["verdict"])
 
     if psm_result.get("optimal_price_point"):
+        is_transactional = (biz_kind == "transactional")
+        # cycle36/37: cost structure is category-estimated + disclosed (not a hidden $5000/$2),
+        # computed ONCE here and shared by break-even + unit economics.
         try:
-            # cycle36 (audit): cost structure is category-estimated + disclosed, not a
-            # universal hardcoded $5000/$2 placeholder hidden from the reader.
-            from pricing import estimate_cost_structure
-            _cost = estimate_cost_structure(profile.get("category", ""),
-                                            float(psm_result["optimal_price_point"]))
-            result["pricing"]["break_even"] = compute_break_even(
-                float(psm_result["optimal_price_point"]),
-                monthly_fixed_cost=_cost["monthly_fixed_cost"],
-                variable_cost_per_customer=_cost["variable_cost_per_customer"],
-                cost_source=_cost["source"])
+            _opt = float(psm_result["optimal_price_point"])
         except (TypeError, ValueError):
-            pass
+            _opt = None
+        from pricing import estimate_cost_structure
+        _cost = estimate_cost_structure(profile.get("category", ""), _opt) if _opt else None
+        # Transactional retail prices per real unit (e.g. $6/drink), not the PSM monthly point.
+        _stated = extract_stated_price(description)
+        _unit_noun = (infer_wtp_unit(description, profile) or "/unit").lstrip("/") or "unit"
+        _price_per_unit = (float(_stated) if (is_transactional and _stated) else _opt)
+
+        # --- Break-even (subscription only — retail break-even lives in unit economics) ---
+        if _cost and _opt and not is_transactional:
+            try:
+                result["pricing"]["break_even"] = compute_break_even(
+                    _opt, monthly_fixed_cost=_cost["monthly_fixed_cost"],
+                    variable_cost_per_customer=_cost["variable_cost_per_customer"],
+                    cost_source=_cost["source"])
+            except (TypeError, ValueError):
+                pass
 
         # --- Per-unit pricing + competitor benchmark table (user feedback #3b) ---
         try:
             from pricing import build_benchmark_table
-            biz_model = (profile.get("business_model") or "").lower()
-            unit = "seat" if "b2b" in biz_model or "saas" in biz_model else "account"
+            if is_transactional:
+                unit = _unit_noun
+            else:
+                biz_model = (profile.get("business_model") or "").lower()
+                unit = "seat" if "b2b" in biz_model or "saas" in biz_model else "account"
             bench = build_benchmark_table(
                 our_tiers=psm_result.get("recommended_tiers", []),
                 competitor_pricing=competitor_pricing_data,
@@ -1226,24 +1257,36 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         except Exception as e:
             log.warning(f"[plan] pricing benchmark failed (non-fatal): {e}")
 
-        # --- Step 10 (full): CLV + CAC + EVC economic decomposition ---
-        # Spec step 10 requires CLV + CAC_ratio. User feedback iter 35 adds EVC.
+        # --- Step 10: economics — MODEL-AWARE (cycle37) ---
+        # Transactional retail → contribution margin + break-even covers/day (no CLV/churn/SaaS).
+        # Subscription → the original CLV + CAC + EVC decomposition.
         try:
-            from economics import full_economics
-            log.info("[plan] Step 10: CLV + CAC + EVC economics")
-            comp_prices = None
-            if competitor_pricing_data and competitor_pricing_data.get("per_domain"):
-                comp_prices = [d["median"] for d in competitor_pricing_data["per_domain"] if d.get("median")]
-            # Derive a sensible pricing unit from the business model
-            biz_model = (profile.get("business_model") or "").lower()
-            unit = "seat" if "b2b" in biz_model or "saas" in biz_model else "account"
-            econ = full_economics(
-                segment_summary=segment_summary,
-                product_summary=profile.get("summary", ""),
-                optimal_price_monthly=float(psm_result["optimal_price_point"]),
-                pricing_unit=unit,
-                competitor_prices=comp_prices,
-            )
+            if is_transactional and _cost and _price_per_unit:
+                from business_model import retail_unit_economics
+                log.info("[plan] Step 10: retail unit economics (transactional, $%.2f/%s)",
+                         _price_per_unit, _unit_noun)
+                econ = retail_unit_economics(
+                    price_per_unit=float(_price_per_unit),
+                    variable_cost_per_unit=_cost["variable_cost_per_customer"],
+                    monthly_fixed_cost=_cost["monthly_fixed_cost"],
+                    unit=_unit_noun,
+                    cost_source=_cost["source"],
+                )
+            else:
+                from economics import full_economics
+                log.info("[plan] Step 10: CLV + CAC + EVC economics (subscription)")
+                comp_prices = None
+                if competitor_pricing_data and competitor_pricing_data.get("per_domain"):
+                    comp_prices = [d["median"] for d in competitor_pricing_data["per_domain"] if d.get("median")]
+                biz_model = (profile.get("business_model") or "").lower()
+                unit = "seat" if "b2b" in biz_model or "saas" in biz_model else "account"
+                econ = full_economics(
+                    segment_summary=segment_summary,
+                    product_summary=profile.get("summary", ""),
+                    optimal_price_monthly=_opt,
+                    pricing_unit=unit,
+                    competitor_prices=comp_prices,
+                )
             result["economics"] = econ
             if "error" not in econ:
                 result["_steps_completed"].append("economics")
@@ -1293,16 +1336,19 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     # cycle33: classify market scale (numbers-right engine). Non-breaking — the
     # legacy estimate_market_size shape is preserved downstream; we annotate the
     # result with the scale decision and route physical ventures' caveats.
-    scale_decision = None
-    try:
-        from skills.sizing.classify import classify_market_scale
-        scale_decision = classify_market_scale(description, geo).payload
-        result["market_scale"] = scale_decision
-        result["_steps_completed"].append("market_scale")
-        log.info("[plan] Step 7a: market scale = %s → %s",
-                 scale_decision.get("scale"), scale_decision.get("sizing_skill"))
-    except Exception as e:
-        log.warning("[plan] scale classification failed (non-fatal): %s", e)
+    # cycle37: reuse the scale already classified early (above). Only compute here if the early
+    # pass failed, so we never double-append "market_scale" to _steps_completed.
+    scale_decision = result.get("market_scale")
+    if scale_decision is None:
+        try:
+            from skills.sizing.classify import classify_market_scale
+            scale_decision = classify_market_scale(description, geo).payload
+            result["market_scale"] = scale_decision
+            result["_steps_completed"].append("market_scale")
+            log.info("[plan] Step 7a: market scale = %s → %s",
+                     scale_decision.get("scale"), scale_decision.get("sizing_skill"))
+        except Exception as e:
+            log.warning("[plan] scale classification failed (non-fatal): %s", e)
 
     sizing = {}
     four_ps = {}
@@ -1404,6 +1450,25 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     optimal_price = psm_result.get("optimal_price_point")
     be = (result.get("pricing", {}) or {}).get("break_even", {}) or {}
     be_customers = be.get("break_even_customers")
+
+    # cycle37: now that SOM is known, enrich transactional unit economics with the at-SOM-volume
+    # profitability (monthly operating profit at obtainable volume) — couldn't compute at economics
+    # time because sizing runs after. Pure recompute, no LLM.
+    _econ = result.get("economics") or {}
+    if _econ.get("model") == "transactional" and som_mid and not _econ.get("at_som_volume"):
+        try:
+            from business_model import retail_unit_economics
+            result["economics"] = retail_unit_economics(
+                price_per_unit=_econ["price_per_unit"],
+                variable_cost_per_unit=_econ["variable_cost_per_unit"],
+                monthly_fixed_cost=_econ["monthly_fixed_cost"],
+                unit=_econ.get("unit", "unit"),
+                annual_revenue_usd=float(som_mid),
+                cost_source=_econ.get("cost_source", ""),
+            )
+        except Exception as e:
+            log.warning("[plan] at-SOM economics enrich failed (non-fatal): %s", e)
+
     if som_mid and optimal_price:
         log.info("[plan] Step 10b: 3-year financial projections")
         proj = project_three_year(
@@ -1411,6 +1476,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             optimal_price=float(optimal_price),
             break_even_customers=be_customers,
             break_even_costs=be,  # cycle36: surface the cost assumptions in the report
+            model=("transactional" if biz_kind == "transactional" else "subscription"),  # cycle37
+            economics=result.get("economics"),
         )
         if not proj.get("error"):
             result["financials"] = proj

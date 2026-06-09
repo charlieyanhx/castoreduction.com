@@ -669,11 +669,49 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 {% endif %}
 {% endif %}{# /sizing_blocked — withhold all numeric sizing when the gate fails (F1) #}
 
+{# cycle37: business-model flag drives model-aware pricing / unit-economics / financials. #}
+{% set is_transactional = (business_model_kind == 'transactional') or (economics and economics.model == 'transactional') or (financials and financials.model == 'transactional') %}
 {% if financials and not financials.error %}
 <!-- 3-YEAR FINANCIAL PROJECTIONS -->
 <h2>3-Year Revenue Scenarios</h2>
+{% if is_transactional %}
+<p style="font-size:11pt;color:#4b5563">Three scenarios derived deterministically from the obtainable SOM. Volume is shown as annual {{ financials.assumptions.unit }}s sold; profit is monthly operating profit (revenue × contribution margin − fixed cost).</p>
+<table style="width:100%;border-collapse:collapse;margin:14px 0;font-size:11pt">
+  <thead>
+    <tr style="background:#f3f4f6">
+      <th style="text-align:left;padding:10px;border-bottom:2px solid #d1d5db">Scenario</th>
+      <th style="text-align:right;padding:10px;border-bottom:2px solid #d1d5db">Year 1</th>
+      <th style="text-align:right;padding:10px;border-bottom:2px solid #d1d5db">Year 2</th>
+      <th style="text-align:right;padding:10px;border-bottom:2px solid #d1d5db">Year 3</th>
+      <th style="text-align:right;padding:10px;border-bottom:2px solid #d1d5db">Profitable</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for label in ['conservative','base','aggressive'] %}
+    {% set s = financials.scenarios[label] %}
+    {% set color = '#ef4444' if label == 'conservative' else ('#3b82f6' if label == 'base' else '#10b981') %}
+    <tr style="border-bottom:1px solid #e5e7eb">
+      <td style="padding:10px"><strong style="color:{{ color }};text-transform:capitalize">{{ label }}</strong><br><span style="font-size:9pt;color:#6b7280">{{ s.year3_market_share_pct }}% of SOM by Y3</span></td>
+      {% for yk in ['year_1','year_2','year_3'] %}{% set y = s[yk] %}
+      <td style="text-align:right;padding:10px">{{ format_currency(y.revenue_usd) }}<br>
+        <span style="font-size:9pt;color:#6b7280">{{ '{:,}'.format(y.units) }} {{ financials.assumptions.unit }}s · {{ y.units_per_day }}/day</span><br>
+        <span style="font-size:9pt;color:{{ '#059669' if y.monthly_operating_profit_usd > 0 else '#dc2626' }}">{{ format_currency(y.monthly_operating_profit_usd) }}/mo profit</span></td>
+      {% endfor %}
+      <td style="text-align:right;padding:10px;color:{{ '#10b981' if s.break_even_year else '#ef4444' }}">
+        {% if s.break_even_year %}Y{{ s.break_even_year }}{% else %}Not by Y3{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<div style="background:#f9fafb;padding:10px 14px;border-radius:6px;font-size:9.5pt;color:#4b5563">
+  <strong>Assumptions:</strong>
+  ${{ financials.assumptions.price_per_unit }}/{{ financials.assumptions.unit }} · {{ financials.assumptions.contribution_margin_pct }}% contribution margin · ${{ '{:,.0f}'.format(financials.assumptions.monthly_fixed_cost) }}/mo fixed cost.
+  {{ financials.assumptions.growth_curve }}.<br>
+  <span style="color:#9ca3af">{{ financials.assumptions.break_even_note }} Cost structure is a model estimate — operator should validate.</span>
+</div>
+{% else %}
 <p style="font-size:11pt;color:#4b5563">Three scenarios derived deterministically from SOM and PSM optimal price. Choose your scenario based on execution confidence.</p>
-
 <table style="width:100%;border-collapse:collapse;margin:14px 0;font-size:11pt">
   <thead>
     <tr style="background:#f3f4f6">
@@ -700,7 +738,6 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     {% endfor %}
   </tbody>
 </table>
-
 <div style="background:#f9fafb;padding:10px 14px;border-radius:6px;font-size:9.5pt;color:#4b5563">
   <strong>Assumptions:</strong>
   Annual price per customer: ${{ financials.assumptions.annual_price_per_customer }} ({{ financials.assumptions.monthly_churn_pct }}%/mo churn assumed).
@@ -709,6 +746,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   assumes ${{ '{:,.0f}'.format(financials.assumptions.break_even_monthly_fixed_cost) }}/mo fixed cost and ${{ financials.assumptions.break_even_variable_cost_per_customer }}/customer variable cost
   <span style="color:#9ca3af">({{ financials.assumptions.break_even_cost_source }})</span>. The break-even column is illustrative until the operator sets a real cost structure.{% endif %}
 </div>
+{% endif %}
 {% endif %}
 
 <!-- ITER 36: DIFFERENTIATORS + MARKET GAPS (spec step 3d) -->
@@ -1175,8 +1213,57 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 {% endfor %}
 
 <!-- PRICING DETAIL -->
-{% if psm.optimal_price_point or psm.recommended_tiers %}
+{% if psm.optimal_price_point or psm.recommended_tiers or is_transactional %}
 <h2 id="pricing">Pricing Detail</h2>
+{% if is_transactional and economics and not economics.error %}
+{# cycle37: transactional retail is priced per UNIT (e.g. $6/drink), not as monthly subscription
+   tiers. The PSM monthly simulation + bagged-bean competitor benchmark are the wrong unit here. #}
+<p style="font-size:11pt">Priced per <strong>{{ economics.unit }}</strong> — the unit customers actually transact in, not a monthly subscription.</p>
+<div class="pricing-tiers">
+  <div class="tier-card">
+    <div class="name">Menu price</div>
+    <div class="price">${{ economics.price_per_unit }}<span style="font-size:10pt;font-weight:400;color:#6b7280">/{{ economics.unit }}</span></div>
+    <div class="for-whom">Your stated price per {{ economics.unit }}</div>
+  </div>
+  <div class="tier-card">
+    <div class="name">Contribution margin</div>
+    <div class="price">${{ economics.contribution_margin_per_unit }}<span style="font-size:10pt;font-weight:400;color:#6b7280">/{{ economics.unit }}</span></div>
+    <div class="for-whom">{{ economics.contribution_margin_pct }}% of price, after ${{ economics.variable_cost_per_unit }} variable cost</div>
+  </div>
+  {% if economics.break_even_units_per_day %}
+  <div class="tier-card">
+    <div class="name">Break-even volume</div>
+    <div class="price">{{ economics.break_even_units_per_day }}<span style="font-size:10pt;font-weight:400;color:#6b7280">/day</span></div>
+    <div class="for-whom">{{ economics.unit }}s/day to cover ${{ '{:,.0f}'.format(economics.monthly_fixed_cost) }}/mo fixed cost</div>
+  </div>
+  {% endif %}
+</div>
+<p style="font-size:9pt;color:#9ca3af;margin-top:8px">Cost structure is a model estimate — {{ economics.cost_source }}. Competitor per-{{ economics.unit }} price benchmark requires local menu scraping (not bagged-bean prices); operator should validate against nearby cafes.</p>
+
+<!-- cycle37: TRANSACTIONAL UNIT ECONOMICS (contribution margin + break-even volume, no CLV/CAC/churn) -->
+<h3 style="margin-top:22px" id="economics">Unit Economics</h3>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px">
+  <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:12px">
+    <div style="font-size:9pt;font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:.05em">Contribution margin</div>
+    <div style="font-size:18pt;font-weight:700;color:#1f2937">${{ economics.contribution_margin_per_unit }}<span style="font-size:10pt;color:#6b7280">/{{ economics.unit }}</span></div>
+    <div style="font-size:9pt;color:#4b5563">{{ economics.contribution_margin_pct }}% of ${{ economics.price_per_unit }} price</div>
+  </div>
+  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:12px">
+    <div style="font-size:9pt;font-weight:700;color:#1e40af;text-transform:uppercase;letter-spacing:.05em">Break-even volume</div>
+    <div style="font-size:18pt;font-weight:700;color:#1f2937">{{ economics.break_even_units_per_day }}<span style="font-size:10pt;color:#6b7280">/day</span></div>
+    <div style="font-size:9pt;color:#4b5563">{{ '{:,}'.format(economics.break_even_units_per_month) }} {{ economics.unit }}s/mo to break even</div>
+  </div>
+  <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:12px">
+    <div style="font-size:9pt;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.05em">Monthly fixed cost</div>
+    <div style="font-size:18pt;font-weight:700;color:#1f2937">${{ '{:,.0f}'.format(economics.monthly_fixed_cost) }}</div>
+    <div style="font-size:9pt;color:#4b5563">rent + staff + utilities (est.)</div>
+  </div>
+</div>
+{% if economics.at_som_volume %}
+<p style="font-size:10pt;color:#4b5563">At the obtainable SOM volume (~{{ economics.at_som_volume.monthly_units_per_day }} {{ economics.unit }}s/day): <strong style="color:{% if economics.at_som_volume.profitable_at_som %}#059669{% else %}#dc2626{% endif %}">{{ format_currency(economics.at_som_volume.monthly_operating_profit_usd) }}/mo operating profit</strong> on {{ format_currency(economics.at_som_volume.monthly_revenue_usd) }}/mo revenue.</p>
+{% endif %}
+<p style="font-size:9pt;color:#9ca3af">No churn/CLV: a per-{{ economics.unit }} retail business is sized on volume × margin, not subscription retention.</p>
+{% else %}
 {% if price_reconciliation %}
 {% set pr = price_reconciliation %}
 <div style="border-left:3px solid {% if pr.verdict == 'aligned' %}#10b981{% else %}#f59e0b{% endif %};background:rgba(245,158,11,0.06);border-radius:6px;padding:12px 14px;margin:10px 0">
@@ -1351,6 +1438,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 {% endif %}
 
 {% endif %}
+{% endif %}{# cycle37: close the is_transactional pricing/economics branch opened after the Pricing Detail h2 #}
 
 <!-- ITER 35: PCA axis interpretation panel (user feedback #3a) -->
 {% if clustering and clustering.axis_labels %}
