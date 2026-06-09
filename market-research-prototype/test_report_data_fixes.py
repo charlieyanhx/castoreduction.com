@@ -362,6 +362,13 @@ class TestBusinessModelAware(unittest.TestCase):
         self.assertNotIn("customers", s["year_3"])
         self.assertEqual(proj["assumptions"]["model"], "transactional")
 
+    def test_unit_price_extracted_not_monthly_psm(self):
+        from plan import extract_unit_price
+        self.assertEqual(extract_unit_price("a cafe, about $6 per drink, single location"), 6.0)
+        self.assertEqual(extract_unit_price("$15 a cut"), 15.0)
+        self.assertEqual(extract_unit_price("$6.50 per pour-over"), 6.5)
+        self.assertIsNone(extract_unit_price("a SaaS billed at $99/month"))  # not a per-unit price
+
     def test_subscription_financials_unchanged(self):
         from financials import project_three_year
         proj = project_three_year(som_mid=1000000, optimal_price=38.0, break_even_customers=100)

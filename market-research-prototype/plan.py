@@ -238,6 +238,30 @@ def extract_stated_price(text: str) -> float | None:
         return None
 
 
+# cycle37: a per-TRANSACTION stated price ("$6 per drink", "$6/cup", "$15 a cut"). The monthly
+# _STATED_PRICE_RE misses these, so a transactional venture used to fall back to the PSM monthly
+# point ($38) as its "unit price" — a $38 drink. This captures the real per-unit price.
+_UNIT_PRICE_RE = re.compile(
+    r"\$\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:/|per|a|an|each)?\s*"
+    r"(?:drink|cup|coffee|latte|espresso|beverage|pour[- ]?over|meal|plate|dish|entree|entr[ée]e|"
+    r"cover|visit|ticket|session|class|lesson|ride|trip|haircut|cut|treatment|item|slice|pint|"
+    r"glass|scoop|cone|order|night|booking|appointment|round|game|head|person|guest)\b",
+    re.IGNORECASE)
+
+
+def extract_unit_price(text: str) -> float | None:
+    """Pull a per-transaction stated price ($6 per drink, $15/cut). Returns the value or None."""
+    if not text:
+        return None
+    m = _UNIT_PRICE_RE.search(text)
+    if not m:
+        return None
+    try:
+        return float(m.group(1).replace(",", ""))
+    except ValueError:
+        return None
+
+
 def reconcile_pricing(stated: float | None, recommended) -> dict | None:
     """Compare the user's stated price to the model's recommendation, visibly.
 
@@ -1224,9 +1248,15 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         from pricing import estimate_cost_structure
         _cost = estimate_cost_structure(profile.get("category", ""), _opt) if _opt else None
         # Transactional retail prices per real unit (e.g. $6/drink), not the PSM monthly point.
+        # Prefer an explicit per-unit stated price ("$6 per drink"); fall back to a monthly
+        # stated price, then the PSM optimal.
+        _unit_price = extract_unit_price(description)
         _stated = extract_stated_price(description)
         _unit_noun = (infer_wtp_unit(description, profile) or "/unit").lstrip("/") or "unit"
-        _price_per_unit = (float(_stated) if (is_transactional and _stated) else _opt)
+        if is_transactional:
+            _price_per_unit = float(_unit_price or _stated or _opt)
+        else:
+            _price_per_unit = _opt
 
         # --- Break-even (subscription only — retail break-even lives in unit economics) ---
         if _cost and _opt and not is_transactional:
