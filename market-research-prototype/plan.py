@@ -1166,6 +1166,24 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     # --- Step 9b + Step 11 LLM recommendation in parallel (both need max_diff-ish inputs, but independent of each other) ---
     top_features = [f["feature"] for f in max_diff_result.get("ranked_features", [])[:5] if isinstance(f, dict)]
 
+    # cycle37: classify market scale + business model BEFORE the PSM so the PSM simulates the right
+    # monetization model (per-drink retail vs monthly subscription) rather than always SaaS tiers.
+    if result.get("market_scale") is None:
+        try:
+            from skills.sizing.classify import classify_market_scale
+            result["market_scale"] = classify_market_scale(description, geo).payload
+            result["_steps_completed"].append("market_scale")
+            log.info("[plan] Step 7a (early): market scale = %s",
+                     (result.get("market_scale") or {}).get("scale"))
+        except Exception as e:
+            log.warning("[plan] early scale classification failed (non-fatal): %s", e)
+    from business_model import classify_business_model
+    biz_kind = classify_business_model(profile, result.get("market_scale"))
+    result["business_model_kind"] = biz_kind
+    _psm_unit = (infer_wtp_unit(description, profile) or "/unit").lstrip("/") or "unit"
+    _psm_recurring = (biz_kind != "transactional")
+    log.info("[plan] business model = %s (psm unit=%s, recurring=%s)", biz_kind, _psm_unit, _psm_recurring)
+
     def _psm_task():
         log.info("[plan] Step 9b: Van Westendorp PSM")
         # Use real scraped competitor prices to anchor the simulation
@@ -1177,6 +1195,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             product_summary=profile.get("summary", ""),
             top_features=top_features,
             competitor_prices=comp_prices,
+            unit=_psm_unit,
+            recurring=_psm_recurring,
         )
 
     def _place_llm_task():
@@ -1209,24 +1229,6 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     if not psm_result.get("error"):
         result["_steps_completed"].append("pricing")
         checkpoint()
-
-    # cycle37: classify market scale + business model EARLY so the economics/financials spine
-    # below routes to the right monetization model (transactional retail vs subscription) instead
-    # of assuming B2B SaaS for every venture. Scale is cheap (description+geo) and is reused by
-    # the later sizing step (which no longer recomputes it).
-    if result.get("market_scale") is None:
-        try:
-            from skills.sizing.classify import classify_market_scale
-            result["market_scale"] = classify_market_scale(description, geo).payload
-            result["_steps_completed"].append("market_scale")
-            log.info("[plan] Step 7a (early): market scale = %s",
-                     (result.get("market_scale") or {}).get("scale"))
-        except Exception as e:
-            log.warning("[plan] early scale classification failed (non-fatal): %s", e)
-    from business_model import classify_business_model
-    biz_kind = classify_business_model(profile, result.get("market_scale"))
-    result["business_model_kind"] = biz_kind
-    log.info("[plan] business model = %s", biz_kind)
 
     # C5 (Manus-parity): the user's stated price must not be silently dropped.
     # Reconcile it against the model's recommended optimal price, visibly.

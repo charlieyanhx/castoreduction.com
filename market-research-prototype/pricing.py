@@ -54,28 +54,26 @@ TOP FEATURES: {top_features}
 
 COMPETITOR PRICES (for reference): {comp_prices}
 
+PRICING UNIT: every price in this output MUST be expressed {price_unit}. {recurring_note}
+
 Each simulated buyer answers these 4 questions. Return JSON. CRITICAL: the most-actionable
 fields (optimal_price_point, recommended_tiers, acceptable_range) come FIRST so they
 survive any output truncation. The 4 medians come last.
 
 **UNIT CONSISTENCY (this is the most-broken thing across runs):**
-- ALL prices in this output MUST be in the same unit: dollars per seat per month
-  (or, for DTC, dollars per unit). NEVER mix monthly and annual.
-- recommended_tiers[*].price MUST be within ±50% of optimal_price_point. If a
-  tier feels like it should be 10× larger, you're probably accidentally doing
-  per-account or per-year. STOP and convert back to per-seat/per-month.
-- A "Starter" tier is typically 60-80% of optimal_price_point.
-- A "Pro" tier is typically right at optimal_price_point.
-- An "Enterprise" tier is typically 130-200% of optimal_price_point.
+- ALL prices in this output MUST be {price_unit}. NEVER mix units.
+- recommended_tiers[*].price MUST be within ±60% of optimal_price_point. If a tier feels
+  like it should be 10× larger, you have the wrong unit — STOP and convert back.
+- {tier_guidance}
 
 {{
-  "optimal_price_point": <number — dollars per seat per month>,
-  "acceptable_range": [low_per_seat_per_month, high_per_seat_per_month],
+  "optimal_price_point": <number — {price_unit}>,
+  "acceptable_range": [low, high],
   "point_of_marginal_cheapness": <number — same unit>,
   "recommended_tiers": [
-    {{"name": "Starter",    "price": <number — same unit, ~60-80% of optimal>, "for_whom": "..."}},
-    {{"name": "Pro",        "price": <number — same unit, ~optimal>,           "for_whom": "..."}},
-    {{"name": "Enterprise", "price": <number — same unit, ~130-200% of optimal>,"for_whom": "..."}}
+    {{"name": "{tier1_name}", "price": <number — same unit, ~70% of optimal>, "for_whom": "..."}},
+    {{"name": "{tier2_name}", "price": <number — same unit, ~optimal>,        "for_whom": "..."}},
+    {{"name": "{tier3_name}", "price": <number — same unit, ~150-250% of optimal>,"for_whom": "..."}}
   ],
   "currency": "USD",
   "panel_size": {n_buyers},
@@ -118,11 +116,33 @@ def simulate_van_westendorp(
     top_features: list[str],
     competitor_prices: list[float] | None = None,
     n_buyers: int = 40,
+    unit: str = "seat",
+    recurring: bool = True,
 ) -> dict:
-    """Simulate a Van Westendorp PSM. Returns acceptable range + optimal price + tiered recommendations."""
+    """Simulate a Van Westendorp PSM. Returns acceptable range + optimal price + tiered recommendations.
+
+    cycle37: model-aware. recurring=True → monthly subscription per `unit` (SaaS/seat). recurring=False →
+    a one-time per-`unit` retail price (e.g. per drink), with menu-style tiers and no monthly/annual
+    truncation correction (which only makes sense for recurring pricing).
+    """
 
     comp_str = "unknown" if not competitor_prices else ", ".join(f"${p}" for p in competitor_prices[:10])
     features_str = ", ".join(top_features[:5]) if top_features else "core features"
+
+    if recurring:
+        price_unit = f"in dollars per {unit} per month"
+        recurring_note = "This is a recurring monthly subscription price."
+        tier_guidance = ("A value tier is ~70% of optimal; the main tier sits at optimal; "
+                         "a premium tier is ~150-200% of optimal.")
+        tier_names = ("Starter", "Pro", "Enterprise")
+    else:
+        price_unit = f"as a one-time price per {unit} (a single purchase, NOT a monthly subscription)"
+        recurring_note = (f"This is a per-{unit} retail transaction price. Do NOT invent monthly "
+                          f"subscription tiers or 'per account' pricing — price a single {unit}.")
+        tier_guidance = (f"Tiers are menu price points for one {unit}: a value option ~70% of optimal, "
+                         f"a standard option at optimal, and a premium option ~150-250% of optimal "
+                         f"(e.g. a rare/limited variant).")
+        tier_names = ("Value", "Standard", "Premium")
 
     result = call_json(
         system="You simulate pricing research panels. Return only JSON with realistic numeric prices.",
@@ -132,6 +152,10 @@ def simulate_van_westendorp(
             product_summary=product_summary[:500],
             top_features=features_str,
             comp_prices=comp_str,
+            price_unit=price_unit,
+            recurring_note=recurring_note,
+            tier_guidance=tier_guidance,
+            tier1_name=tier_names[0], tier2_name=tier_names[1], tier3_name=tier_names[2],
         ),
         max_tokens=3500,  # iter 41: bumped from 2000 — was truncating after `too_cheap`, losing optimal_price_point
     )
@@ -142,9 +166,11 @@ def simulate_van_westendorp(
     # Iter 42 (issue 10): sanity-check tier prices against optimal_price_point.
     # The LLM regularly mixes monthly/annual units, producing nonsensical
     # "Starter $3600/mo per seat" when optimal is $30. Auto-correct + flag.
+    # cycle37: the ÷12 "was annual" correction only applies to recurring pricing — skip it for
+    # one-time per-unit retail (a $12 premium drink is not "$1/mo annualized").
     opp = result.get("optimal_price_point")
     tiers = result.get("recommended_tiers") or []
-    if opp and tiers:
+    if opp and tiers and recurring:
         try:
             opp_v = float(opp)
         except (TypeError, ValueError):
