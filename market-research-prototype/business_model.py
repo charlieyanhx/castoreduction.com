@@ -60,6 +60,61 @@ def classify_business_model(profile: dict, market_scale: Optional[dict] = None) 
     return SUBSCRIPTION
 
 
+# Food-service signals — a per-unit price here is a *menu* price, benchmarked against nearby venues.
+_FOOD_KW = (
+    "cafe", "café", "coffee", "espresso", "restaurant", "eatery", "diner", "bistro",
+    "bakery", "bar", "pub", "brewery", "food", "drink", "beverage", "juice", "tea",
+    "kitchen", "deli", "ice cream", "smoothie",
+)
+# A venue noun used in "validate against nearby ___" so a cafe still reads "nearby cafes"
+# but a restaurant reads "nearby restaurants" — never the wrong trade.
+_FOOD_VENUE = (
+    (("cafe", "café", "coffee", "espresso", "tea"), "cafes"),
+    (("restaurant", "eatery", "diner", "bistro", "kitchen", "deli"), "restaurants"),
+    (("bakery",), "bakeries"),
+    (("bar", "pub", "brewery"), "bars"),
+)
+# Marketplace / platform signals — the price to benchmark is a take-rate or per-transaction fee,
+# validated against rival marketplaces, not a storefront menu.
+_MARKETPLACE_KW = (
+    "marketplace", "two-sided", "two sided", "platform", "take rate", "take-rate",
+    "aggregator", "gig", "on-demand", "on demand",
+)
+_MARKETPLACE_UNITS = ("booking", "job", "gig", "task", "project", "transaction", "match", "ride")
+
+
+def benchmark_validation_note(unit: str, category: str = "", business_model: str = "") -> str:
+    """A business-model-aware sentence telling the operator how to validate the competitor
+    per-unit price benchmark — and against whom.
+
+    The economics spine is shared across ventures, so this note must NOT bleed cafe/menu copy
+    into a marketplace or generic-retail report (audit: a two-sided handyman marketplace was
+    told its 'per-booking price benchmark requires local menu scraping (not bagged-bean prices);
+    operator should validate against nearby cafes'). The unit noun and the comparable set are
+    derived from the venture's own category/model.
+    """
+    u = (unit or "unit").strip() or "unit"
+    blob = f"{category} {business_model} {u}".lower()
+
+    if any(k in blob for k in _MARKETPLACE_KW) or u in _MARKETPLACE_UNITS:
+        return (
+            f"Competitor benchmark requires sampling rival take-rates and per-{u} fees; "
+            "operator should validate against comparable marketplaces and local service providers."
+        )
+
+    if any(k in blob for k in _FOOD_KW):
+        venue = next((noun for kws, noun in _FOOD_VENUE if any(k in blob for k in kws)), "venues")
+        return (
+            f"Competitor per-{u} price benchmark requires scraping local menus (per-{u} prices, "
+            f"not packaged-retail prices); operator should validate against nearby {venue}."
+        )
+
+    return (
+        f"Competitor per-{u} price benchmark requires sampling rival list prices for the same {u}; "
+        "operator should validate against direct local competitors."
+    )
+
+
 def retail_unit_economics(
     price_per_unit: float,
     variable_cost_per_unit: float,
@@ -68,12 +123,15 @@ def retail_unit_economics(
     est_visits_per_year: Optional[float] = None,
     annual_revenue_usd: Optional[float] = None,
     cost_source: str = "",
+    category: str = "",
+    business_model: str = "",
 ) -> dict:
     """Transactional retail unit economics — the honest analog of CLV:CAC for a per-visit business.
 
     Reports contribution margin per unit, break-even volume (per month AND per day — the number a
     cafe operator actually reasons about), and, when an annual SOM revenue is supplied, the implied
-    monthly operating profit at that volume. No churn, no CLV, no "per account".
+    monthly operating profit at that volume. No churn, no CLV, no "per account". The benchmark note
+    is derived from the venture's category/model so it never references the wrong trade.
     """
     margin = price_per_unit - variable_cost_per_unit
     out: dict = {
@@ -85,6 +143,7 @@ def retail_unit_economics(
         "contribution_margin_pct": round(margin / price_per_unit * 100, 1) if price_per_unit else None,
         "monthly_fixed_cost": round(monthly_fixed_cost, 0),
         "cost_source": cost_source,
+        "benchmark_note": benchmark_validation_note(unit, category, business_model),
     }
     if margin <= 0:
         out["error"] = "price is below variable cost per unit — no positive contribution margin"

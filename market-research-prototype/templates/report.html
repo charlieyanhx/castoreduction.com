@@ -1216,8 +1216,9 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 {% if psm.optimal_price_point or psm.recommended_tiers or is_transactional %}
 <h2 id="pricing">Pricing Detail</h2>
 {% if is_transactional and economics and not economics.error %}
-{# cycle37: transactional retail is priced per UNIT (e.g. $6/drink), not as monthly subscription
-   tiers. The PSM monthly simulation + bagged-bean competitor benchmark are the wrong unit here. #}
+{# cycle37: transactional retail is priced per UNIT (e.g. $6/drink, 15% per booking), not as a
+   monthly subscription tier. The PSM monthly simulation + monthly competitor benchmark are the
+   wrong unit here. The validation note below is model-aware (see business_model.benchmark_validation_note). #}
 <p style="font-size:11pt">Priced per <strong>{{ economics.unit }}</strong> — the unit customers actually transact in, not a monthly subscription.</p>
 <div class="pricing-tiers">
   <div class="tier-card">
@@ -1238,7 +1239,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   </div>
   {% endif %}
 </div>
-<p style="font-size:9pt;color:#9ca3af;margin-top:8px">Cost structure is a model estimate — {{ economics.cost_source }}. Competitor per-{{ economics.unit }} price benchmark requires local menu scraping (not bagged-bean prices); operator should validate against nearby cafes.</p>
+<p style="font-size:9pt;color:#9ca3af;margin-top:8px">Cost structure is a model estimate — {{ economics.cost_source }}. {{ economics.benchmark_note or ('Competitor per-' ~ economics.unit ~ ' price benchmark requires sampling rival list prices; operator should validate against direct local competitors.') }}</p>
 
 <!-- cycle37: TRANSACTIONAL UNIT ECONOMICS (contribution margin + break-even volume, no CLV/CAC/churn) -->
 <h3 style="margin-top:22px" id="economics">Unit Economics</h3>

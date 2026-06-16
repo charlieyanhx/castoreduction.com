@@ -350,6 +350,34 @@ class TestBusinessModelAware(unittest.TestCase):
         self.assertIn("error", e)
         self.assertNotIn("break_even_units_per_day", e)
 
+    def test_benchmark_note_is_business_model_aware(self):
+        # Audit regression: a two-sided handyman marketplace was told its "per-booking price
+        # benchmark requires local menu scraping (not bagged-bean prices); operator should
+        # validate against nearby cafes" — cafe template copy bleeding into a non-cafe report.
+        from business_model import benchmark_validation_note, retail_unit_economics
+
+        market = benchmark_validation_note("booking", "local home services marketplace", "marketplace")
+        for leak in ("cafe", "coffee", "bagged", "menu"):
+            self.assertNotIn(leak, market.lower())       # no cafe/menu leak for a marketplace
+        self.assertIn("booking", market)                 # speaks the venture's own unit
+        self.assertIn("take-rate", market.lower())       # marketplace-appropriate benchmark
+
+        salon = benchmark_validation_note("cut", "hair salon services", "service")
+        for leak in ("cafe", "coffee", "bagged", "menu"):
+            self.assertNotIn(leak, salon.lower())
+
+        # A real cafe still gets the (correct) menu/cafe framing — no over-correction.
+        cafe = benchmark_validation_note("drink", "specialty coffee cafe", "transactional retail")
+        self.assertIn("menu", cafe.lower())
+        self.assertIn("nearby cafes", cafe.lower())
+
+        # The note is carried on the economics dict the template renders.
+        e = retail_unit_economics(120.0, 30.0, 8000.0, unit="booking",
+                                  category="local home services marketplace",
+                                  business_model="marketplace")
+        self.assertIn("benchmark_note", e)
+        self.assertNotIn("cafe", e["benchmark_note"].lower())
+
     def test_transactional_financials_use_units_not_customers(self):
         from financials import project_three_year
         econ = {"model": "transactional", "price_per_unit": 6.0,
@@ -375,6 +403,76 @@ class TestBusinessModelAware(unittest.TestCase):
         s = proj["scenarios"]["base"]
         self.assertIn("customers", s["year_3"])                # original subscription shape intact
         self.assertEqual(proj["assumptions"]["annual_price_per_customer"], 456.0)
+
+
+class TestGeoCompetitorPromotion(unittest.TestCase):
+    """M1: a physical-local venture's competitors must be the real nearby venues (OSM),
+    promoted to the canonical set — not LLM-guessed national brands. General + deterministic:
+    gated on the scale classifier, skips (never guesses) on unknown category / no location."""
+
+    def _tools(self, names, lat=34.08):
+        geo = Evidence("geocode_address", "geo", 1, payload={"lat": lat, "lng": -118.27})
+        ne = Evidence("osm_named_competitors", "geo", len(names),
+                      payload=[{"brand": n, "name": n} for n in names])
+        return lambda n: type("T", (), {"fn": staticmethod({
+            "geocode_address": lambda *a, **k: geo,
+            "osm_named_competitors": lambda *a, **k: ne,
+        }[n])})
+
+    def test_physical_local_promotes_real_geo_competitors(self):
+        from plan import geo_competitor_opps
+        with patch("tools.get_tool", self._tools(["Intelligentsia", "Go Get Em Tiger", "Maru"])):
+            opps = geo_competitor_opps(
+                "a specialty cafe in Silver Lake, Los Angeles",
+                {"category": "specialty coffee cafe", "geography": "Los Angeles"},
+                {"scale": "hyperlocal", "signals": {"is_physical": True}})
+        self.assertEqual([o["brand"] for o in opps], ["Intelligentsia", "Go Get Em Tiger", "Maru"])
+        self.assertTrue(all(o["geo_sourced"] for o in opps))
+        self.assertTrue(all("domain" not in o for o in opps))  # no domains → pricing skips scraping
+
+    def test_non_physical_venture_returns_empty(self):
+        from plan import geo_competitor_opps
+        with patch("tools.get_tool", self._tools(["A", "B", "C"])):
+            self.assertEqual(geo_competitor_opps(
+                "a B2B analytics SaaS",
+                {"category": "saas", "geography": "US"},
+                {"scale": "national_digital", "signals": {"is_physical": False}}), [])
+
+    def test_unknown_category_skips_not_guesses(self):
+        from plan import geo_competitor_opps
+        with patch("tools.get_tool", self._tools(["A", "B", "C"])):
+            # physical-local with a real location, but category maps to no OSM amenity →
+            # skip rather than fabricate a wrong-category competitor set.
+            self.assertEqual(geo_competitor_opps(
+                "a bookstore at 100 Main Street, Brooklyn",
+                {"category": "independent bookstore", "geography": "Brooklyn"},
+                {"scale": "hyperlocal", "signals": {"is_physical": True}}), [])
+
+
+class TestIncompleteReportPage(unittest.TestCase):
+    """M2: an incomplete/failed job must return a friendly page, never a 0-byte/blank body."""
+
+    def _render(self, job):
+        import api
+        orig = api.jobs.get
+        api.jobs.get = lambda jid: job
+        try:
+            return api.get_job_report_html("x")
+        finally:
+            api.jobs.get = orig
+
+    def test_running_job_is_friendly_not_blank(self):
+        r = self._render({"state": "running", "kind": "plan",
+                          "result": {"_steps_completed": ["profile", "discover"]}, "error": None})
+        self.assertEqual(r.status_code, 202)
+        self.assertGreater(len(r.body), 200)                  # not blank
+        self.assertIn(b"still generating", r.body.lower())
+
+    def test_errored_job_says_regenerate(self):
+        r = self._render({"state": "error", "kind": "plan", "result": {}, "error": "Boom"})
+        self.assertEqual(r.status_code, 409)
+        self.assertIn(b"didn't finish", r.body)
+        self.assertIn(b"Boom", r.body)                        # surfaces the real reason
 
 
 if __name__ == "__main__":

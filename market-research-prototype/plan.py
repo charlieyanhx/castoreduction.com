@@ -470,11 +470,36 @@ def extract_location(text: str) -> str | None:
 
 
 # Map common physical categories to an OSM amenity value for competitor density.
+# Deterministic config (OSM taxonomy), NOT output-hardcoding. Keys are matched as
+# substrings of the venture category; the LONGEST matching key wins, so "barbershop"
+# beats "bar". Unmatched categories resolve to None (caller skips geo competitors
+# rather than fabricating a wrong-category set).
 _OSM_BY_CATEGORY = {
-    "restaurant": "restaurant", "food": "restaurant", "cafe": "cafe", "coffee": "cafe",
-    "bar": "bar", "gym": "gym", "fitness": "gym", "salon": "hairdresser",
-    "clinic": "clinic", "pharmacy": "pharmacy", "bakery": "bakery",
+    "restaurant": "restaurant", "eatery": "restaurant", "diner": "restaurant",
+    "food truck": "fast_food", "food cart": "fast_food", "fast food": "fast_food",
+    "food": "restaurant", "cafe": "cafe", "café": "cafe", "coffee": "cafe",
+    "tea house": "cafe", "teahouse": "cafe",
+    "bakery": "bakery", "patisserie": "bakery", "pub": "pub", "brewery": "bar",
+    "bar": "bar", "wine bar": "bar", "cocktail": "bar", "nightclub": "nightclub",
+    "ice cream": "ice_cream", "gym": "gym", "fitness": "gym", "crossfit": "gym",
+    "yoga": "gym", "pilates": "gym", "barbershop": "hairdresser", "barber": "hairdresser",
+    "hair salon": "hairdresser", "salon": "hairdresser", "nail": "beauty",
+    "spa": "spa", "beauty": "beauty", "clinic": "clinic", "dental": "dentist",
+    "dentist": "dentist", "veterinary": "veterinary", "vet ": "veterinary",
+    "pharmacy": "pharmacy", "library": "library", "cinema": "cinema",
 }
+
+
+def _resolve_osm_amenity(category: str) -> str | None:
+    """Deterministic category → OSM amenity tag. Longest substring match wins (so
+    'barbershop' → hairdresser, not 'bar' → bar). Returns None when no confident match,
+    so callers SKIP geo-competitor fetch instead of guessing a wrong category."""
+    catl = (category or "").lower()
+    best, best_len = None, 0
+    for k, v in _OSM_BY_CATEGORY.items():
+        if k in catl and len(k) > best_len:
+            best, best_len = v, len(k)
+    return best
 
 
 def size_by_scale(scale_decision: dict | None, description: str, profile: dict) -> dict | None:
@@ -496,7 +521,10 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
     if "," not in location and geog and geog.lower() not in ("us", "u.s.", "usa", "united states", "global", ""):
         location = f"{location}, {geog}"
     cat = (profile or {}).get("category") or ""
-    osm = next((v for k, v in _OSM_BY_CATEGORY.items() if k in cat.lower()), "restaurant")
+    # Density count only — a coarse fallback here affects a saturation note, not the
+    # competitor NAMES (those come from the strict geo_competitor_opps helper, which skips
+    # on no-match rather than guessing a wrong category).
+    osm = _resolve_osm_amenity(cat) or "restaurant"
     try:
         from skills.sizing.hyperlocal import size_hyperlocal
         ev = size_hyperlocal(address=location, category=cat or "food_away_from_home",
@@ -569,6 +597,46 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
         "scale_decision": scale_decision,
         "_hyperlocal_location": location, "_osm_value": osm,
     }
+
+
+def geo_competitor_opps(description: str, profile: dict, market_scale: dict | None,
+                        limit: int = 30) -> list[dict]:
+    """M1 (audit): the REAL competitors of a physical-local venture are the nearby venues
+    (OpenStreetMap), not LLM-guessed national DTC brands. Returns them in the canonical
+    `opps` shape (brand/name/rank/geo_sourced) so they can feed clustering, differentiators,
+    personas, and pricing — or [] when this isn't a physical-local venture, has no location,
+    or the category doesn't map to a known OSM amenity (fail safe: never fabricate a
+    wrong-category set). Deterministic given (location, category); pure OSM/geocode, no LLM."""
+    ms = market_scale or {}
+    is_physical = bool((ms.get("signals") or {}).get("is_physical")) or ms.get("scale") in ("hyperlocal", "regional")
+    if not is_physical:
+        return []
+    location = extract_location(description)
+    if not location:
+        return []
+    geog = str((profile or {}).get("geography") or "").strip()
+    if "," not in location and geog and geog.lower() not in ("us", "u.s.", "usa", "united states", "global", ""):
+        location = f"{location}, {geog}"
+    osm = _resolve_osm_amenity((profile or {}).get("category") or "")
+    if not osm:
+        return []  # unknown category → skip, don't guess wrong-category competitors
+    try:
+        from tools import get_tool
+        g = get_tool("geocode_address").fn(location)
+        if not (g.payload and g.payload.get("lat") is not None):
+            return []
+        ne = get_tool("osm_named_competitors").fn(
+            lat=g.payload["lat"], lng=g.payload["lng"], osm_value=osm, limit=limit)
+        if ne.skeleton or not ne.payload:
+            return []
+        # Promote to the opps shape. No domain/signals (these are physical venues, not web
+        # brands) — which is correct: downstream pricing then SKIPS web scraping instead of
+        # mislabeling a competitor's bagged-goods/subscription price as a per-unit price.
+        return [{**c, "rank": i + 1, "geo_sourced": True}
+                for i, c in enumerate(ne.payload) if c.get("brand")]
+    except Exception as e:
+        log.warning("[plan] geo_competitor_opps failed (non-fatal): %s", e)
+        return []
 
 
 def build_integrity_summary(result: dict) -> dict:
@@ -849,6 +917,30 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     checkpoint()
 
     opps = (disc.get("synthesis", {}) or {}).get("ranked_opportunities", [])
+
+    # M1 fix (audit): for a PHYSICAL-LOCAL venture, the real competitors are the nearby venues
+    # (OSM), not LLM-guessed national DTC brands. Classify scale early (cheap; reused by the
+    # later sizing step) and, if physical-local, PROMOTE the geo competitors to the canonical
+    # `opps` set NOW — so clustering, differentiators, personas, and pricing all analyze the
+    # actual local rivals. Previously the geo set was fetched late (in sizing) and discarded
+    # because LLM discovery had already populated `opps` with the wrong national brands.
+    try:
+        if result.get("market_scale") is None:
+            from skills.sizing.classify import classify_market_scale
+            result["market_scale"] = classify_market_scale(description, geo).payload
+            if "market_scale" not in result["_steps_completed"]:
+                result["_steps_completed"].append("market_scale")
+        geo_opps = geo_competitor_opps(description, profile, result.get("market_scale"))
+        if len(geo_opps) >= 3:
+            opps = geo_opps
+            disc.setdefault("synthesis", {})["ranked_opportunities"] = geo_opps
+            disc["geo_sourced"] = True
+            disc["category"] = (profile or {}).get("category", "")
+            result["discover"] = disc
+            log.info("[plan] M1: promoted %d geo competitors to the canonical set", len(geo_opps))
+    except Exception as e:
+        log.warning("[plan] early geo-competitor promotion failed (non-fatal): %s", e)
+
     competitor_domains = [o["domain"] for o in opps if o.get("domain")][:8]
 
     if not opps:
@@ -877,8 +969,10 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     if len(opps) >= 4:
         log.info("[plan] Step 3c: clustering competitors + PCA whitespace detection")
         signals = (disc.get("steps", {}) or {}).get("signals", [])
-        # Prefer richer signal data for clustering if available
-        cluster_input = signals if len(signals) >= 4 else opps
+        # Prefer richer signal data for clustering — BUT when competitors were geo-promoted
+        # (M1), the scraped `signals` belong to the discarded national brands, so cluster the
+        # real local set instead of the stale national signals.
+        cluster_input = opps if disc.get("geo_sourced") else (signals if len(signals) >= 4 else opps)
         clustering = cluster_competitors(cluster_input)
         if not clustering.get("error"):
             whitespace = find_whitespace(clustering, profile)
@@ -1303,6 +1397,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                     monthly_fixed_cost=_cost["monthly_fixed_cost"],
                     unit=_unit_noun,
                     cost_source=_cost["source"],
+                    category=profile.get("category", ""),
+                    business_model=profile.get("business_model", ""),
                 )
             else:
                 from economics import full_economics
@@ -1478,7 +1574,12 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             log.warning(f"[plan] segment ranking failed (non-fatal): {e}")
 
     # --- Step 10b: Financial projections (deterministic, no LLM) ---
-    som_mid = (sizing.get("som", {}) or {}).get("mid")
+    # M3 fix (audit): consume the SINGLE canonical SOM from the FINAL market_sizing, not the
+    # stale local `sizing` var. For physical ventures `result["market_sizing"]` was replaced by
+    # the hyperlocal trade-area model AFTER `sizing` was computed, so reading `sizing` here made
+    # financials + at-SOM economics use a different SOM than the report's headline → two
+    # contradictory SOMs ("profitable at SOM" vs "every scenario loses money"). One source now.
+    som_mid = ((result.get("market_sizing") or {}).get("som") or {}).get("mid")
     optimal_price = psm_result.get("optimal_price_point")
     be = (result.get("pricing", {}) or {}).get("break_even", {}) or {}
     be_customers = be.get("break_even_customers")
@@ -1497,6 +1598,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                 unit=_econ.get("unit", "unit"),
                 annual_revenue_usd=float(som_mid),
                 cost_source=_econ.get("cost_source", ""),
+                category=profile.get("category", ""),
+                business_model=profile.get("business_model", ""),
             )
         except Exception as e:
             log.warning("[plan] at-SOM economics enrich failed (non-fatal): %s", e)

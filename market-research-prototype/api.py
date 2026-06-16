@@ -555,7 +555,36 @@ def get_job_report_html(job_id: str):
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
     if j["state"] != "complete":
-        raise HTTPException(status_code=409, detail=f"job not complete (state={j['state']})")
+        # M2 fix: never hand a paying human a bare 409 / blank page. A job can be
+        # mid-run ("running"), or have halted ("error", or orphaned by a worker/process
+        # death). Return a friendly HTML status page that explains what happened and
+        # offers to regenerate — instead of an empty body that reads as a broken product.
+        state = j["state"]
+        steps = len(((j.get("result") or {}) or {}).get("_steps_completed") or [])
+        err = j.get("error") or ""
+        if state == "running":
+            headline, detail = ("Report still generating…",
+                                f"This run has completed {steps} steps. Refresh in a moment.")
+        else:  # error / orphaned / pending
+            headline, detail = ("This run didn't finish",
+                                "The pipeline halted before producing a full report"
+                                + (f" — {err}" if err else "")
+                                + f". It reached {steps} steps. Please regenerate.")
+        page = (
+            "<!doctype html><meta charset=utf-8>"
+            "<title>Report unavailable</title>"
+            "<div style=\"font:16px/1.6 -apple-system,system-ui,sans-serif;max-width:42rem;"
+            "margin:18vh auto;padding:0 1.5rem;color:#1f2937\">"
+            f"<div style=\"font-size:13px;letter-spacing:.08em;text-transform:uppercase;"
+            f"color:#9ca3af\">Castor Advisories</div>"
+            f"<h1 style=\"font-size:1.6rem;margin:.4rem 0 .6rem\">{headline}</h1>"
+            f"<p style=\"color:#4b5563\">{detail}</p>"
+            f"<p style=\"font-size:13px;color:#9ca3af\">Job {job_id} · state: {state}</p>"
+            "<p><a href=\"/\" style=\"display:inline-block;margin-top:.5rem;padding:.55rem 1rem;"
+            "background:#1f2937;color:#fff;border-radius:8px;text-decoration:none\">"
+            "Start a new report</a></p></div>"
+        )
+        return HTMLResponse(content=page, status_code=(202 if state == "running" else 409))
     if j["kind"] != "plan":
         raise HTTPException(status_code=400, detail="HTML report only available for /plan jobs")
 
