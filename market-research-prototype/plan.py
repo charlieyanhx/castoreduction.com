@@ -469,37 +469,59 @@ def extract_location(text: str) -> str | None:
     return m.group(1).strip() if m else None
 
 
-# Map common physical categories to an OSM amenity value for competitor density.
+# Map common physical categories to a REAL OSM (key, value) tag for competitor lookup.
 # Deterministic config (OSM taxonomy), NOT output-hardcoding. Keys are matched as
 # substrings of the venture category; the LONGEST matching key wins, so "barbershop"
 # beats "bar". Unmatched categories resolve to None (caller skips geo competitors
 # rather than fabricating a wrong-category set).
-_OSM_BY_CATEGORY = {
-    "restaurant": "restaurant", "eatery": "restaurant", "diner": "restaurant",
-    "food truck": "fast_food", "food cart": "fast_food", "fast food": "fast_food",
-    "food": "restaurant", "cafe": "cafe", "café": "cafe", "coffee": "cafe",
-    "tea house": "cafe", "teahouse": "cafe",
-    "bakery": "bakery", "patisserie": "bakery", "pub": "pub", "brewery": "bar",
-    "bar": "bar", "wine bar": "bar", "cocktail": "bar", "nightclub": "nightclub",
-    "ice cream": "ice_cream", "gym": "gym", "fitness": "gym", "crossfit": "gym",
-    "yoga": "gym", "pilates": "gym", "barbershop": "hairdresser", "barber": "hairdresser",
-    "hair salon": "hairdresser", "salon": "hairdresser", "nail": "beauty",
-    "spa": "spa", "beauty": "beauty", "clinic": "clinic", "dental": "dentist",
-    "dentist": "dentist", "veterinary": "veterinary", "vet ": "veterinary",
-    "pharmacy": "pharmacy", "library": "library", "cinema": "cinema",
+# CRITICAL: OSM does NOT put everything under amenity=. Gyms are leisure=fitness_centre;
+# hairdressers/bakeries/bookstores are shop=*. A value-only map (assuming amenity=)
+# silently returned 0 competitors for gyms and salons (audit M1 gap).
+_OSM_TAG_BY_CATEGORY = {
+    "restaurant": ("amenity", "restaurant"), "eatery": ("amenity", "restaurant"),
+    "diner": ("amenity", "restaurant"), "bistro": ("amenity", "restaurant"),
+    "food truck": ("amenity", "fast_food"), "food cart": ("amenity", "fast_food"),
+    "fast food": ("amenity", "fast_food"), "fast-casual": ("amenity", "fast_food"),
+    "fast casual": ("amenity", "fast_food"), "salad": ("amenity", "fast_food"),
+    "food": ("amenity", "restaurant"),
+    "cafe": ("amenity", "cafe"), "café": ("amenity", "cafe"), "coffee": ("amenity", "cafe"),
+    "tea house": ("amenity", "cafe"), "teahouse": ("amenity", "cafe"),
+    "bakery": ("shop", "bakery"), "patisserie": ("shop", "bakery"),
+    "pub": ("amenity", "pub"), "brewery": ("amenity", "bar"), "bar": ("amenity", "bar"),
+    "wine bar": ("amenity", "bar"), "cocktail": ("amenity", "bar"),
+    "nightclub": ("amenity", "nightclub"), "ice cream": ("amenity", "ice_cream"),
+    "gym": ("leisure", "fitness_centre"), "fitness": ("leisure", "fitness_centre"),
+    "crossfit": ("leisure", "fitness_centre"), "yoga": ("leisure", "fitness_centre"),
+    "pilates": ("leisure", "fitness_centre"),
+    "barbershop": ("shop", "hairdresser"), "barber": ("shop", "hairdresser"),
+    "hair salon": ("shop", "hairdresser"), "salon": ("shop", "hairdresser"),
+    "nail": ("shop", "beauty"), "beauty": ("shop", "beauty"), "spa": ("leisure", "spa"),
+    "clinic": ("amenity", "clinic"), "dental": ("amenity", "dentist"),
+    "dentist": ("amenity", "dentist"), "veterinary": ("amenity", "veterinary"),
+    "pharmacy": ("amenity", "pharmacy"), "bookstore": ("shop", "books"),
+    "bookshop": ("shop", "books"), "florist": ("shop", "florist"),
+    "library": ("amenity", "library"), "cinema": ("amenity", "cinema"),
 }
 
 
-def _resolve_osm_amenity(category: str) -> str | None:
-    """Deterministic category → OSM amenity tag. Longest substring match wins (so
-    'barbershop' → hairdresser, not 'bar' → bar). Returns None when no confident match,
-    so callers SKIP geo-competitor fetch instead of guessing a wrong category."""
+def _resolve_osm_tag(category: str) -> tuple[str, str] | None:
+    """Deterministic category → (osm_key, osm_value) using real OSM taxonomy. Longest
+    substring match wins (so 'barbershop' → shop/hairdresser, not 'bar' → amenity/bar).
+    Returns None when no confident match, so callers SKIP geo-competitor fetch instead of
+    guessing a wrong category."""
     catl = (category or "").lower()
     best, best_len = None, 0
-    for k, v in _OSM_BY_CATEGORY.items():
+    for k, v in _OSM_TAG_BY_CATEGORY.items():
         if k in catl and len(k) > best_len:
             best, best_len = v, len(k)
     return best
+
+
+def _resolve_osm_amenity(category: str) -> str | None:
+    """Back-compat shim: the OSM VALUE only (e.g. 'cafe', 'hairdresser'). Prefer
+    _resolve_osm_tag, which also returns the correct OSM key (amenity/shop/leisure)."""
+    t = _resolve_osm_tag(category)
+    return t[1] if t else None
 
 
 def size_by_scale(scale_decision: dict | None, description: str, profile: dict) -> dict | None:
@@ -521,14 +543,15 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
     if "," not in location and geog and geog.lower() not in ("us", "u.s.", "usa", "united states", "global", ""):
         location = f"{location}, {geog}"
     cat = (profile or {}).get("category") or ""
-    # Density count only — a coarse fallback here affects a saturation note, not the
-    # competitor NAMES (those come from the strict geo_competitor_opps helper, which skips
-    # on no-match rather than guessing a wrong category).
-    osm = _resolve_osm_amenity(cat) or "restaurant"
+    # Use the correct OSM (key, value). Density count only — a coarse fallback here affects a
+    # saturation note, not the competitor NAMES (those come from the strict geo_competitor_opps
+    # helper, which skips on no-match rather than guessing a wrong category).
+    _tag = _resolve_osm_tag(cat) or ("amenity", "restaurant")
+    osm_key, osm = _tag
     try:
         from skills.sizing.hyperlocal import size_hyperlocal
         ev = size_hyperlocal(address=location, category=cat or "food_away_from_home",
-                             osm_value=osm)
+                             osm_value=osm, osm_key=osm_key)
     except Exception as e:
         log.warning("[plan] hyperlocal sizing failed (non-fatal): %s", e)
         return None
@@ -566,7 +589,8 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
         g = get_tool("geocode_address").fn(location)
         if g.payload and g.payload.get("lat") is not None:
             ne = get_tool("osm_named_competitors").fn(
-                lat=g.payload["lat"], lng=g.payload["lng"], osm_value=osm, limit=30)
+                lat=g.payload["lat"], lng=g.payload["lng"],
+                osm_key=osm_key, osm_value=osm, limit=30)
             if not ne.skeleton and ne.payload:
                 geo_competitors = ne.payload
     except Exception as e:
@@ -617,16 +641,18 @@ def geo_competitor_opps(description: str, profile: dict, market_scale: dict | No
     geog = str((profile or {}).get("geography") or "").strip()
     if "," not in location and geog and geog.lower() not in ("us", "u.s.", "usa", "united states", "global", ""):
         location = f"{location}, {geog}"
-    osm = _resolve_osm_amenity((profile or {}).get("category") or "")
-    if not osm:
+    tag = _resolve_osm_tag((profile or {}).get("category") or "")
+    if not tag:
         return []  # unknown category → skip, don't guess wrong-category competitors
+    osm_key, osm_value = tag
     try:
         from tools import get_tool
         g = get_tool("geocode_address").fn(location)
         if not (g.payload and g.payload.get("lat") is not None):
             return []
         ne = get_tool("osm_named_competitors").fn(
-            lat=g.payload["lat"], lng=g.payload["lng"], osm_value=osm, limit=limit)
+            lat=g.payload["lat"], lng=g.payload["lng"],
+            osm_key=osm_key, osm_value=osm_value, limit=limit)
         if ne.skeleton or not ne.payload:
             return []
         # Promote to the opps shape. No domain/signals (these are physical venues, not web

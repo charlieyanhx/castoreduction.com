@@ -130,6 +130,7 @@ def size_hyperlocal(
     address: str,
     category: str = "food_away_from_home",
     osm_value: str = "restaurant",
+    osm_key: str = "amenity",
     radius_m: int = 3000,
     serviceable_fraction: float = 0.35,
     ramp_factor: float = 0.6,
@@ -182,7 +183,7 @@ def size_hyperlocal(
     # 3. Competition (needs coordinates — skipped, not fatal, if geocode didn't resolve).
     competitors = None
     if lat is not None and lng is not None:
-        c = poi(lat=lat, lng=lng, radius_m=radius_m, osm_value=osm_value)
+        c = poi(lat=lat, lng=lng, radius_m=radius_m, osm_value=osm_value, osm_key=osm_key)
         competitors = c.count if not c.error else None
 
     # 4. Spend per household. C1 (audit): prefer the real BLS source; an LLM estimate

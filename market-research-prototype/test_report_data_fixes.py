@@ -444,8 +444,8 @@ class TestGeoCompetitorPromotion(unittest.TestCase):
             # physical-local with a real location, but category maps to no OSM amenity →
             # skip rather than fabricate a wrong-category competitor set.
             self.assertEqual(geo_competitor_opps(
-                "a bookstore at 100 Main Street, Brooklyn",
-                {"category": "independent bookstore", "geography": "Brooklyn"},
+                "a pottery studio at 100 Main Street, Brooklyn",
+                {"category": "pottery and ceramics studio", "geography": "Brooklyn"},
                 {"scale": "hyperlocal", "signals": {"is_physical": True}}), [])
 
 
