@@ -1297,11 +1297,13 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                      (result.get("market_scale") or {}).get("scale"))
         except Exception as e:
             log.warning("[plan] early scale classification failed (non-fatal): %s", e)
-    from business_model import classify_business_model
+    from business_model import classify_business_model, is_per_unit
     biz_kind = classify_business_model(profile, result.get("market_scale"))
     result["business_model_kind"] = biz_kind
     _psm_unit = (infer_wtp_unit(description, profile) or "/unit").lstrip("/") or "unit"
-    _psm_recurring = (biz_kind != "transactional")
+    # cycle38: per-unit kinds (transactional/ecommerce/services/hybrid) price one-time per unit;
+    # only subscription/marketplace/ad-supported use the recurring PSM frame.
+    _psm_recurring = not is_per_unit(biz_kind)
     log.info("[plan] business model = %s (psm unit=%s, recurring=%s)", biz_kind, _psm_unit, _psm_recurring)
 
     def _psm_task():
@@ -1360,7 +1362,9 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                  recon["stated_usd"], recon["recommended_usd"], recon["verdict"])
 
     if psm_result.get("optimal_price_point"):
-        is_transactional = (biz_kind == "transactional")
+        # cycle38: route ALL per-unit kinds (transactional/ecommerce/services/hybrid) through the
+        # retail per-unit economics, not just literal "transactional".
+        is_transactional = is_per_unit(biz_kind)
         # cycle36/37: cost structure is category-estimated + disclosed (not a hidden $5000/$2),
         # computed ONCE here and shared by break-even + unit economics.
         try:
@@ -1426,7 +1430,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                     category=profile.get("category", ""),
                     business_model=profile.get("business_model", ""),
                 )
-            else:
+            elif biz_kind == "subscription":
                 from economics import full_economics
                 log.info("[plan] Step 10: CLV + CAC + EVC economics (subscription)")
                 comp_prices = None
@@ -1441,6 +1445,29 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                     pricing_unit=unit,
                     competitor_prices=comp_prices,
                 )
+            else:
+                # cycle38: marketplace (take-rate on GMV) and ad-supported (eCPM on users) have a
+                # different revenue basis than per-unit OR subscription. Rather than fabricate a
+                # SaaS CLV:CAC (audit M12/M6 criticals), emit an HONEST labeled economics object
+                # that names the right basis and the operator inputs it needs.
+                log.info("[plan] Step 10: economics — %s (non per-unit, non-subscription)", biz_kind)
+                if biz_kind == "marketplace":
+                    econ = {"model": "marketplace",
+                            "revenue_basis": "take-rate on third-party GMV (platform revenue = GMV × take-rate, NOT full GMV)",
+                            "needs_operator_input": ["take-rate %", "avg transaction value", "transactions/period", "buyer & seller CAC"],
+                            "note": "Per-subscriber CLV:CAC does not apply. Size revenue from GMV × take-rate; "
+                                    "model two-sided unit economics (CAC for both sides) once the take-rate is set."}
+                elif biz_kind == "ad_supported":
+                    econ = {"model": "ad_supported",
+                            "revenue_basis": "advertising (revenue = active users × sessions × impressions × eCPM × fill-rate)",
+                            "needs_operator_input": ["eCPM", "fill rate", "sessions/MAU", "impressions/session", "content + ad-serving cost/user"],
+                            "note": "Free to the user — there is no subscriber price, so subscriber CLV:CAC does not apply. "
+                                    "Unit economics are ad-revenue-per-active-user minus cost-to-serve."}
+                else:
+                    econ = {"model": biz_kind,
+                            "revenue_basis": "model-specific",
+                            "note": f"Economics for '{biz_kind}' require operator-provided revenue inputs; "
+                                    "subscriber CLV:CAC does not apply."}
             result["economics"] = econ
             if "error" not in econ:
                 result["_steps_completed"].append("economics")
@@ -1638,7 +1665,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             optimal_price=float(optimal_price),
             break_even_customers=be_customers,
             break_even_costs=be,  # cycle36: surface the cost assumptions in the report
-            model=("transactional" if biz_kind == "transactional" else "subscription"),  # cycle37
+            model=("transactional" if is_per_unit(biz_kind) else "subscription"),  # cycle37/38
             economics=result.get("economics"),
         )
         if not proj.get("error"):

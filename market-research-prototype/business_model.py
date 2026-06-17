@@ -18,46 +18,108 @@ from __future__ import annotations
 
 from typing import Optional
 
-TRANSACTIONAL = "transactional"
-SUBSCRIPTION = "subscription"
+# cycle38 (audit M4 Phase B): seven monetization models, deterministic keyword routing.
+TRANSACTIONAL = "transactional"   # physical retail / per-visit / per-unit
+SUBSCRIPTION = "subscription"     # recurring monthly/annual (SaaS, membership)
+ECOMMERCE = "ecommerce"           # one-time physical product / DTC
+SERVICES = "services"             # agency / consultancy / project or retainer
+HYBRID = "hybrid"                 # one-time + recurring (e.g. hardware device + subscription)
+MARKETPLACE = "marketplace"       # take-rate / commission on third-party GMV
+AD_SUPPORTED = "ad_supported"     # free to user, monetized via advertising
 
-# Keyword signals. Subscription wins only when the model is *explicitly* recurring; a physical
-# premise (is_physical / hyperlocal) is transactional unless it's membership-first.
+# Kinds whose economics are per-unit (price × volume − costs) — they all route to
+# retail_unit_economics. Subscription, marketplace, ad-supported have their own bases.
+_PER_UNIT_KINDS = (TRANSACTIONAL, ECOMMERCE, SERVICES, HYBRID)
+
+
+def is_per_unit(kind: Optional[str]) -> bool:
+    """True if the model's revenue is price-per-unit × volume (transactional/ecommerce/
+    services/hybrid) → uses retail_unit_economics, not subscription CLV:CAC."""
+    return (kind or "") in _PER_UNIT_KINDS
+
+
 _SUBSCRIPTION_KW = (
     "subscription", "saas", "membership", " member", "per month", "/mo", "per seat",
-    "monthly recurring", "recurring revenue", "annual contract", "license",
+    "monthly recurring", "recurring revenue", "annual contract", "license", "mrr",
 )
-_TRANSACTIONAL_KW = (
-    "cafe", "café", "coffee", "restaurant", "eatery", "bar ", "bakery", "salon",
-    "barbershop", "barber", "gym", "fitness studio", "yoga studio", "retail store",
-    "storefront", "shop", "boutique", "food truck", "per drink", "per visit", "per cup",
-    "per plate", "per ticket", "walk-in", "dine-in", "brick-and-mortar", "brick and mortar",
+# Tight, unambiguous marketplace signals only — a take-rate/commission on third-party GMV or
+# an explicit two-sided market. (Loose terms like "platform"/"matches"/"connects" over-matched
+# SaaS and news apps, so they are deliberately excluded.)
+_MARKETPLACE_KW = (
+    "marketplace", "two-sided", "two sided", "take rate", "take-rate", "take rate on",
+    "% commission", "commission on each", "commission per", "connects buyers", "connects sellers",
+    "connects homeowners", "vetted handymen", "vetted providers", "gig economy platform",
+)
+_AD_KW = (
+    "ad-supported", "ad supported", "ad-funded", "advertising-supported", "ad revenue",
+    "supported by ads", "monetized through ads", "monetized via ads", "monetize via advertising",
+    "ad-based", "free, ad", "free ad-",
+)
+_SERVICES_KW = (
+    "agency", "consultancy", "consulting", "design studio", "creative studio", "dev shop",
+    "development studio", "freelance", "retainer", "project-based", "project fee",
+    "done-for-you", "professional services", "studio for", "studio serving",
+)
+_ONETIME_KW = (
+    "one-time", "one time", "per unit", "per bottle", "per bag", "per box", "per device",
+    "hardware", "device", "dtc", "direct-to-consumer", "direct to consumer", "e-commerce",
+    "ecommerce", "online store", "single purchase", "sells physical", "physical product",
+)
+_PER_VISIT_KW = (
+    "drop-in", "drop in", "per visit", "per class", "per cut", "per drink", "per plate",
+    "per session", "walk-in", "per ticket", "per cup", "pay-per-visit",
 )
 
 
 def classify_business_model(profile: dict, market_scale: Optional[dict] = None) -> str:
-    """Return TRANSACTIONAL or SUBSCRIPTION for a venture.
+    """Deterministic monetization-model classifier (no LLM). Returns one of the seven kinds.
 
-    A physical premise serving walk-in trade (market_scale.signals.is_physical, or a hyperlocal
-    scale) is transactional retail unless the model is explicitly membership/subscription-first.
-    Otherwise, explicit recurring keywords → subscription; retail keywords → transactional;
-    ambiguous → subscription (preserves the original SaaS behavior so nothing regresses)."""
+    A physical premise → transactional (or hybrid if it has BOTH drop-in and membership,
+    or pure subscription if membership-only). A digital venture routes by monetization signal
+    in specificity order: marketplace → ad-supported → services → (one-time+recurring=hybrid)
+    → one-time=ecommerce → recurring=subscription → default subscription (preserves original
+    behavior so nothing regresses)."""
     profile = profile or {}
     bm = (profile.get("business_model") or "").lower()
     cat = (profile.get("category") or "").lower()
     blob = f"{bm} {cat} {(profile.get('summary') or '').lower()}"
     ms = market_scale or {}
-    signals = ms.get("signals") or {}
-    is_physical = bool(signals.get("is_physical")) or ms.get("scale") == "hyperlocal"
+    is_physical = bool((ms.get("signals") or {}).get("is_physical")) or ms.get("scale") == "hyperlocal"
 
-    membership_first = any(k in blob for k in ("membership", "subscription-first", "members-only", "members only"))
-    if is_physical and not membership_first:
-        return TRANSACTIONAL
-    if any(k in blob for k in _SUBSCRIPTION_KW):
+    def has(kws):
+        return any(k in blob for k in kws)
+
+    membership_first = has(("membership", "subscription-first", "members-only", "members only"))
+    per_visit = has(_PER_VISIT_KW)
+
+    # 1. Unambiguous models that must win even if the venture is (mis)tagged physical: a take-rate
+    # marketplace, a free ad-supported product, or an explicit B2B services/agency. These keyword
+    # sets are specific enough that a cafe/salon/gym never matches them.
+    if has(_MARKETPLACE_KW):
+        return MARKETPLACE
+    if has(_AD_KW):
+        return AD_SUPPORTED
+    if has(_SERVICES_KW):
+        return SERVICES
+
+    # 2. Physical premise serving local trade.
+    if is_physical:
+        if per_visit and membership_first:
+            return HYBRID            # e.g. gym: $30 drop-in + monthly membership
+        if membership_first:
+            return SUBSCRIPTION      # members-only club
+        return TRANSACTIONAL         # cafe, restaurant, salon, food truck
+
+    # 3. Digital / non-premise venture — route by remaining monetization signal.
+    recurring = has(_SUBSCRIPTION_KW)
+    onetime = has(_ONETIME_KW)
+    if onetime and recurring:
+        return HYBRID                # hardware device + subscription
+    if onetime:
+        return ECOMMERCE             # one-time physical product / DTC
+    if recurring:
         return SUBSCRIPTION
-    if any(k in blob for k in _TRANSACTIONAL_KW):
-        return TRANSACTIONAL
-    return SUBSCRIPTION
+    return SUBSCRIPTION              # default preserves original SaaS behavior
 
 
 # Food-service signals — a per-unit price here is a *menu* price, benchmarked against nearby venues.
@@ -74,12 +136,11 @@ _FOOD_VENUE = (
     (("bakery",), "bakeries"),
     (("bar", "pub", "brewery"), "bars"),
 )
-# Marketplace / platform signals — the price to benchmark is a take-rate or per-transaction fee,
-# validated against rival marketplaces, not a storefront menu.
-_MARKETPLACE_KW = (
-    "marketplace", "two-sided", "two sided", "platform", "take rate", "take-rate",
-    "aggregator", "gig", "on-demand", "on demand",
-)
+# Marketplace UNIT nouns — used by benchmark_validation_note to detect a marketplace by its
+# per-transaction unit even when the keyword is implicit. The marketplace KEYWORD list is the
+# single tight `_MARKETPLACE_KW` defined above (shared with the classifier); a second, looser
+# copy here used to shadow it and made the classifier tag SaaS/news apps ("platform") as
+# marketplaces — removed.
 _MARKETPLACE_UNITS = ("booking", "job", "gig", "task", "project", "transaction", "match", "ride")
 
 

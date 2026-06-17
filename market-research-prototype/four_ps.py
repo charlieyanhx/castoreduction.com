@@ -26,20 +26,36 @@ def model_directive(business_model_kind: str | None, economics: dict | None = No
     deterministic — the text is selected purely by the resolved model kind; no per-venture
     casing, no hardcoded figures."""
     kind = (business_model_kind or "").lower()
-    if kind == "transactional":
+    _NO_SUB = ("HARD RULE: do NOT introduce subscription framing — no MRR, no 'monthly recurring "
+               "revenue', no 'subscribers'/'subscriber target', no churn, no CLV:CAC, no 'per "
+               "account', no SaaS benchmarks. A subscription may appear ONLY as an explicitly-"
+               "labeled OPTIONAL SECONDARY line, never as the headline revenue.")
+    if kind in ("transactional", "ecommerce", "services", "hybrid"):
         unit = ((economics or {}).get("unit")) or "unit"
-        return (
-            f"\n\nMONETIZATION MODEL — TRANSACTIONAL RETAIL (revenue = {unit}s sold × price "
-            f"per {unit}). HARD RULE: do NOT introduce subscription framing anywhere — no MRR, "
-            f"no 'monthly recurring revenue', no 'subscribers'/'subscriber target', no churn, "
-            f"no CLV:CAC, no 'per account', no SaaS benchmarks, no '/mo' on the core product. "
-            f"A subscription/membership may appear ONLY as an explicitly-labeled OPTIONAL "
-            f"SECONDARY line, never as the headline revenue. Frame all revenue, pricing, place "
-            f"and viability as per-{unit} volume × contribution margin.")
+        kindlabel = {
+            "transactional": "TRANSACTIONAL RETAIL", "ecommerce": "ECOMMERCE (one-time product sale)",
+            "services": "SERVICES (project/retainer)", "hybrid": "HYBRID (one-time + a secondary recurring leg)",
+        }[kind]
+        extra = ("" if kind != "hybrid" else
+                 " For HYBRID, the one-time leg (e.g. the device/product) is the PRIMARY revenue; "
+                 "the recurring leg is real but secondary — show BOTH, never drop the one-time half.")
+        return (f"\n\nMONETIZATION MODEL — {kindlabel} (revenue = {unit}s sold × price per {unit}). "
+                f"{_NO_SUB} Frame all revenue, pricing, place and viability as per-{unit} volume × "
+                f"contribution margin.{extra}")
     if kind == "subscription":
         return (
             "\n\nMONETIZATION MODEL — SUBSCRIPTION (recurring): MRR, churn, and CLV:CAC apply. "
-            "Do NOT reframe it as one-time per-unit retail. Use one consistent CAC figure.")
+            "Do NOT reframe it as one-time per-unit retail. Use ONE consistent CAC figure.")
+    if kind == "marketplace":
+        return (
+            "\n\nMONETIZATION MODEL — MARKETPLACE (take-rate). Platform revenue = GMV × take-rate, "
+            "NOT the full transaction value. Do NOT count merchant GMV as company revenue and do "
+            "NOT apply subscriber CLV:CAC. Model both sides (buyer + seller acquisition).")
+    if kind == "ad_supported":
+        return (
+            "\n\nMONETIZATION MODEL — AD-SUPPORTED (free to the user). There is NO subscriber "
+            "price: do NOT invent a subscription fee, MRR, or subscriber CLV:CAC. Frame economics "
+            "on users/engagement (DAU/MAU, sessions, eCPM/RPM, fill rate) and ad revenue per user.")
     return (
         "\n\nMONETIZATION MODEL — match the venture's stated business model exactly. If it does "
         "NOT charge a recurring fee, do NOT invent a subscription/MRR model; if it is free / "

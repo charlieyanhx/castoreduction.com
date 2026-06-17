@@ -475,6 +475,45 @@ class TestIncompleteReportPage(unittest.TestCase):
         self.assertIn(b"Boom", r.body)                        # surfaces the real reason
 
 
+class TestBusinessModelClassifier(unittest.TestCase):
+    """M4 Phase B: 7-kind deterministic classifier. Each kind routes to the right economics,
+    and 'platform'/'on-demand' figures of speech must NOT trigger marketplace."""
+
+    def _c(self, bm, cat, summary, scale=None, physical=False):
+        from business_model import classify_business_model
+        ms = {"scale": scale, "signals": {"is_physical": physical}}
+        return classify_business_model({"business_model": bm, "category": cat, "summary": summary}, ms)
+
+    def test_physical_retail_is_transactional(self):
+        self.assertEqual(self._c("retail cafe", "coffee cafe", "a cafe, $6/drink", "hyperlocal", True), "transactional")
+
+    def test_gym_with_dropin_and_membership_is_hybrid(self):
+        self.assertEqual(self._c("gym", "strength gym", "drop-in $30 plus monthly membership", "hyperlocal", True), "hybrid")
+
+    def test_hardware_plus_subscription_is_hybrid(self):
+        self.assertEqual(self._c("hardware + app", "smart home device", "a $199 device with a $5/mo subscription", "national_digital"), "hybrid")
+
+    def test_one_time_dtc_product_is_ecommerce(self):
+        self.assertEqual(self._c("DTC", "skincare", "a $45 serum sold direct-to-consumer, one-time purchase", "national_digital"), "ecommerce")
+
+    def test_agency_is_services_even_if_mis_scaled_physical(self):
+        # upstream scale misroute (hyperlocal) must NOT make a design agency 'transactional'
+        self.assertEqual(self._c("service", "design studio", "project-based brand design, ~$20,000 per project", "hyperlocal", True), "services")
+
+    def test_take_rate_marketplace_beats_physical(self):
+        self.assertEqual(self._c("marketplace", "home services marketplace", "two-sided marketplace, 15% take rate, connects homeowners with vetted handymen", "national_physical", True), "marketplace")
+
+    def test_free_ad_supported(self):
+        self.assertEqual(self._c("ad-supported", "news app", "a free app monetized through ads", "national_digital"), "ad_supported")
+
+    def test_saas_is_subscription_not_marketplace(self):
+        # 'platform' must not trigger marketplace
+        self.assertEqual(self._c("b2b saas subscription", "team analytics software", "a b2b saas analytics platform offered as a subscription", "national_digital"), "subscription")
+
+    def test_news_platform_word_is_not_marketplace(self):
+        self.assertEqual(self._c("ad-supported", "news app", "the platform is completely free, on-demand articles, monetized through ads", "national_digital"), "ad_supported")
+
+
 class TestModelDirective(unittest.TestCase):
     """M4: the model-consistency guardrail injected into 4Ps + viability prompts so the
     narrative layers can't invent a monetization model the numbers spine never computed."""
@@ -491,7 +530,7 @@ class TestModelDirective(unittest.TestCase):
         from four_ps import model_directive
         d = model_directive("subscription")
         self.assertIn("MRR", d)
-        self.assertIn("one consistent CAC", d)  # kills the 3-conflicting-CAC bug
+        self.assertIn("consistent CAC", d)  # kills the 3-conflicting-CAC bug
 
     def test_unknown_model_guards_against_invented_subscription(self):
         from four_ps import model_directive
