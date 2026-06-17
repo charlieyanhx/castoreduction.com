@@ -475,5 +475,29 @@ class TestIncompleteReportPage(unittest.TestCase):
         self.assertIn(b"Boom", r.body)                        # surfaces the real reason
 
 
+class TestModelDirective(unittest.TestCase):
+    """M4: the model-consistency guardrail injected into 4Ps + viability prompts so the
+    narrative layers can't invent a monetization model the numbers spine never computed."""
+
+    def test_transactional_forbids_subscription_framing(self):
+        from four_ps import model_directive
+        d = model_directive("transactional", {"unit": "drink"}).lower()
+        for banned in ("mrr", "subscriber", "churn", "clv:cac", "per account", "saas"):
+            self.assertIn(banned, d)            # all explicitly named as forbidden
+        self.assertIn("drink", d)               # uses the real unit
+        self.assertIn("secondary", d)           # subscription allowed only as labeled secondary
+
+    def test_subscription_keeps_recurring_framing(self):
+        from four_ps import model_directive
+        d = model_directive("subscription")
+        self.assertIn("MRR", d)
+        self.assertIn("one consistent CAC", d)  # kills the 3-conflicting-CAC bug
+
+    def test_unknown_model_guards_against_invented_subscription(self):
+        from four_ps import model_directive
+        d = model_directive(None).lower()
+        self.assertIn("do not invent a subscription", d)
+
+
 if __name__ == "__main__":
     unittest.main()

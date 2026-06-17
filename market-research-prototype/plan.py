@@ -1485,6 +1485,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             pricing_benchmark=(result.get("pricing") or {}).get("benchmark"),
             economics=result.get("economics"),
             reddit_signal=reddit_data,
+            business_model_kind=biz_kind,  # M4: forbid model bleed in the 4Ps narrative
         )
 
     # cycle33: classify market scale (numbers-right engine). Non-breaking — the
@@ -1669,6 +1670,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         economics_evc=(result.get("economics") or {}).get("evc", {}).get("verdict"),
         economics_clv=(result.get("economics") or {}).get("clv", {}).get("clv_usd"),
         market_sizing=result.get("market_sizing"),  # cycle36: score opportunity on the real TAM/scale
+        business_model_kind=biz_kind,  # M4: forbid subscription/MRR bleed in viability narrative
+        economics=result.get("economics"),
     )
     viability = _run_with_timeout(score_viability, timeout_s=90, label="viability", **viability_kwargs)
     if viability.get("error"):

@@ -19,6 +19,33 @@ from logger import get
 log = get("four_ps")
 
 
+def model_directive(business_model_kind: str | None, economics: dict | None = None) -> str:
+    """A hard guardrail injected into every 4Ps section + the viability prompt so the
+    narrative layers stop inventing a monetization model the numbers spine never computed
+    (audit M4: a $6/drink cafe described with '$12K MRR / 500 subscribers'). General +
+    deterministic — the text is selected purely by the resolved model kind; no per-venture
+    casing, no hardcoded figures."""
+    kind = (business_model_kind or "").lower()
+    if kind == "transactional":
+        unit = ((economics or {}).get("unit")) or "unit"
+        return (
+            f"\n\nMONETIZATION MODEL — TRANSACTIONAL RETAIL (revenue = {unit}s sold × price "
+            f"per {unit}). HARD RULE: do NOT introduce subscription framing anywhere — no MRR, "
+            f"no 'monthly recurring revenue', no 'subscribers'/'subscriber target', no churn, "
+            f"no CLV:CAC, no 'per account', no SaaS benchmarks, no '/mo' on the core product. "
+            f"A subscription/membership may appear ONLY as an explicitly-labeled OPTIONAL "
+            f"SECONDARY line, never as the headline revenue. Frame all revenue, pricing, place "
+            f"and viability as per-{unit} volume × contribution margin.")
+    if kind == "subscription":
+        return (
+            "\n\nMONETIZATION MODEL — SUBSCRIPTION (recurring): MRR, churn, and CLV:CAC apply. "
+            "Do NOT reframe it as one-time per-unit retail. Use one consistent CAC figure.")
+    return (
+        "\n\nMONETIZATION MODEL — match the venture's stated business model exactly. If it does "
+        "NOT charge a recurring fee, do NOT invent a subscription/MRR model; if it is free / "
+        "ad-supported, frame economics on users/engagement, not subscriber CLV:CAC.")
+
+
 FOUR_PS_PROMPT = """You are writing a paid-grade 4Ps marketing plan for a new venture. Output goes into a McKinsey-style report. Follow these rules:
 
 1. Every claim must be grounded in observable signals (traffic momentum, real customer voice, competitor homepage scrape, PSM/Max-Diff outputs).
@@ -386,6 +413,7 @@ def assemble_4ps_split(
     pricing_benchmark: dict | None = None,
     economics: dict | None = None,
     reddit_signal: dict | None = None,
+    business_model_kind: str | None = None,
 ) -> dict:
     """
     Iter 35 step 6: run the 4Ps as 4 parallel focused prompts instead of one
@@ -518,11 +546,14 @@ def assemble_4ps_split(
         return out
 
     psm_ok = bool((van_westendorp or {}).get("optimal_price_point")) and not (van_westendorp or {}).get("error")
+    # M4: every section gets the monetization-model guardrail so none invents subscription/
+    # MRR/SaaS framing the numbers spine never computed.
+    _md = model_directive(business_model_kind, economics)
     tasks = {
-        "product": _product_prompt(profile_blob, features_blob, competitors_blob, audience_celebrated),
-        "price": _price_prompt(profile_blob, pricing_blob, benchmark_blob, economics_blob, psm_ok=psm_ok),
-        "place": _place_prompt(profile_blob, place_blob, audience_life_context),
-        "promotion": _promotion_prompt(profile_blob, audience_blob, reddit_themes_blob),
+        "product": _product_prompt(profile_blob, features_blob, competitors_blob, audience_celebrated) + _md,
+        "price": _price_prompt(profile_blob, pricing_blob, benchmark_blob, economics_blob, psm_ok=psm_ok) + _md,
+        "place": _place_prompt(profile_blob, place_blob, audience_life_context) + _md,
+        "promotion": _promotion_prompt(profile_blob, audience_blob, reddit_themes_blob) + _md,
     }
 
     results: dict = {}
@@ -733,6 +764,8 @@ def score_viability(
     economics_evc: str | None = None,
     economics_clv: float | None = None,
     market_sizing: dict | None = None,
+    business_model_kind: str | None = None,
+    economics: dict | None = None,
 ) -> dict:
     """Score viability 1-100 from the completed 4Ps plan + supporting metrics."""
 
@@ -779,7 +812,8 @@ def score_viability(
             avg_score=avg_score,
             audience_confidence=audience_confidence,
             signal_count=signal_count,
-        ) + "\n\nREAL PIPELINE METRICS (anchor scoring to these — they are authoritative over your guesses):\n" + real_metrics_blob,
+        ) + "\n\nREAL PIPELINE METRICS (anchor scoring to these — they are authoritative over your guesses):\n" + real_metrics_blob
+          + model_directive(business_model_kind, economics),  # M4: no subscription bleed in viability
         max_tokens=4500,  # iter 40: bumped from 3000 — added 5-dim per-dimension scoring with reasoning, was truncating to 2/5 dims
     )
     if "_parse_error" in result:
