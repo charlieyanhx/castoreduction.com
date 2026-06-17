@@ -346,6 +346,23 @@ _UNIT_CATEGORY_HINTS = (
 )
 
 
+_TECH_KW = (
+    "saas", "software", "developer", "dev tool", "devtool", " api", "sdk", "devops",
+    "cloud", "machine learning", "data platform", "analytics platform", "cybersecurity",
+    "infosec", "b2b saas", "open source", "programming", "engineering tool", "ai platform",
+    "ml platform", "data pipeline", "observability", "infrastructure software",
+)
+
+
+def _is_tech_venture(profile: dict | None) -> bool:
+    """True if dev/tech forums (Stack Exchange / DEV.to / Lobsters) are a relevant customer-voice
+    source — i.e. a software/dev/SaaS venture. Deterministic keyword check; a cafe/salon/clinic
+    returns False so it isn't searched against (and judged by) tech forums."""
+    p = profile or {}
+    blob = f"{p.get('business_model','')} {p.get('category','')} {p.get('summary','')}".lower()
+    return any(k in blob for k in _TECH_KW)
+
+
 def unit_for_model(biz_kind: str, description: str, profile: dict | None = None) -> str:
     """The economics/pricing unit noun for a venture — NEVER '/mo' for a per-unit model.
 
@@ -1169,22 +1186,25 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             return []
 
     def _multisrc_task():
-        """cycle27 (real fix to issue 6/7): pull Stack Exchange + DEV.to + Lobsters in parallel.
-        cycle31-r2 (Discovery 2 fix): + vertical_publication_mentions for non-tech verticals.
-        All free, no API key. Returns dict {stackoverflow, devto, lobsters, vertical_pubs}."""
+        """Pull customer-voice sources in parallel — INDUSTRY-AWARE (cycle38). The dev forums
+        (Stack Exchange / DEV.to / Lobsters) are only relevant to tech/dev/SaaS ventures; for a
+        cafe or salon they return nothing but noise. They now run ONLY for tech ventures; every
+        venture gets vertical_publication_mentions (industry trade press). All free, no key."""
         from sources import stackexchange_mentions, devto_mentions, lobsters_mentions, vertical_publication_mentions
         target = (top_3_comps[0]["brand"] if top_3_comps else profile.get("category", ""))
         if not target:
             return {}
         category = profile.get("category", "")
-        log.info(f"[plan] Step 6e: pulling Stack Exchange + DEV.to + Lobsters + vertical_pubs for '{target}'")
-        out = {}
+        is_tech = _is_tech_venture(profile)
+        log.info("[plan] Step 6e: customer-voice sources for '%s' (tech_forums=%s)", target, is_tech)
+        out = {"stackoverflow": [], "devto": [], "lobsters": [], "vertical_pubs": [], "_tech": is_tech}
         with ThreadPoolExecutor(max_workers=4) as p:
-            so_f = p.submit(stackexchange_mentions, target, 12)
-            dv_f = p.submit(devto_mentions, target, 10)
-            lb_f = p.submit(lobsters_mentions, target, 10)
-            vp_f = p.submit(vertical_publication_mentions, target, category, 10)
-            for name, fut in [("stackoverflow", so_f), ("devto", dv_f), ("lobsters", lb_f), ("vertical_pubs", vp_f)]:
+            futs = {"vertical_pubs": p.submit(vertical_publication_mentions, target, category, 10)}
+            if is_tech:  # dev forums only help tech/dev/SaaS ventures
+                futs["stackoverflow"] = p.submit(stackexchange_mentions, target, 12)
+                futs["devto"] = p.submit(devto_mentions, target, 10)
+                futs["lobsters"] = p.submit(lobsters_mentions, target, 10)
+            for name, fut in futs.items():
                 try:
                     out[name] = fut.result(timeout=25) or []
                 except Exception as e:
