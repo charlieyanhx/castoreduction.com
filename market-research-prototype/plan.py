@@ -1475,6 +1475,23 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         except Exception as e:
             log.warning(f"[plan] economics computation failed (non-fatal): {e}")
 
+    # cycle38: non-priced models (ad-supported, marketplace) often have no PSM optimal price, so
+    # the priced block above is skipped — but we still owe the reader an HONEST economics object
+    # naming the real revenue basis (never a fabricated SaaS CLV:CAC, and never silently blank).
+    if not result.get("economics") and biz_kind in ("ad_supported", "marketplace"):
+        if biz_kind == "ad_supported":
+            result["economics"] = {"model": "ad_supported",
+                "revenue_basis": "advertising (revenue = active users × sessions × impressions × eCPM × fill-rate)",
+                "needs_operator_input": ["eCPM", "fill rate", "sessions/MAU", "impressions/session", "cost-to-serve/user"],
+                "note": "Free to the user — no subscriber price, so subscriber CLV:CAC does not apply. "
+                        "Unit economics = ad revenue per active user minus cost-to-serve."}
+        else:
+            result["economics"] = {"model": "marketplace",
+                "revenue_basis": "take-rate on third-party GMV (platform revenue = GMV × take-rate, not full GMV)",
+                "needs_operator_input": ["take-rate %", "avg transaction value", "transactions/period", "buyer & seller CAC"],
+                "note": "Size revenue from GMV × take-rate; model two-sided CAC. Subscriber CLV:CAC does not apply."}
+        result["_steps_completed"].append("economics")
+
     result["place"] = place_result
     if not place_result.get("error"):
         result["_steps_completed"].append("place")
