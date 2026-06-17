@@ -32,23 +32,32 @@ _SPEND_CACHE: dict[str, float] = {}
 
 
 def _estimate_households(location: str, radius_m: int) -> Optional[float]:
-    """LLM estimate of households within `radius_m` of `location` — a labeled fallback
-    used ONLY when Census ACS is unavailable. The caller marks it UNSOURCED and caps
-    confidence; never presented as a Census figure. Returns a float or None."""
+    """Estimate trade-area households as catchment AREA × LLM-estimated residential DENSITY
+    (households/km²) — a labeled fallback when Census ACS is unavailable.
+
+    Estimating DENSITY (a stable per-place quantity ~ "how dense is this neighborhood") and
+    computing households = π·r²·density is far more reproducible AND scales correctly with the
+    catchment radius than asking the LLM for a TOTAL household count, which it tends to over-state
+    and which swung wildly run-to-run (15k ↔ 115k for the same place). UNSOURCED; caps confidence.
+    Returns a float or None."""
     if not location:
         return None
     try:
+        import math
         from llm import call_json
-        km = round(radius_m / 1000.0, 1)
         raw = call_json(
-            system=("Estimate the number of households within the given radius of a "
-                    "location, using typical US urban/suburban density. Reply ONLY JSON: "
-                    "{\"households\": <integer>}."),
-            user=f"Location: {location}\nRadius: {km} km",
+            system=("Estimate residential density as HOUSEHOLDS PER SQUARE KILOMETER for the area, "
+                    "using typical US density for this kind of place: dense urban core ~3000-6000, "
+                    "urban ~1500-3000, suburban ~400-1500, rural <300. Reply ONLY JSON: "
+                    "{\"households_per_km2\": <number>}."),
+            user=f"Location: {location}",
             max_tokens=60,
         ) or {}
-        v = raw.get("households")
-        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else None
+        d = raw.get("households_per_km2")
+        if not (isinstance(d, (int, float)) and not isinstance(d, bool) and d > 0):
+            return None
+        area_km2 = math.pi * (radius_m / 1000.0) ** 2
+        return round(area_km2 * float(d))
     except Exception:
         return None
 

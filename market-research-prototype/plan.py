@@ -557,6 +557,22 @@ _OSM_TAG_BY_CATEGORY = {
 }
 
 
+# Realistic catchment radius (metres) by OSM value — a walk-in cafe draws from ~1.5km, a
+# destination restaurant ~3km, a drive-to gym ~5km. A flat 3km over-counted households (and
+# competitors) for grab-and-go venues, inflating the trade-area TAM. cycle38.
+_RADIUS_BY_OSM_VALUE = {
+    "cafe": 1500, "fast_food": 1500, "bakery": 1500, "ice_cream": 1500,
+    "bar": 2000, "pub": 2000, "hairdresser": 2500, "beauty": 2500, "spa": 3000,
+    "restaurant": 3000, "nightclub": 3000, "pharmacy": 3000,
+    "clinic": 4500, "dentist": 4500, "fitness_centre": 5000, "cinema": 6000, "library": 4000,
+}
+
+
+def _radius_for_osm_value(osm_value: str, default: int = 3000) -> int:
+    """Deterministic catchment radius (m) for an OSM venue type — walk-in vs destination."""
+    return _RADIUS_BY_OSM_VALUE.get((osm_value or "").lower(), default)
+
+
 def _resolve_osm_tag(category: str) -> tuple[str, str] | None:
     """Deterministic category → (osm_key, osm_value) using real OSM taxonomy. Longest
     substring match wins (so 'barbershop' → shop/hairdresser, not 'bar' → amenity/bar).
@@ -601,10 +617,11 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
     # helper, which skips on no-match rather than guessing a wrong category).
     _tag = _resolve_osm_tag(cat) or ("amenity", "restaurant")
     osm_key, osm = _tag
+    radius_m = _radius_for_osm_value(osm)  # cycle38: walk-in cafe ~1.5km, not a flat 3km
     try:
         from skills.sizing.hyperlocal import size_hyperlocal
         ev = size_hyperlocal(address=location, category=cat or "food_away_from_home",
-                             osm_value=osm, osm_key=osm_key)
+                             osm_value=osm, osm_key=osm_key, radius_m=radius_m)
     except Exception as e:
         log.warning("[plan] hyperlocal sizing failed (non-fatal): %s", e)
         return None

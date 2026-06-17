@@ -664,4 +664,6 @@ def format_currency(n) -> str:
         return f"${('%.1f' % (n/1_000_000)).rstrip('0').rstrip('.')}M"
     if n >= 1_000:
         return f"${('%.1f' % (n/1_000)).rstrip('0').rstrip('.')}K"
-    return f"${n:.0f}"
+    # Sub-$1000: keep cents when the value isn't whole, so a $7.50 median WTP and an $8.00 high
+    # don't both render "$8" (a per-drink band must show the real spread). cycle38.
+    return f"${n:,.0f}" if float(n).is_integer() else f"${n:,.2f}"

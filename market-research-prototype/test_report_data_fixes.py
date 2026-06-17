@@ -475,6 +475,36 @@ class TestIncompleteReportPage(unittest.TestCase):
         self.assertIn(b"Boom", r.body)                        # surfaces the real reason
 
 
+class TestWtpDisplayAndCatchment(unittest.TestCase):
+    """cycle38 (live read): WTP median $7.50 and high $8.00 both rendered '$8' (rounding); and a
+    flat 3km catchment over-counted households → inflated trade-area TAM."""
+
+    def test_format_currency_keeps_cents_for_fractional_small_values(self):
+        from market_sizing import format_currency as f
+        self.assertEqual(f(7.5), "$7.50")   # was "$8"
+        self.assertEqual(f(8.0), "$8")      # whole stays clean
+        self.assertEqual(f(6.5), "$6.50")
+        self.assertEqual(f(180), "$180")
+        self.assertEqual(f(20_700_000), "$20.7M")
+
+    def test_catchment_radius_is_category_aware(self):
+        from plan import _radius_for_osm_value
+        self.assertEqual(_radius_for_osm_value("cafe"), 1500)        # walk-in
+        self.assertEqual(_radius_for_osm_value("restaurant"), 3000)  # destination
+        self.assertEqual(_radius_for_osm_value("fitness_centre"), 5000)  # drive-to
+        self.assertEqual(_radius_for_osm_value("unknown_x"), 3000)   # default
+
+    def test_households_scale_with_radius_via_density(self):
+        from unittest.mock import patch
+        import skills.sizing.hyperlocal as h
+        with patch("llm.call_json", return_value={"households_per_km2": 4000}):
+            small = h._estimate_households("Silver Lake, LA", 1500)
+            big = h._estimate_households("Silver Lake, LA", 3000)
+        self.assertLess(small, big)                 # smaller catchment → fewer households
+        self.assertAlmostEqual(big / small, 4.0, delta=0.1)  # area scales with r^2
+        self.assertLess(small, 30000)               # 1.5km dense-urban ≈ 28k, not 115k
+
+
 class TestUnitForModel(unittest.TestCase):
     """cycle38: the economics unit must NEVER be '/mo' for a per-unit venture (the root of the
     residual '$45/mo serum', '84 mos/mo gym' bleed after the classifier was fixed)."""
