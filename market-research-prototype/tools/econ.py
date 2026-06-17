@@ -25,15 +25,46 @@ _BLS_API = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
 # generic via the LLM. NOT a hardcoded spend table — only a series-id memo.
 _CEX_SERIES_CACHE: dict[str, str] = {}
 
+# Curated category → REAL, API-VERIFIED BLS CEX mean-annual-expenditure series id (all consumer
+# units). This is config (which real series to read), NOT a hardcoded value — the dollar amount is
+# always fetched live from BLS. The LLM cannot reliably produce valid CXU ids, so for cleanly-
+# mappable categories we use the verified id directly; only unmapped categories fall to the LLM.
+# Longest substring match wins. (Verified live: each id returns a 2023 value from the BLS API.)
+_CEX_SERIES_CURATED = {
+    "restaurant": "CXUFOODAWAYLB0101M", "eatery": "CXUFOODAWAYLB0101M",
+    "diner": "CXUFOODAWAYLB0101M", "food truck": "CXUFOODAWAYLB0101M",
+    "fast food": "CXUFOODAWAYLB0101M", "fast-casual": "CXUFOODAWAYLB0101M",
+    "food away": "CXUFOODAWAYLB0101M", "dining": "CXUFOODAWAYLB0101M",
+    "grocery": "CXUFOODHOMELB0101M", "supermarket": "CXUFOODHOMELB0101M",
+    "bar": "CXUALCBEVGLB0101M", "pub": "CXUALCBEVGLB0101M", "brewery": "CXUALCBEVGLB0101M",
+    "wine": "CXUALCBEVGLB0101M", "alcohol": "CXUALCBEVGLB0101M",
+    "salon": "CXUPERSCARELB0101M", "barber": "CXUPERSCARELB0101M", "spa": "CXUPERSCARELB0101M",
+    "nail": "CXUPERSCARELB0101M", "beauty": "CXUPERSCARELB0101M", "personal care": "CXUPERSCARELB0101M",
+    "apparel": "CXUAPPARELLB0101M", "clothing": "CXUAPPARELLB0101M", "boutique": "CXUAPPARELLB0101M",
+    "clinic": "CXUHEALTHLB0101M", "dental": "CXUHEALTHLB0101M", "health": "CXUHEALTHLB0101M",
+    "pet": "CXUPETSLB0101M", "veterinary": "CXUPETSLB0101M",
+    "gym": "CXUENTRTAINLB0101M", "fitness": "CXUENTRTAINLB0101M", "yoga": "CXUENTRTAINLB0101M",
+    "cinema": "CXUENTRTAINLB0101M", "entertainment": "CXUENTRTAINLB0101M", "recreation": "CXUENTRTAINLB0101M",
+}
+
 
 def _resolve_cex_series(category: str) -> Optional[str]:
-    """LLM maps a category to a BLS CEX 'mean annual expenditure' series id (CXU…).
-    Returns a series id string or None. The dollar value is NOT asked of the LLM."""
+    """Map a category to a BLS CEX 'mean annual expenditure' series id (CXU…). Tries the curated,
+    API-verified map first (longest substring match — deterministic, real); only falls back to the
+    LLM for unmapped categories. The dollar value is NEVER asked of the LLM — always fetched live."""
     if not category:
         return None
     key = category.lower().strip()
     if key in _CEX_SERIES_CACHE:
         return _CEX_SERIES_CACHE[key]
+    # Curated, verified series — longest matching keyword wins (so "wine bar" → alcohol).
+    best, best_len = None, 0
+    for kw, sid in _CEX_SERIES_CURATED.items():
+        if kw in key and len(kw) > best_len:
+            best, best_len = sid, len(kw)
+    if best:
+        _CEX_SERIES_CACHE[key] = best
+        return best
     try:
         from llm import call_json
         raw = call_json(
