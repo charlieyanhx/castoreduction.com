@@ -320,6 +320,59 @@ def infer_wtp_unit(description: str, profile: dict | None = None) -> str:
     return "/mo"
 
 
+# The ECONOMICS unit noun (distinct from the WTP unit). A per-unit venture must NEVER be sized
+# in "/mo" — that recreates subscription bleed in the spine ($45/mo serum, "84 mos/mo" for a gym).
+# Broader phrase set than _PER_UNIT_RE, plus category + kind fallbacks.
+_UNIT_NOUN_RE = re.compile(
+    r"(?:per|/|each|a|an)\s+"
+    r"(drink|cup|coffee|latte|espresso|beverage|meal|plate|dish|entree|cover|bowl|burrito|"
+    r"taco|sandwich|salad|pizza|slice|scoop|cone|pint|glass|"
+    r"visit|ticket|session|class|lesson|drop-?in|ride|trip|haircut|cut|treatment|appointment|"
+    r"booking|night|room|"
+    r"item|order|box|bag|bottle|jar|unit|device|kit|pair|board|"
+    r"project|engagement|sprint|"
+    r"meter|sq\s?ft|square\s?foot|hour|day)\b",
+    re.I)
+_UNIT_DEFAULT_BY_KIND = {"services": "project", "ecommerce": "order",
+                         "hybrid": "unit", "transactional": "visit"}
+_UNIT_CATEGORY_HINTS = (
+    ("coffee", "drink"), ("cafe", "drink"), ("café", "drink"), ("tea", "drink"),
+    ("restaurant", "cover"), ("eatery", "cover"), ("diner", "cover"), ("bistro", "cover"),
+    ("salad", "bowl"), ("bakery", "item"), ("food truck", "plate"), ("salon", "cut"),
+    ("barber", "cut"), ("spa", "treatment"), ("gym", "class"), ("fitness", "class"),
+    ("yoga", "class"), ("serum", "bottle"), ("skincare", "bottle"), ("cosmetic", "unit"),
+    ("apparel", "item"), ("device", "unit"), ("hardware", "unit"), ("gadget", "unit"),
+    ("agency", "project"), ("consult", "engagement"), ("design studio", "project"),
+)
+
+
+def unit_for_model(biz_kind: str, description: str, profile: dict | None = None) -> str:
+    """The economics/pricing unit noun for a venture — NEVER '/mo' for a per-unit model.
+
+    subscription→seat/account, marketplace→booking, ad_supported→user. For per-unit kinds
+    (transactional/ecommerce/services/hybrid): an explicit per-unit phrase wins, else a
+    category hint, else a kind default. Deterministic; the root fix for '/mo' bleed in the
+    per-unit spine (cycle38)."""
+    from business_model import is_per_unit
+    prof = profile or {}
+    blob = f"{description or ''} {prof.get('summary','')} {prof.get('business_model','')} {prof.get('category','')}".lower()
+    if biz_kind == "subscription":
+        return "seat" if ("b2b" in blob or "saas" in blob or "per seat" in blob) else "account"
+    if biz_kind == "marketplace":
+        return "booking"
+    if biz_kind == "ad_supported":
+        return "user"
+    if not is_per_unit(biz_kind):
+        return "unit"
+    m = _UNIT_NOUN_RE.search(blob)
+    if m:
+        return m.group(1).lower().replace("dropin", "drop-in")
+    for kw, noun in _UNIT_CATEGORY_HINTS:
+        if kw in blob:
+            return noun
+    return _UNIT_DEFAULT_BY_KIND.get(biz_kind, "unit")
+
+
 def build_consumer_research(description: str, geo: str, profile: dict,
                             opps: list[dict]) -> dict | None:
     """STORM-style multi-perspective consumer research, grounded in known context.
@@ -1300,10 +1353,12 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     from business_model import classify_business_model, is_per_unit
     biz_kind = classify_business_model(profile, result.get("market_scale"))
     result["business_model_kind"] = biz_kind
-    _psm_unit = (infer_wtp_unit(description, profile) or "/unit").lstrip("/") or "unit"
-    # cycle38: per-unit kinds (transactional/ecommerce/services/hybrid) price one-time per unit;
-    # only subscription/marketplace/ad-supported use the recurring PSM frame.
-    _psm_recurring = not is_per_unit(biz_kind)
+    # cycle38: the economics/PSM unit must be model-derived and NEVER "/mo" for a per-unit
+    # venture (infer_wtp_unit defaults to /mo → sized a $45 serum and a gym "per month").
+    _psm_unit = unit_for_model(biz_kind, description, profile)
+    # Only a true subscription uses the recurring (monthly) PSM frame; per-unit AND marketplace/
+    # ad-supported price per transaction, not per month.
+    _psm_recurring = (biz_kind == "subscription")
     log.info("[plan] business model = %s (psm unit=%s, recurring=%s)", biz_kind, _psm_unit, _psm_recurring)
 
     def _psm_task():
@@ -1378,7 +1433,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         # stated price, then the PSM optimal.
         _unit_price = extract_unit_price(description)
         _stated = extract_stated_price(description)
-        _unit_noun = (infer_wtp_unit(description, profile) or "/unit").lstrip("/") or "unit"
+        _unit_noun = _psm_unit  # cycle38: model-derived unit, never "/mo" for a per-unit venture
         if is_transactional:
             _price_per_unit = float(_unit_price or _stated or _opt)
         else:

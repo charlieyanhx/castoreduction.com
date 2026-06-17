@@ -475,6 +475,35 @@ class TestIncompleteReportPage(unittest.TestCase):
         self.assertIn(b"Boom", r.body)                        # surfaces the real reason
 
 
+class TestUnitForModel(unittest.TestCase):
+    """cycle38: the economics unit must NEVER be '/mo' for a per-unit venture (the root of the
+    residual '$45/mo serum', '84 mos/mo gym' bleed after the classifier was fixed)."""
+
+    def test_per_unit_kinds_never_monthly(self):
+        from plan import unit_for_model
+        for kind, desc, prof in [
+            ("hybrid", "a $45 serum direct-to-consumer", {"category": "skincare DTC"}),
+            ("hybrid", "a $199 device with a $5/mo app", {"category": "smart home device"}),
+            ("services", "design agency, $20k per project", {"category": "design studio"}),
+            ("transactional", "salad chain, $13 per bowl", {"category": "fast-casual salad"}),
+            ("hybrid", "gym, $30 drop-in plus membership", {"category": "strength gym"}),
+        ]:
+            u = unit_for_model(kind, desc, prof)
+            self.assertNotEqual(u, "mo", f"{kind} got monthly unit")
+            self.assertNotIn("month", u)
+
+    def test_explicit_and_category_units(self):
+        from plan import unit_for_model
+        self.assertEqual(unit_for_model("transactional", "a cafe, $6 per drink", {"category": "coffee cafe"}), "drink")
+        self.assertEqual(unit_for_model("services", "brand design studio", {"category": "design studio"}), "project")
+
+    def test_non_per_unit_units(self):
+        from plan import unit_for_model
+        self.assertEqual(unit_for_model("subscription", "b2b saas", {"category": "b2b saas"}), "seat")
+        self.assertEqual(unit_for_model("marketplace", "two-sided", {"category": "marketplace"}), "booking")
+        self.assertEqual(unit_for_model("ad_supported", "free app", {"category": "news app"}), "user")
+
+
 class TestBusinessModelClassifier(unittest.TestCase):
     """M4 Phase B: 7-kind deterministic classifier. Each kind routes to the right economics,
     and 'platform'/'on-demand' figures of speech must NOT trigger marketplace."""
