@@ -17,6 +17,7 @@ lower confidence instead of crashing.
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import Optional
 
@@ -88,6 +89,30 @@ def _http_json(method: str, url: str, **kwargs) -> Optional[dict | list]:
         return None
 
 
+# FCC Census Block API — lat/lng → Census FIPS (state/county/tract). A DIFFERENT host than the
+# Census geocoder (geocoding.geo.census.gov), so it survives when that geocoder is WAF-blocked.
+# Free, no key. This is the bypass that lets ACS run even when the Census geocoder is unreachable.
+_FCC_BLOCK_URL = "https://geo.fcc.gov/api/census/block/find"
+
+
+def _fcc_fips(lat: float, lng: float) -> Optional[dict]:
+    """Resolve (state_fips, county_fips, tract) from coordinates via the FCC area API."""
+    d = _http_json("GET", _FCC_BLOCK_URL,
+                   params={"latitude": lat, "longitude": lng, "format": "json"}, timeout=12)
+    if not d:
+        return None
+    block = (d.get("Block") or {}).get("FIPS") or ""
+    state = (d.get("State") or {}).get("FIPS")
+    county_full = (d.get("County") or {}).get("FIPS") or ""
+    # Block FIPS = SSCCCTTTTTTBBBB → county code = chars 2:5, tract = chars 5:11.
+    county = county_full[2:5] if len(county_full) >= 5 else None
+    tract = block[5:11] if len(block) >= 11 else None
+    if not (state and county):
+        return None
+    return {"state_fips": state, "county_fips": county, "tract": tract,
+            "source": "FCC Census Block API"}
+
+
 @tool(category="geo", returns="{lat, lng, state_fips, county_fips, tract}")
 def geocode_address(address: str) -> Evidence:
     """Geocode a US street address to lat/lng + Census geography (free, no key)."""
@@ -104,12 +129,19 @@ def geocode_address(address: str) -> Evidence:
         # competitor lookups — but no Census FIPS, so ACS demographics degrade.
         nom = _nominatim(address)
         if nom:
+            lat, lng = float(nom["lat"]), float(nom["lon"])
+            # Recover Census FIPS via the FCC area API (different host → not WAF-blocked) so ACS
+            # demographics still work when the Census geocoder itself is unreachable.
+            fips = _fcc_fips(lat, lng) or {}
+            src = "OSM Nominatim + FCC FIPS" if fips else "OSM Nominatim (fallback)"
             return Evidence(
                 source="geocode_address", category="geo", count=1,
-                payload={"lat": float(nom["lat"]), "lng": float(nom["lon"]),
+                payload={"lat": lat, "lng": lng,
                          "matched_address": nom.get("display_name"),
-                         "state_fips": None, "county_fips": None, "tract": None},
-                cost_meta={"source": "OSM Nominatim (fallback)"})
+                         "state_fips": fips.get("state_fips"),
+                         "county_fips": fips.get("county_fips"),
+                         "tract": fips.get("tract")},
+                cost_meta={"source": src})
         return Evidence(source="geocode_address", category="geo", count=0,
                         skeleton=True, error=f"no geocoder match for {address!r}")
     m = matches[0]
@@ -143,11 +175,13 @@ def acs_demographics(state_fips: str, county_fips: str,
     else:
         geo_for = f"county:{county_fips}"
         geo_in = f"state:{state_fips}"
-    rows = _http_json(
-        "GET", _ACS_URL.format(year=year),
-        params={"get": varlist, "for": geo_for, "in": geo_in},
-        timeout=12,
-    )
+    _params = {"get": varlist, "for": geo_for, "in": geo_in}
+    # Census ACS requires a free API key (the keyless endpoint 302-redirects to missing_key.html).
+    # Drop CENSUS_API_KEY in .env (free signup) and households/income become REAL ACS figures.
+    _key = os.getenv("CENSUS_API_KEY")
+    if _key:
+        _params["key"] = _key
+    rows = _http_json("GET", _ACS_URL.format(year=year), params=_params, timeout=12)
     # ACS returns [[header...],[values...]].
     if not isinstance(rows, list) or len(rows) < 2:
         return Evidence(source="acs_demographics", category="geo", count=0,

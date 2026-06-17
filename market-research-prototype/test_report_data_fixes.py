@@ -475,6 +475,35 @@ class TestIncompleteReportPage(unittest.TestCase):
         self.assertIn(b"Boom", r.body)                        # surfaces the real reason
 
 
+class TestCensusGeocoderBypass(unittest.TestCase):
+    """User: 'no way to circumvent?' — yes. When the Census geocoder is WAF-blocked, recover
+    FIPS via Nominatim (coords) + FCC area API (different host) so ACS can still run."""
+
+    def test_fips_recovered_via_fcc_when_geocoder_blocked(self):
+        import tools.geo as g
+        # Census geocoder returns no matches (blocked); Nominatim gives coords; FCC gives FIPS.
+        with patch.object(g, "_http_json", return_value={"result": {"addressMatches": []}}), \
+             patch.object(g, "_nominatim", return_value={"lat": "34.08", "lon": "-118.27", "display_name": "Silver Lake, LA"}), \
+             patch.object(g, "_fcc_fips", return_value={"state_fips": "06", "county_fips": "037", "tract": "195400", "source": "FCC"}):
+            ev = g.geocode_address.fn("Silver Lake, Los Angeles, CA")
+        p = ev.payload
+        self.assertEqual((p["state_fips"], p["county_fips"]), ("06", "037"))  # FIPS recovered
+        self.assertIn("FCC", ev.cost_meta["source"])
+
+    def test_acs_sends_key_when_configured(self):
+        import tools.geo as g
+        seen = {}
+        def _capture(method, url, **kw):
+            seen.update(kw.get("params") or {})
+            return [["NAME", "B11001_001E", "B19013_001E", "B01003_001E", "state", "county"],
+                    ["LA County", "3300000", "80000", "10000000", "06", "037"]]
+        with patch.dict("os.environ", {"CENSUS_API_KEY": "FREEKEY123"}), \
+             patch.object(g, "_http_json", _capture):
+            ev = g.acs_demographics.fn(state_fips="06", county_fips="037")
+        self.assertEqual(seen.get("key"), "FREEKEY123")           # key forwarded to ACS
+        self.assertEqual(ev.payload["households"], 3300000.0)     # real ACS value parsed
+
+
 class TestWtpDisplayAndCatchment(unittest.TestCase):
     """cycle38 (live read): WTP median $7.50 and high $8.00 both rendered '$8' (rounding); and a
     flat 3km catchment over-counted households → inflated trade-area TAM."""
