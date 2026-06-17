@@ -485,7 +485,7 @@ class TestCensusGeocoderBypass(unittest.TestCase):
         with patch.object(g, "_http_json", return_value={"result": {"addressMatches": []}}), \
              patch.object(g, "_nominatim", return_value={"lat": "34.08", "lon": "-118.27", "display_name": "Silver Lake, LA"}), \
              patch.object(g, "_fcc_fips", return_value={"state_fips": "06", "county_fips": "037", "tract": "195400", "source": "FCC"}):
-            ev = g.geocode_address.fn("Silver Lake, Los Angeles, CA")
+            ev = g.geocode_address("Silver Lake, Los Angeles, CA")
         p = ev.payload
         self.assertEqual((p["state_fips"], p["county_fips"]), ("06", "037"))  # FIPS recovered
         self.assertIn("FCC", ev.cost_meta["source"])
@@ -499,7 +499,7 @@ class TestCensusGeocoderBypass(unittest.TestCase):
                     ["LA County", "3300000", "80000", "10000000", "06", "037"]]
         with patch.dict("os.environ", {"CENSUS_API_KEY": "FREEKEY123"}), \
              patch.object(g, "_http_json", _capture):
-            ev = g.acs_demographics.fn(state_fips="06", county_fips="037")
+            ev = g.acs_demographics(state_fips="06", county_fips="037")
         self.assertEqual(seen.get("key"), "FREEKEY123")           # key forwarded to ACS
         self.assertEqual(ev.payload["households"], 3300000.0)     # real ACS value parsed
 
