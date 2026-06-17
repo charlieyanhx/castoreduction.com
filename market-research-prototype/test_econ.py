@@ -30,13 +30,23 @@ class TestBlsCexSpendTool(unittest.TestCase):
         self.assertIsNotNone(get_tool("bls_cex_spend"))
 
     def test_number_comes_from_bls_not_llm(self):
+        # Use an UNMAPPED category so the LLM-resolution path is exercised (mapped categories
+        # now resolve via the curated verified-series map before the LLM is consulted).
         with patch("llm.call_json", return_value={"series_id": "CXU190902LB0101M"}), \
              patch("scrape.http.request", return_value=_bls_ok("3,452")):
-            e = get_tool("bls_cex_spend").fn(category="food away from home")
+            e = get_tool("bls_cex_spend").fn(category="bespoke artisanal widgets")
         self.assertEqual(e.count, 1)
         self.assertEqual(e.payload["annual_usd"], 3452.0)           # parsed from BLS payload
         self.assertIn("BLS Consumer Expenditure", e.payload["source"])
         self.assertEqual(e.payload["series_id"], "CXU190902LB0101M")
+
+    def test_curated_map_resolves_real_series_without_llm(self):
+        # cycle38: a cleanly-mappable category uses the verified series id directly — no LLM.
+        from tools.econ import _resolve_cex_series
+        with patch("llm.call_json", side_effect=AssertionError("LLM must not be called for mapped categories")):
+            self.assertEqual(_resolve_cex_series("farm-to-table restaurant"), "CXUFOODAWAYLB0101M")
+            self.assertEqual(_resolve_cex_series("craft cocktail bar"), "CXUALCBEVGLB0101M")
+            self.assertEqual(_resolve_cex_series("hair salon services"), "CXUPERSCARELB0101M")
 
     def test_explicit_series_skips_llm(self):
         with patch("scrape.http.request", return_value=_bls_ok("540")):
