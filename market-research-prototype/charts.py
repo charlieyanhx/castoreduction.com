@@ -7,7 +7,7 @@ import html as html_mod
 
 
 def competitor_map_svg(clustering: dict, whitespace: dict | None = None,
-                        width: int = 600, height: int = 400) -> str:
+                        width: int = 880, height: int = 600) -> str:
     """
     Render a 2D PCA scatter map of competitors with cluster colors.
     Highlights the whitespace cell if find_whitespace() found one.
@@ -32,7 +32,7 @@ def competitor_map_svg(clustering: dict, whitespace: dict | None = None,
     if not xs:
         return '<div style="color:#9ca3af">No data</div>'
 
-    margin = 60
+    margin = 78  # roomier gutters so axis + corner labels never clip
     plot_w = width - 2 * margin
     plot_h = height - 2 * margin
 
@@ -65,7 +65,11 @@ def competitor_map_svg(clustering: dict, whitespace: dict | None = None,
             brand_to_cluster[member] = cid
 
     # Start SVG
-    svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" style="background:#fff;border:1px solid #e5e7eb;border-radius:8px">']
+    # Responsive: scales to the container width (up to native size) instead of a fixed 600px.
+    svg = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
+           f'preserveAspectRatio="xMidYMid meet" '
+           f'style="width:100%;max-width:{width}px;height:auto;display:block;margin:0 auto;'
+           f'background:#fff;border:1px solid #e5e7eb;border-radius:8px">']
 
     # Background
     svg.append(f'<rect x="{margin}" y="{margin}" width="{plot_w}" height="{plot_h}" fill="#f9fafb"/>')
@@ -116,27 +120,27 @@ def competitor_map_svg(clustering: dict, whitespace: dict | None = None,
     # meaning sentence. Previously corner labels truncated the meaning string
     # mid-word; now they pair the topic words "↗ High {pc1.label} · High {pc2.label}"
     # which is informative and fits.
-    def _short(s, n=24):
+    def _short(s, n=22):
         s = (s or "").strip()
         return s if len(s) <= n else s[:n-1] + "…"
     pc1_short = _short(pc1_label)
     pc2_short = _short(pc2_label)
     # top-right
-    svg.append(f'<text x="{width - margin - 4}" y="{margin + 12}" text-anchor="end" font-size="9" fill="#94a3b8" font-style="italic">↗ High {html_mod.escape(pc1_short)} · High {html_mod.escape(pc2_short)}</text>')
+    svg.append(f'<text x="{width - margin - 4}" y="{margin + 12}" text-anchor="end" font-size="11" fill="#94a3b8" font-style="italic">↗ High {html_mod.escape(pc1_short)} · High {html_mod.escape(pc2_short)}</text>')
     # top-left
-    svg.append(f'<text x="{margin + 4}" y="{margin + 12}" text-anchor="start" font-size="9" fill="#94a3b8" font-style="italic">↖ Low {html_mod.escape(pc1_short)} · High {html_mod.escape(pc2_short)}</text>')
+    svg.append(f'<text x="{margin + 4}" y="{margin + 12}" text-anchor="start" font-size="11" fill="#94a3b8" font-style="italic">↖ Low {html_mod.escape(pc1_short)} · High {html_mod.escape(pc2_short)}</text>')
     # bottom-right
-    svg.append(f'<text x="{width - margin - 4}" y="{height - margin - 4}" text-anchor="end" font-size="9" fill="#94a3b8" font-style="italic">↘ High {html_mod.escape(pc1_short)} · Low {html_mod.escape(pc2_short)}</text>')
+    svg.append(f'<text x="{width - margin - 4}" y="{height - margin - 4}" text-anchor="end" font-size="11" fill="#94a3b8" font-style="italic">↘ High {html_mod.escape(pc1_short)} · Low {html_mod.escape(pc2_short)}</text>')
     # bottom-left
-    svg.append(f'<text x="{margin + 4}" y="{height - margin - 4}" text-anchor="start" font-size="9" fill="#94a3b8" font-style="italic">↙ Low {html_mod.escape(pc1_short)} · Low {html_mod.escape(pc2_short)}</text>')
+    svg.append(f'<text x="{margin + 4}" y="{height - margin - 4}" text-anchor="start" font-size="11" fill="#94a3b8" font-style="italic">↙ Low {html_mod.escape(pc1_short)} · Low {html_mod.escape(pc2_short)}</text>')
 
     # Main axis labels (centered on each axis)
-    svg.append(f'<text x="{width//2}" y="{height - 15}" text-anchor="middle" fill="#475569" font-size="11" font-weight="600">{html_mod.escape(pc1_label)} →</text>')
-    svg.append(f'<text x="20" y="{height//2}" text-anchor="middle" fill="#475569" font-size="11" font-weight="600" transform="rotate(-90 20 {height//2})">{html_mod.escape(pc2_label)} →</text>')
+    svg.append(f'<text x="{width//2}" y="{height - 16}" text-anchor="middle" fill="#475569" font-size="13" font-weight="600">{html_mod.escape(pc1_label)} →</text>')
+    svg.append(f'<text x="22" y="{height//2}" text-anchor="middle" fill="#475569" font-size="13" font-weight="600" transform="rotate(-90 22 {height//2})">{html_mod.escape(pc2_label)} →</text>')
 
     # Title
     pct_var = clustering.get("pca_explained_variance", 0)
-    svg.append(f'<text x="{margin}" y="{margin - 18}" fill="#1f2937" font-size="13" font-weight="600">Competitive landscape — {clustering.get("k","?")} clusters · {int(pct_var*100)}% variance explained</text>')
+    svg.append(f'<text x="{margin}" y="{margin - 24}" fill="#1f2937" font-size="14" font-weight="600">Competitive landscape — {clustering.get("k","?")} clusters · {int(pct_var*100)}% variance explained</text>')
 
     # Plot points
     for brand, (x, y) in coords.items():
