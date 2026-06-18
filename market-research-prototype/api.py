@@ -31,6 +31,17 @@ import scrape  # noqa: F401 — installs requests-cache globally on import
 
 log = get("api")
 
+import jinja2
+
+
+class SafeUndefined(jinja2.Undefined):
+    """A missing template field must NEVER 500 the whole report (M2-class hardening). The default
+    Undefined raises TypeError on `'{:,.0f}'.format(missing)`; this renders empty instead, so one
+    absent value degrades to a blank cell rather than a blank page. The degradation banner +
+    validation flags already surface genuinely missing data."""
+    def __format__(self, spec):
+        return ""
+
 
 try:
     from dotenv import load_dotenv
@@ -474,7 +485,7 @@ def compare_plans(left: str, right: str):
         raise HTTPException(status_code=400, detail="both must be /plan jobs")
 
     from jinja2 import Environment, FileSystemLoader
-    env = Environment(loader=FileSystemLoader("templates"), autoescape=True)
+    env = Environment(loader=FileSystemLoader("templates"), autoescape=True, undefined=SafeUndefined)
     tpl = env.get_template("compare.html")
 
     # Helpful: ensure all expected nested keys exist with safe defaults
@@ -514,7 +525,7 @@ def get_job_onepager(job_id: str):
     from datetime import datetime
     from market_sizing import format_currency
 
-    env = Environment(loader=FileSystemLoader("templates"), autoescape=True)
+    env = Environment(loader=FileSystemLoader("templates"), autoescape=True, undefined=SafeUndefined)
     tpl = env.get_template("onepager.html")
 
     r = j["result"] or {}
@@ -591,7 +602,7 @@ def get_job_report_html(job_id: str):
     from jinja2 import Environment, FileSystemLoader
     from datetime import datetime
 
-    env = Environment(loader=FileSystemLoader("templates"), autoescape=True)
+    env = Environment(loader=FileSystemLoader("templates"), autoescape=True, undefined=SafeUndefined)
     tpl = env.get_template("report.html")
 
     r = j["result"] or {}
