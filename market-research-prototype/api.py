@@ -34,13 +34,29 @@ log = get("api")
 import jinja2
 
 
-class SafeUndefined(jinja2.Undefined):
+class SafeUndefined(jinja2.ChainableUndefined):
     """A missing template field must NEVER 500 the whole report (M2-class hardening). The default
-    Undefined raises TypeError on `'{:,.0f}'.format(missing)`; this renders empty instead, so one
-    absent value degrades to a blank cell rather than a blank page. The degradation banner +
-    validation flags already surface genuinely missing data."""
-    def __format__(self, spec):
-        return ""
+    Undefined raises on `'{:,.0f}'.format(missing)`, on `missing > 0` comparisons, and on
+    arithmetic — any one of which blanks the entire page. This renders/behaves NULLISH instead, so
+    one absent value degrades to a blank cell. ChainableUndefined base also lets `a.b.c` chains
+    resolve to undefined rather than raising. The degradation banner + validation flags still
+    surface genuinely missing data, so we lose nothing by failing soft here."""
+    __slots__ = ()
+    def __format__(self, spec): return ""
+    def __bool__(self): return False
+    def __lt__(self, other): return False
+    def __le__(self, other): return False
+    def __gt__(self, other): return False
+    def __ge__(self, other): return False
+    def __int__(self): return 0
+    def __float__(self): return 0.0
+    def __add__(self, other): return other
+    def __radd__(self, other): return other
+    def __sub__(self, other): return 0
+    def __mul__(self, other): return 0
+    __rmul__ = __mul__
+    def __truediv__(self, other): return 0
+    def __round__(self, n=0): return 0
 
 
 try:
