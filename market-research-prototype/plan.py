@@ -752,6 +752,62 @@ def geo_competitor_opps(description: str, profile: dict, market_scale: dict | No
         return []
 
 
+def build_provenance_summary(result: dict) -> dict | None:
+    """Aggregate the raw run trace (result['_trace']) into a clean 'Data Provenance' view for the
+    debug panel: per data-source (which tool, how many calls, real-sourced vs failed, a sample
+    detail), and LLM usage (models, cache hits, tokens). Pure read; returns None if no trace."""
+    events = (result or {}).get("_trace") or []
+    if not events:
+        return None
+    tools: dict[str, dict] = {}
+    llm = {"calls": 0, "cached": 0, "fresh": 0, "models": {}, "out_tok": 0}
+    for e in events:
+        if e.get("layer") == "tool":
+            t = tools.setdefault(e["name"], {
+                "tool": e["name"], "category": e.get("category", ""),
+                "calls": 0, "sourced": 0, "failed": 0, "skeleton": 0,
+                "source": e.get("source", ""), "detail": "", "error": ""})
+            t["calls"] += 1
+            # Count independently: a graceful skeleton may ALSO carry an explanatory error
+            # (e.g. "no API key") — that's a fallback, not an unexpected failure.
+            if e.get("error"):
+                t["failed"] += 1
+                t["error"] = e["error"]
+            if e.get("skeleton"):
+                t["skeleton"] += 1
+            if e.get("sourced"):
+                t["sourced"] += 1
+                t["source"] = e.get("source", t["source"])
+                if e.get("detail"):
+                    t["detail"] = e["detail"]
+            elif not t["detail"] and e.get("detail"):
+                t["detail"] = e["detail"]
+        elif e.get("layer") == "llm":
+            llm["calls"] += 1
+            llm["cached" if e.get("cached") else "fresh"] += 1
+            m = e.get("model", "?")
+            llm["models"][m] = llm["models"].get(m, 0) + 1
+            llm["out_tok"] += int(e.get("out_tok") or 0)
+    # Classify each tool's data origin for the panel (real source vs estimate/fallback vs failed).
+    rows = []
+    for t in sorted(tools.values(), key=lambda x: (-x["sourced"], x["tool"])):
+        if t["sourced"]:
+            status = "live"            # returned real data from its source
+        elif t["skeleton"]:
+            status = "skeleton"        # graceful fallback (may carry an explanatory error)
+        elif t["failed"]:
+            status = "failed"          # unexpected error, no graceful skeleton
+        else:
+            status = "skeleton"
+        rows.append({**t, "status": status})
+    return {
+        "data_sources": rows,
+        "llm": llm,
+        "n_events": len(events),
+        "n_tool_calls": sum(t["calls"] for t in tools.values()),
+    }
+
+
 def build_integrity_summary(result: dict) -> dict:
     """Surface the (otherwise invisible) backend rigor as a user-facing trust object.
 
@@ -985,6 +1041,13 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     """
     t_start = time.time()
     result: dict = {"_steps_completed": []}
+
+    # Provenance trace (debugging): record every data-source + LLM call this run makes.
+    try:
+        import provenance as _trace
+        _trace.reset()
+    except Exception:
+        _trace = None
 
     def checkpoint():
         """Persist partial result so the UI can see progress mid-run."""
@@ -1843,4 +1906,10 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             result.setdefault("_steps_completed", []).append("refine")
 
     result["_duration_seconds"] = round(time.time() - t_start, 1)
+    # Snapshot the provenance trace into the result so the report can render the debug panel.
+    try:
+        if _trace is not None:
+            result["_trace"] = _trace.snapshot()
+    except Exception:
+        pass
     return result

@@ -626,5 +626,44 @@ class TestModelDirective(unittest.TestCase):
         self.assertIn("do not invent a subscription", d)
 
 
+class TestProvenanceTrace(unittest.TestCase):
+    """Debugging feature: a per-run trace of which tool/source/LLM produced each piece."""
+
+    def test_tool_call_is_recorded_via_fn_path(self):
+        import provenance
+        from tools import get_tool
+        provenance.reset()
+        provenance.set_step("pricing")
+        # empty category short-circuits to a skeleton (no network) — must still be traced,
+        # AND must be traced via the get_tool().fn path the pipeline actually uses.
+        get_tool("bls_cex_spend").fn(category="")
+        events = provenance.snapshot()
+        tools = [e for e in events if e.get("layer") == "tool" and e["name"] == "bls_cex_spend"]
+        self.assertTrue(tools, "tool call via .fn was not traced")
+        self.assertEqual(tools[0]["step"], "pricing")
+
+    def test_summary_aggregates_sources_and_llm(self):
+        import plan, provenance
+        provenance.reset()
+        provenance.record_tool("poi_competition", "geo", "OpenStreetMap Overpass",
+                               ok=True, skeleton=False, duration=0.4, payload=[1, 2, 3],
+                               cost_meta={"count": 3})
+        provenance.record_tool("acs_demographics", "geo", "Census ACS",
+                               ok=False, skeleton=True, duration=0.1, error="no key")
+        provenance.record_llm("gemini-flash-latest", cached=False, out_tok=50)
+        provenance.record_llm("cache", cached=True)
+        s = plan.build_provenance_summary({"_trace": provenance.snapshot()})
+        by = {d["tool"]: d for d in s["data_sources"]}
+        self.assertEqual(by["poi_competition"]["status"], "live")
+        self.assertEqual(by["acs_demographics"]["status"], "skeleton")
+        self.assertEqual(s["llm"]["fresh"], 1)
+        self.assertEqual(s["llm"]["cached"], 1)
+        self.assertEqual(s["llm"]["models"]["gemini-flash-latest"], 1)
+
+    def test_no_trace_returns_none(self):
+        import plan
+        self.assertIsNone(plan.build_provenance_summary({}))
+
+
 if __name__ == "__main__":
     unittest.main()

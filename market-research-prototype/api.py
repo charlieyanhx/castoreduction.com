@@ -724,6 +724,8 @@ def get_job_report_html(job_id: str):
         # cycle37: business model (transactional retail vs subscription) → model-aware
         # pricing / unit-economics / financials rendering.
         business_model_kind=r.get("business_model_kind"),
+        # debug: per-run data-provenance trace (which tool/source/LLM produced each piece).
+        provenance=__import__("plan").build_provenance_summary(r),
     )
     return HTMLResponse(content=html)
 

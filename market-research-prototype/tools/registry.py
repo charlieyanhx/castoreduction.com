@@ -131,18 +131,34 @@ def tool(category: str, returns: str = "Evidence"):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs) -> Evidence:
             t0 = time.time()
+
+            def _rec(ev: Evidence) -> Evidence:
+                # Provenance trace (debugging): one record per tool call — the choke point
+                # for every external data source. Best-effort, never raises.
+                try:
+                    import provenance as _trace
+                    _trace.record_tool(
+                        name, category, ev.source or name,
+                        ok=ev.error is None, skeleton=bool(ev.skeleton),
+                        duration=ev.duration_s, payload=ev.payload,
+                        cost_meta=ev.cost_meta, error=ev.error,
+                    )
+                except Exception:
+                    pass
+                return ev
+
             try:
                 result = fn(*args, **kwargs)
             except Exception as e:
                 err = f"{type(e).__name__}: {e}"
                 log.warning("[tool/%s] failed: %s", name, err)
                 log.debug(traceback.format_exc())
-                return Evidence(
+                return _rec(Evidence(
                     source=name, category=category, count=0,
                     payload=None, fetched_at=t0,
                     duration_s=round(time.time() - t0, 3),
                     error=err,
-                )
+                ))
             duration = round(time.time() - t0, 3)
             # Normalize the return into an Evidence
             if isinstance(result, Evidence):
@@ -155,23 +171,29 @@ def tool(category: str, returns: str = "Evidence"):
                     result.source = name
                 if not result.category:
                     result.category = category
-                return result
+                return _rec(result)
             if result is None:
-                return Evidence(
+                return _rec(Evidence(
                     source=name, category=category, count=0, payload=None,
                     fetched_at=t0, duration_s=duration,
-                )
+                ))
             # Raw payload — auto-wrap
             count = len(result) if hasattr(result, "__len__") else 1
-            return Evidence(
+            return _rec(Evidence(
                 source=name, category=category, count=count, payload=result,
                 fetched_at=t0, duration_s=duration,
-            )
+            ))
 
         # Stash a reference to the original (unwrapped) function so legacy
         # callers that need the raw return shape can opt out.
         wrapper.__wrapped_fn__ = fn
         wrapper.__tool_meta__ = TOOL_REGISTRY[name]
+        # Point the registry's .fn at the INSTRUMENTED wrapper so calls via
+        # get_tool(name).fn(...) (the pipeline's path) are traced + normalized to Evidence,
+        # not just direct module-level calls. The wrapper always returns Evidence, which is
+        # what .fn callers already consume (.payload/.error/.skeleton). Raw access stays on
+        # wrapper.__wrapped_fn__.
+        TOOL_REGISTRY[name].fn = wrapper
         return wrapper
 
     return decorator

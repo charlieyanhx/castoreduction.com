@@ -312,6 +312,11 @@ def call_json(system: str, user: str, max_tokens: int = 2000) -> dict:
         cached = cache_get(cache_key)
         if cached is not None:
             log.debug("call_json cache HIT %s", cache_key)
+            try:
+                import provenance as _trace
+                _trace.record_llm("cache", cached=True)
+            except Exception:
+                pass
             return cached
 
     primary, _ = _backend_and_model()
@@ -337,6 +342,11 @@ def call_json(system: str, user: str, max_tokens: int = 2000) -> dict:
             text, in_tok, out_tok, model_used = out
             dur = time.time() - t0
             usage.add(model_used, in_tok, out_tok)
+            try:
+                import provenance as _trace
+                _trace.record_llm(model_used, cached=False, in_tok=in_tok, out_tok=out_tok)
+            except Exception:
+                pass
             log.debug("call_json [%s/%s] %d→%d tok, %.1fs", backend, model_used, in_tok, out_tok, dur)
             if backend != primary:
                 log.info("[llm] cross-provider fallback succeeded on %s (primary %s exhausted)", backend, primary)
