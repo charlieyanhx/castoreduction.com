@@ -162,7 +162,7 @@ well-understood tasks**. So we do NOT replace `plan.py` with a free loop. We ado
 | CC feature | Skip because |
 |---|---|
 | Free-form master loop for the whole product | report generation is a known workflow; determinism + testability are Castor's moat (verified: "workflows beat agents for well-understood tasks") |
-| Full multi-agent orchestration (3-5 parallel researchers everywhere) | ~15× token economics on a free Gemini tier; use only in the research limb where breadth pays |
+| Multi-agent **writing/deciding** (parallel authors of the same numbers) | verified coherence failure mode (Cognition; CC's one-branch design) — and Castor's own audit criticals were exactly this class: SOM computed 2 ways, churn 8.5% vs 5%, three CACs in one report. One writer per quantity, always. |
 | Terminal UI/REPL | our surface is the web workspace |
 | h2A async mid-run steering queue | Castor is batch; replay-from-cache is the right substitute (verified skip) |
 | LLM-based Bash injection checks | our tools are parameterized functions, not model-composed shell; a rule-based check in the tool wrapper suffices |
@@ -174,6 +174,37 @@ provider — Gemini has flash vs flash-lite. Add `tier="utility"|"main"` to `llm
 route evidence summarization, classification, extraction, and label generation to flash-lite.
 Slots into **P3**. This is the single biggest cost lever CC validates.
 
+## Part 4b — Multi-agent posture under a PREMIUM model budget (Opus-class)
+
+The Part-4 economics objection was budget-bound (free Gemini tier). With Opus-class models as the
+target, the posture changes — per the verified evidence, not in spite of it:
+
+**The rule: fan out to READ, serialize to WRITE, gate everything.**
+- Anthropic's multi-agent research system (Opus lead + parallel Sonnet workers) beat single-agent
+  Opus by **90.2%** on research; token spend explained ~80% of variance. Breadth tasks WANT
+  parallel agents.
+- Cognition + CC's one-branch design: parallel agents making *decisions* produce conflicting
+  decisions. Castor's audit criticals (dual SOM, 3 CACs, churn 8.5 vs 5) are precisely this
+  failure class. Writing stays single-author per quantity, pinned by the gate.
+
+**What turns ON with a premium budget (new phase P6):**
+- **6a. Research crew as a first-class evidence stage** — wire `run_research_crew`
+  (market_scan, demand_signal, pricing_intel, local_market — already built in
+  `agents/research_agents.py`) into plan.py as a parallel fan-out feeding the Evidence store,
+  each worker with a spawn contract (5.2) and compact schema'd returns (5.3).
+- **6b. Adversarial verifier panel as a pre-publish gate** — productize the audit harness that
+  took the corpus 47→6 criticals: per-section skeptic agents (numbers spine / coherence /
+  model-fit) run before render; CONFIRMED findings block publish or annotate the report.
+  This is the highest-ROI use of premium tokens — it is literally how we found every bug.
+- **6c. Effort scaling as a config knob** (verified Anthropic pattern): `research_depth =
+  quick (0 subagents) | standard (3-5) | deep (10+)` tied to price tier. COGS at ~15× tokens on
+  Opus-class ≈ $5–20/report — fine against a $99–499 price, impossible on free tier.
+- **6d. Tier mapping under premium:** Opus-class = lead orchestration, synthesis, judge/verifier;
+  Sonnet-class = research workers; Haiku/flash-class = utility calls (unchanged from P3).
+
+**What stays OFF even with unlimited budget:** parallel authorship of the same number, free-form
+master loop, sub-agent recursion. Coherence is not a cost problem; money doesn't fix it.
+
 ## Part 5 — Execution order (each phase independently shippable + testable)
 
 | Phase | Items | Effort | Acceptance |
@@ -184,9 +215,11 @@ Slots into **P3**. This is the single biggest cost lever CC validates.
 | **P3** | 4.1 scheduler + 4.2 permission gateway + 4.3 poka-yoke | 2-3 days | OSM/Census/BLS fan out in parallel (wall-clock ↓ ~30%); per-run quota enforced; bad args fail at boundary with clear errors |
 | **P4** | 3.1 CASTOR.md hierarchy + 3.3 reminder channel + 3.2 compaction | 2-3 days | operator prefs honored across runs; agent limb survives 3× longer research without budget exhaustion |
 | **P5** | 3.4 SKILL.md pilots + 5.1-5.3 spawn contracts + 2.2 plan-as-artifact | 3-5 days | 2 skills migrated with progressive disclosure; spawn without schema = validation error; plan.json gates rendering |
+| **P6** *(premium budget)* | 6a research-crew evidence stage + 6b verifier panel pre-publish gate + 6c effort knob + 6d tier map | 3-5 days | deep-mode report shows ≥3 independent evidence origins per headline number; verifier panel blocks a seeded critical; COGS per report measured and logged |
 
-Total: ~2-3 weeks of focused work, each phase leaving the system better than before and fully
-regression-tested against the 16-venture corpus (`/tmp/audit` harness + audit panel gate).
+Total: ~2-3 weeks of focused work (P0-P5) + ~1 week for the premium multi-agent stage (P6), each
+phase leaving the system better than before and fully regression-tested against the 16-venture
+corpus (`/tmp/audit` harness + audit panel gate).
 
 ## Part 6 — How this maps to Castor's actual pain (the "why")
 - **Trust/auditability** (the audit's #1 theme) → L2 ledger + L6 transcript + L4 gateway make
