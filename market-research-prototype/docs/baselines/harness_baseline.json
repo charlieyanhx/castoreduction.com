@@ -1,0 +1,149 @@
+{
+  "gate": "all",
+  "pass": 6,
+  "fail": 3,
+  "na": 11,
+  "verdict": "FAIL",
+  "checks": [
+    {
+      "id": "H01",
+      "phase": "P0",
+      "name": "tools carry routing-grade docstrings",
+      "ok": false,
+      "detail": "5/36 tools with <60-char routing docstring: ['hackernews_mentions', 'enrich_competitors_batch', 'wayback_snapshot_url', 'brand_trend_slope', 'resolve_brand_domain']"
+    },
+    {
+      "id": "H02",
+      "phase": "P0",
+      "name": "negative scope on every tool/skill",
+      "ok": false,
+      "detail": "59/60 components lack negative scope ('Do NOT use when\u2026'): ['reddit_mentions', 'hackernews_mentions', 'stackexchange_mentions', 'devto_mentions', 'lobsters_mentions', 'vertical_publication_mentions']\u2026"
+    },
+    {
+      "id": "H03",
+      "phase": "P0",
+      "name": "agent role+produces contracts",
+      "ok": true,
+      "detail": "all 7 agents carry role+produces+doc"
+    },
+    {
+      "id": "H04",
+      "phase": "P0",
+      "name": "emphasis-marker discipline (2-40/module)",
+      "ok": true,
+      "detail": "emphasis markers per prompt module: {'four_ps.py': 1, 'market_sizing.py': 2}"
+    },
+    {
+      "id": "H05",
+      "phase": "P0",
+      "name": "KV-stable prompts (no time/random)",
+      "ok": true,
+      "detail": "no time/randomness in prompt-building modules"
+    },
+    {
+      "id": "H06",
+      "phase": "P1",
+      "name": "RunLedger written by plan.py",
+      "ok": null,
+      "detail": "RunLedger not built yet (P1)"
+    },
+    {
+      "id": "H07",
+      "phase": "P1",
+      "name": "per-run transcript",
+      "ok": null,
+      "detail": "per-run transcript not built yet (P1)"
+    },
+    {
+      "id": "H08",
+      "phase": "P2",
+      "name": "resume() exists",
+      "ok": null,
+      "detail": "resume() not built yet (P2)"
+    },
+    {
+      "id": "H09",
+      "phase": "P3",
+      "name": "read/write tool tagging",
+      "ok": null,
+      "detail": "tools lack read_only metadata (P3 scheduler prerequisite)"
+    },
+    {
+      "id": "H10",
+      "phase": "P3",
+      "name": "model tiering wired",
+      "ok": null,
+      "detail": "llm.call_json has no tier= param yet (P3)"
+    },
+    {
+      "id": "H11",
+      "phase": "P4",
+      "name": "layered CASTOR.md memory",
+      "ok": null,
+      "detail": "CASTOR.md layered memory not built yet (P4)"
+    },
+    {
+      "id": "H12",
+      "phase": "P4",
+      "name": "triggered reminder channel",
+      "ok": null,
+      "detail": "triggered reminder channel not built yet (P4)"
+    },
+    {
+      "id": "H13",
+      "phase": "P4",
+      "name": "compaction with anti-thrash",
+      "ok": false,
+      "detail": "compaction present but NO anti-thrash guard"
+    },
+    {
+      "id": "H14",
+      "phase": "P5",
+      "name": "SKILL.md folders valid",
+      "ok": null,
+      "detail": "SKILL.md folders not built yet (P5)"
+    },
+    {
+      "id": "H15",
+      "phase": "P5",
+      "name": "spawn output contracts",
+      "ok": null,
+      "detail": "spawn contracts (output_schema) not built yet (P5)"
+    },
+    {
+      "id": "H16",
+      "phase": "P6",
+      "name": "effort knob (research_depth)",
+      "ok": null,
+      "detail": "effort knob (research_depth) not built yet (P6)"
+    },
+    {
+      "id": "H17",
+      "phase": "P6",
+      "name": "pre-publish verifier panel",
+      "ok": null,
+      "detail": "pre-publish verifier panel not built yet (P6)"
+    },
+    {
+      "id": "H18",
+      "phase": "now",
+      "name": "depth-1 spawn control available",
+      "ok": true,
+      "detail": "tool masking available for depth control"
+    },
+    {
+      "id": "H19",
+      "phase": "now",
+      "name": "uniform Evidence envelope",
+      "ok": true,
+      "detail": "all 36 tools return the Evidence envelope"
+    },
+    {
+      "id": "H20",
+      "phase": "now",
+      "name": "hard rules in the gate, not prompts",
+      "ok": true,
+      "detail": "validate_numbers gate present"
+    }
+  ]
+}

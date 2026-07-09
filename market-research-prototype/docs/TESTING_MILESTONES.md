@@ -1,10 +1,22 @@
 # Testing Guidelines & Completion Milestones — Harness v2 (P0–P6)
 
-> **Deterministic gate program:** `gates.py` + `test_gates.py`. Every historical audit critical
-> is a machine-checkable detector (D01–D14); detectors are themselves proven by a seeded-bug
-> suite (21 tests). Milestones are claimed by a PROGRAM, not an opinion:
-> `python gates.py --corpus <dir> --gate core` → exit 0/1. The LLM audit panel (R4) is reserved
-> for what cannot be deterministic (prose quality). Same corpus in → same verdict out.
+> **Deterministic gate programs — milestones are claimed by a PROGRAM, not an opinion:**
+> - **Report quality:** `gates.py` (D01–D14, one detector per historical audit critical; proven
+>   by the 21-test seeded-bug suite in `test_gates.py`). `python gates.py --corpus <dir> --gate core`.
+> - **Harness build (this plan):** `harness_gates.py` (H01–H20, one check per phase invariant;
+>   runner soundness in `test_harness_gates.py`). Each check is **n/a until its phase is built,
+>   then pass/FAIL forever** — so the program identifies today's problems now and pinpoints
+>   what's missing as each phase lands. Claim a phase with `python harness_gates.py --gate M<k>`
+>   (exit 0/1); the `now` gate (H18–H20: depth-1 masking, Evidence envelope, hard-rules-in-gate)
+>   is the floor that must never regress.
+>
+> The LLM audit panel (R4) is reserved for what cannot be deterministic (prose quality).
+> Same code/corpus in → same verdict out.
+>
+> **Harness baseline (2026-07-09, `docs/baselines/harness_baseline.json`):** 6 pass · 3 FAIL ·
+> 11 not-built. The three FAILs are the empirical P0 work-list: **H01** 5 tools with thin
+> routing docstrings (named in the scorecard), **H02** 59/60 components lack negative scope
+> ("Do NOT use when…"), **H13** compaction mention without an anti-thrash guard.
 
 ## 0.1 Current deterministic baseline (2026-07-09, latest 16 reports, `--gate all`)
 **80% cells pass · 10 blocking failures** → the empirical near-term goals, in fix order:
