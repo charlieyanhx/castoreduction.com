@@ -1,5 +1,26 @@
 # Testing Guidelines & Completion Milestones — Harness v2 (P0–P6)
 
+> **Deterministic gate program:** `gates.py` + `test_gates.py`. Every historical audit critical
+> is a machine-checkable detector (D01–D14); detectors are themselves proven by a seeded-bug
+> suite (21 tests). Milestones are claimed by a PROGRAM, not an opinion:
+> `python gates.py --corpus <dir> --gate core` → exit 0/1. The LLM audit panel (R4) is reserved
+> for what cannot be deterministic (prose quality). Same corpus in → same verdict out.
+
+## 0.1 Current deterministic baseline (2026-07-09, latest 16 reports, `--gate all`)
+**80% cells pass · 10 blocking failures** → the empirical near-term goals, in fix order:
+
+| Goal | Detector | Failing today | Definition of done |
+|---|---|---|---|
+| **G1** WTP unit bleed (last `/mo` leak) | D05 | 4 reports (bottle/bowl/drop-in economics but `wtp: /mo` — consumer_research still uses the old unit inference) | D05 = 100% pass on a fresh 16-venture corpus |
+| **G2** SAM ≤ TAM on the national path | D04 | 3 reports (SAM 315M > TAM 180M etc. — ordering clamp not applied on one path) | D04 = 100% pass |
+| **G3** profitable-at-SOM coherence | D08 | 2 reports (claim true, every scenario negative) | D08 = 100% pass (the SOM-consistency work) |
+| **G4** scale-router misroute (agency→hyperlocal) | D07 | 1 report | D07 = 100% pass |
+| G5 non-US sources (M6) | D11 | 1 report (Lisbon → US Census/BLS) | D11 = 100% pass |
+| G6 provenance everywhere | D12 | pre-feature reports only | D12 = 100% on fresh corpus (already true for new runs) |
+
+Baseline scorecard: `docs/baselines/deterministic_baseline.json`. Re-run after each fix; the
+gate output goes in the fix's commit message (Rules of Evidence #1).
+
 Every phase of [CC_HARNESS_PLAN.md](CC_HARNESS_PLAN.md) completes ONLY when its milestone gate
 passes. A gate is a **runnable command with a numeric threshold** — never a judgment call.
 Tests are written FIRST (red → green), per the repo's TDD rule.
