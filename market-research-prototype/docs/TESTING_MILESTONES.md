@@ -100,6 +100,30 @@ panel CONFIRMS it and blocks publish.
   - [ ] COGS logged per report (tokens × tier price) and **≤ $25** in deep mode
   - [ ] **Final gate — the definition of done for Harness v2: R4 audit ≥90% cells pass, 0 CRITICAL, on the full 16-venture corpus.** (The threshold set in AUDIT_PLAN.md from day one.)
 
+### M8 — Premium-report parity (the commercial bar)
+**Reference artifact:** BCC Research FCB049D (224pp = 12 × ~18pp templated chapters; $2,750–$5,500
+price class). Dissection (2026-06 read): structure is templated; the prose is dated-sourced
+fact-events in formulaic connective tissue; ALL market numbers are self-referential ("Source: BCC
+Research") with a one-page boilerplate methodology. Castor must match the **structure, fact
+density, and internal consistency** — and beat the **transparency** (per-figure lineage vs
+self-reference). Reference PDFs stay local (copyrighted — never commit them), in a local
+`parity_corpus/` folder; only dissection notes enter the repo.
+
+Write first: `test_forecast_model.py` — ONE deterministic model (base value → segment shares →
+growth rates) emits all segmentation tables; every table reconciles to the same headline total
+to the decimal; CAGRs recompute from endpoints. `test_report_pdf.py` — WeasyPrint output has
+cover, TOC with real page numbers, numbered Tables/Figures, branded footer. `test_fact_density.py`
+— counts dated+cited fact-events (date + claim + external source record) in the rendered report.
+
+- **Gate:**
+  - [ ] One deep-mode venture → **≥20-page print PDF**: cover, TOC w/ page numbers, numbered Tables/Figures, branded header/footer
+  - [ ] **≥40 dated, externally-cited fact-events**, each backed by a claim→source record; **zero uncited dated claims** (beats BCC: their facts cite, their numbers don't)
+  - [ ] Forecast engine: base year + 5-yr forecast + CAGR across **≥3 segmentations**, every table summing to the same headline total — enforced by `validate_numbers`, not prose
+  - [ ] Every market figure carries lineage (formula or source); the provenance panel ships as the methodology appendix — the anti-"Source: BCC Research" differentiator
+  - [ ] Zero UNSOURCED headline numbers in premium mode when data keys are present (Census/BLS/Tavily)
+  - [ ] Blind judge (benchmarks/judge.py, new rubric) scores a Castor chapter against a BCC chapter on structure / evidence density / internal consistency / transparency: **parity or better on all four**, stored in `docs/baselines/M8.json`
+  - [ ] COGS logged, **≤ $40**/premium report (supersedes M7's $25 for this deeper mode)
+
 ---
 
 ## 2. Regression protocol (what runs when)
