@@ -39,6 +39,20 @@ Tests are written FIRST (red → green), per the repo's TDD rule.
 
 ---
 
+## 0.2 Implementation order (dependency-driven; each wave exits through a gate)
+
+| Wave | Work | Why this position | Exit gate |
+|---|---|---|---|
+| **0** (~½ day) | Fix G1–G4: WTP unit in consumer_research, SAM≤TAM clamp on the national path, profitable-at-SOM reconciliation, agency scale-misroute | Cheapest known bugs; detectors already written; instant measurable win | `gates.py --gate core` ≥95%, D04/D05/D07/D08 = 100% on fresh corpus |
+| **1** (1–2 d) | Wire **instructor** into llm.py (already installed) + write the 59 negative-scope docstrings + 5 thin ones + H13 anti-thrash guard | JSON reliability underpins every later integration; descriptions are P0 of the harness plan and improve routing immediately | `harness_gates.py --gate M1` PASS; parse_error rate ~0 in smoke |
+| **2** (2–3 d) | Data layer: **Tavily** first search backend, **trafilatura** content gate, **RapidFuzz** dedup, **tldextract**, **fastembed** relevance gate on pricing/competitors. *(User: free TAVILY / CENSUS / BLS keys.)* | The binding constraint on report quality (dead search → LLM-guessed brands) and on M8 fact density; needs Wave 1's reliable JSON | search smoke >0 results on 5 canned queries; D13 still green; relevance-gate unit tests |
+| **3** (2–4 d) | Harness P1+P2: RunLedger, transcript, **resume** | Biggest operational pain (every corpus regen this month re-ran finished steps); must exist before expensive premium runs | `harness_gates.py --gate M2` + `--gate M3` PASS; resume re-runs 0 completed steps |
+| **4** (3–5 d) | M8 core: deterministic **forecast engine** (also the deep G3 fix), **claim→source store + CitationAgent** (consumes Wave 2 facts), **WeasyPrint** PDF | Premium-parity substance; citation store needs real retrieval; forecast engine needs nothing — could start anytime | `test_forecast_model.py` reconciliation; fact-density counter; ≥20pp PDF renders |
+| **5** | P3 (tiering + read-parallel scheduler) → P4 (CASTOR.md, reminders, compaction) → P5 (SKILL.md, spawn contracts) | Cost/speed then context-scale; none block earlier waves | M4 → M5 → M6 gates |
+| **6** | P6 premium multi-agent: research crew stage + verifier panel + effort knob | Needs Opus-class budget + Wave 3's resume protecting expensive runs; verifier design matures from R4 experience | M7 gate; then the R4 panel confirms ≥90%/0-critical |
+
+Re-run the R4 LLM panel once after Wave 2 (cheap checkpoint) and once at M7 (the final claim).
+
 ## 0. Test taxonomy (the five rings)
 
 | Ring | What | Runs | Command |
