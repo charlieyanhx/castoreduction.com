@@ -35,6 +35,18 @@ prefixes are a 10× cost lever; compaction into a *structured* summary preserves
 dropping bulk; one-branch sub-agents give parallelism without divergence; the tool layer being
 boring and deterministic is what lets the model be creative safely.
 
+**Verified sources for Part 1** (fetched and read — see HARNESS_LITERATURE.md §4 for the full
+findings): minusx.ai *Decoding Claude Code* · kirshatrov *claude-code-internals* ·
+Piebald-AI *claude-code-system-prompts* (500+ fragments, 231 tracked versions) ·
+shareAI-lab *analysis_claude_code* / *learn-claude-code* · Yuyz0112 *claude-code-reverse* ·
+promptlayer *master agent loop* · decodeclaude.com *compaction deep-dive* · outsightai +
+georgesung traffic tracing · code.claude.com/docs/en/memory. Key verified numbers: >50% of CC's
+LLM calls run on Haiku-class models; ~9.4k tokens of tool descriptions vs ~2.8k system prompt;
+compaction historically at ~92% now headroom-based; TodoWrite forces FULL-list rewrites
+(recitation is the mechanism); CLAUDE.md is a 4-layer concatenation delivered as a *user message
+after* the system prompt and re-injected post-compaction; microcompaction demotes old tool
+results to disk pointers keeping a hot tail inline.
+
 ---
 
 ## Part 2 — Castor today, mapped layer-by-layer
@@ -86,7 +98,14 @@ well-understood tasks**. So we do NOT replace `plan.py` with a free loop. We ado
   budget, compress into an 8-segment structured handoff (CC's AU2 pattern): objective / key
   decisions / evidence digest (with restorable pointers) / open questions / failures seen /
   next steps / constraints / sources. Reversible: bulky payloads drop to `evidence_id` pointers
-  (we already store them) — never lossy on provenance.
+  (we already store them) — never lossy on provenance. Verified refinements from the compaction
+  deep-dive: (a) **microcompaction first** — demote old observations to Evidence-ID pointers
+  while keeping a hot tail of recent ones fully inline (cheapest stage, nearly free since
+  provenance already persists payloads); (b) **fixed checklist schema**, never freeform
+  summarization; (c) after compaction, **re-materialize hot state from the provenance store**
+  (current step, key Evidence), don't trust the summary; (d) **anti-thrash guard** — cap
+  compactions per run and abort loudly rather than loop-compacting; (e) compact early enough
+  that the compaction itself has headroom to run.
 - **3.3** **System-reminder channel**: generalize `model_directive` into `inject_reminder(step,
   text)` — a uniform way any gate (validation, business-model router, run-health) steers any
   downstream LLM call. Same mechanism CC uses to steer mid-conversation.
@@ -145,7 +164,15 @@ well-understood tasks**. So we do NOT replace `plan.py` with a free loop. We ado
 | Free-form master loop for the whole product | report generation is a known workflow; determinism + testability are Castor's moat (verified: "workflows beat agents for well-understood tasks") |
 | Full multi-agent orchestration (3-5 parallel researchers everywhere) | ~15× token economics on a free Gemini tier; use only in the research limb where breadth pays |
 | Terminal UI/REPL | our surface is the web workspace |
-| Model-tier routing (haiku-class for utilities) | single-provider today; revisit when a second provider lands |
+| h2A async mid-run steering queue | Castor is batch; replay-from-cache is the right substitute (verified skip) |
+| LLM-based Bash injection checks | our tools are parameterized functions, not model-composed shell; a rule-based check in the tool wrapper suffices |
+| Vector/RAG store for source documents | CC's verified "LLM search >>> RAG" — Castor is already tool-retrieval-first; keep grep/filter over cached sources |
+
+**Correction from verified research — model tiering moves from skip → ADOPT:** >50% of CC's LLM
+calls run on Haiku-class models (summarize/parse/classify/Explore). Tiering doesn't need a second
+provider — Gemini has flash vs flash-lite. Add `tier="utility"|"main"` to `llm.py:call_json` and
+route evidence summarization, classification, extraction, and label generation to flash-lite.
+Slots into **P3**. This is the single biggest cost lever CC validates.
 
 ## Part 5 — Execution order (each phase independently shippable + testable)
 
