@@ -82,6 +82,31 @@ def _is_physical_local(description: str) -> bool:
         return False
     return not _COUNTRY_RE.search(d) or "," in d  # "in US" alone doesn't count
 
+# Deterministic client-services detector (G4/D07) — client-serving professional
+# services (agencies, consultancies, firms, design/dev studios paid per project or
+# retainer) are NOT footfall businesses: revenue arrives from client engagements, not
+# walk-in trade, so the household trade-area path NEVER applies — even when a city is
+# named ("design studio in Portland" would otherwise satisfy _VENUE_RE + _LOC_RE).
+# The audit critical: a $20k/project brand-design studio was routed hyperlocal, where
+# D07 (geo competitors) is unsatisfiable for an agency. Requires BOTH a provider noun
+# and a client/engagement signal, so "yoga studio for local clients" stays hyperlocal.
+_SERVICES_PROVIDER_RE = re.compile(
+    r"\b(agenc(?:y|ies)|consultanc(?:y|ies)|consulting|"
+    r"(?:design|creative|branding|brand|dev(?:elopment)?|software|product)\s+(?:studio|firm|shop|house)|"
+    r"(?:marketing|law|accounting|architecture|pr|staffing|recruiting)\s+(?:firm|agency|practice)|"
+    r"professional\s+services?)\b", re.I)
+_CLIENT_ENGAGEMENT_RE = re.compile(
+    r"\b(clients?|businesses|companies|startups|brands|b2b|engagements?|"
+    r"project-?based|per[- ]project|retainers?)\b", re.I)
+
+
+def _is_client_services(description: str) -> bool:
+    """True for a client-serving professional-services venture (provider noun AND
+    client/engagement context) — a business sized on engagements, not footfall."""
+    d = description or ""
+    return bool(_SERVICES_PROVIDER_RE.search(d) and _CLIENT_ENGAGEMENT_RE.search(d))
+
+
 # Scale constants.
 HYPERLOCAL = "hyperlocal"
 REGIONAL = "regional"
@@ -157,10 +182,23 @@ def classify_market_scale(description: str, geo: str = "US") -> Evidence:
     """
     signals = _extract_signals(description, geo)
 
+    # Deterministic override #0 (G4/D07): client-serving professional services never
+    # route to the household trade-area path — regardless of the LLM's signals, and
+    # taking precedence over the physical-local override ("design studio in Portland"
+    # is an engagement business, not a walk-in venue).
+    client_services = _is_client_services(description)
+    if client_services:
+        signals = {**signals, "is_physical": False,
+                   "geo_scope": signals["geo_scope"]
+                   if signals["geo_scope"] in ("national", "global") else "national",
+                   "delivery": "online"
+                   if signals["delivery"] in ("in_person", "local_delivery")
+                   else signals["delivery"]}
+
     # Deterministic override #1: an obvious physical local venue (with a location, no
     # digital framing) is physical + local — even if the LLM degraded to national/online
     # defaults. This is the fix for "pizzeria in Echo Park → national_digital → 0 competitors".
-    if _is_physical_local(description):
+    elif _is_physical_local(description):
         scope = "regional" if _is_multi_location(description) else "local_metro"
         signals = {**signals, "is_physical": True,
                    "delivery": signals["delivery"]
@@ -175,6 +213,10 @@ def classify_market_scale(description: str, geo: str = "US") -> Evidence:
         signals = {**signals, "geo_scope": "regional"}  # immutable update
 
     scale, method, sizing_skill, rationale = _route(signals)
+    if client_services:
+        rationale = ("client-serving professional services: project/retainer revenue "
+                     "from business clients, not walk-in trade — household trade-area "
+                     "sizing never applies")
     return Evidence(
         source="classify_market_scale",
         category="skill_output",

@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from skills import get_skill, SKILL_REGISTRY
 from skills.sizing.classify import (
-    classify_market_scale, _route, _is_multi_location,
+    classify_market_scale, _route, _is_multi_location, _is_client_services,
     HYPERLOCAL, REGIONAL, NATIONAL_PHYSICAL, NATIONAL_DIGITAL, GLOBAL_DIGITAL,
 )
 
@@ -83,6 +83,66 @@ class TestMultiLocationDetection(unittest.TestCase):
         with patch("skills.sizing.classify._extract_signals", return_value=signals):
             ev = classify_market_scale("A farm-to-table restaurant in Silver Lake.", geo="LA")
         self.assertEqual(ev.payload["scale"], HYPERLOCAL)
+
+
+class TestClientServicesNeverHyperlocal(unittest.TestCase):
+    """G4/D07: client-serving professional services (agencies, consultancies, design/dev
+    studios paid per project or retainer) are NOT footfall businesses — they must never
+    route to the household trade-area path, no matter what the LLM extracted and even
+    when a city is named. Baseline critical: a $20k/project brand-design studio was
+    classified hyperlocal (then D07: geo competitors impossible for an agency)."""
+
+    # The verbatim baseline description (job 348c69ca) + the LLM's actual bad signals.
+    AGENCY = ("A boutique brand and product design studio that specializes in "
+              "project-based engagements. They deliver tailored design solutions, "
+              "typically priced around $20,000 per project, to help growing businesses "
+              "establish their brand and product identity.")
+    BAD_SIGNALS = {"is_physical": True, "geo_scope": "local_metro", "delivery": "in_person"}
+
+    def _classify(self, description, signals=None):
+        with patch("skills.sizing.classify._extract_signals",
+                   return_value=dict(signals or self.BAD_SIGNALS)):
+            return classify_market_scale(description)
+
+    def test_baseline_agency_never_hyperlocal(self):
+        ev = self._classify(self.AGENCY)
+        self.assertEqual(ev.payload["scale"], NATIONAL_DIGITAL)
+        self.assertEqual(ev.payload["sizing_skill"], "size_national_digital")
+        self.assertNotEqual(ev.payload["scale"], HYPERLOCAL)
+
+    def test_agency_with_city_still_never_hyperlocal(self):
+        # "studio" is in _VENUE_RE and "in Portland" satisfies _LOC_RE — without the
+        # services override, the physical-local override would force hyperlocal.
+        ev = self._classify("A brand design studio in Portland working with startup "
+                            "clients on project-based engagements.")
+        self.assertEqual(ev.payload["scale"], NATIONAL_DIGITAL)
+
+    def test_local_marketing_agency_never_hyperlocal(self):
+        # Even explicitly local-focused B2B services are engagement businesses, not
+        # walk-in trade — household-catchment sizing never applies.
+        ev = self._classify("A marketing agency helping local businesses in Denver "
+                            "grow through retainers.")
+        self.assertEqual(ev.payload["scale"], NATIONAL_DIGITAL)
+
+    def test_rationale_names_services_not_digital_delivery(self):
+        ev = self._classify(self.AGENCY)
+        self.assertIn("service", ev.payload["rationale"].lower())
+        self.assertIn("walk-in", ev.payload["rationale"].lower())
+
+    def test_walk_in_venues_with_clients_stay_hyperlocal(self):
+        # No overcorrection: consumer venues that happen to say "clients" keep the
+        # trade-area path.
+        for desc in ("A hair salon in Austin with loyal clients.",
+                     "A yoga studio in Silver Lake for local clients."):
+            ev = self._classify(desc)
+            self.assertEqual(ev.payload["scale"], HYPERLOCAL, desc)
+
+    def test_detector_requires_both_provider_and_engagement_signal(self):
+        self.assertTrue(_is_client_services(self.AGENCY))
+        self.assertTrue(_is_client_services("a consulting firm for B2B companies"))
+        self.assertFalse(_is_client_services("a design studio selling art prints"))   # no client signal
+        self.assertFalse(_is_client_services("a cafe serving local businesses lunch")) # no provider noun
+        self.assertFalse(_is_client_services(""))
 
 
 class TestRegistration(unittest.TestCase):
