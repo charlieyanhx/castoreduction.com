@@ -221,6 +221,10 @@ def validate_numbers(sizing: dict, max_share: float = DEFAULT_MAX_SHARE) -> Evid
       {passed: bool, blocks: [...], warns: [...]}
     `passed` is False iff there are hard blocks; in that case Evidence.error is set
     so downstream renderers refuse to publish.
+
+    Every sizing engine already runs this gate internally — call it standalone
+    only on hand-assembled or externally-supplied sizing payloads. Do NOT use to
+    reconcile multiple estimates into one point value; that is triangulate_skill.
     """
     blocks, warns = _check(sizing or {}, max_share)
     passed = not blocks

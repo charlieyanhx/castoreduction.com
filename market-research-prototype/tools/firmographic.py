@@ -15,7 +15,11 @@ from .registry import tool, Evidence
 def enrich_competitor(brand: str, domain: str) -> Evidence:
     """Enrich a single competitor with firmographic data.
     Combines Wikidata SPARQL + GitHub Orgs REST + DDG→LLM fallback.
-    Returns Evidence with the merged firmographic dict as payload."""
+    Returns Evidence with the merged firmographic dict as payload.
+
+    Requires BOTH brand and domain (empty result otherwise). Do NOT use it in a
+    loop over a competitor list — enrich_competitors_batch caps the per-run cost.
+    """
     from firmographics import enrich_one as _impl
     result = _impl(brand, domain) or {}
     sources = result.get("sources") or []
@@ -33,7 +37,13 @@ def enrich_competitor(brand: str, domain: str) -> Evidence:
     returns="list[{brand, domain, founded_year, hq, employee_band, ...}]",
 )
 def enrich_competitors_batch(competitors: list[dict], max_to_enrich: int = 6) -> Evidence:
-    """Batch-enrich up to N competitors in parallel."""
+    """Enrich the top `max_to_enrich` items of a competitor list (dicts with
+    brand + domain keys), attaching a `firmographics` dict to each; items past
+    the cap pass through unchanged. Returns the new list.
+
+    Do NOT use for a single known brand/domain pair — call enrich_competitor
+    directly; list items missing brand or domain get empty firmographics.
+    """
     from firmographics import enrich_competitors as _impl
     enriched = _impl(competitors, max_to_enrich=max_to_enrich) or []
     return Evidence(

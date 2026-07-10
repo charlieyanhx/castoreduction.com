@@ -21,7 +21,13 @@ from tools import Evidence
 @skill(produces="company_profile", consumes=[])
 def profile_skill(description: str) -> Evidence:
     """Extract structured company profile from a free-text venture description.
-    Returns the profile dict + named_competitors + tam_scope_hint."""
+    Returns the profile dict + named_competitors + tam_scope_hint.
+
+    Run first: everything downstream keys off it (category drives discovery,
+    core_features drive Max-Diff, target_pain_points drive taste matching).
+    Do NOT use to find competitors that are not named in the text —
+    named_competitors is verbatim extraction only; landscape search is
+    discover_competitors_skill / multi_strategy_discovery."""
     from company_profile import extract_company_profile
     profile = extract_company_profile(description)
     if profile.get("error"):
@@ -42,7 +48,14 @@ def profile_skill(description: str) -> Evidence:
 @skill(produces="audience_taste", consumes=["customer_voice"])
 def taste_skill(brand: str, domain: str) -> Evidence:
     """Decode psychographic taste profile for a competitor brand
-    from Trustpilot + Reddit + DDG articles + HackerNews."""
+    from Trustpilot + Reddit + DDG articles + HackerNews.
+    Returns Evidence whose payload is the taste profile; count = real sources
+    used (count=0 + cannot_decode when no customer voice was found).
+
+    Run once per top competitor after discovery; decoded profiles feed
+    personas_skill. Do NOT use on the venture's own unlaunched brand — it
+    needs an existing public review footprint and never invents data; simulate
+    demand for a new product with consumer_research_skill instead."""
     from taste import decode_taste
     profile = decode_taste(brand, domain) or {}
     if profile.get("cannot_decode"):
@@ -75,7 +88,15 @@ def customer_universe_skill(
     differentiators: list[dict] | None = None,
     target_count: int = 30,
 ) -> Evidence:
-    """Build B2B customer universe (real companies matching ICP) via 5 methods."""
+    """Build B2B customer universe (real companies matching ICP) via 5 methods
+    (competitor-customer scrape, DDG+ICP, vertical seed lists, Crunchbase
+    wayback, G2 reviewers). Returns Evidence payload {count, icp_summary,
+    companies:[{name, domain, employee_band, ...}], segments, methods_used}.
+
+    Run after competitor discovery (+ differentiators when available) to name
+    concrete sellable prospect accounts. Do NOT use for B2C ventures — buyers
+    there are individual consumers, not companies; profile them via
+    taste_skill/personas_skill. It lists prospects, not competitors."""
     from customer_universe import build_customer_universe
     universe = build_customer_universe(
         profile=profile, competitors=competitors,
@@ -101,7 +122,14 @@ def differentiators_skill(
     competitors: list[dict],
 ) -> Evidence:
     """Extract differentiators across 5 dimensions (feature, pricing, channel,
-    delivery, IP/credentials) + market gaps + positioning summary."""
+    delivery, IP/credentials) + market gaps + positioning summary.
+    Returns Evidence payload {differentiators, market_gaps, positioning
+    summary, differentiation_strength}.
+
+    Run after competitor discovery + clustering; output feeds the 4Ps
+    product/promotion sections and EVC. Do NOT use to gather competitor data —
+    it is one LLM call over the clustering/competitors you pass in and does no
+    scraping or web search; run discovery first."""
     from differentiators import extract_differentiators
     diffs = extract_differentiators(
         profile=profile, our_features=our_features,
@@ -121,7 +149,14 @@ def differentiators_skill(
 
 @skill(produces="personas", consumes=["audience_taste"])
 def personas_skill(taste_profiles: list[dict], product_summary: str) -> Evidence:
-    """Synthesize 1-2 distinct buyer personas from decoded taste profiles."""
+    """Synthesize 1-3 distinct buyer personas from decoded taste profiles.
+    Returns Evidence payload {personas, recommended_wedge_persona}, ranked by
+    easiest-wedge attractiveness for a new entrant.
+
+    Run after taste_skill has decoded 2+ competitor brands.
+    Do NOT feed it raw reviews or scraped text — it only clusters
+    ALREADY-decoded taste profiles; decode customer voice with taste_skill
+    first."""
     from personas import synthesize_personas
     result = synthesize_personas(taste_profiles, product_summary) or {}
     if result.get("error"):
@@ -141,7 +176,14 @@ def personas_skill(taste_profiles: list[dict], product_summary: str) -> Evidence
 @skill(produces="feature_ranking", consumes=[])
 def max_diff_skill(features: list[str], segment_summary: str, category: str,
                    n_buyers: int = 30) -> Evidence:
-    """Simulate Max-Diff (Best-Worst Scaling) to rank features by importance."""
+    """Simulate Max-Diff (Best-Worst Scaling) to rank features by importance.
+    Runs a synthetic LLM buyer panel (default 30) over 3-20 features; returns
+    Evidence payload {ranked_features, panel_size}.
+
+    Run once core_features and a segment summary exist; the ranking feeds the
+    4Ps Product section. Do NOT use for pricing questions — it ranks feature
+    importance only; willingness-to-pay is psm_skill's Van Westendorp
+    simulation. Errors with fewer than 3 features."""
     from pricing import simulate_max_diff
     result = simulate_max_diff(features, segment_summary, category, n_buyers=n_buyers) or {}
     if result.get("error"):
@@ -162,7 +204,14 @@ def max_diff_skill(features: list[str], segment_summary: str, category: str,
 def psm_skill(segment_summary: str, product_summary: str, top_features: list[str],
               competitor_prices: list[float] | None = None,
               n_buyers: int = 40) -> Evidence:
-    """Simulate Van Westendorp Price Sensitivity Meter."""
+    """Simulate Van Westendorp Price Sensitivity Meter.
+    Synthetic buyer panel (default 40) yields Evidence payload with the
+    acceptable price range, optimal_price_point, and tiered recommendations.
+
+    Run after max_diff_skill (pass its top features); output anchors the 4Ps
+    Price section and market sizing. Do NOT use to obtain real competitor
+    prices — this simulates buyer price sensitivity, it scrapes nothing; fetch
+    real prices with scrape_market_price and pass them as competitor_prices."""
     from pricing import simulate_van_westendorp
     result = simulate_van_westendorp(
         segment_summary=segment_summary, product_summary=product_summary,
@@ -188,7 +237,14 @@ def psm_skill(segment_summary: str, product_summary: str, top_features: list[str
 @skill(produces="market_sizing", consumes=[])
 def market_sizing_skill(profile: dict, competitors: list[dict], audience: dict,
                         competitor_pricing: dict, psm_result: dict) -> Evidence:
-    """Estimate TAM/SAM/SOM via 3 independent parallel methods (top-down, bottom-up, analog)."""
+    """Estimate TAM/SAM/SOM via 3 independent parallel methods (top-down, bottom-up, analog).
+    Returns Evidence payload with low/mid/high ranges, growth CAGR, and
+    segmentation; count = how many of the 3 methods produced a numeric TAM.
+
+    Run late — after competitors, audience, competitor pricing, and psm_skill —
+    so the shown arithmetic is grounded. Do NOT use to reconcile numeric
+    estimates you already hold — that is triangulate_skill; this generates
+    fresh TAM/SAM/SOM estimates from pipeline inputs."""
     from market_sizing import estimate_market_size
     result = estimate_market_size(
         profile=profile, competitors=competitors, audience=audience,
@@ -229,7 +285,14 @@ def four_ps_skill(
     reddit_signal: dict | None = None,
 ) -> Evidence:
     """Run 4 parallel section-specific LLM calls (product/price/place/promotion)
-    to assemble the full 4Ps marketing plan with anti-fabrication rules."""
+    to assemble the full 4Ps marketing plan with anti-fabrication rules.
+    Returns Evidence payload with the four sections + citations; count =
+    sections that produced a narrative (0-4).
+
+    Assembly step: call once personas, max_diff, van_westendorp, and place
+    data exist — each P sees only the context it needs. Do NOT use it to fill
+    in missing research (anti-fabrication means empty inputs yield empty
+    sections) or for a go/no-go verdict — scoring is viability_skill."""
     from four_ps import assemble_4ps_split
     result = assemble_4ps_split(
         profile=profile, competitors=competitors, top_audience=top_audience,
@@ -264,7 +327,14 @@ def viability_skill(
     economics_clv: float | None = None,
 ) -> Evidence:
     """Score venture viability on 5 weighted dimensions, anchored to real pipeline
-    metrics (differentiators count, audience confidence, EVC verdict, etc.)."""
+    metrics (differentiators count, audience confidence, EVC verdict, etc.).
+    Returns Evidence payload with viability_score + confidence; count=1 only
+    when a numeric score was produced.
+
+    Final verdict step — call after four_ps, differentiators, and market
+    sizing have landed. Do NOT use as a mid-pipeline quality gate or to
+    generate new analysis: it only weighs metrics already computed upstream,
+    so calling it before those steps finish scores noise."""
     from four_ps import score_viability
     result = score_viability(
         profile=profile, four_ps=four_ps, density=density, avg_score=avg_score,

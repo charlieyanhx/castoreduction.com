@@ -115,7 +115,11 @@ def _fcc_fips(lat: float, lng: float) -> Optional[dict]:
 
 @tool(category="geo", returns="{lat, lng, state_fips, county_fips, tract}")
 def geocode_address(address: str) -> Evidence:
-    """Geocode a US street address to lat/lng + Census geography (free, no key)."""
+    """Geocode a US street address to lat/lng + Census geography (free, no key).
+
+    Do NOT use for non-US addresses — Census/FCC FIPS lookups are US-only (the
+    Nominatim fallback still yields lat/lng, but ACS demographics then degrade).
+    """
     data = _http_json(
         "GET", _GEOCODER_URL,
         params={"address": address, "benchmark": "Public_AR_Current",
@@ -167,6 +171,8 @@ def acs_demographics(state_fips: str, county_fips: str,
 
     Source: US Census ACS 5-year. Pass `tract` for tract-level granularity,
     omit for county-level. No API key required at default rate limits.
+    Do NOT use for establishment/business counts — that is census_business_counts;
+    and it takes FIPS codes from geocode_address, not a raw street address.
     """
     varlist = f"{_ACS_HOUSEHOLDS},{_ACS_MEDIAN_HH_INCOME},{_ACS_POPULATION}"
     if tract:
@@ -247,6 +253,8 @@ def census_business_counts(naics: Optional[str] = None, category: Optional[str] 
     LLM — no hardcoded category list, so any vertical works). Source: US Census
     County Business Patterns (CBP), free, no key needed. This is the authoritative
     unit count bottom-up TAM should use, not a hardcoded constant.
+    Do NOT use for competitor density near a point — this is a US-national count;
+    poi_competition / osm_named_competitors handle a lat/lng radius.
     """
     code = naics or resolve_naics(category or "")
     if not code:
@@ -284,7 +292,11 @@ def osm_named_competitors(lat: float, lng: float, radius_m: int = 3000,
                           limit: int = 40) -> Evidence:
     """Named nearby competitors of a given POI type — the real geographic competitor
     set for a local business (a restaurant's rivals are the restaurants around it, not
-    web-search brands). Source: OpenStreetMap Overpass (`out tags`)."""
+    web-search brands). Source: OpenStreetMap Overpass (`out tags`).
+
+    Do NOT use when only a density number is needed — poi_competition's count
+    query is cheaper; and online/SaaS rivals come from web_search, not OSM.
+    """
     query = (
         f'[out:json][timeout:25];'
         f'(node["{osm_key}"="{osm_value}"](around:{radius_m},{lat},{lng});'
@@ -320,6 +332,8 @@ def poi_competition(lat: float, lng: float, radius_m: int = 3000,
     """Count competing POIs within a radius — competition density for fair-share.
 
     Source: OpenStreetMap Overpass. Default counts amenity=restaurant within 3km.
+    Do NOT use when venue names matter — this returns a bare count;
+    osm_named_competitors lists the actual named venues.
     """
     query = (
         f'[out:json][timeout:25];'

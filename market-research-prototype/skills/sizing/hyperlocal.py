@@ -158,6 +158,11 @@ def size_hyperlocal(
 
     Returns Evidence(produces="market_sizing") with tam/sam/som + provenance
     figures, pre-validated. Evidence.error is set if validation hard-blocks.
+
+    This is the single-premise trade-area ENGINE, normally reached via
+    size_market's routing. Do NOT use directly on an unclassified venture, a
+    multi-site rollout (size_regional), or anything digital/online
+    (size_national_digital) — that bypasses classify_market_scale's overrides.
     """
     geocode = get_tool("geocode_address").fn
     acs = get_tool("acs_demographics").fn

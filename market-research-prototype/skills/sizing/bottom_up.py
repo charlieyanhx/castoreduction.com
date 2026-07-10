@@ -37,6 +37,12 @@ def grounded_bottom_up(
     Returns Evidence(produces="market_sizing") with a sourced, self-reconciling
     bottom-up figure, pre-validated. Skeleton if the live count is unavailable —
     we do NOT fall back to a guessed count (that was the bug).
+
+    Use to ground or cross-check an existing sizing with a Census-sourced
+    establishment count. Do NOT use as the primary sizing entry point —
+    size_market routes the fitting method — and do NOT use without a known
+    annual_arpu: it multiplies, never estimates one (scrape_market_price can
+    supply a sourced ARPU).
     """
     counts = get_tool("census_business_counts").fn(naics=naics, category=category, year=year)
     if counts.error or not counts.payload:

@@ -113,6 +113,11 @@ def multi_strategy_discovery(
     Returns Evidence(produces="competitor_landscape") with payload:
       {competitors: [{name, domain, mentions, sources, relationship, reason}],
        strategies: [...], n_strategies, n_direct, n_indirect}
+
+    Use for fast, breadth-first discovery via planned parallel web queries.
+    Do NOT use when candidates should also come from ad libraries or
+    community/customer-voice tools — its executors are web_search only; run
+    discover_competitors_skill for the agent-driven multi-tool surface.
     """
     strategies = _plan_queries(description, geo, max_strategies)
 

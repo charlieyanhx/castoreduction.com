@@ -88,6 +88,11 @@ def size_national_digital(
 
     Returns Evidence(produces="market_sizing") with normalized, validated sizing.
     Evidence.error is set if validation hard-blocks (e.g. SOM>SAM>TAM).
+
+    This is the digital/national ENGINE, normally reached via size_market's
+    routing. Do NOT use directly for physical/footfall ventures — a pizzeria run
+    through this path is the classic scope-drift bug; size_market routes those
+    to the trade-area engines after classify_market_scale.
     """
     from market_sizing import estimate_market_size
     result = estimate_market_size(

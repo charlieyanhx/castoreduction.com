@@ -55,6 +55,11 @@ def scrape_market_price(
     Returns Evidence(produces="price_intel") with payload:
       {median_monthly_usd, n_prices, n_sources, prices:[{value, source}], origin:'scrape'}
     Skeleton if nothing scrapeable (no guess). The median is a real, sourced number.
+
+    Use when sizing needs an independent origin="scrape" price (e.g. a sourced
+    ARPU for bottom-up TAM). Do NOT use for your own product's willingness-to-pay
+    (that is consumer_research_skill) or for one-off/big-ticket prices — only
+    recurring $5–$5,000/month values survive the plausibility filter.
     """
     hits = web_search(f"{category} pricing {geo} per month plans")
     rows = hits.payload or []

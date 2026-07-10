@@ -139,6 +139,10 @@ def consumer_research_skill(
       {perspectives, interviews, synthesis}
     synthesis carries ranked needs/objections, cross-segment agreement, and a
     willingness-to-pay band aggregated from the per-persona interviews.
+
+    Use for early demand/objection/WTP signal when no real customer data exists.
+    Do NOT use as sourced market evidence or real pricing — every interview is a
+    simulated LLM persona; for scraped, cited price points use scrape_market_price.
     """
     perspectives = simulate_perspectives(description, n_perspectives, geo)
     if not perspectives:

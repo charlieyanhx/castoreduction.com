@@ -55,6 +55,10 @@ def run_pipeline_skill(
 
     Backward compat: this is a thin wrapper around plan.run_plan. All existing
     callers that use plan.run_plan directly continue to work unchanged.
+
+    Do NOT use when only one section is needed (a sizing, a competitor scan) —
+    invoke that step skill directly (size_market, multi_strategy_discovery, …);
+    this runs all 22 steps and pays the full LLM + scraping cost every time.
     """
     from plan import run_plan
     result = run_plan(

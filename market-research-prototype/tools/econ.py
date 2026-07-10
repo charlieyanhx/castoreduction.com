@@ -90,6 +90,8 @@ def bls_cex_spend(category: Optional[str] = None,
 
     Pass `series_id` directly, or a `category` (LLM resolves the CEX series id; the
     value still comes from BLS). Optional BLS_API_KEY env raises rate limits.
+    Do NOT use for establishment counts (census_business_counts) or area
+    demographics (acs_demographics) — this is per-household $/yr for one category.
     """
     sid = series_id or _resolve_cex_series(category or "")
     if not sid:

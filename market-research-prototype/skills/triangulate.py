@@ -112,7 +112,14 @@ def triangulate(label: str, estimates: list) -> dict:
 
 @skill(produces="triangulation", consumes=[])
 def triangulate_skill(label: str, estimates: list) -> Evidence:
-    """Triangulation as a registered skill (uniform Evidence envelope)."""
+    """Triangulation as a registered skill (uniform Evidence envelope).
+
+    Use to reconcile one quantity estimated from several data origins (census,
+    scrape, llm, …) into a defensible point + confidence. Do NOT use to sanity-
+    gate a sizing payload — ordering/provenance checks are validate_numbers; and
+    estimates that all share one origin (e.g. ten LLM draws) collapse to
+    confidence='single_source', never a triangulation.
+    """
     result = triangulate(label, estimates)
     return Evidence(
         source="triangulate_skill", category="skill_output",

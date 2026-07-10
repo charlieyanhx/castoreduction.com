@@ -10,7 +10,12 @@ from .registry import tool, Evidence
 
 @tool(category="trend", returns="dict{slope_pct, weekly_avg, ...}")
 def google_trends_rising(brand: str, geo: str = "US") -> Evidence:
-    """Pull Google Trends interest-over-time + compute weekly slope."""
+    """Pull Google Trends interest-over-time + compute weekly slope.
+
+    Also returns rising related queries — use for category/term exploration.
+    Do NOT use when only one brand's momentum number is needed —
+    brand_trend_slope is the lighter call, and pytrends 429s aggressively.
+    """
     from sources import google_trends_rising as _impl
     result = _impl(brand, geo=geo) or {}
     return Evidence(
@@ -21,9 +26,16 @@ def google_trends_rising(brand: str, geo: str = "US") -> Evidence:
     )
 
 
-@tool(category="trend", returns="float slope or None")
+@tool(category="trend", returns="{brand, slope_12m, peak, ...} dict")
 def brand_trend_slope(brand: str, geo: str = "US") -> Evidence:
-    """Just the trend slope (weekly % change), no payload."""
+    """12-month Google Trends momentum for one specific brand query — payload is a
+    dict ({brand, slope_12m, peak, ...}); slope_12m is the last-quarter vs
+    first-quarter interest slope, None when the brand sits below the noise floor.
+    Use to validate that a rising query is a real, sustained uptrend.
+
+    Do NOT use for category exploration or rising related queries — that is
+    google_trends_rising; slope_12m=None means "too small to measure", not zero.
+    """
     from sources import brand_trend_slope as _impl
     slope = _impl(brand, geo=geo)
     return Evidence(
@@ -35,7 +47,11 @@ def brand_trend_slope(brand: str, geo: str = "US") -> Evidence:
 
 @tool(category="trend", returns="dict{snapshots, avg_per_month, velocity}")
 def wayback_activity(domain: str, months_back: int = 6) -> Evidence:
-    """Wayback snapshot frequency over the last N months — proxy for site-update velocity."""
+    """Wayback snapshot frequency over the last N months — proxy for site-update velocity.
+
+    Do NOT use to retrieve page content — it only counts CDX timestamps; use
+    fetch_via_wayback for archived HTML or wayback_snapshot_url for the link.
+    """
     from sources import wayback_activity as _impl
     result = _impl(domain, months_back=months_back) or {}
     return Evidence(
@@ -48,7 +64,11 @@ def wayback_activity(domain: str, months_back: int = 6) -> Evidence:
 
 @tool(category="trend", returns="dict{velocity, avg_stars, recent_count}")
 def trustpilot_momentum(domain: str) -> Evidence:
-    """Trustpilot review velocity + sentiment trend (vs scraping individual reviews)."""
+    """Trustpilot review velocity + sentiment trend (vs scraping individual reviews).
+
+    Do NOT use when review text is needed for complaint/quote mining —
+    trustpilot_reviews returns the raw bodies this merely aggregates.
+    """
     from sources import trustpilot_momentum as _impl
     result = _impl(domain) or {}
     return Evidence(

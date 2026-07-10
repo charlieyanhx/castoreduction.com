@@ -143,6 +143,12 @@ def discover_competitors_skill(
     Returns Evidence(produces="competitor_landscape") with a ranked, provenance-
     tagged competitor list. Numeric fields here are counts, not market figures —
     no Layer-3 validation needed; downstream sizing skills handle the numbers.
+
+    Use when discovery should span non-search surfaces (ad libraries, community
+    customer-voice, domain tools) chosen adaptively by the agent, one step at a
+    time. Do NOT use when you want a fast explicit parallel fan-out of planned
+    search queries with direct/indirect classification — that is
+    multi_strategy_discovery.
     """
     cats = allowed_categories or DISCOVERY_CATEGORIES
     goal = (

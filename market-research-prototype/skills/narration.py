@@ -238,6 +238,10 @@ def narrate_section(section_name: str, payload: Any, mode: str = "llm") -> Evide
                     | 'hybrid' (currently same as 'llm' — placeholder for future)
 
     Returns Evidence with payload = {"narrative": str, "key_takeaways": list}.
+
+    Use after a data skill has produced the section's structured payload. Do NOT
+    use to compute, extract, or repair the numbers themselves — it only renders
+    prose from an existing payload; sizing figures are gated by validate_numbers.
     """
     if mode == "template":
         templater = _TEMPLATES.get(section_name)

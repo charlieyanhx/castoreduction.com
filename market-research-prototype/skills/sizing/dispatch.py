@@ -45,6 +45,11 @@ def size_market(
       hyperlocal       → address (or representative_address)
       regional         → addresses (or representative_address + planned_locations)
       national_digital → profile (+ competitors/audience/pricing/psm)
+
+    This is the correct entry for ANY sizing request — never call the per-scale
+    engines directly on an unclassified venture. Do NOT use when you only need
+    the routing decision without numbers (classify_market_scale) or when
+    grounding an already-computed figure (grounded_bottom_up).
     """
     cls = classify_market_scale(description, geo)
     scale = cls.payload["scale"]
