@@ -512,3 +512,32 @@ Each unit loop leaves: the new/updated test file, the gate output in the commit 
 Each wave leaves: a `docs/baselines/<wave>.json` scorecard + updated ARCHITECTURE.md if the
 tree changed. Each milestone leaves: its M-gate output + (M6/M7/M8) an R4 panel result. The
 audit trail IS the project log — no separate status reports.
+
+### 5d. Deviation log (§3 rule 3 / stall rule: deviations get a written note here)
+
+- **W1 item 1 — "instructor" implemented as a hand-rolled Pydantic corrective loop**
+  (commit 5b17657). instructor's client-wrapping composes per provider SDK, not with our
+  cross-provider chain + whole-chain backoff + schema-fingerprinted cache; the loop
+  (~40 lines in `llm.call_json`) has identical semantics — schema shown to the model,
+  validated with coercion, error-embedded re-ask, `_parse_error` only as the exhausted
+  last resort. The dep stays installed; revisit at `model/client.py` (Wave 3+) whether
+  to adopt instructor there. Confirm held: live parse-error smoke 0/10.
+- **W1 close-out ran the §4 exit gate only** (`harness_gates --gate M1` + full R1 sweep;
+  commit f5d415a). The §5a wave-close ritual (R3 corpus regen + reproducibility pair +
+  R5 smoke) was NOT re-run for W1: the wave's only pipeline-behavior delta is the
+  schemaless repair re-ask in `call_json`, which activates only on previously-FAILING
+  parse paths; `response_model=` has no production call sites yet. The R3 regen +
+  repro pair + R5 smoke run next at the Wave-2 close-out (D6) as scheduled, which
+  therefore doubles as the corpus-level confirmation of the W1 llm changes.
+- **D1 item 5 widened**: `daily_cron.sh` deleted alongside `daily_check.py` (542b3f7) —
+  the wrapper's sole purpose was invoking the deleted file. User-side: a crontab entry
+  pointing at it must be removed manually (flagged in the commit + to the operator).
+- **D1 item 7 narrowed**: the planned `tools/domain.py` stale-import removal was moot —
+  the only "probe" there is `probe_domain_patterns`, a healthy wrapper of
+  `sources.probe_domain_patterns`, unrelated to the deleted `probe.py` (71ad655).
+- **W1 gap-closure after plan-check** (5806e9a, 95cc34c): agents' negative-scope
+  descriptions (D2-3 items 3-6 listed the agents files; the fan-out covered only
+  tools+skills) landed late with H02 tightened to inspect AGENT_REGISTRY; the
+  taste-dedup R1 failure was root-caused as a deterministic dedup param collision
+  (not flakiness) and fixed with per-connection `JOBS_DB_PATH` + session temp DBs —
+  R1 at literal 100% (733/733) from here on.
