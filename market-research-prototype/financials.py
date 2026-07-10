@@ -16,6 +16,12 @@ from logger import get
 
 log = get("financials")
 
+# G3/D08: the single source of truth for year-3 capture ceilings (share of SOM each
+# scenario reaches by year 3). business_model's at-SOM profitability claim is computed
+# at Y3_CAPTURE["aggressive"] (wired in plan.py), so "profitable at SOM" can never
+# contradict a scenario table where even the aggressive case loses money.
+Y3_CAPTURE = {"conservative": 0.05, "base": 0.20, "aggressive": 0.60}
+
 
 def project_three_year_transactional(
     som_mid: float,
@@ -36,7 +42,7 @@ def project_three_year_transactional(
     monthly_fixed = monthly_fixed_cost or 0
     ramp = {1: 0.60, 2: 0.85, 3: 1.0}
     scenarios = {}
-    for label, y3_capture in [("conservative", 0.05), ("base", 0.20), ("aggressive", 0.60)]:
+    for label, y3_capture in Y3_CAPTURE.items():
         y3_rev = som_mid * y3_capture
         years = {}
         be_year = None
@@ -109,11 +115,7 @@ def project_three_year(
     annual_price_per_customer = optimal_price * 12  # subscription assumption
 
     scenarios = {}
-    for label, year3_capture_pct in [
-        ("conservative", 0.05),
-        ("base", 0.20),
-        ("aggressive", 0.60),
-    ]:
+    for label, year3_capture_pct in Y3_CAPTURE.items():
         year3_revenue = som_mid * year3_capture_pct
         year3_customers = year3_revenue / annual_price_per_customer
 

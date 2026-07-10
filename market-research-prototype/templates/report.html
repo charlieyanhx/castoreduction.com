@@ -1266,7 +1266,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   </div>
 </div>
 {% if economics.at_som_volume %}
-<p style="font-size:10pt;color:#4b5563">At the obtainable SOM volume (~{{ economics.at_som_volume.monthly_units_per_day }} {{ economics.unit }}s/day): <strong style="color:{% if economics.at_som_volume.profitable_at_som %}#059669{% else %}#dc2626{% endif %}">{{ format_currency(economics.at_som_volume.monthly_operating_profit_usd) }}/mo operating profit</strong> on {{ format_currency(economics.at_som_volume.monthly_revenue_usd) }}/mo revenue.</p>
+<p style="font-size:10pt;color:#4b5563">At the obtainable SOM volume (~{{ economics.at_som_volume.monthly_units_per_day }} {{ economics.unit }}s/day{% if economics.at_som_volume.som_capture_pct and economics.at_som_volume.som_capture_pct < 100 %}, the aggressive-scenario ceiling of {{ economics.at_som_volume.som_capture_pct | round | int }}% of SOM{% endif %}): <strong style="color:{% if economics.at_som_volume.profitable_at_som %}#059669{% else %}#dc2626{% endif %}">{{ format_currency(economics.at_som_volume.monthly_operating_profit_usd) }}/mo operating profit</strong> on {{ format_currency(economics.at_som_volume.monthly_revenue_usd) }}/mo revenue.</p>
 {% endif %}
 <p style="font-size:9pt;color:#9ca3af">No churn/CLV: a per-{{ economics.unit }} retail business is sized on volume × margin, not subscription retention.</p>
 {% else %}

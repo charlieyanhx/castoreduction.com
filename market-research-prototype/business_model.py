@@ -194,6 +194,7 @@ def retail_unit_economics(
     unit: str = "unit",
     est_visits_per_year: Optional[float] = None,
     annual_revenue_usd: Optional[float] = None,
+    som_capture_frac: float = 1.0,
     cost_source: str = "",
     category: str = "",
     business_model: str = "",
@@ -204,6 +205,11 @@ def retail_unit_economics(
     cafe operator actually reasons about), and, when an annual SOM revenue is supplied, the implied
     monthly operating profit at that volume. No churn, no CLV, no "per account". The benchmark note
     is derived from the venture's category/model so it never references the wrong trade.
+
+    G3 (D08): `som_capture_frac` scales the given revenue to the OBTAINABLE ceiling before the
+    profitability claim is computed. plan.py passes the aggressive-scenario capture (60% of SOM,
+    financials.Y3_CAPTURE) so "profitable at SOM" is claimed at the same volume the scenario
+    table tops out at — never at a 100%-capture volume no scenario ever reaches.
     """
     margin = price_per_unit - variable_cost_per_unit
     out: dict = {
@@ -227,15 +233,20 @@ def retail_unit_economics(
         out["visits_per_year_assumed"] = est_visits_per_year
         out["annual_value_per_regular_usd"] = round(est_visits_per_year * margin, 2)
     if annual_revenue_usd:
-        monthly_rev = annual_revenue_usd / 12.0
+        # Profit uses the SAME expression as financials' scenario rows — the rounded annual
+        # ceiling and the 1-dp disclosed margin, rounded the same way — so the claim and the
+        # aggressive Y3 row are bit-identical and can never disagree at the boundary.
+        obtainable_annual = round(annual_revenue_usd * som_capture_frac)
+        monthly_rev = obtainable_annual / 12.0
         monthly_units = monthly_rev / price_per_unit if price_per_unit else 0
-        monthly_contribution = monthly_units * margin
-        monthly_profit = monthly_contribution - monthly_fixed_cost
+        margin_frac = (out["contribution_margin_pct"] or 0) / 100.0
+        monthly_profit = round(monthly_rev * margin_frac - out["monthly_fixed_cost"])
         out["at_som_volume"] = {
             "monthly_revenue_usd": round(monthly_rev),
             "monthly_units": round(monthly_units),
             "monthly_units_per_day": round(monthly_units / 30.0, 1),
-            "monthly_operating_profit_usd": round(monthly_profit),
+            "monthly_operating_profit_usd": monthly_profit,
             "profitable_at_som": monthly_profit > 0,
+            "som_capture_pct": round(som_capture_frac * 100, 1),
         }
     return out

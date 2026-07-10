@@ -35,7 +35,7 @@ from four_ps import assemble_4ps, assemble_4ps_split, score_viability
 from clustering import cluster_competitors, find_whitespace
 from competitor_pricing import gather_competitor_prices
 from market_sizing import estimate_market_size
-from financials import project_three_year
+from financials import project_three_year, Y3_CAPTURE
 from personas import synthesize_personas
 from logger import get
 
@@ -416,6 +416,36 @@ def wtp_unit_for(description: str, profile: dict | None = None,
     if kind in ("subscription", "ad_supported"):
         return "/mo"  # recurring (or upsell) willingness is per month
     return "/" + unit_for_model(kind, description, profile)
+
+
+def _enrich_economics_at_som(econ: dict, som_mid, category: str = "",
+                             business_model: str = "") -> dict:
+    """cycle37 + G3 (D08): once SOM is known, recompute transactional unit economics with
+    the at-SOM-volume profitability — sizing runs after economics, so this can't happen at
+    economics time. Pure recompute, no LLM.
+
+    The claim is computed at the AGGRESSIVE scenario ceiling (Y3_CAPTURE, 60% of SOM),
+    never at 100% capture: 2/16 baseline reports said "profitable at SOM" while every
+    scenario row — including aggressive — lost money (D08 contradiction). Returns econ
+    unchanged when not applicable (wrong model, no SOM, already enriched, or bad inputs)."""
+    if econ.get("model") != "transactional" or not som_mid or econ.get("at_som_volume"):
+        return econ
+    from business_model import retail_unit_economics
+    try:
+        return retail_unit_economics(
+            price_per_unit=econ["price_per_unit"],
+            variable_cost_per_unit=econ["variable_cost_per_unit"],
+            monthly_fixed_cost=econ["monthly_fixed_cost"],
+            unit=econ.get("unit", "unit"),
+            annual_revenue_usd=float(som_mid),
+            som_capture_frac=Y3_CAPTURE["aggressive"],
+            cost_source=econ.get("cost_source", ""),
+            category=category,
+            business_model=business_model,
+        )
+    except Exception as e:
+        log.warning("[plan] at-SOM economics enrich failed (non-fatal): %s", e)
+        return econ
 
 
 def build_consumer_research(description: str, geo: str, profile: dict,
@@ -1844,25 +1874,15 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     be = (result.get("pricing", {}) or {}).get("break_even", {}) or {}
     be_customers = be.get("break_even_customers")
 
-    # cycle37: now that SOM is known, enrich transactional unit economics with the at-SOM-volume
-    # profitability (monthly operating profit at obtainable volume) — couldn't compute at economics
-    # time because sizing runs after. Pure recompute, no LLM.
+    # cycle37 + G3: now that SOM is known, enrich transactional unit economics with the
+    # at-SOM-volume profitability, computed at the aggressive scenario ceiling so the claim
+    # can never contradict the scenario table (D08). See _enrich_economics_at_som.
     _econ = result.get("economics") or {}
-    if _econ.get("model") == "transactional" and som_mid and not _econ.get("at_som_volume"):
-        try:
-            from business_model import retail_unit_economics
-            result["economics"] = retail_unit_economics(
-                price_per_unit=_econ["price_per_unit"],
-                variable_cost_per_unit=_econ["variable_cost_per_unit"],
-                monthly_fixed_cost=_econ["monthly_fixed_cost"],
-                unit=_econ.get("unit", "unit"),
-                annual_revenue_usd=float(som_mid),
-                cost_source=_econ.get("cost_source", ""),
-                category=profile.get("category", ""),
-                business_model=profile.get("business_model", ""),
-            )
-        except Exception as e:
-            log.warning("[plan] at-SOM economics enrich failed (non-fatal): %s", e)
+    if _econ:
+        result["economics"] = _enrich_economics_at_som(
+            _econ, som_mid,
+            category=profile.get("category", ""),
+            business_model=profile.get("business_model", ""))
 
     if som_mid and optimal_price:
         log.info("[plan] Step 10b: 3-year financial projections")

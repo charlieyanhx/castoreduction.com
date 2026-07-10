@@ -456,6 +456,89 @@ class TestBusinessModelAware(unittest.TestCase):
         self.assertEqual(proj["assumptions"]["annual_price_per_customer"], 456.0)
 
 
+class TestAtSomScenarioCoherence(unittest.TestCase):
+    """G3/D08: the "profitable at SOM" claim must be computed at the SAME ceiling the
+    scenario table tops out at (aggressive = 60% of SOM), never at 100% capture.
+    Baseline contradiction (2/16 reports): profitable_at_som=True while every scenario
+    row — including aggressive — lost money (e.g. aggressive Y3 = -$903/mo)."""
+
+    # Regression shape (job 955a4b3b): profitable at 100% of SOM, NOT at the 60% ceiling.
+    #   full SOM:  450000/12 x 0.75 - 25000 = +3,125/mo   (old code claimed True)
+    #   ceiling:   0.60x450000/12 x 0.75 - 25000 = -8,125/mo  (the table the reader sees)
+    PRICE, COST, FIXED, SOM = 6.0, 1.5, 25_000.0, 450_000.0
+
+    def _econ(self, **kw):
+        from business_model import retail_unit_economics
+        return retail_unit_economics(self.PRICE, self.COST, self.FIXED, unit="drink",
+                                     annual_revenue_usd=self.SOM, **kw)
+
+    def test_claim_computed_at_scenario_ceiling_not_full_som(self):
+        from financials import Y3_CAPTURE
+        asv = self._econ(som_capture_frac=Y3_CAPTURE["aggressive"])["at_som_volume"]
+        self.assertFalse(asv["profitable_at_som"])
+        self.assertEqual(asv["monthly_operating_profit_usd"], -8125)
+        self.assertEqual(asv["som_capture_pct"], 60.0)        # disclosed, not silent
+
+    def test_default_capture_is_full_given_revenue(self):
+        # Direct callers without a capture assumption keep "profit at exactly the
+        # revenue you gave me" — this is the shape that used to ship as the claim.
+        asv = self._econ()["at_som_volume"]
+        self.assertEqual(asv["som_capture_pct"], 100.0)
+        self.assertEqual(asv["monthly_operating_profit_usd"], 3125)
+        self.assertTrue(asv["profitable_at_som"])
+
+    def test_claim_equals_aggressive_year3_row_exactly(self):
+        # Coherence by construction: same revenue ceiling, same disclosed-margin basis,
+        # same rounding — the claim and the aggressive Y3 row are bit-identical, and
+        # profitable_at_som is True exactly when the table shows a break-even year.
+        from business_model import retail_unit_economics
+        from financials import Y3_CAPTURE, project_three_year
+        for price, cost, fixed, som in [
+            (6.0, 1.5, 25_000, 450_000),       # the baseline contradiction shape
+            (6.0, 1.5, 14_500, 450_000),       # profitable at the ceiling too
+            (5.99, 1.5, 16_853, 450_000),      # non-round margin, near break-even
+            (5.99, 1.5, 16_854, 450_000),      # one dollar past the boundary
+            (120.0, 30.0, 8_000, 1_200_000),   # services shape
+        ]:
+            e = retail_unit_economics(price, cost, fixed, unit="unit",
+                                      annual_revenue_usd=som,
+                                      som_capture_frac=Y3_CAPTURE["aggressive"])
+            proj = project_three_year(som_mid=som, optimal_price=price,
+                                      model="transactional", economics=e)
+            agg = proj["scenarios"]["aggressive"]
+            case = (price, cost, fixed, som)
+            self.assertEqual(e["at_som_volume"]["monthly_operating_profit_usd"],
+                             agg["year_3"]["monthly_operating_profit_usd"], case)
+            self.assertEqual(e["at_som_volume"]["profitable_at_som"],
+                             agg["break_even_year"] is not None, case)
+
+    def test_plan_enrich_site_passes_the_ceiling_and_d08_holds(self):
+        # The actual enrich path plan.py runs after sizing: base economics (no SOM yet)
+        # -> enriched at the aggressive ceiling -> D08 gate holds on the combined record.
+        from business_model import retail_unit_economics
+        from financials import project_three_year
+        from gates import d08_profit_coherent
+        from plan import _enrich_economics_at_som
+        base = retail_unit_economics(self.PRICE, self.COST, self.FIXED, unit="drink")
+        self.assertNotIn("at_som_volume", base)
+        econ = _enrich_economics_at_som(base, self.SOM)
+        self.assertFalse(econ["at_som_volume"]["profitable_at_som"])  # was the contradiction
+        proj = project_three_year(som_mid=self.SOM, optimal_price=self.PRICE,
+                                  model="transactional", economics=econ)
+        f = d08_profit_coherent({"economics": econ, "financials": proj}, None)
+        self.assertIsNot(f.ok, False, f.detail)
+
+    def test_enrich_noop_when_not_applicable(self):
+        from plan import _enrich_economics_at_som
+        sub = {"model": "subscription", "clv": {}}
+        self.assertIs(_enrich_economics_at_som(sub, 450_000), sub)      # wrong model
+        already = self._econ(som_capture_frac=0.6)
+        self.assertIs(_enrich_economics_at_som(already, 450_000), already)  # already enriched
+        base = {"model": "transactional", "price_per_unit": 6.0,
+                "variable_cost_per_unit": 1.5, "monthly_fixed_cost": 14_500.0}
+        self.assertIs(_enrich_economics_at_som(base, None), base)       # no SOM yet
+
+
 class TestGeoCompetitorPromotion(unittest.TestCase):
     """M1: a physical-local venture's competitors must be the real nearby venues (OSM),
     promoted to the canonical set — not LLM-guessed national brands. General + deterministic:
