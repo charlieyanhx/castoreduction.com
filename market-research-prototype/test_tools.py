@@ -10,6 +10,7 @@ Verifies:
   - Wrapped real scrapers (mocked) produce well-formed Evidence
 """
 from __future__ import annotations
+import os
 import unittest
 from unittest.mock import patch
 
@@ -226,6 +227,54 @@ class TestRealToolWrappers(unittest.TestCase):
         self.assertEqual(e.count, 2)  # source count
         self.assertEqual(e.payload["founded_year"], 2018)
         self.assertEqual(e.cost_meta["brand"], "Acme")
+
+
+class TestWrapperImplContracts(unittest.TestCase):
+    """W1 groundedness sweep finding: three registered wrappers called their sources
+    impl with the wrong signature, so the tools ALWAYS returned error Evidence
+    (TypeError) — a silent dead limb in the routing surface. These tests invoke the
+    registered functions with the impls mocked/local so no network is touched."""
+
+    def test_extract_structured_wrapper_matches_impl_kwarg(self):
+        # scrape.structured.extract takes base_url=, the wrapper passed url=.
+        from tools.scrape import extract_structured
+        html = ('<html><head><script type="application/ld+json">'
+                '{"@type": "Product", "name": "Widget", "offers": '
+                '{"price": "9.99", "priceCurrency": "USD"}}'
+                "</script></head><body>x</body></html>")
+        e = extract_structured(html, url="https://example.com/p")
+        self.assertIsNone(e.error, e.error)          # was: TypeError -> error Evidence
+
+    def test_meta_ad_library_passes_env_token(self):
+        from tools.ads import meta_ad_library
+        seen = {}
+
+        def fake_impl(keyword, access_token, country="US", limit=50):
+            seen.update(keyword=keyword, access_token=access_token,
+                        country=country, limit=limit)
+            return [{"advertiser": "Acme", "ad_count": 3}]
+
+        with patch.dict(os.environ, {"META_ACCESS_TOKEN": "tok123"}), \
+             patch("sources.meta_ad_library", side_effect=fake_impl):
+            e = meta_ad_library("running shoes", country="US", limit=5)
+        self.assertIsNone(e.error, e.error)          # was: missing positional TypeError
+        self.assertEqual(seen["access_token"], "tok123")
+        self.assertEqual(e.count, 1)
+
+    def test_rank_meta_advertisers_fetches_then_ranks(self):
+        # sources.rank_meta_advertisers takes the ADS LIST; the wrapper passed a query
+        # string. The tool must fetch entries first, then rank them.
+        from tools.ads import rank_meta_advertisers
+        ads = [
+            {"page_name": "Acme", "ad_delivery_start_time": "2025-01-01"},
+            {"page_name": "Acme", "ad_delivery_start_time": "2025-03-01"},
+            {"page_name": "Zed", "ad_delivery_start_time": "2025-06-01"},
+        ]
+        with patch.dict(os.environ, {"META_ACCESS_TOKEN": "tok123"}), \
+             patch("sources.meta_ad_library", return_value=ads):
+            e = rank_meta_advertisers("running shoes")
+        self.assertIsNone(e.error, e.error)          # was: unexpected kwarg TypeError
+        self.assertGreater(e.count, 0)
 
 
 if __name__ == "__main__":

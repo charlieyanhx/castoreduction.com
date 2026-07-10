@@ -49,7 +49,7 @@ def extract_structured(html: str, url: str = "") -> Evidence:
     pulls, extract_prices adds regex fallbacks for bare itemprop tags.
     """
     from scrape.structured import extract
-    structured = extract(html, url=url) or {}
+    structured = extract(html, base_url=url) or {}
     return Evidence(
         source="extract_structured", category="scrape",
         count=len(structured), payload=structured,
