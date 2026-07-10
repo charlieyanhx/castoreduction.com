@@ -390,8 +390,27 @@ def unit_for_model(biz_kind: str, description: str, profile: dict | None = None)
     return _UNIT_DEFAULT_BY_KIND.get(biz_kind, "unit")
 
 
+def wtp_unit_for(description: str, profile: dict | None = None,
+                 market_scale: dict | None = None) -> str:
+    """The willingness-to-pay display unit, derived from the BUSINESS MODEL — never a bare
+    '/mo' default. Subscription willingness is genuinely monthly; every per-unit model prices
+    willingness in its transaction unit (D1/G1: the last '/mo' leak — bottle/bowl/drop-in
+    economics rendered 'WTP …/mo', detector D05). Deterministic: classifier + unit resolver."""
+    from business_model import classify_business_model
+    # Let the classifier see the venture description too — at step 6c the profile can be
+    # thin (no business_model field yet) while the description carries the pricing signal
+    # ("$13 per bowl").
+    prof = dict(profile or {})
+    prof["summary"] = f"{prof.get('summary') or ''} {description or ''}".strip()
+    kind = classify_business_model(prof, market_scale)
+    if kind in ("subscription", "ad_supported"):
+        return "/mo"  # recurring (or upsell) willingness is per month
+    return "/" + unit_for_model(kind, description, profile)
+
+
 def build_consumer_research(description: str, geo: str, profile: dict,
-                            opps: list[dict]) -> dict | None:
+                            opps: list[dict],
+                            market_scale: dict | None = None) -> dict | None:
     """STORM-style multi-perspective consumer research, grounded in known context.
 
     Env-gated (CASTOR_CONSUMER_RESEARCH=0 disables) and non-fatal — returns the
@@ -405,7 +424,10 @@ def build_consumer_research(description: str, geo: str, profile: dict,
         comp_names = ", ".join(o.get("brand", "") for o in (opps or [])[:5] if o.get("brand"))
         summary = (profile or {}).get("summary", "")
         context = f"Product: {summary}. Known competitors: {comp_names}." if comp_names else summary
-        wtp_unit = infer_wtp_unit(description, profile)
+        # G1 (D05): unit from the business model — a serum prices WTP per bottle, a salad
+        # chain per bowl; only true subscriptions are monthly. infer_wtp_unit's '/mo'
+        # default was the last unit-bleed leak.
+        wtp_unit = wtp_unit_for(description, profile, market_scale)
         log.info("[plan] Step 6c: consumer research (multi-perspective), WTP unit=%s", wtp_unit)
         cr = consumer_research_skill(description=description, geo=geo, context=context,
                                      wtp_unit=wtp_unit)
@@ -1007,7 +1029,8 @@ def refine_pipeline_result(result: dict, description: str, geo: str, profile: di
         new = dict(rep); new["market_sizing"] = ms; return new
 
     def _regen_consumer(rep: dict) -> dict:
-        cr = build_consumer_research(description, geo, profile, opps)
+        cr = build_consumer_research(description, geo, profile, opps,
+                                     market_scale=rep.get("market_scale"))
         new = dict(rep)
         if cr:
             new["consumer_research"] = cr
@@ -1397,7 +1420,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             checkpoint()
 
     # --- Step 6c: STORM-style consumer research (multi-perspective) — cycle33 ---
-    cr_payload = build_consumer_research(description, geo, profile, opps)
+    cr_payload = build_consumer_research(description, geo, profile, opps,
+                                         market_scale=result.get("market_scale"))
     if cr_payload:
         result["consumer_research"] = cr_payload
         result["_steps_completed"].append("consumer_research")

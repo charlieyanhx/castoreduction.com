@@ -160,6 +160,46 @@ class TestWtpUnitInference(unittest.TestCase):
         self.assertEqual(infer_wtp_unit("A climbing gym, $25 per visit", {}), "/visit")
 
 
+class TestWtpUnitWiring(unittest.TestCase):
+    """D1 item 1 (G1): the consumer-research WTP unit must come from the BUSINESS MODEL
+    (unit_for_model), not infer_wtp_unit's '/mo' default. Baseline failure: 4 reports with
+    bottle/bowl/drop-in economics still rendered 'WTP … /mo' (detector D05)."""
+
+    def test_ecommerce_serum_is_per_bottle_not_monthly(self):
+        from plan import wtp_unit_for
+        u = wtp_unit_for("A $45 vitamin-C serum sold DTC online with a repeat subscription option",
+                         {"category": "DTC skincare", "business_model": "ecommerce DTC"})
+        self.assertEqual(u, "/bottle")
+
+    def test_salad_chain_is_per_bowl(self):
+        from plan import wtp_unit_for
+        u = wtp_unit_for("A regional fast-casual salad chain, about $13 per bowl",
+                         {"category": "fast-casual salad chain restaurant"})
+        self.assertEqual(u, "/bowl")
+
+    def test_gym_dropin_is_not_monthly(self):
+        from plan import wtp_unit_for
+        u = wtp_unit_for("A boutique strength gym, $30 drop-in classes plus optional membership",
+                         {"category": "boutique strength-training gym"},
+                         {"scale": "hyperlocal", "signals": {"is_physical": True}})
+        self.assertNotEqual(u, "/mo")      # the exact D05 baseline failure
+
+    def test_pure_subscription_stays_monthly(self):
+        from plan import wtp_unit_for
+        u = wtp_unit_for("A B2B SaaS analytics platform, $24/mo per seat",
+                         {"category": "b2b saas", "business_model": "subscription saas"})
+        self.assertEqual(u, "/mo")          # recurring willingness IS monthly
+
+    def test_classifier_food_venue_without_scale_is_transactional(self):
+        # Root regression (found by the salad case): the 7-kind rewrite dropped the
+        # transactional fallback on the digital path — a restaurant-category profile with
+        # NO market_scale defaulted to SUBSCRIPTION (the ecom_dtc misroute class).
+        from business_model import classify_business_model
+        self.assertEqual(
+            classify_business_model({"category": "fast-casual salad chain restaurant"}, None),
+            "transactional")
+
+
 class TestPsmCitationScrub(unittest.TestCase):
     def test_failed_psm_citation_relabeled(self):
         from plan import scrub_failed_psm_citations

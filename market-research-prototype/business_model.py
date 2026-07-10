@@ -67,7 +67,8 @@ _ONETIME_KW = (
 )
 _PER_VISIT_KW = (
     "drop-in", "drop in", "per visit", "per class", "per cut", "per drink", "per plate",
-    "per session", "walk-in", "per ticket", "per cup", "pay-per-visit",
+    "per session", "walk-in", "per ticket", "per cup", "pay-per-visit", "per bowl",
+    "per meal", "per order",
 )
 
 
@@ -119,6 +120,14 @@ def classify_business_model(profile: dict, market_scale: Optional[dict] = None) 
         return ECOMMERCE             # one-time physical product / DTC
     if recurring:
         return SUBSCRIPTION
+    # Venue/food-service fallback (D1/G1 root fix): a restaurant/cafe/per-visit venture that
+    # reaches here only because the scale signal was missing (thin profile, or classifier
+    # called before market_scale) must NOT default to subscription — that was the ecom_dtc
+    # misroute class. Narrow on purpose: menu/visit pricing or an explicit food venue, with
+    # WORD-BOUNDARY matching ("tea" must not match "teams").
+    import re as _re
+    if per_visit or any(_re.search(rf"(?<!\w){_re.escape(k)}(?!\w)", blob) for k in _FOOD_KW):
+        return TRANSACTIONAL
     return SUBSCRIPTION              # default preserves original SaaS behavior
 
 
