@@ -78,14 +78,22 @@ def h01_tool_descriptions() -> tuple[Optional[bool], str]:
 
 
 def h02_negative_scope() -> tuple[Optional[bool], str]:
+    # Tightened at W1 gap-closure: AGENT_REGISTRY included — the planner selects
+    # workers by these descriptions, the same routing surface as tools/skills
+    # (§3 rule 3: thresholds only tighten).
     from tools import TOOL_REGISTRY
     from skills.registry import SKILL_REGISTRY
     metas = list(TOOL_REGISTRY.values()) + list(SKILL_REGISTRY.values())
+    try:
+        from agents.registry import AGENT_REGISTRY
+        metas += list(AGENT_REGISTRY.values())
+    except Exception:
+        pass
     missing = [m.name for m in metas
                if not any(k in (m.docstring or "").lower() for k in NEGATIVE_SCOPE_MARKERS)]
     ok = len(missing) == 0
     return (ok, f"{len(missing)}/{len(metas)} components lack negative scope ('Do NOT use when…'): "
-            f"{missing[:6]}…" if missing else "every tool/skill states negative scope")
+            f"{missing[:6]}…" if missing else "every tool/skill/agent states negative scope")
 
 
 def h03_agent_contracts() -> tuple[Optional[bool], str]:

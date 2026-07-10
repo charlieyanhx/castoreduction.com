@@ -40,7 +40,13 @@ def _findings_digest(worker_evidence: dict) -> str:
 @agent(role="Lead research synthesist", produces="research_brief",
        categories=[], max_steps=1)
 def synthesis_agent(description: str, worker_evidence: dict, geo: str = "US") -> Evidence:
-    """Integrate the worker agents' findings into one research brief (no tools)."""
+    """Integrate the worker agents' findings into one research brief (no tools).
+
+    Takes the workers' Evidence dict, digests it, and reasons over it to produce
+    a decision-useful brief that cites which agent surfaced each point. Do NOT
+    use to gather new data — it runs zero tools and can only see what the
+    workers passed in; dispatching workers is run_research_crew's job.
+    """
     digest = _findings_digest(worker_evidence)
     brief = call_text(
         system=_SYNTH_SYSTEM,

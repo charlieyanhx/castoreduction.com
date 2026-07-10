@@ -56,7 +56,9 @@ def run_research_crew(
     for this venture (orchestrator-worker pattern); otherwise the full applicable
     crew runs. Returns Evidence(produces="research_brief") with the brief, the
     per-agent worker outputs, the contributing-agent roster, and (if dynamic) the
-    plan rationale.
+    plan rationale. Do NOT use for a single narrow question — dispatch the one
+    fitting worker agent (or harness.run_agent) instead; the crew fans out
+    parallel LLM+tool budgets across every selected specialist.
     """
     has_address = bool(address)
 

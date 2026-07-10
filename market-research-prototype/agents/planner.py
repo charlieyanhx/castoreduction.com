@@ -59,6 +59,10 @@ def plan_research(description: str, geo: str = "US",
 
     Returns Evidence(produces="research_plan") with payload:
       {selected: [agent_name, ...], rationale: str}
+    Selection is LLM-driven but clamped to WORKER_ROSTER (hallucinated names
+    dropped; empty selection falls back to the full applicable crew). Do NOT use
+    to execute any research — it only chooses and orders workers;
+    run_research_crew dispatches them and synthesizes the brief.
     """
     selected, rationale = _select(description, has_address)
     return Evidence(

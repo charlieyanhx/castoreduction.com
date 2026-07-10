@@ -16,6 +16,7 @@ from __future__ import annotations
 import unittest
 from collections import Counter
 
+from agents.registry import AGENT_REGISTRY
 from harness_gates import NEGATIVE_SCOPE_MARKERS
 from skills.registry import SKILL_REGISTRY
 from tools import TOOL_REGISTRY
@@ -36,7 +37,11 @@ def _tools():
 
 
 def _all_metas():
-    return _tools() + [m for m in SKILL_REGISTRY.values() if _is_production(m)]
+    # Agents included: the planner selects workers and callers pick agents by these
+    # descriptions — the same routing surface as tools/skills (plan D2-3 items 3-6).
+    return (_tools()
+            + [m for m in SKILL_REGISTRY.values() if _is_production(m)]
+            + [m for m in AGENT_REGISTRY.values() if _is_production(m)])
 
 
 class TestRoutingDescriptions(unittest.TestCase):
