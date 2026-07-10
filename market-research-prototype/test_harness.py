@@ -120,5 +120,64 @@ class TestAgentLoop(unittest.TestCase):
         self.assertEqual(len(res.steps), 0)
 
 
+class TestObservationCompaction(unittest.TestCase):
+    """W1/H13: the observation log is compacted when it outgrows its char budget —
+    oldest entries fold into one summary line, newest stay verbatim — and the
+    anti-thrash guard (MAX_COMPACTIONS) bounds how often that can happen per run,
+    so the loop can never oscillate compacting its own compaction summaries."""
+
+    def _obs(self, n):
+        return [f"step {i}: _echo_tool(value='v{i}') → count=1 payload={{...}}" for i in range(n)]
+
+    def test_compaction_folds_old_keeps_recent(self):
+        from harness.agent import _compact_observations, OBS_KEEP_RECENT
+        obs = self._obs(10)
+        out = _compact_observations(obs)
+        self.assertEqual(len(out), 1 + OBS_KEEP_RECENT)
+        self.assertIn("compacted 6", out[0])                    # 10 - 4 folded
+        self.assertEqual(out[1:], obs[-OBS_KEEP_RECENT:])       # newest verbatim
+
+    def test_short_log_untouched(self):
+        from harness.agent import _compact_observations, OBS_KEEP_RECENT
+        obs = self._obs(OBS_KEEP_RECENT)
+        self.assertEqual(_compact_observations(obs), obs)
+
+    def test_loop_compacts_when_over_budget(self):
+        import harness.agent as ha
+        decisions = ([{"tool": "_echo_tool", "args": {"value": "y" * 50, "n": 2}}] * 6
+                     + [{"done": True, "answer": "ok"}])
+        it = iter(decisions)
+        with patch("harness.agent.call_next", side_effect=lambda s, u: next(it)), \
+             patch.object(ha, "OBS_LOG_BUDGET_CHARS", 300):
+            res = run_agent("compact me", allowed_categories=["testcat"], max_steps=10)
+        self.assertTrue(res.completed)
+        self.assertGreaterEqual(res.compactions, 1)
+
+    def test_anti_thrash_cap_bounds_compactions(self):
+        import harness.agent as ha
+        decisions = ([{"tool": "_echo_tool", "args": {"value": "z" * 80, "n": 3}}] * 20
+                     + [{"done": True, "answer": "ok"}])
+        it = iter(decisions)
+        with patch("harness.agent.call_next", side_effect=lambda s, u: next(it)), \
+             patch.object(ha, "OBS_LOG_BUDGET_CHARS", 10):     # every step over budget
+            res = run_agent("thrash me", allowed_categories=["testcat"], max_steps=25)
+        self.assertEqual(res.compactions, ha.MAX_COMPACTIONS)  # capped, not once per step
+        self.assertTrue(res.completed)
+
+    def test_small_run_never_compacts(self):
+        decisions = iter([
+            {"tool": "_echo_tool", "args": {"value": "hi"}},
+            {"done": True, "answer": "done"},
+        ])
+        with patch("harness.agent.call_next", side_effect=lambda s, u: next(decisions)):
+            res = run_agent("small", allowed_categories=["testcat"], max_steps=5)
+        self.assertEqual(res.compactions, 0)
+
+    def test_h13_gate_passes(self):
+        from harness_gates import h13_compaction
+        ok, detail = h13_compaction()
+        self.assertTrue(ok, detail)
+
+
 if __name__ == "__main__":
     unittest.main()

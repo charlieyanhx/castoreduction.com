@@ -47,6 +47,16 @@ log = get("harness.agent")
 # caller-supplied budget.
 MAX_STEPS_CEILING = 25
 
+# W1/H13 — observation-log compaction with an anti-thrash guard. On long runs the
+# append-only log outgrows the planner prompt; when it exceeds the char budget, the
+# oldest entries fold into ONE deterministic summary line (no LLM) and the newest
+# OBS_KEEP_RECENT stay verbatim. MAX_COMPACTIONS is the anti-thrash guard: without
+# it, a log whose *recent* entries alone exceed the budget would re-compact every
+# step, progressively digesting its own summaries into nothing.
+OBS_LOG_BUDGET_CHARS = 6000
+OBS_KEEP_RECENT = 4
+MAX_COMPACTIONS = 3
+
 
 @dataclass
 class Step:
@@ -68,6 +78,7 @@ class AgentResult:
     evidence: list[Evidence] = field(default_factory=list)
     completed: bool = False
     stop_reason: str = ""
+    compactions: int = 0
 
     def to_evidence(self) -> Evidence:
         """Consolidate the run into a single Evidence envelope.
@@ -97,6 +108,7 @@ class AgentResult:
                 "n_evidence": len(self.evidence),
                 "completed": self.completed,
                 "stop_reason": self.stop_reason,
+                "compactions": self.compactions,
             },
         )
 
@@ -153,6 +165,31 @@ Rules:
 """
 
 
+def _obs_headline(obs: str, limit: int = 70) -> str:
+    """The action part of an observation line ('step 3: geo_competitors(...)'),
+    without the payload — enough for the model to recall WHAT happened."""
+    head = obs.split(" → ", 1)[0]
+    return head if len(head) <= limit else head[:limit] + "…"
+
+
+def _compact_observations(observations: list[str],
+                          keep_recent: int = OBS_KEEP_RECENT) -> list[str]:
+    """Fold all but the newest `keep_recent` observations into ONE summary line.
+
+    Deterministic (no LLM): each folded entry is reduced to its action headline.
+    Returns a NEW list; the newest entries are kept verbatim so the planner keeps
+    full detail where it matters most.
+    """
+    if len(observations) <= keep_recent:
+        return observations
+    old, recent = observations[:-keep_recent], observations[-keep_recent:]
+    summary = "; ".join(_obs_headline(o) for o in old)
+    line = f"[compacted {len(old)} earlier observations] {summary}"
+    if len(line) > 1500:
+        line = line[:1500] + "…"
+    return [line, *recent]
+
+
 def _summarize_evidence(e: Evidence, limit: int = 240) -> str:
     """Short, deterministic observation string fed back into the loop."""
     if e.error:
@@ -203,6 +240,17 @@ def run_agent(
         observations.append(f"CONTEXT: {context}")
 
     for i in range(budget):
+        # H13: compact the observation log when it outgrows the prompt budget.
+        # The MAX_COMPACTIONS cap is the anti-thrash guard — once spent, the loop
+        # accepts a long log rather than digesting its own summaries repeatedly.
+        if (sum(len(o) for o in observations) > OBS_LOG_BUDGET_CHARS
+                and result.compactions < MAX_COMPACTIONS
+                and len(observations) > OBS_KEEP_RECENT):
+            observations = _compact_observations(observations)
+            result.compactions += 1
+            log.info("[agent] observation log compacted (%d/%d)",
+                     result.compactions, MAX_COMPACTIONS)
+
         # Recitation: re-state goal + remaining budget every step.
         remaining = budget - i
         user = (
