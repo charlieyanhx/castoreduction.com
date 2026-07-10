@@ -414,23 +414,97 @@ write `docs/baselines/<wave>.json` → push. A wave is closed only by its §4 ex
 with a written note in this file (via PR) — never ground through silently.
 **Daily cadence:** every working day ends with R1+R2 green and pushed; no overnight red.
 
-### 5b. The calendar (working days; ~6 weeks total, P0–M8)
+### 5b. The calendar — file-exact (working days; ~6 weeks, P0–M8)
 
-| Days | Wave — items in build order (each = one unit loop) | Confirm milestone |
-|---|---|---|
-| **D1** | **W0:** G1 WTP unit → G2 SAM clamp → G3 at-SOM reconcile → G4 scale route → 4× §1f deletions (one commit each) | `gates.py --gate core` ≥95% on fresh corpus |
-| **D2–3** | **W1:** instructor into model/client.py → parse-error smoke → 59 negative-scope + 5 thin docstrings (batched by registry file, gate-checked per file) → H13 anti-thrash | `harness_gates.py --gate M1` exit 0 |
-| **D4–6** | **W2:** Tavily backend → trafilatura content gate → tldextract root-domain → RapidFuzz dedup → fastembed relevance gate → `sources.py` split (shimmed) | search smoke 5/5; D13 green; **checkpoint: R4 panel run, trend recorded** |
-| **D7–10** | **W3:** ledger.py → transcript.py → hooks.py → streaming to workspace *(M2)* → resume.py → kill-sweep *(M3)*; plan.py step extraction starts alongside | M2 (D8), M3 (D10) |
-| **D11–15** | **W4:** forecast.py (closes G3 deep) → citation.py store → CitationAgent pass → pdf.py (WeasyPrint) → premium template | forecast reconciliation + fact-density + ≥20pp PDF (M8 partials in `baselines/`) |
-| **D16–22** | **W5:** scheduler → gateway → tiering *(M4, ~D18)* → memory.py → reminders.py → compaction.py *(M5, ~D20)* → SKILL.md pilots ×2 → spawn contracts → plan_artifact.py *(M6, D22)* | M4 → M5 → M6, each `--gate M<k>` exit 0 |
-| **D23–27** | **W6** *(premium budget on)*: verifier.py + seeded-bug suite → research-crew evidence stage → effort knob → tier map → COGS logging | **M7** incl. final harness gate: R4 ≥90% / 0 critical (D27) |
-| **D28–30** | **M8 parity claim:** one deep-mode venture end-to-end → blind judge vs BCC chapter → fix the deltas → re-run | **M8 full gate** → `baselines/M8.json` |
+**Clean-up-first policy (explicit):** D1 is pure cleanup — the four known bug fixes and the
+four verified-dead deletions, in the CURRENT flat layout. **No new file is created and no file
+moves until the repo is green and lighter.** After D1, *moves* are deliberately NOT a separate
+phase: a file moves only in the wave that already touches it (with a one-line import shim, tests
+relocated in the same commit) — the §1 no-big-bang rule. So the shape is: **D1 clean → each wave
+builds + relocates only what it touches → nothing moves untested.**
 
-Slack is built in: estimates above are the §4 ranges' upper ends; the stall rule converts
-overruns into scope decisions instead of schedule slips. External dependencies land on the
-calendar as: **keys by D4** (Tavily/Census/BLS, user, free), **budget decision by D23**
-(Opus-class, user).
+All paths below are the repo as it exists today (fix sites verified by grep 2026-07-10);
+`NEW` paths are created in that wave.
+
+**D1 — Wave 0: clean up existing (8 unit loops, one commit each)**
+
+| # | Item | Files touched (exact) | Test first | Confirm |
+|---|---|---|---|---|
+| 1 | G1: consumer-research WTP unit uses `unit_for_model` | `plan.py:408` (swap `infer_wtp_unit`→`unit_for_model`), `skills/perspective.py` (`_unit_phrase` consumers) | `test_report_data_fixes.py` (extend TestUnitForModel) | D05 = 100% |
+| 2 | G2: SAM≤TAM ordering re-applied after post-clamp TAM rewrites | `market_sizing.py:597` (`_enforce_sizing_ordering`), `plan.py` (`triangulate_sizing`/`ground_sizing_bottom_up` re-clamp after mid rewrite) | `test_market_sizing_ordering.py` (add post-triangulation case) | D04 = 100% |
+| 3 | G3 (shallow): at-SOM profit claim reconciled with scenario ceiling | `business_model.py:223` (`at_som_volume`), `plan.py:1817` (enrich site) | `test_report_data_fixes.py` (new coherence case) | D08 = 100% |
+| 4 | G4: national B2B services never routes hyperlocal | `skills/sizing/classify.py` | `test_sizing_classify.py` (agency fixture) | D07 = 100% |
+| 5 | DELETE `daily_check.py` | `daily_check.py` (0 refs) | — | grep proof + R1 green |
+| 6 | DELETE `smoke.py` | `smoke.py` (0 refs) | — | grep proof + R1 green |
+| 7 | DELETE `probe.py` + its stale ref | `probe.py`, `tools/domain.py` (remove import) | `test_tools.py` still green | grep proof + R1 green |
+| 8 | DELETE `web/legacy-console.html` | `web/legacy-console.html` (0 refs in api.py) | `test_api.py` green | grep proof |
+| — | **Close-out:** fresh 16-venture corpus | — | — | `gates.py --gate core` ≥95% → `baselines/wave0.json` |
+
+**D2–3 — Wave 1: LLM reliability + routing descriptions (existing files only)**
+
+| # | Item | Files | Test first | Confirm |
+|---|---|---|---|---|
+| 1 | instructor wired into `call_json` (Pydantic-validated, auto re-ask; `_parse_error` path retired) | `llm.py` (already installed dep) | NEW `test_structured.py` | parse-error smoke ≈0 |
+| 2 | H13: anti-thrash guard on the agent-limb budget | `harness/agent.py` | `test_harness.py` (extend) | H13 pass |
+| 3–6 | Negative scope + WHAT/WHEN on every registered component, batched per file: `tools/geo.py econ.py scrape.py domain.py trend.py social.py ads.py customer_voice.py firmographic.py` → `skills/` registered fns → `agents/registry.py planner.py research_agents.py` | those files' docstrings only | `test_descriptions.py` (NEW, the H01/H02 lint) | H01+H02 = 100% |
+| — | **Close-out** | — | — | `harness_gates.py --gate M1` exit 0 → `baselines/M1.json` |
+
+**D4–6 — Wave 2: data layer (first shimmed split)** *(user: TAVILY/CENSUS/BLS keys by D4)*
+
+| # | Item | Files | Test first | Confirm |
+|---|---|---|---|---|
+| 1 | Tavily as first search backend | `scrape/search.py` (`_tavily()` ahead of `_brave`), `requirements.txt` | NEW `test_search_backends.py` (mocked) | live smoke 5/5 queries >0 |
+| 2 | trafilatura content-validity gate before price extraction | `scrape/structured.py`, `scrape/crawl.py` (bump trafilatura 2.0→2.1) | NEW `test_content_gate.py` (parked/thin page → rejected) | D13 green |
+| 3 | tldextract root-domain (kills `.co.uk` parked slip) | `sources.py` (`is_parked_domain`), `discover.py:313` (dedup key) | extend `test_discovery.py` | R1 green |
+| 4 | RapidFuzz near-dupe competitor collapse | `discover.py`, `customer_universe.py:874` | NEW `test_dedup.py` ("Calm/Calm.com/Calm Business"→1) | R1 green |
+| 5 | fastembed relevance gate (venture category vs scraped page, cosine ≥ threshold) | `sources.py` (`validate_domain`), `competitor_pricing.py` (before `category_median`) | NEW `test_relevance_gate.py` (apparel page vs restaurant → rejected) | D13 + R3 spot |
+| 6 | SPLIT `sources.py` → `tools/sources/{trustpilot,articles,forums,vertical}.py` + shim | `sources.py` becomes re-export shim | existing `test_ground_scrape_price.py` green unmoved | R1+R2 100% |
+| — | **Close-out + R4 checkpoint** | — | — | `gates.py --gate all`; R4 panel run, trend vs 26%/6 recorded |
+
+**D7–10 — Wave 3: ledger, streaming, resume (first NEW packages)**
+
+| # | Item | Files | Test first | Confirm |
+|---|---|---|---|---|
+| 1 | `persistence/ledger.py` NEW (append-only RunLedger; `provenance.py` becomes a view/shim) | NEW + `provenance.py`, `plan.py` (emit events per step) | NEW `test_ledger.py` | event counts == steps/tools exact |
+| 2 | `persistence/transcript.py` NEW (per-run JSONL) | NEW + `jobs.py` (path wiring) | NEW `test_transcript.py` (replay→identical state) | M2 partial |
+| 3 | `entry/hooks.py` NEW + streaming to workspace | NEW + `api.py` (SSE/poll endpoint), `web/workspace.js` | NEW `test_hooks.py` | R5: live step visible mid-run |
+| 4 | `persistence/resume.py` NEW (`resume(job_id)`) | NEW + `jobs.py`, `plan.py` (step-skip on intact Evidence) | NEW `test_resume.py` (SIGKILL @ step N) | **M3**: kill-sweep 4/4, ≤1 dup LLM call |
+| 5 | plan.py SPLIT begins: extract the steps Wave 3 touched → `orchestrator/steps/` (+shim) | `plan.py` ↓, NEW `orchestrator/steps/*` | moved tests move in-commit | R1+R2 100% |
+| — | **Close-out** | — | — | `--gate M2` (D8) then `--gate M3` (D10) → baselines |
+
+**D11–15 — Wave 4: premium substance (report/ package created)**
+
+| # | Item | Files | Test first | Confirm |
+|---|---|---|---|---|
+| 1 | `report/forecast.py` NEW — ONE model → all segment tables (retires ad-hoc scenario math = the deep G3) | NEW + `financials.py` (rewritten to consume it), `plan.py:1817` area | NEW `test_forecast_model.py` (tables reconcile to the decimal; CAGR recomputes) | D08 stays 100%; reconciliation gate |
+| 2 | `report/citation.py` NEW — claim→source store + post-draft citation pass | NEW + `four_ps.py` (facts emitted), `templates/report.html` (cite render) | NEW `test_citation.py` (uncited dated claim → flagged) | fact-density counter runs |
+| 3 | `report/pdf.py` NEW — WeasyPrint print PDF (cover/TOC/numbered figures) | NEW + `api.py` (endpoint swap from Playwright), premium template file | NEW `test_report_pdf.py` | ≥20pp PDF renders |
+| 4 | `charts.py`: suppress whitespace callout when silhouette ≤0; drop bogus "0% variance" title for UMAP | `charts.py` | extend `test_report_render.py` | audit-M8 finding closed |
+| — | **Close-out** | — | — | M8 partials → `baselines/wave4.json` |
+
+**D16–22 — Wave 5: scheduler/gateway/tiering (M4, ~D18) → context (M5, ~D20) → skills/contracts (M6, D22)**
+
+| # | Item | Files | Test first |
+|---|---|---|---|
+| 1 | `capabilities/scheduler.py` NEW (read-parallel ≤10/write-serial; replaces plan.py ThreadPoolExecutors) + `@tool(concurrency=)` | NEW + `tools/registry.py`, `plan.py` fan-outs | NEW `test_scheduler.py` |
+| 2 | `capabilities/gateway.py` NEW (tiers + per-run budget) + pydantic arg models on `tools/geo.py econ.py scrape.py` | NEW + those tools | NEW `test_gateway.py`, bad-arg suite |
+| 3 | `model/tiering.py` NEW + `tier=` in `llm.py` (utility→flash-lite) | NEW + `llm.py` call sites in `plan.py`/skills | NEW `test_tiering.py` |
+| 4 | `context/memory.py` NEW (operator→industry→venture, byte-stable) | NEW + `llm.py` prefix assembly, `intake.py` (venture.md) | NEW `test_memory.py` |
+| 5 | `context/reminders.py` NEW (generalizes `model_directive` in plan.py) | NEW + `plan.py`, `four_ps.py` | NEW `test_reminders.py` |
+| 6 | `context/compaction.py` NEW (microcompaction→pointers; fixed schema) | NEW + `harness/agent.py` | NEW `test_compaction.py` |
+| 7 | SKILL.md pilots ×2 (`skills/sizing/hyperlocal` + citation) + spawn contracts (`agents/registry.py` depth-1 hard, schema'd spawns) + `orchestrator/plan_artifact.py` NEW | those + NEW | NEW `test_skill_disclosure.py`, `test_spawn_contracts.py`, `test_plan_artifact.py` |
+
+**D23–27 — Wave 6 (premium budget on): verifier + crew** → `report/verifier.py` NEW (+ 10-bug
+seeded suite from the audit's criticals), `agents/crew.py` wired into `plan.py` as the evidence
+stage, effort knob through `intake.py`→`api.py`→`plan.py`, COGS logging in `llm.py`/ledger.
+Confirm: **M7** incl. final harness gate R4 ≥90%/0 critical (D27).
+
+**D28–30 — M8 parity claim:** one deep-mode venture end-to-end → blind judge
+(`benchmarks/judge.py`, new parity rubric) vs a BCC chapter → fix deltas → re-run → **M8 full
+gate** → `baselines/M8.json`.
+
+Slack: estimates are the §4 upper ends; the stall rule converts overruns into scope decisions.
+External dependencies: **keys by D4** (Tavily/Census/BLS, free), **budget decision by D23**.
 
 ### 5c. Confirm artifacts (what "done" leaves behind)
 
