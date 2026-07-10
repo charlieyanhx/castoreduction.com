@@ -1,0 +1,1179 @@
+{
+  "gate": "all",
+  "n_reports": 16,
+  "invariants": [
+    "D01",
+    "D02",
+    "D03",
+    "D04",
+    "D05",
+    "D06",
+    "D07",
+    "D08",
+    "D09",
+    "D10",
+    "D11",
+    "D12",
+    "D13",
+    "D14"
+  ],
+  "cells_applicable": 155,
+  "cells_passed": 154,
+  "pct_pass": 99.4,
+  "blocking_failures": 0,
+  "verdict": "PASS",
+  "per_report": {
+    "174ae091": {
+      "D01": {
+        "ok": true,
+        "detail": "19 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "108633 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": true,
+        "detail": "sizing SOM=3,000,000 vs financials=3,000,000",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 3,000,000 <= SAM 1,189,750,000 <= TAM 1,333,333,333",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": null,
+        "detail": "not a per-unit model",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": null,
+        "detail": "not a per-unit model",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": null,
+        "detail": "scale=national_physical (not hyperlocal)",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": null,
+        "detail": "no profitable-at-SOM claim",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": null,
+        "detail": "validation passed or absent",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": true,
+        "detail": "band 65.0/350.0/350.0",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": null,
+        "detail": "US venture",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "35 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": null,
+        "detail": "web-sourced competitors (benchmark legitimate)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    },
+    "28d0ec61": {
+      "D01": {
+        "ok": true,
+        "detail": "19 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "110932 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": true,
+        "detail": "sizing SOM=2,500,000 vs financials=2,500,000",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 2,500,000 <= SAM 170,100,000 <= TAM 189,000,000",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": true,
+        "detail": "units={'economics': 'bottle', 'financials': 'bottle', 'wtp': 'bottle'}",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": true,
+        "detail": "clean",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": null,
+        "detail": "scale=national_digital (not hyperlocal)",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": true,
+        "detail": "profitable_at_som=True but aggressive Y3 profit=73375.0 break_even=1",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": null,
+        "detail": "validation passed or absent",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": true,
+        "detail": "band 28.0/40.0/40.0",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": null,
+        "detail": "US venture",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "83 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": null,
+        "detail": "web-sourced competitors (benchmark legitimate)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    },
+    "3219f4db": {
+      "D01": {
+        "ok": true,
+        "detail": "18 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "93356 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": null,
+        "detail": "SOM or financials absent",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 1,500,000 <= SAM 24,000,000 <= TAM 125,000,000",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": null,
+        "detail": "not a per-unit model",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": null,
+        "detail": "not a per-unit model",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": null,
+        "detail": "scale=national_digital (not hyperlocal)",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": null,
+        "detail": "no profitable-at-SOM claim",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": true,
+        "detail": "gated correctly",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": true,
+        "detail": "band 0.0/150.0/150.0",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": null,
+        "detail": "US venture",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "77 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": null,
+        "detail": "web-sourced competitors (benchmark legitimate)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    },
+    "348c69ca": {
+      "D01": {
+        "ok": true,
+        "detail": "17 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "100173 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": true,
+        "detail": "sizing SOM=370,000 vs financials=370,000",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 370,000 <= SAM 37,000,000 <= TAM 144,000,000",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": true,
+        "detail": "units={'economics': 'project', 'financials': 'project', 'wtp': 'project'}",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": true,
+        "detail": "clean",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": null,
+        "detail": "scale=national_digital (not hyperlocal)",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": true,
+        "detail": "profitable_at_som=True but aggressive Y3 profit=5556.0 break_even=2",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": null,
+        "detail": "validation passed or absent",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": true,
+        "detail": "band 15000.0/25000.0/25000.0",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": null,
+        "detail": "US venture",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "49 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": null,
+        "detail": "web-sourced competitors (benchmark legitimate)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    },
+    "4a755faa": {
+      "D01": {
+        "ok": true,
+        "detail": "18 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "125330 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": true,
+        "detail": "sizing SOM=2,500,000 vs financials=2,500,000",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 2,500,000 <= SAM 189,000,000 <= TAM 189,000,000",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": null,
+        "detail": "not a per-unit model",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": null,
+        "detail": "not a per-unit model",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": null,
+        "detail": "scale=national_digital (not hyperlocal)",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": null,
+        "detail": "no profitable-at-SOM claim",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": null,
+        "detail": "validation passed or absent",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": true,
+        "detail": "band 25.0/25.0/2500.0",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": null,
+        "detail": "US venture",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "35 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": null,
+        "detail": "web-sourced competitors (benchmark legitimate)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    },
+    "5dbf3f54": {
+      "D01": {
+        "ok": true,
+        "detail": "15 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "86785 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": true,
+        "detail": "sizing SOM=192,000 vs financials=192,000",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 192,000 <= SAM 18,056,068 <= TAM 51,588,765",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": true,
+        "detail": "units={'economics': 'plate', 'financials': 'plate', 'wtp': 'plate'}",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": true,
+        "detail": "clean",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": true,
+        "detail": "geo_sourced=True",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": true,
+        "detail": "profitable_at_som=True but aggressive Y3 profit=297.0 break_even=3",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": null,
+        "detail": "validation passed or absent",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": true,
+        "detail": "band 11.0/15.0/15.0",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": null,
+        "detail": "US venture",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "48 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": true,
+        "detail": "no scraped benchmark (correct)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    },
+    "800c261b": {
+      "D01": {
+        "ok": true,
+        "detail": "19 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "116481 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": true,
+        "detail": "sizing SOM=3,000,000 vs financials=3,000,000",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 3,000,000 <= SAM 187,500,000 <= TAM 375,000,000",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": true,
+        "detail": "units={'economics': 'unit', 'financials': 'unit', 'wtp': 'unit'}",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": true,
+        "detail": "clean",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": null,
+        "detail": "scale=global_digital (not hyperlocal)",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": null,
+        "detail": "no profitable-at-SOM claim",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": null,
+        "detail": "validation passed or absent",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": null,
+        "detail": "no band (single point or absent)",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": null,
+        "detail": "US venture",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "7 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": null,
+        "detail": "web-sourced competitors (benchmark legitimate)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    },
+    "8add1fa2": {
+      "D01": {
+        "ok": true,
+        "detail": "19 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "121088 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": true,
+        "detail": "sizing SOM=2,000,000 vs financials=2,000,000",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 2,000,000 <= SAM 28,000,000 <= TAM 115,700,000",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": true,
+        "detail": "units={'economics': 'unit', 'financials': '', 'wtp': 'unit'}",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": true,
+        "detail": "clean",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": null,
+        "detail": "scale=national_digital (not hyperlocal)",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": null,
+        "detail": "no profitable-at-SOM claim",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": null,
+        "detail": "validation passed or absent",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": true,
+        "detail": "band 99.0/150.0/150.0",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": null,
+        "detail": "US venture",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "39 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": null,
+        "detail": "web-sourced competitors (benchmark legitimate)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    },
+    "94008e7c": {
+      "D01": {
+        "ok": true,
+        "detail": "17 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "88427 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": true,
+        "detail": "sizing SOM=168,000 vs financials=168,000",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 168,000 <= SAM 3,896,602 <= TAM 11,133,150",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": true,
+        "detail": "units={'economics': 'drink', 'financials': 'drink', 'wtp': 'drink'}",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": true,
+        "detail": "clean",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": true,
+        "detail": "geo_sourced=True",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": null,
+        "detail": "no profitable-at-SOM claim",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": null,
+        "detail": "validation passed or absent",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": true,
+        "detail": "band 1.1/6.5/7.5",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": false,
+        "detail": "non-US venture recommends US sources: ['US Census', 'BLS']",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "20 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": true,
+        "detail": "no scraped benchmark (correct)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    },
+    "955a4b3b": {
+      "D01": {
+        "ok": true,
+        "detail": "16 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "93834 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": true,
+        "detail": "sizing SOM=270,000 vs financials=270,000",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 270,000 <= SAM 90,759,057 <= TAM 259,311,591",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": true,
+        "detail": "units={'economics': 'drop-in', 'financials': 'drop-in', 'wtp': 'drop-in'}",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": true,
+        "detail": "clean",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": true,
+        "detail": "geo_sourced=True",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": true,
+        "detail": "profitable_at_som=True but aggressive Y3 profit=2111.0 break_even=2",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": null,
+        "detail": "validation passed or absent",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": true,
+        "detail": "band 18.0/22.0/45.0",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": null,
+        "detail": "US venture",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "63 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": true,
+        "detail": "no scraped benchmark (correct)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    },
+    "a618db1a": {
+      "D01": {
+        "ok": true,
+        "detail": "17 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "93186 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": true,
+        "detail": "sizing SOM=1,440,000 vs financials=1,440,000",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 1,440,000 <= SAM 72,224,271 <= TAM 206,355,060",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": true,
+        "detail": "units={'economics': 'cover', 'financials': 'cover', 'wtp': 'cover'}",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": true,
+        "detail": "clean",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": true,
+        "detail": "geo_sourced=True",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": true,
+        "detail": "profitable_at_som=True but aggressive Y3 profit=9588.0 break_even=2",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": null,
+        "detail": "validation passed or absent",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": true,
+        "detail": "band 30.0/45.0/65.0",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": null,
+        "detail": "US venture",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "82 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": true,
+        "detail": "no scraped benchmark (correct)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    },
+    "becc8783": {
+      "D01": {
+        "ok": true,
+        "detail": "17 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "110295 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": true,
+        "detail": "sizing SOM=3,000,000 vs financials=3,000,000",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 3,000,000 <= SAM 270,000,000 <= TAM 1,500,000,000",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": null,
+        "detail": "not a per-unit model",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": null,
+        "detail": "not a per-unit model",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": null,
+        "detail": "scale=national_digital (not hyperlocal)",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": null,
+        "detail": "no profitable-at-SOM claim",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": null,
+        "detail": "validation passed or absent",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": true,
+        "detail": "band 10.0/10.0/12.0",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": null,
+        "detail": "US venture",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "50 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": null,
+        "detail": "web-sourced competitors (benchmark legitimate)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    },
+    "c48497fa": {
+      "D01": {
+        "ok": true,
+        "detail": "17 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "93115 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": true,
+        "detail": "sizing SOM=390,000 vs financials=390,000",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 390,000 <= SAM 84,013,085 <= TAM 240,037,386",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": true,
+        "detail": "units={'economics': 'cut', 'financials': 'cut', 'wtp': 'cut'}",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": true,
+        "detail": "clean",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": true,
+        "detail": "geo_sourced=True",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": true,
+        "detail": "profitable_at_som=True but aggressive Y3 profit=7958.0 break_even=1",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": null,
+        "detail": "validation passed or absent",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": true,
+        "detail": "band 45.0/80.0/120.0",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": null,
+        "detail": "US venture",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "35 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": true,
+        "detail": "no scraped benchmark (correct)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    },
+    "de34e328": {
+      "D01": {
+        "ok": true,
+        "detail": "19 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "110617 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": true,
+        "detail": "sizing SOM=2,250,000 vs financials=2,250,000",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 2,250,000 <= SAM 150,000,000 <= TAM 432,000,000",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": true,
+        "detail": "units={'economics': 'bowl', 'financials': 'bowl', 'wtp': 'bowl'}",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": true,
+        "detail": "clean",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": null,
+        "detail": "scale=regional (not hyperlocal)",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": true,
+        "detail": "profitable_at_som=True but aggressive Y3 profit=48562.0 break_even=1",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": null,
+        "detail": "validation passed or absent",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": true,
+        "detail": "band 10.5/15.0/16.0",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": null,
+        "detail": "US venture",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "73 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": null,
+        "detail": "web-sourced competitors (benchmark legitimate)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    },
+    "e55db08e": {
+      "D01": {
+        "ok": true,
+        "detail": "19 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "120030 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": true,
+        "detail": "sizing SOM=3,000,000 vs financials=3,000,000",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 3,000,000 <= SAM 187,500,000 <= TAM 375,000,000",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": true,
+        "detail": "units={'economics': 'unit', 'financials': 'unit', 'wtp': 'unit'}",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": true,
+        "detail": "clean",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": null,
+        "detail": "scale=global_digital (not hyperlocal)",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": null,
+        "detail": "no profitable-at-SOM claim",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": null,
+        "detail": "validation passed or absent",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": null,
+        "detail": "no band (single point or absent)",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": null,
+        "detail": "US venture",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "34 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": null,
+        "detail": "web-sourced competitors (benchmark legitimate)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    },
+    "e8baf9dd": {
+      "D01": {
+        "ok": true,
+        "detail": "16 steps completed",
+        "severity": "fail"
+      },
+      "D02": {
+        "ok": true,
+        "detail": "92807 bytes",
+        "severity": "fail"
+      },
+      "D03": {
+        "ok": true,
+        "detail": "sizing SOM=690,000 vs financials=690,000",
+        "severity": "fail"
+      },
+      "D04": {
+        "ok": true,
+        "detail": "SOM 690,000 <= SAM 2,467,762 <= TAM 7,050,750",
+        "severity": "fail"
+      },
+      "D05": {
+        "ok": true,
+        "detail": "units={'economics': 'drink', 'financials': 'drink', 'wtp': 'drink'}",
+        "severity": "fail"
+      },
+      "D06": {
+        "ok": true,
+        "detail": "clean",
+        "severity": "fail"
+      },
+      "D07": {
+        "ok": true,
+        "detail": "geo_sourced=True",
+        "severity": "fail"
+      },
+      "D08": {
+        "ok": true,
+        "detail": "profitable_at_som=True but aggressive Y3 profit=11374.0 break_even=1",
+        "severity": "fail"
+      },
+      "D09": {
+        "ok": null,
+        "detail": "validation passed or absent",
+        "severity": "fail"
+      },
+      "D10": {
+        "ok": true,
+        "detail": "band 4.5/7.5/8.5",
+        "severity": "fail"
+      },
+      "D11": {
+        "ok": null,
+        "detail": "US venture",
+        "severity": "warn"
+      },
+      "D12": {
+        "ok": true,
+        "detail": "58 trace records",
+        "severity": "warn"
+      },
+      "D13": {
+        "ok": true,
+        "detail": "no scraped benchmark (correct)",
+        "severity": "fail"
+      },
+      "D14": {
+        "ok": true,
+        "detail": "all sections generated",
+        "severity": "warn"
+      }
+    }
+  }
+}
