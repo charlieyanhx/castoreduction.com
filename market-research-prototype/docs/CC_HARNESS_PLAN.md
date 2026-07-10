@@ -5,7 +5,8 @@
 > plan and the testing milestones (the former `TESTING_MILESTONES.md`, now a pointer here) into
 > one program: **§1** what happens to every existing file · **§2** the target structure and the
 > idea it serves · **§3** the debugging/unit-test program that verifies every §2 file and goal ·
-> **§4** the execution order. A milestone is claimed by a **program's exit code**, never an opinion.
+> **§4** the execution order · **§5** the timeline and the implement→test→confirm loop every
+> item runs through. A milestone is claimed by a **program's exit code**, never an opinion.
 
 **Goal:** rebuild Castor's execution core on the architecture that makes Claude Code the most
 reliable long-running agent harness in production — adapted to what Castor actually does:
@@ -386,3 +387,54 @@ path (D04, 3) · **G3** profitable-at-SOM coherence (D08, 2 — deep fix is `rep
 Re-run the R4 panel after Wave 2 (cheap checkpoint) and at M7/M8 (the claims). User-side
 prerequisites: free Tavily/Census/BLS keys before Wave 2; Opus-class budget decision before
 Wave 6.
+
+---
+
+# §5 — Timeline & the execution loop (implement → test → confirm → repeat)
+
+### 5a. The unit loop — how every single item in this plan is built
+
+Every §2 file, §1 move, and G-fix goes through the SAME five-step cycle. No exceptions, no
+batching of untested work:
+
+```
+┌─▶ 1. RED        write the test FIRST (named in the §3b map); run it; confirm it FAILS
+│   2. IMPLEMENT  the minimal change that makes it pass (one item, not a batch)
+│   3. TEST       full R1+R2 locally — 100% green, no skips (old tests move in-commit)
+│   4. CONFIRM    run the item's deterministic gate check (D##/H##/M-gate) — exit 0;
+│                 paste the gate output into the commit message (Rules of Evidence #1)
+└── 5. REPEAT     commit + push, take the next item. NEVER start the next item on a red ring.
+```
+
+**Wave close-out** (after the last item of a wave): regenerate the R3 corpus → `gates.py --gate
+all` → reproducibility pair (same input twice) → R5 smoke (1 venture through the workspace) →
+write `docs/baselines/<wave>.json` → push. A wave is closed only by its §4 exit gate.
+
+**Stall rule:** any item exceeding **2× its estimate** is split into smaller items or descoped
+with a written note in this file (via PR) — never ground through silently.
+**Daily cadence:** every working day ends with R1+R2 green and pushed; no overnight red.
+
+### 5b. The calendar (working days; ~6 weeks total, P0–M8)
+
+| Days | Wave — items in build order (each = one unit loop) | Confirm milestone |
+|---|---|---|
+| **D1** | **W0:** G1 WTP unit → G2 SAM clamp → G3 at-SOM reconcile → G4 scale route → 4× §1f deletions (one commit each) | `gates.py --gate core` ≥95% on fresh corpus |
+| **D2–3** | **W1:** instructor into model/client.py → parse-error smoke → 59 negative-scope + 5 thin docstrings (batched by registry file, gate-checked per file) → H13 anti-thrash | `harness_gates.py --gate M1` exit 0 |
+| **D4–6** | **W2:** Tavily backend → trafilatura content gate → tldextract root-domain → RapidFuzz dedup → fastembed relevance gate → `sources.py` split (shimmed) | search smoke 5/5; D13 green; **checkpoint: R4 panel run, trend recorded** |
+| **D7–10** | **W3:** ledger.py → transcript.py → hooks.py → streaming to workspace *(M2)* → resume.py → kill-sweep *(M3)*; plan.py step extraction starts alongside | M2 (D8), M3 (D10) |
+| **D11–15** | **W4:** forecast.py (closes G3 deep) → citation.py store → CitationAgent pass → pdf.py (WeasyPrint) → premium template | forecast reconciliation + fact-density + ≥20pp PDF (M8 partials in `baselines/`) |
+| **D16–22** | **W5:** scheduler → gateway → tiering *(M4, ~D18)* → memory.py → reminders.py → compaction.py *(M5, ~D20)* → SKILL.md pilots ×2 → spawn contracts → plan_artifact.py *(M6, D22)* | M4 → M5 → M6, each `--gate M<k>` exit 0 |
+| **D23–27** | **W6** *(premium budget on)*: verifier.py + seeded-bug suite → research-crew evidence stage → effort knob → tier map → COGS logging | **M7** incl. final harness gate: R4 ≥90% / 0 critical (D27) |
+| **D28–30** | **M8 parity claim:** one deep-mode venture end-to-end → blind judge vs BCC chapter → fix the deltas → re-run | **M8 full gate** → `baselines/M8.json` |
+
+Slack is built in: estimates above are the §4 ranges' upper ends; the stall rule converts
+overruns into scope decisions instead of schedule slips. External dependencies land on the
+calendar as: **keys by D4** (Tavily/Census/BLS, user, free), **budget decision by D23**
+(Opus-class, user).
+
+### 5c. Confirm artifacts (what "done" leaves behind)
+
+Each unit loop leaves: the new/updated test file, the gate output in the commit message.
+Each wave leaves: a `docs/baselines/<wave>.json` scorecard + updated ARCHITECTURE.md if the
+tree changed. Each milestone leaves: its M-gate output + (M6/M7/M8) an R4 panel result. The
+audit trail IS the project log — no separate status reports.
