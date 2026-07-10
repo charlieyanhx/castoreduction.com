@@ -1,232 +1,388 @@
-# Castor Harness v2 — Adopting Claude Code's 6-Layer Architecture (Clean-Room Plan)
+# Castor Harness v2 — Adopting Claude Code's 6-Layer Architecture
+## Clean-Room Plan & Testing Program (unified)
+
+> **This document is the single source of truth for Harness v2.** It merges the architecture
+> plan and the testing milestones (the former `TESTING_MILESTONES.md`, now a pointer here) into
+> one program: **§1** what happens to every existing file · **§2** the target structure and the
+> idea it serves · **§3** the debugging/unit-test program that verifies every §2 file and goal ·
+> **§4** the execution order. A milestone is claimed by a **program's exit code**, never an opinion.
 
 **Goal:** rebuild Castor's execution core on the architecture that makes Claude Code the most
-reliable long-running agent harness in production, adapted to what Castor actually does —
-generate paid-grade, numbers-must-be-right market-research documents.
+reliable long-running agent harness in production — adapted to what Castor actually does:
+generate paid-grade, numbers-must-be-right market-research documents at premium-report
+(BCC-class) parity.
 
 **IP/licensing ground rules (clean-room):** we adopt *concepts and patterns* as documented in
 public reverse-engineering literature (minusx.ai "Decoding Claude Code", kirshatrov
 claude-code-internals, shareAI-lab/analysis_claude_code, Piebald-AI system-prompt collections,
-Anthropic's own published engineering posts). **No decompiled source is copied.** All code is
+Anthropic's own published engineering posts — all verified reads, see
+[HARNESS_LITERATURE.md](HARNESS_LITERATURE.md)). **No decompiled source is copied.** All code is
 written fresh against our own registry/Evidence abstractions; dependencies stay MIT/BSD/Apache.
 
----
-
-## Part 1 — Claude Code's architecture, as documented in the leak literature
-
-The reverse-engineering analyses (esp. shareAI-lab's) describe a **6-layer design**:
+**The reference architecture (from the leak literature):**
 
 | Layer | Claude Code (leaked names) | What it does |
 |---|---|---|
-| **L1 — Entry/UI** | CLI REPL, slash commands, hooks | user interaction, command routing, lifecycle hooks around every tool call |
-| **L2 — Master loop** | `nO` main loop | ONE single-threaded conversation loop over a flat, append-only message history; streaming; no graph/state-machine — "agent = loop + LLM + tools" |
-| **L3 — Context & memory** | `wU2` compressor, `AU2` 8-segment summary, CLAUDE.md, system-reminders, TodoWrite | keep the context window high-signal: layered always-loaded memory, auto-compaction at ~92% capacity into a structured 8-part summary, mid-stream steering via injected `<system-reminder>`s, TODO recitation as an attention anchor |
-| **L4 — Tool system** | `UH1` scheduler, `MH1` 6-phase executor, permission gateway | tool discovery → arg validation → permission gate → concurrency-classified execution (read-only tools run parallel (≤10), mutating tools run serial) → result normalization → state record. Poka-yoke args (absolute paths), exact-string Edit discipline, descriptions-as-routing |
-| **L5 — Sub-agents** | Task tool → `I2A` sub-agent | context isolation: a sub-agent gets its own fresh context + tool mask, runs the SAME loop, returns ONE compact tool_result; **at most one branch deep** (sub-agents cannot spawn sub-agents) — prevents context explosion and conflicting decisions |
-| **L6 — Persistence** | messages.jsonl, todo files, session state | every session is an append-only JSONL transcript; todos and memory live on disk; resume = replay state, not re-run work |
+| **L1 — Entry** | CLI REPL, slash commands, hooks | user interaction, command routing, lifecycle hooks around every tool call |
+| **L2 — Master loop** | `nO` loop | ONE single-threaded loop over a flat, append-only history; "agent = loop + LLM + tools" |
+| **L3 — Context & memory** | `wU2`/`AU2`, CLAUDE.md, system-reminders, TodoWrite | layered always-loaded memory; headroom-based compaction into a fixed 8-part schema; microcompaction to disk pointers; mid-stream steering via injected reminders; full-list recitation |
+| **L4 — Tool system** | `UH1` scheduler, `MH1` executor, permission gateway | discovery → arg validation → permission gate → concurrency-classified execution (read-parallel ≤10 / write-serial) → normalized result → state record |
+| **L5 — Sub-agents** | Task → `I2A` | context quarantine: fresh context + tool mask, same loop, ONE compact return; **at most one branch deep** |
+| **L6 — Persistence** | messages.jsonl, todo files | append-only transcript; state on disk; resume = replay, not re-run |
 
-**Cross-cutting prompt discipline** (from the leaked prompts): byte-stable system-prompt prefix
-(KV-cache), "IMPORTANT"/"NEVER" emphasis for hard rules, negative scope in tool descriptions
-("do NOT use when…"), worked examples over abstract rules, errors left in context as observations.
-
-**Why this design wins** (corroborated by our verified harness research): flat single loop beats
-multi-agent graphs for coherence (conflicting decisions live in one history); KV-cache-stable
-prefixes are a 10× cost lever; compaction into a *structured* summary preserves decisions while
-dropping bulk; one-branch sub-agents give parallelism without divergence; the tool layer being
-boring and deterministic is what lets the model be creative safely.
-
-**Verified sources for Part 1** (fetched and read — see HARNESS_LITERATURE.md §4 for the full
-findings): minusx.ai *Decoding Claude Code* · kirshatrov *claude-code-internals* ·
-Piebald-AI *claude-code-system-prompts* (500+ fragments, 231 tracked versions) ·
-shareAI-lab *analysis_claude_code* / *learn-claude-code* · Yuyz0112 *claude-code-reverse* ·
-promptlayer *master agent loop* · decodeclaude.com *compaction deep-dive* · outsightai +
-georgesung traffic tracing · code.claude.com/docs/en/memory. Key verified numbers: >50% of CC's
-LLM calls run on Haiku-class models; ~9.4k tokens of tool descriptions vs ~2.8k system prompt;
-compaction historically at ~92% now headroom-based; TodoWrite forces FULL-list rewrites
-(recitation is the mechanism); CLAUDE.md is a 4-layer concatenation delivered as a *user message
-after* the system prompt and re-injected post-compaction; microcompaction demotes old tool
-results to disk pointers keeping a hot tail inline.
+Key verified numbers that shape this plan: >50% of CC's LLM calls run on Haiku-class models;
+~9.4k tokens of tool descriptions vs ~2.8k of system prompt (descriptions ARE the routing
+layer); compaction fires on headroom accounting; CLAUDE.md is a 4-layer concatenation delivered
+as a post-system user message and re-injected after compaction.
 
 ---
 
-## Part 2 — Castor today, mapped layer-by-layer
+# §1 — Existing code: keep / move / rewrite / delete
 
-| Layer | Castor today | Grade |
-|---|---|---|
-| L1 | FastAPI (`api.py`) + workspace chat UI + jobs API. No lifecycle hooks, no operator commands | 🟡 partial |
-| L2 | TWO loops: deterministic 18-step `plan.py` (the product) + bounded agent loop `harness/agent.py` (recitation, append-only observations, tool masking, budget) | 🟡 loop exists; no streaming events, fixed chain not plan-driven |
-| L3 | LLM cache (content-addressed), temp0+seed; `model_directive` injections (a system-reminder analog); recitation in agent loop. **No compaction, no layered memory, no skill disclosure** | 🔴 biggest gap |
-| L4 | `@tool` registry + uniform Evidence envelope + provenance trace + error-as-Evidence. **No scheduler/concurrency classes, no permission gateway, no arg poka-yoke, no response_format** | 🟡 half-built |
-| L5 | `agents/` crew + `run_research_crew`. No one-branch rule, no output-schema contracts on spawn, sub-results not compacted | 🟡 |
-| L6 | SQLite job store + `checkpoint()` after steps + provenance JSONL. **Resume re-runs from scratch; no event transcript; no lifecycle hooks** | 🟡 |
+Triage of every file in the repo (line counts and reference counts measured 2026-07-10).
+**Method: incremental moves with import shims per wave — never a big-bang rename.** A module
+moves only in the wave that touches it (§4), and old import paths keep working via a
+one-line re-export until the wave after.
 
----
+### 1a. Orchestration & entry (→ L1/L2)
 
-## Part 3 — The plan: Castor Harness v2, layer by layer
-
-### L1 — Entry: operator commands + lifecycle hooks
-*Adopt:* CC's hook model (Pre/Post per tool + per step) and slash-command routing.
-- **1.1** `hooks.py`: `on_step_start/on_step_end/on_tool_call/on_failure/on_complete` — a tiny
-  pub-sub the orchestrator fires. First consumers: live progress streaming to the workspace
-  "Computer" panel (kills the last "dark capability"), degradation banner, provenance.
-- **1.2** Operator directives in chat: `/regenerate <section>`, `/deepen <section>`, `/sources`,
-  `/model-info` — routed like slash commands to pipeline entry points.
-- *Skip:* a terminal REPL — Castor's surface is the web workspace.
-
-### L2 — Master loop: keep the deterministic spine, make it plan-driven + streaming
-*Key judgment call:* CC is a loop because coding is open-ended. Report generation is a
-known workflow — and Anthropic's own guidance (verified) says **workflows beat agents for
-well-understood tasks**. So we do NOT replace `plan.py` with a free loop. We adopt the loop's
-*virtues* instead:
-- **2.1** **Flat run ledger**: one append-only, per-run event history (`RunLedger`) that every
-  step writes to (step start/end, Evidence refs, decisions, failures) — the single source of
-  truth the way CC's message history is. Provenance becomes a view over it.
-- **2.2** **Plan-as-artifact** (from REPORT_SPEC wish #4): the orchestrator emits `plan.json`
-  (sections + figures referencing only existing result keys), a validator gates it, THEN
-  execution follows it. plan.py's step order stops being implicit code and becomes checkable data.
-- **2.3** **Streaming events** over the ledger → UI (via 1.1 hooks): the user watches steps,
-  tool calls, and sources appear live, like CC's transcript.
-- **2.4** The open-ended limb (`harness/agent.py`) stays the CC-style loop it already is;
-  it gains L3/L4 upgrades below.
-
-### L3 — Context & memory (the biggest gap → biggest wins)
-- **3.1** **CASTOR.md memory hierarchy** (CLAUDE.md analog), layered and always-loaded in order:
-  `operator.md` (user prefs: tone, depth, risk appetite) → `venture.md` (the brief; auto-written
-  at intake) → `industry/<category>.md` (reusable industry knowledge packs). Injected as a
-  byte-stable prefix block in every LLM call for that run.
-- **3.2** **Structured compaction for the agent limb**: when the observation log nears the
-  budget, compress into an 8-segment structured handoff (CC's AU2 pattern): objective / key
-  decisions / evidence digest (with restorable pointers) / open questions / failures seen /
-  next steps / constraints / sources. Reversible: bulky payloads drop to `evidence_id` pointers
-  (we already store them) — never lossy on provenance. Verified refinements from the compaction
-  deep-dive: (a) **microcompaction first** — demote old observations to Evidence-ID pointers
-  while keeping a hot tail of recent ones fully inline (cheapest stage, nearly free since
-  provenance already persists payloads); (b) **fixed checklist schema**, never freeform
-  summarization; (c) after compaction, **re-materialize hot state from the provenance store**
-  (current step, key Evidence), don't trust the summary; (d) **anti-thrash guard** — cap
-  compactions per run and abort loudly rather than loop-compacting; (e) compact early enough
-  that the compaction itself has headroom to run.
-- **3.3** **System-reminder channel**: generalize `model_directive` into `inject_reminder(step,
-  text)` — a uniform way any gate (validation, business-model router, run-health) steers any
-  downstream LLM call. Same mechanism CC uses to steer mid-conversation.
-- **3.4** **Skills as SKILL.md folders with progressive disclosure** (from the skills review):
-  registry metadata always loaded (~100 tokens); procedural body loaded on trigger; bundled
-  scripts *executed*, not read. Migrate 2 pilots first: `size_hyperlocal`, `citation`.
-- **3.5** **KV-cache discipline** in `llm.py`: byte-stable system prefixes (no timestamps),
-  stable tool-catalog ordering, append-only run context. (Gemini implicit caching → real
-  latency/cost win; groundwork for Anthropic provider.)
-
-### L4 — Tool system: finish the half-built layer
-- **4.1** **Concurrency classes** on `@tool(concurrency="parallel_safe"|"serial"|"exclusive")`:
-  read-only fetchers (OSM, Census, BLS, search) fan out ≤10 in parallel; LLM calls serial per
-  provider; writes exclusive. A small `ToolScheduler` replaces ad-hoc ThreadPoolExecutors in plan.py.
-- **4.2** **Permission gateway**: tiers `free | metered (needs key, costs quota) | paid | none`.
-  Metered/paid tools declare cost; the gateway enforces per-run budgets and records spend to the
-  ledger (CC's permission model, adapted from "can I touch this file" to "can I spend this quota").
-- **4.3** **Poka-yoke args**: pydantic arg models on tools — reject relative/ambiguous inputs
-  (e.g. `geocode_address` requires city+region; `bls_cex_spend` requires either a verified
-  series id or a category that resolves). Bad args fail loud at the boundary, not deep inside.
-- **4.4** **response_format enum** (`CONCISE|DETAILED`) on chatty tools (search, scrape,
-  reviews): CONCISE for the agent loop (token diet), DETAILED for provenance.
-- **4.5** **Descriptions-as-routing**: rewrite every `@tool/@skill/@agent` description as
-  WHAT + WHEN + trigger keywords + **negative scope** ("Do NOT use for…"). The planner selects
-  against these. (Verified: bad descriptions send agents "down completely wrong paths".)
-
-### L5 — Sub-agents: CC's spawn discipline
-- **5.1** **One-branch rule**: `run_agent(depth=1)` may spawn workers at depth 2; depth-2 CANNOT
-  spawn. Enforced in the registry, not by convention.
-- **5.2** **Spawn contracts**: every crew spawn carries `{objective, output_schema, tool_mask,
-  boundaries}` — vague delegation is a validation error (Anthropic's multi-agent lesson, verified).
-- **5.3** **Compact returns**: a sub-agent returns ONE Evidence (schema-validated), never its
-  transcript; its full log goes to the ledger for debugging, not into the parent's context.
-  (Context isolation — the whole point of CC's Task tool.)
-
-### L6 — Persistence: resume, don't re-run
-- **6.1** **Run transcript**: the RunLedger (2.1) persists as per-run JSONL next to the job row —
-  CC's messages.jsonl analog. The debug panel and audits read it directly.
-- **6.2** **True resume**: `checkpoint()` already snapshots results; add `resume(job_id)` that
-  replays the ledger, skips completed steps with intact Evidence, and re-runs only the
-  failed/missing tail. Kills the "regenerate everything after a Gemini blip" tax — the single
-  biggest reliability lever we have.
-- **6.3** **Session continuity for the workspace**: a venture's runs chain (`_previous_job_id`
-  exists); expose diffs-between-runs (already have `_deltas_vs_previous`) as a first-class view.
-
-### Cross-cutting — prompt discipline (free wins, do throughout)
-- Hard rules phrased with IMPORTANT/NEVER in system prompts (validation gate directives,
-  model_directive, judge rubrics); worked input→output examples in every skill body; negative
-  scope everywhere; byte-stable prefixes (3.5).
-
----
-
-## Part 4 — What we deliberately do NOT adopt (and why)
-| CC feature | Skip because |
-|---|---|
-| Free-form master loop for the whole product | report generation is a known workflow; determinism + testability are Castor's moat (verified: "workflows beat agents for well-understood tasks") |
-| Multi-agent **writing/deciding** (parallel authors of the same numbers) | verified coherence failure mode (Cognition; CC's one-branch design) — and Castor's own audit criticals were exactly this class: SOM computed 2 ways, churn 8.5% vs 5%, three CACs in one report. One writer per quantity, always. |
-| Terminal UI/REPL | our surface is the web workspace |
-| h2A async mid-run steering queue | Castor is batch; replay-from-cache is the right substitute (verified skip) |
-| LLM-based Bash injection checks | our tools are parameterized functions, not model-composed shell; a rule-based check in the tool wrapper suffices |
-| Vector/RAG store for source documents | CC's verified "LLM search >>> RAG" — Castor is already tool-retrieval-first; keep grep/filter over cached sources |
-
-**Correction from verified research — model tiering moves from skip → ADOPT:** >50% of CC's LLM
-calls run on Haiku-class models (summarize/parse/classify/Explore). Tiering doesn't need a second
-provider — Gemini has flash vs flash-lite. Add `tier="utility"|"main"` to `llm.py:call_json` and
-route evidence summarization, classification, extraction, and label generation to flash-lite.
-Slots into **P3**. This is the single biggest cost lever CC validates.
-
-## Part 4b — Multi-agent posture under a PREMIUM model budget (Opus-class)
-
-The Part-4 economics objection was budget-bound (free Gemini tier). With Opus-class models as the
-target, the posture changes — per the verified evidence, not in spite of it:
-
-**The rule: fan out to READ, serialize to WRITE, gate everything.**
-- Anthropic's multi-agent research system (Opus lead + parallel Sonnet workers) beat single-agent
-  Opus by **90.2%** on research; token spend explained ~80% of variance. Breadth tasks WANT
-  parallel agents.
-- Cognition + CC's one-branch design: parallel agents making *decisions* produce conflicting
-  decisions. Castor's audit criticals (dual SOM, 3 CACs, churn 8.5 vs 5) are precisely this
-  failure class. Writing stays single-author per quantity, pinned by the gate.
-
-**What turns ON with a premium budget (new phase P6):**
-- **6a. Research crew as a first-class evidence stage** — wire `run_research_crew`
-  (market_scan, demand_signal, pricing_intel, local_market — already built in
-  `agents/research_agents.py`) into plan.py as a parallel fan-out feeding the Evidence store,
-  each worker with a spawn contract (5.2) and compact schema'd returns (5.3).
-- **6b. Adversarial verifier panel as a pre-publish gate** — productize the audit harness that
-  took the corpus 47→6 criticals: per-section skeptic agents (numbers spine / coherence /
-  model-fit) run before render; CONFIRMED findings block publish or annotate the report.
-  This is the highest-ROI use of premium tokens — it is literally how we found every bug.
-- **6c. Effort scaling as a config knob** (verified Anthropic pattern): `research_depth =
-  quick (0 subagents) | standard (3-5) | deep (10+)` tied to price tier. COGS at ~15× tokens on
-  Opus-class ≈ $5–20/report — fine against a $99–499 price, impossible on free tier.
-- **6d. Tier mapping under premium:** Opus-class = lead orchestration, synthesis, judge/verifier;
-  Sonnet-class = research workers; Haiku/flash-class = utility calls (unchanged from P3).
-
-**What stays OFF even with unlimited budget:** parallel authorship of the same number, free-form
-master loop, sub-agent recursion. Coherence is not a cost problem; money doesn't fix it.
-
-## Part 5 — Execution order (each phase independently shippable + testable)
-
-| Phase | Items | Effort | Acceptance |
+| File (lines) | Role today | Direction | Destination / note |
 |---|---|---|---|
-| **P0** | 4.5 descriptions+negative scope; cross-cutting prompt discipline; 3.5 KV-stable prefixes | 1 day | planner mis-routing ↓ in agent-loop tests; byte-identical prefixes verified |
-| **P1** | 2.1 RunLedger + 6.1 transcript + 1.1 hooks + 2.3 streaming | 2-3 days | live step/tool stream visible in workspace; provenance = ledger view; all tests green |
-| **P2** | 6.2 resume | 1-2 days | kill a run mid-pipeline → `resume` completes it without re-running finished steps (test: ≤1 duplicated LLM call) |
-| **P3** | 4.1 scheduler + 4.2 permission gateway + 4.3 poka-yoke | 2-3 days | OSM/Census/BLS fan out in parallel (wall-clock ↓ ~30%); per-run quota enforced; bad args fail at boundary with clear errors |
-| **P4** | 3.1 CASTOR.md hierarchy + 3.3 reminder channel + 3.2 compaction | 2-3 days | operator prefs honored across runs; agent limb survives 3× longer research without budget exhaustion |
-| **P5** | 3.4 SKILL.md pilots + 5.1-5.3 spawn contracts + 2.2 plan-as-artifact | 3-5 days | 2 skills migrated with progressive disclosure; spawn without schema = validation error; plan.json gates rendering |
-| **P6** *(premium budget)* | 6a research-crew evidence stage + 6b verifier panel pre-publish gate + 6c effort knob + 6d tier map | 3-5 days | deep-mode report shows ≥3 independent evidence origins per headline number; verifier panel blocks a seeded critical; COGS per report measured and logged |
+| `plan.py` (1915) | the 18-step orchestrator + ~30 module-level helpers | **SPLIT** | steps → `orchestrator/steps/` (join `skills/pipeline_steps.py`); loop/ledger → `orchestrator/run.py`; pure helpers (routers, extractors, integrity/provenance builders) → `orchestrator/derive.py`. The single biggest de-risking split in the repo |
+| `api.py` (1303) | FastAPI: jobs, render context, tunnels, workspace routes | **KEEP, slim** | `entry/api.py`; extract the giant report render-context into `report/context.py`; add `entry/hooks.py` events (plan item 1.1) |
+| `cli.py` (127) | legacy CLI | **KEEP, slim** | `entry/cli.py`; drop dead subcommands (report.py legacy paths) |
+| `intake.py` (304) | venture intake/validation (422 on vague prompts) | **KEEP** | `entry/intake.py` — the fail-safe behavior the audit praised |
+| `jobs.py` (179) | SQLite job store + checkpoint | **KEEP, extend** | `persistence/jobs.py`; grows `resume(job_id)` (6.2) |
+| `provenance.py` (94) | per-run tool/LLM trace (debug panel) | **KEEP, extend** | `persistence/ledger.py` absorbs it — provenance becomes a *view* over the RunLedger (2.1) |
+| `harness/agent.py` | bounded agent loop (recitation, masking, budget) | **KEEP, extend** | `orchestrator/agent_loop.py`; gains microcompaction + reminders (3.2/3.3) |
+| `harness/refine.py` | generator-evaluator-refine | **KEEP** | `orchestrator/refine.py` |
 
-Total: ~2-3 weeks of focused work (P0-P5) + ~1 week for the premium multi-agent stage (P6), each
-phase leaving the system better than before and fully regression-tested against the 16-venture
-corpus (`/tmp/audit` harness + audit panel gate).
+### 1b. Domain skills — the report's substance (→ L4 skills)
 
-## Part 6 — How this maps to Castor's actual pain (the "why")
-- **Trust/auditability** (the audit's #1 theme) → L2 ledger + L6 transcript + L4 gateway make
-  every number's lineage a first-class artifact (extends the provenance panel we shipped).
-- **Reliability on a flaky free tier** → P2 resume converts LLM blips from "regenerate the
-  world" into "re-run one step"; P3 parallel fetchers cut the window in which blips can hit.
-- **Consistency bugs (SOM, CAC, churn)** → 2.2 plan-as-artifact + 3.3 reminder channel give
-  gates a uniform way to pin canonical values for every downstream call.
-- **Dark capabilities** → 1.1 + 2.3 stream the backend's real work into the UI, which is the
-  Manus-parity UX ask from the start.
+All KEEP; they move under `capabilities/skills/<domain>/` in the wave that touches them.
+
+| File (lines) | Direction → destination |
+|---|---|
+| `market_sizing.py` (669) | MOVE → `skills/sizing/national.py` (joins the existing `skills/sizing/` package: hyperlocal, classify, validate) |
+| `four_ps.py` (912) | MOVE → `skills/narrative/four_ps.py` |
+| `pricing.py` (376), `economics.py` (375), `financials.py` (158) | MOVE → `skills/economics/` — **`financials.py` is REWRITTEN by the forecast engine** (M8): one deterministic model emits all tables |
+| `business_model.py` (230) | MOVE → `skills/economics/model_router.py` (the transactional/subscription/marketplace/… router) |
+| `discover.py` (687) | MOVE → `skills/discovery/brands.py` (merge naming with `skills/discovery.py`, `skills/discovery_multi.py`) |
+| `clustering.py` (404), `differentiators.py` (371), `whitespace` logic | MOVE → `skills/competitive/` |
+| `taste.py` (402), `personas.py` (148), `segment_scoring.py` (241) | MOVE → `skills/audience/` |
+| `company_profile.py` (87), `competitor_pricing.py` (127), `place.py` (150) | MOVE → respective skills dirs |
+| `customer_universe.py` (956) | KEEP (B2B mode) → `skills/audience/universe.py`; quality depends on Wave-2 data layer |
+| `reddit_signal.py` (440), `firmographics.py` (434), `macro_anchors.py` (432) | MOVE → `skills/signals/`; macro_anchors gets vertical-match guard (audit: wrong-vertical anchors) |
+| `skills/` package (registry, perspective, triangulate, price_intel, refine_report, narration, pipeline, pipeline_steps, sizing/) | KEEP in place — this IS the L4 skill layer; `pipeline*.py` absorb plan.py steps; 2 pilots become SKILL.md folders (3.4) |
+| `match.py` (84) | KEEP (used by cli + integration tests) → `skills/discovery/match.py` |
+
+### 1c. Tools & data infra (→ L4 tools)
+
+| File | Direction |
+|---|---|
+| `tools/registry.py` (+ Evidence envelope) | **KEEP — already at SOTA.** Gains concurrency classes (4.1), permission tiers (4.2), pydantic arg models (4.3) |
+| `tools/geo.py`, `econ.py`, `scrape.py`, `domain.py`, `trend.py`, `social.py`, `ads.py`, `customer_voice.py`, `firmographic.py` | KEEP; each gets routing-grade docstring + negative scope (4.5, gate H01/H02) |
+| `scrape/http.py` | KEEP — cache/throttle/UA layer is solid |
+| `scrape/search.py` | **EXTEND** — Tavily becomes first backend (Wave 2); keep cascade as fallback |
+| `scrape/crawl.py`, `structured.py` | **EXTEND** — trafilatura content-validity gate in front of price extraction (Wave 2) |
+| `scrape/wayback.py` | KEEP |
+| `sources.py` (1107) | **SPLIT** → `tools/sources/` (trustpilot, articles, forums, vertical_pubs); gains fastembed relevance gate + tldextract root-domain fix (Wave 2) |
+| `llm.py` (394) | **KEEP, extend** → `model/client.py`: instructor structured output (Wave 1), `tier=` param (P3), KV-stable prefixes (3.5) |
+| `cache.py` (65) | KEEP → `model/cache.py` |
+| `agents/` (registry, planner, crew, research_agents, synthesis) | KEEP — L5; gains depth-1 enforcement (5.1), spawn contracts (5.2), compact returns (5.3); crew wired into the pipeline at P6 |
+
+### 1d. Report & render
+
+| File | Direction |
+|---|---|
+| `templates/report.html`, `onepager.html`, `compare.html` | KEEP → `report/templates/`; SafeUndefined stays; M8 adds print-PDF template |
+| `charts.py` (256) | KEEP → `report/charts.py`; degenerate-clustering suppression (audit M8 finding) |
+| `report.py` (197) | **MERGE** — keep only the functions `api.py` imports → `report/render.py`; delete the legacy CLI renderers |
+| NEW files | see §2: `report/citation.py`, `report/forecast.py`, `report/pdf.py`, `report/context.py` |
+
+### 1e. Core utils, gates, benchmarks
+
+| File | Direction |
+|---|---|
+| `schema.py`, `errors.py`, `logger.py`, `net.py` | KEEP → `core/` |
+| `gates.py` (311, D01–D14) + `harness_gates.py` (329, H01–H20) | **KEEP — the deterministic gate programs.** → `gates/`; every new v2 file lands with its gate check (§3) |
+| `benchmarks/` (judge, prose_judge, score, run_all, cases) | KEEP — R4/R5 rings + the M8 parity judge |
+| `history.py` (111), `feedback.py` (134) | KEEP (workspace endpoints) → `persistence/` |
+
+### 1f. DELETE (verified-dead or superseded)
+
+| File | Evidence | Action |
+|---|---|---|
+| `daily_check.py` (246) | 0 prod / 0 test refs | delete |
+| `smoke.py` (145) | 0 refs; superseded by `gates.py` | delete |
+| `probe.py` (57) | dev scratch; 1 stale ref | remove ref, delete |
+| `web/legacy-console.html` | 0 refs in api.py | delete |
+| legacy paths in `report.py`/`cli.py` | superseded by templates + api | delete during 1d merge |
+| `web/index.html`, `dashboard.html`, `progress.html` | still routed | KEEP for now; **CONSOLIDATE** into workspace in the UI wave — mark, don't break |
+
+Deletion protocol: `git grep` proves 0 references → delete in its own commit → full R1 suite +
+`gates.py --gate core` green before push. Nothing is deleted on memory or vibes.
+
+### 1g. Tests (all KEEP — reorganize)
+
+All ~45 `test_*.py` files stay green throughout; they relocate to `tests/` mirroring the v2 tree
+**in the same commit as the module they test**. `test_infra.py` (2224 lines) is SPLIT along the
+same boundaries as plan.py. The seeded-bug suites (`test_gates.py`, `test_harness_gates.py`)
+are the model for every new detector (§3).
+
+### 1h. Docs
+
+`docs/` keeps: this file (canonical), HARNESS_LITERATURE, AGENT_DOC_LITERATURE, OSS_TOOLING,
+AUDIT_PLAN/RESULTS, REPORT_SPEC, REPORT_METHODOLOGY, ARCHITECTURE (update at each wave),
+SIZING, TRIANGULATION. Historical (NUMBER_FIX_PLAN, METHOD_AUDIT, CODE_AUDIT, MANUS_TEARDOWN,
+FORESIGHT, IMPROVEMENT_LOOP, AGENT_PARITY_PLAN) → `docs/archive/` — kept, out of the way.
+`TESTING_MILESTONES.md` → pointer stub to this file.
+
+---
+
+# §2 — Target repository structure (the goal, and the idea behind it)
+
+### 2a. The abstract idea
+
+Castor v2 is **a deterministic document factory wrapped around a disciplined agent core**:
+
+1. **Mechanisms belong to the harness; judgment belongs to the model.** Ordering, budgets,
+   permissions, persistence, and gates are deterministic code. The LLM exercises judgment only
+   *inside* a step, against curated context, and its output is validated before it becomes state.
+2. **One flat history per run.** Every step, tool call, decision, and failure appends to one
+   RunLedger — the way CC's message history is the single truth. Provenance, streaming UI,
+   debugging, and resume are all *views over the ledger*, never separate bookkeeping.
+3. **Context is engineered, not accumulated.** Byte-stable prefixes (KV-cache), layered
+   always-loaded memory (operator → industry → venture brief, specific-last), reminders injected
+   at trigger points, recitation of the full remaining plan, and reversible compaction
+   (pointers, never deletion).
+4. **Fan out to read, serialize to write, gate everything.** Read-only tools parallelize (≤10);
+   anything that authors a number is single-writer and passes `validate_numbers`-class gates.
+   Sub-agents are context quarantine — one branch deep, schema'd compact returns.
+5. **Every number has lineage.** Claim→source records, calculation strings, UNSOURCED labels,
+   and a provenance appendix — the anti-"Source: BCC Research" differentiator that is Castor's
+   commercial moat (M8).
+6. **Resume, don't re-run.** Any interrupted run completes from its ledger with ≤1 duplicated
+   LLM call. Reliability on flaky infrastructure is a harness property, not a model property.
+
+What we deliberately do NOT build (verified skips): a free-form master loop for the whole
+product (report generation is a known workflow — determinism is the moat); parallel authorship
+of the same numbers (the audit's dual-SOM/3-CAC criticals ARE that failure class); terminal
+REPL; async mid-run steering; LLM injection checks (tools are parameterized); vector/RAG stores
+("LLM search >>> RAG", verified). Under a premium (Opus-class) budget, multi-agent turns ON for
+research breadth and adversarial verification — never for writing (Part 4b economics: ~15×
+tokens ≈ $5–20 COGS vs a $99–499 report).
+
+### 2b. The tree (recycled ← / NEW)
+
+```
+castor/
+├── entry/                    (L1)
+│   ├── api.py                ← api.py (slimmed)
+│   ├── cli.py                ← cli.py
+│   ├── intake.py             ← intake.py
+│   └── hooks.py              NEW  — on_step_start/end, on_tool_call, on_failure, on_complete (1.1)
+├── orchestrator/             (L2)
+│   ├── run.py                ← plan.py run_plan (the spine; emits ledger events)
+│   ├── steps/                ← plan.py steps + skills/pipeline_steps.py (one file per step)
+│   ├── derive.py             ← plan.py pure helpers (routers, extractors, integrity)
+│   ├── plan_artifact.py      NEW  — emit + validate plan.json before execution (2.2)
+│   ├── agent_loop.py         ← harness/agent.py (+ compaction, reminders)
+│   └── refine.py             ← harness/refine.py
+├── context/                  (L3)
+│   ├── memory.py             NEW  — CASTOR.md hierarchy: operator → industry → venture (3.1)
+│   ├── compaction.py         NEW  — microcompaction → fixed-schema summary; anti-thrash (3.2)
+│   └── reminders.py          NEW  — inject_reminder(step, text); gates steer downstream calls (3.3)
+├── capabilities/             (L4/L5)
+│   ├── tools/                ← tools/ (+ concurrency classes, arg models, tiers)
+│   │   └── sources/          ← sources.py split (+ relevance gate)
+│   ├── skills/               ← skills/ + root domain modules per §1b
+│   │   └── <name>/SKILL.md   NEW  — progressive disclosure, 2 pilots first (3.4)
+│   ├── agents/               ← agents/ (+ depth-1, spawn contracts, compact returns)
+│   ├── scheduler.py          NEW  — read-parallel ≤10 / write-serial executor (4.1)
+│   └── gateway.py            NEW  — permission tiers free|metered|paid; per-run budgets (4.2)
+├── model/                    (L5-model)
+│   ├── client.py             ← llm.py (+ instructor, KV-stable prefixes)
+│   ├── tiering.py            NEW  — tier="utility"|"main"|"judge" routing (P3)
+│   └── cache.py              ← cache.py
+├── persistence/              (L6)
+│   ├── jobs.py               ← jobs.py
+│   ├── ledger.py             NEW  — append-only RunLedger; provenance.py becomes a view (2.1)
+│   ├── transcript.py         NEW  — per-run JSONL, messages.jsonl analog (6.1)
+│   ├── resume.py             NEW  — resume(job_id): replay ledger, re-run only the tail (6.2)
+│   └── history.py feedback.py ← history.py, feedback.py
+├── report/
+│   ├── context.py            ← api.py render-context extraction
+│   ├── render.py             ← report.py (merged, legacy deleted)
+│   ├── charts.py             ← charts.py
+│   ├── templates/            ← templates/
+│   ├── forecast.py           NEW  — ONE deterministic model → all segment tables reconcile (M8)
+│   ├── citation.py           NEW  — claim→source store + post-draft CitationAgent (M8)
+│   ├── verifier.py           NEW  — pre-publish adversarial panel, productized R4 (6b, P6)
+│   └── pdf.py                NEW  — WeasyPrint print-grade PDF: cover/TOC/numbered figures (M8)
+├── core/                     ← schema.py errors.py logger.py net.py
+gates/                        ← gates.py harness_gates.py (+ new checks per §3)
+tests/                        ← all test_*.py, mirrored per-package
+web/                          ← workspace.html/js (+ consolidated surfaces)
+docs/                         ← per §1h
+```
+
+### 2c. New files needed (complete list, each tied to a plan item and a §3 test)
+
+| New file | Implements | Wave |
+|---|---|---|
+| `entry/hooks.py` | lifecycle pub-sub → streaming UI, banner, ledger | 3 |
+| `orchestrator/plan_artifact.py` | plan.json emit + validate + gate | 5 |
+| `context/memory.py` | layered CASTOR.md, byte-stable, re-injected post-compaction | 5 |
+| `context/compaction.py` | microcompaction, fixed schema, anti-thrash cap | 5 |
+| `context/reminders.py` | triggered system-reminder channel | 5 |
+| `capabilities/scheduler.py` | concurrency-classified tool executor | 5 |
+| `capabilities/gateway.py` | permission tiers + per-run budget | 5 |
+| `model/tiering.py` | utility/main/judge model routing | 5 |
+| `persistence/ledger.py` | append-only RunLedger | 3 |
+| `persistence/transcript.py` | per-run JSONL | 3 |
+| `persistence/resume.py` | replay + tail re-run | 3 |
+| `report/forecast.py` | deterministic forecast engine (deep G3 fix) | 4 |
+| `report/citation.py` | claim→source store + citation pass | 4 |
+| `report/pdf.py` | WeasyPrint premium PDF | 4 |
+| `report/verifier.py` | pre-publish skeptic panel | 6 |
+| `skills/*/SKILL.md` ×2 pilots | progressive disclosure | 5 |
+
+---
+
+# §3 — Debugging & unit-testing program (verifies every §2 file and goal)
+
+**Doctrine:** milestones are claimed by programs. Two deterministic gate runners already exist
+and extend to cover v2: `gates.py` (D01–D14 — one detector per historical audit critical,
+proven by the 21-test seeded-bug suite) and `harness_gates.py` (H01–H20 — one check per phase
+invariant; n/a until built, then pass/FAIL forever). The LLM audit panel (R4) is reserved for
+what cannot be deterministic (prose quality). Same code + corpus in → same verdict out.
+
+### 3a. The five rings (when what runs)
+
+| Ring | What | Runs | Command |
+|---|---|---|---|
+| **R1 Unit** | pure functions | every commit (<30s) | `pytest -q` |
+| **R2 Contract** | registry invariants: Evidence shape, descriptions, arg models, depth | every commit | `pytest tests/test_contracts.py -q` |
+| **R3 Corpus** | regenerate 16 ventures; structural detectors | per wave + nightly | `python /tmp/audit/gen.py && python gates.py --corpus /tmp/audit/run1 --gate all` |
+| **R4 Panel** | independent multi-agent rubric + adversarial verify | per wave end | `Workflow(audit_workflow.js)` |
+| **R5 Live E2E** | browser drives workspace → stream → report | per wave end | Chrome/Playwright script |
+
+**Standing thresholds (never loosen; tightening only):** R1+R2 = 100%, no skips. R3 ≥15/16
+clean, 0 blank reports, 0 SOM mismatches, 0 `/mo` on per-unit spines. Reproducibility ΔTAM=ΔSOM=0%
+on cache hit, ≤15% on bypass. R4 pass% never decreases, criticals never increase
+(baseline 2026-07: 26% / 6 criticals; deterministic baseline: 80% cells / 10 blocking).
+
+### 3b. Per-file verification map — every §2 file → its test → its gate
+
+*(tests marked NEW are written FIRST, red → green, per the repo TDD rule)*
+
+| §2 file | Unit/contract test | Deterministic gate check |
+|---|---|---|
+| `entry/hooks.py` | NEW `test_hooks.py`: every event fires exactly once per step; a raising subscriber never breaks the run | H-M2: ledger step-events == steps_completed |
+| `entry/api.py` | `test_api.py` (exists) + render-context split keeps `test_report_render.py` green | D01 (no blank body), M2 streaming check |
+| `entry/intake.py` | `test_intake.py` (exists) | D-intake: vague prompt → 422 |
+| `orchestrator/run.py` + `steps/` | `test_plan_sizing_gate.py`, `test_hyperlocal_routing.py`, `test_sizing_dispatch.py` (exist; imports updated in-commit) | D02–D09 core detectors |
+| `orchestrator/derive.py` | `test_report_data_fixes.py` (exists — routers/extractors/units) | D05 unit bleed, D07 scale route |
+| `orchestrator/plan_artifact.py` | NEW `test_plan_artifact.py`: plan.json referencing a nonexistent result key → blocked pre-LLM; valid plan → executes in order | H-M6 seeded bad plan blocked |
+| `orchestrator/agent_loop.py` | `test_harness.py` (exists) + NEW recitation test: full remaining plan recited each cycle | H03 budget, H04 recitation |
+| `context/memory.py` | NEW `test_memory.py`: layering order (operator→industry→venture, specific-last), byte-stable injection, re-injection after compaction | H-M5 A/B operator-pref honored |
+| `context/compaction.py` | NEW `test_compaction.py`: 200-step synthetic run — pointers resolve 100%, hot tail inline, fixed schema validates, anti-thrash aborts at cap | H13 anti-thrash; M5 3× budget survival |
+| `context/reminders.py` | NEW `test_reminders.py`: gate-triggered reminder reaches the next LLM call's context exactly once | H-M5 |
+| `capabilities/tools/*` | `test_tools.py`, `test_tools_round2.py`, `test_econ.py`, `test_overpass_retry.py` (exist) | H01/H02 descriptions+negative scope (FAIL today: 5 thin, 59 without scope — the P0 work-list) |
+| `capabilities/sources/` | `test_ground_scrape_price.py` (exists) + NEW `test_relevance_gate.py`: off-category page → price rejected; parked domain → rejected (fastembed + tldextract) | D13 fabricated-benchmark detector |
+| `capabilities/scheduler.py` | NEW `test_scheduler.py`: parallel_safe tools overlap (ledger timestamps), mutating serialize, cap ≤10 respected | M4 wall-clock ≥25% faster |
+| `capabilities/gateway.py` | NEW `test_gateway.py`: metered tool without budget → clean refusal Evidence, never an exception; spend recorded | M4 quota degradation honest |
+| `capabilities/agents/` | `test_agents.py`, `test_agents_planner.py` (exist) + NEW `test_spawn_contracts.py`: spawn without objective/schema/mask → validation error; depth-2 spawn → registry refusal | H18 depth-1 (passes today — keep) |
+| `model/client.py` | `test_llm_determinism.py` (exists) + NEW `test_structured.py`: instructor path returns validated model or retries; `_parse_error` path dead | M1 parse_error ≈ 0 smoke |
+| `model/tiering.py` | NEW `test_tiering.py`: utility calls route to flash-lite (ledger model field) | M4 ≥40% utility-tier share, R3 quality unchanged |
+| `persistence/ledger.py` | NEW `test_ledger.py`: append-only (no update/delete API), survives restart, step+tool events complete | M2 exact-match counts |
+| `persistence/transcript.py` | NEW: transcript replays to identical state | M2 |
+| `persistence/resume.py` | NEW `test_resume.py`: SIGKILL after step N → resume completes, ≤1 duplicated LLM call; kill-sweep at steps 2/5/9/14 → 4/4 identical TAM/SOM | M3 batch-with-kills ≤1.3× clean wall-clock |
+| `report/forecast.py` | NEW `test_forecast_model.py`: one model emits ALL segment tables; every table sums to the same headline to the decimal; CAGR recomputes from endpoints | M8; also closes G3/D08 |
+| `report/citation.py` | NEW `test_citation.py`: fact record = {claim ≤256c, source, date}; unsourced dated claim → flagged; renderer refuses unbacked sentences in premium mode | M8 ≥40 cited facts, 0 uncited dates |
+| `report/pdf.py` | NEW `test_report_pdf.py`: cover, TOC w/ real page numbers, numbered Tables/Figures, footer | M8 ≥20pp PDF |
+| `report/verifier.py` | NEW `test_verifier_gate.py`: seeded dual-SOM → CONFIRMED + publish blocked | M7 ≥90% of 10-bug seeded suite caught, ≤1/16 false-block |
+| `report/charts.py` | `test_report_render.py` (exists) + NEW: silhouette ≤0 → whitespace callout suppressed | audit M8 finding |
+| `skills/*/SKILL.md` | NEW `test_skill_disclosure.py`: metadata ≤150 tokens; body loads only on trigger (ledger proves no body tokens on untriggered runs) | M6 |
+| `gates/` runners themselves | `test_gates.py` (21 seeded bugs), `test_harness_gates.py` (exist) — **every new detector lands with a seeded-bug test proving it catches its target** | self-verifying |
+
+### 3c. Debugging instrumentation (how we see inside)
+
+- **RunLedger + transcript** — the primary debug artifact; every step/tool/LLM call/decision,
+  queryable; the workspace Computer panel and the provenance appendix are views of it.
+- **Provenance panel** (shipped) — per-source live/fallback status per report; extends to show
+  ledger events at M2.
+- **Run-health banner** (shipped) — degraded runs say so; never $0/blank as findings.
+- **Seeded-bug drills** — every historical audit critical exists as a mutation fixture; gates
+  must catch them forever (regression = the detector suite itself fails).
+- **`--verbose` gate mode** — `gates.py`/`harness_gates.py` print the offending JSON path +
+  rendered-HTML line for every FAIL, so a red gate IS the bug report.
+
+### 3d. Milestone gates (claim = command exit 0 + output pasted in the commit)
+
+- **M0 baseline freeze** — record R1 count, R3 result, R4 (26%/6), tokens+wall-clock+LLM calls
+  per report → `docs/baselines/M0.json`. *(Done 2026-07-09: harness 6 pass/3 FAIL/11 not-built;
+  deterministic 80% cells/10 blocking.)*
+- **M1 (P0)** — descriptions 100% (H01/H02 green), misroute ≤1/10 on the 10-goal suite, prefix
+  byte-stability 3× builds. `harness_gates.py --gate M1`
+- **M2 (P1)** — ledger counts exact-match, provenance renders from ledger (old path deleted),
+  R5 shows a live step event mid-run, R3 unchanged. `--gate M2`
+- **M3 (P2)** — resume ≤1 dup LLM call; kill-sweep 4/4; 0 blank/stuck on injected-kill batch;
+  ≤1.3× wall-clock. `--gate M3`
+- **M4 (P3)** — fetch stage ≥25% faster; bad-arg suite 100% boundary failures; honest quota
+  degradation; ≥40% utility-tier calls with R3 quality intact. `--gate M4`
+- **M5 (P4)** — 3× step-budget survival within 5% judge quality; 100% pointer reversibility;
+  thrash cap; operator.md A/B provable. `--gate M5`
+- **M6 (P5)** — 2 SKILL.md pilots ≤150-token metadata; 100% spawn contracts; seeded bad plan
+  blocked; R4 ≥ M0+20pts, criticals ≤3. `--gate M6`
+- **M7 (P6, premium)** — deep mode ≥3 independent origins per headline number; verifier ≥90% of
+  seeded suite, ≤1/16 false-blocks; COGS ≤$25 logged. **Final harness gate: R4 ≥90% cells,
+  0 CRITICAL, full corpus.** `--gate M7`
+- **M8 (premium-report parity — the commercial bar)** — reference: BCC FCB049D (224pp = 12×~18pp
+  templated chapters, $2,750–$5,500 class; all its numbers self-referential — we must match
+  structure/fact-density/consistency and beat transparency). Gates: ≥20pp print PDF (cover, TOC
+  w/ page numbers, numbered Tables/Figures); ≥40 dated externally-cited fact-events, zero
+  uncited dated claims; forecast engine reconciles ≥3 segmentations to one headline to the
+  decimal; every figure carries lineage; zero UNSOURCED headlines when data keys present; blind
+  judge scores Castor vs a BCC chapter ≥parity on structure/evidence/consistency/transparency;
+  COGS ≤$40. Reference PDFs stay in local `parity_corpus/` — **never committed** (copyright).
+
+### 3e. Regression protocol & rules of evidence
+
+| Trigger | Suite |
+|---|---|
+| every commit | R1+R2 green to push |
+| every wave merge | R3 corpus + reproducibility pair + R5 smoke (1 venture) |
+| milestone claim | full gate above → `docs/baselines/M<N>.json` |
+| nightly (when wired) | R3 + 3-venture R4 mini-panel; alert on breach |
+
+1. A milestone is claimed **only** with its gate output in the commit message.
+2. Any R3/R4 regression = stop feature work, fix, re-run. A wave cannot complete on a red ring.
+3. Thresholds only tighten. Loosening requires a written rationale in this file via PR.
+4. Every bug found by R4/R5 or a human read becomes an R1 test before the fix (the WTP-band,
+   OSM-key, and SafeUndefined fixes all followed this pattern).
+5. Every DELETE from §1f lands in its own commit with the grep proof and a green gate run.
+
+---
+
+# §4 — Execution order (waves; each exits through a gate)
+
+Current empirical work-list from the deterministic baseline (80% cells / 10 blocking):
+**G1** WTP `/mo` leak in consumer_research (D05, 4 reports) · **G2** SAM≤TAM clamp on national
+path (D04, 3) · **G3** profitable-at-SOM coherence (D08, 2 — deep fix is `report/forecast.py`) ·
+**G4** agency scale-misroute (D07, 1) · G5 non-US sources (D11) · G6 provenance (D12).
+
+| Wave | Work (§1/§2 items) | Exit gate |
+|---|---|---|
+| **0** (~½ d) | Fix G1–G4; §1f deletions (daily_check, smoke, probe, legacy-console) | `gates.py --gate core` ≥95%; D04/05/07/08 = 100%; deletion commits green |
+| **1** (1–2 d) | instructor into `model/client.py`; the 59 negative-scope + 5 thin docstrings; H13 anti-thrash | `harness_gates.py --gate M1` |
+| **2** (2–3 d) | Data layer: Tavily first backend, trafilatura gate, RapidFuzz dedup, tldextract, fastembed relevance gate; `sources.py` split *(user: free TAVILY/CENSUS/BLS keys)* | search smoke >0 on 5 queries; D13 green; `test_relevance_gate.py` |
+| **3** (2–4 d) | `persistence/ledger.py` + `transcript.py` + `entry/hooks.py` + streaming; then `resume.py`; plan.py SPLIT begins (steps extracted as touched) | M2 then M3 |
+| **4** (3–5 d) | `report/forecast.py` (deep G3) + `report/citation.py` + `report/pdf.py` | forecast reconciliation, fact-density counter, ≥20pp PDF (M8 partials) |
+| **5** | `capabilities/scheduler.py` + `gateway.py` + `model/tiering.py` (M4) → `context/` memory/reminders/compaction (M5) → SKILL.md pilots + spawn contracts + `plan_artifact.py` (M6) | M4 → M5 → M6 |
+| **6** (premium budget) | `report/verifier.py` + research-crew evidence stage + effort knob (quick/standard/deep) + tier map | M7; then M8 full gate |
+
+Re-run the R4 panel after Wave 2 (cheap checkpoint) and at M7/M8 (the claims). User-side
+prerequisites: free Tavily/Census/BLS keys before Wave 2; Opus-class budget decision before
+Wave 6.
