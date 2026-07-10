@@ -293,42 +293,20 @@ def _try_one_backend(backend: str, system: str, user: str, max_tokens: int) -> t
         return None
 
 
-def call_json(system: str, user: str, max_tokens: int = 2000) -> dict:
-    """
-    Call the configured LLM backend with JSON mode. Strips markdown fences.
-    cycle31: cross-provider fallback — primary backend → Groq → Gemini → Anthropic
-    on transient failures (429s, timeouts, 5xxs). Each provider has its own keys
-    so saturating one doesn't block the call.
-    """
-    import hashlib, os
-    from cache import get as cache_get, put as cache_put
-    # cycle31-r3: LLM_CACHE_BYPASS=1 disables read+write of cache, used for
-    # statistical sampling so each --samples N run gets fresh LLM responses
-    # and we measure real variance instead of cache hits.
-    bypass = os.environ.get("LLM_CACHE_BYPASS", "").strip() in ("1", "true", "yes")
-    prompt_hash = hashlib.sha256((system + "|||" + user).encode()).hexdigest()[:16]
-    cache_key = f"llm_json:{prompt_hash}"
-    if not bypass:
-        cached = cache_get(cache_key)
-        if cached is not None:
-            log.debug("call_json cache HIT %s", cache_key)
-            try:
-                import provenance as _trace
-                _trace.record_llm("cache", cached=True)
-            except Exception:
-                pass
-            return cached
+def _chain_text(system: str, user: str, max_tokens: int) -> Optional[str]:
+    """Run the cross-provider chain (primary → others) with whole-chain backoff.
+    Returns raw text, or None when every backend is exhausted.
 
+    cycle31: cross-provider fallback on transient failures (429s, timeouts, 5xxs);
+    each provider has its own keys so saturating one doesn't block the call.
+    cycle36: retry the WHOLE chain with backoff. With a single provider configured,
+    one transient SSL/network/429 used to return parse_error immediately → TAM $0,
+    dropped 4Ps sections, thin signals. A few backoff'd attempts recover the vast
+    majority of these transient free-tier failures.
+    """
     primary, _ = _backend_and_model()
-    # Build fallback chain: primary first, then the others in default priority order
     chain = [primary] + [b for b in BACKEND_DEFAULTS.keys() if b != primary]
 
-    text = None; in_tok = 0; out_tok = 0; model_used = ""
-    # cycle36: retry the WHOLE chain with backoff. With a single provider configured
-    # (no Groq/Anthropic keys), one transient SSL/network/429 used to return parse_error
-    # immediately → TAM $0, dropped 4Ps sections, thin signals. A few backoff'd attempts
-    # recover the vast majority of these transient free-tier failures. Successful results
-    # are cached, so the cost is paid only on calls that actually fail.
     _CHAIN_BACKOFF = (0.0, 3.0, 8.0, 15.0)  # backoff before attempts 1-4; free Gemini tier
     # can be unreachable for ~10s stretches, so a 4th attempt past that window matters
     for attempt, delay in enumerate(_CHAIN_BACKOFF):
@@ -340,50 +318,133 @@ def call_json(system: str, user: str, max_tokens: int = 2000) -> dict:
             if out is None:
                 continue
             text, in_tok, out_tok, model_used = out
-            dur = time.time() - t0
             usage.add(model_used, in_tok, out_tok)
             try:
                 import provenance as _trace
                 _trace.record_llm(model_used, cached=False, in_tok=in_tok, out_tok=out_tok)
             except Exception:
                 pass
-            log.debug("call_json [%s/%s] %d→%d tok, %.1fs", backend, model_used, in_tok, out_tok, dur)
+            log.debug("call_json [%s/%s] %d→%d tok, %.1fs",
+                      backend, model_used, in_tok, out_tok, time.time() - t0)
             if backend != primary:
-                log.info("[llm] cross-provider fallback succeeded on %s (primary %s exhausted)", backend, primary)
-            break
-        if text is not None:
-            break
+                log.info("[llm] cross-provider fallback succeeded on %s (primary %s exhausted)",
+                         backend, primary)
+            return text
         if attempt < len(_CHAIN_BACKOFF) - 1:
             log.info("[llm] chain exhausted (attempt %d/%d) — backing off %.0fs and retrying",
                      attempt + 1, len(_CHAIN_BACKOFF), _CHAIN_BACKOFF[attempt + 1])
+    log.warning("[llm] ALL backends exhausted after %d attempts", len(_CHAIN_BACKOFF))
+    return None
 
-    if text is None:
-        log.warning("[llm] ALL backends exhausted after %d attempts — returning parse_error",
-                    len(_CHAIN_BACKOFF))
-        return {"_parse_error": "all backends exhausted (rate-limited or unavailable)",
-                "_raw": "", "_chain_tried": chain}
 
+def _cache_key(system: str, user: str, response_model: Optional[type] = None) -> str:
+    """Cache key over the full prompt — and the schema fingerprint when validating,
+    so a schema change never serves a stale shape from cache."""
+    import hashlib
+    schema_part = ""
+    if response_model is not None:
+        schema_part = response_model.__name__ + json.dumps(
+            response_model.model_json_schema(), sort_keys=True)
+    digest = hashlib.sha256((system + "|||" + user + "|||" + schema_part).encode()).hexdigest()[:16]
+    return f"llm_json:{digest}"
+
+
+def _parse_payload(text: str) -> tuple[Optional[object], Optional[str]]:
+    """Fences → json.loads → json_repair salvage. Returns (obj, None) or (None, error)."""
     text = _strip_fences(text)
     try:
-        result = json.loads(text)
-        if not bypass:
-            cache_put(cache_key, result)
-        return result
+        return json.loads(text), None
     except json.JSONDecodeError as e:
         try:
             import json_repair
             result = json_repair.loads(text)
             if result and isinstance(result, (dict, list)):
                 log.warning("call_json: json_repair salvaged malformed output")
-                if not bypass:
-                    cache_put(cache_key, result)
-                return result
+                return result, None
         except ImportError:
             log.debug("json_repair not installed, parse error will propagate")
         except Exception:
             pass
-        log.warning("call_json: JSON parse failed: %s", e)
-        return {"_parse_error": str(e), "_raw": text[:2000]}
+        return None, str(e)
+
+
+def call_json(system: str, user: str, max_tokens: int = 2000,
+              response_model: Optional[type] = None, max_retries: int = 2) -> dict:
+    """
+    Call the configured LLM backend with JSON mode, through the cross-provider chain.
+
+    W1 (H-plan D2-3): structured output with auto re-ask. With `response_model` (a
+    Pydantic BaseModel class), the schema is shown to the model, the response is
+    validated, and a malformed/invalid response triggers a corrective RE-ASK carrying
+    the exact validation error — up to `max_retries` times — before the last-resort
+    `_parse_error` dict. Schemaless calls keep their old shape but also get one
+    corrective re-ask on unparseable output instead of failing immediately.
+    Validated results are returned as plain dicts (model_dump), so callers keep the
+    dict interface, and `.get("_parse_error")` checks continue to work.
+    """
+    import os
+    from cache import get as cache_get, put as cache_put
+    # cycle31-r3: LLM_CACHE_BYPASS=1 disables read+write of cache, used for
+    # statistical sampling so each --samples N run gets fresh LLM responses
+    # and we measure real variance instead of cache hits.
+    bypass = os.environ.get("LLM_CACHE_BYPASS", "").strip() in ("1", "true", "yes")
+    cache_key = _cache_key(system, user, response_model)
+    if not bypass:
+        cached = cache_get(cache_key)
+        if cached is not None:
+            log.debug("call_json cache HIT %s", cache_key)
+            try:
+                import provenance as _trace
+                _trace.record_llm("cache", cached=True)
+            except Exception:
+                pass
+            return cached
+
+    system_full = system
+    if response_model is not None:
+        system_full = (
+            system + "\n\nYour JSON response MUST match exactly this JSON Schema:\n"
+            + json.dumps(response_model.model_json_schema(), sort_keys=True)
+        )
+
+    attempts = 1 + (max_retries if response_model is not None else 1)
+    error: Optional[str] = None
+    text: str = ""
+    for attempt in range(attempts):
+        if attempt == 0:
+            user_msg = user
+        else:
+            log.info("[llm] corrective re-ask %d/%d: %s", attempt, attempts - 1,
+                     (error or "")[:160])
+            user_msg = (
+                f"{user}\n\nYour previous response was invalid — {error}\n"
+                f"Previous response:\n{text[:1500]}\n\n"
+                "Return ONLY the corrected JSON. No prose, no fences."
+            )
+        raw = _chain_text(system_full, user_msg, max_tokens)
+        if raw is None:
+            return {"_parse_error": "all backends exhausted (rate-limited or unavailable)",
+                    "_raw": "", "_chain_tried": list(BACKEND_DEFAULTS)}
+        text = raw
+        obj, error = _parse_payload(text)
+        if obj is None:
+            continue
+        if response_model is not None:
+            try:
+                from pydantic import ValidationError
+                result: dict = response_model.model_validate(obj).model_dump()
+            except Exception as e:
+                error = str(e)
+                continue
+        else:
+            result = obj
+        if not bypass:
+            cache_put(cache_key, result)
+        return result
+
+    log.warning("call_json: invalid after %d attempt(s): %s", attempts, (error or "")[:200])
+    return {"_parse_error": f"invalid after {attempts} attempt(s): {error}",
+            "_raw": _strip_fences(text)[:2000]}
 
 
 def call_text(system: str, user: str, max_tokens: int = 2000) -> str:
