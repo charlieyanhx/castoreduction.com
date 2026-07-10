@@ -1492,6 +1492,27 @@ class TestBenchmarkTable(unittest.TestCase):
         self.assertEqual(out["rows"], [])
         self.assertEqual(out["our_tiers"][0]["price_label"], "$29/month per box")
 
+    def test_per_unit_labels_have_no_monthly_phrasing(self):
+        # D06 leak found by the wave0 corpus gate: a hybrid device+app venture rendered
+        # "Our Pro tier: $119/month per unit" — subscription framing baked into the
+        # benchmark labels of a per-unit venture. recurring=False must price the unit
+        # itself, with no "/month" anywhere in the payload.
+        import json
+        from pricing import build_benchmark_table
+        tiers = [{"name": "Pro", "price": 119}]
+        cp = {"per_domain": [{"domain": "purpleair.com", "median": 75.5}],
+              "category_median": 75.5}
+        out = build_benchmark_table(tiers, cp, pricing_unit="unit", recurring=False)
+        self.assertEqual(out["our_pro_price_label"], "$119 per unit")
+        self.assertEqual(out["rows"][0]["price_label"], "$75.50 per unit")
+        self.assertEqual(out["category_median_label"], "$75.50 per unit")
+        self.assertNotIn("/month per ", json.dumps(out))   # the exact D06 detector phrase
+
+    def test_recurring_default_keeps_subscription_labels(self):
+        from pricing import build_benchmark_table
+        out = build_benchmark_table([{"name": "Pro", "price": 40}], {}, pricing_unit="seat")
+        self.assertEqual(out["our_pro_price_label"], "$40/month per seat")
+
 
 class TestEconomics(unittest.TestCase):
     """Iter 35 step 1: CLV + CAC + EVC arithmetic (spec step 10 fix + user feedback #2)."""

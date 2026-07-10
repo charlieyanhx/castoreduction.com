@@ -220,6 +220,7 @@ def build_benchmark_table(
     competitor_pricing: dict | None,
     pricing_unit: str = "account",
     competitor_brands: list[dict] | None = None,
+    recurring: bool = True,
 ) -> dict:
     """
     Iter 35 step 3 (user feedback #3b): build a per-unit competitor benchmark table.
@@ -227,6 +228,11 @@ def build_benchmark_table(
     Normalizes both our tiers and competitor medians to the same pricing unit
     (e.g. "$/month per seat") and computes each competitor as a multiple of
     our Pro/main tier, so the report can say "Competitor X charges 3.0× our Pro price".
+
+    D06 (wave0 gate finding): `recurring=False` prices the unit itself ("$6 per drink") —
+    a per-unit venture must never render subscription framing ("$119/month per unit").
+    The labels are baked into the result at pipeline time, so the model-awareness has to
+    happen here, not in the template.
 
     competitor_pricing shape (from competitor_pricing.gather_competitor_prices):
         {per_domain: [{domain, median, min, max}, ...], category_median, ...}
@@ -255,7 +261,7 @@ def build_benchmark_table(
         # Format as integer when whole, otherwise 2dp — "$29" not "$29.0"
         p_num = float(p)
         s = f"{p_num:.0f}" if p_num == int(p_num) else f"{p_num:.2f}"
-        return f"${s}/month per {pricing_unit}"
+        return f"${s}/month per {pricing_unit}" if recurring else f"${s} per {pricing_unit}"
 
     our_tiers_labeled = [
         {

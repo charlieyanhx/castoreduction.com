@@ -1626,6 +1626,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                 competitor_pricing=competitor_pricing_data,
                 pricing_unit=unit,
                 competitor_brands=opps[:8],
+                recurring=not is_transactional,  # D06: per-unit ventures never "/month per"
             )
             if "error" not in bench:
                 result["pricing"]["benchmark"] = bench
