@@ -114,6 +114,8 @@ def classify_business_model(profile: dict, market_scale: Optional[dict] = None) 
     # 3. Digital / non-premise venture — route by remaining monetization signal.
     recurring = has(_SUBSCRIPTION_KW)
     onetime = has(_ONETIME_KW)
+    if per_visit and recurring:
+        return HYBRID                # drop-in + membership, scale signal missing (mirror of §2)
     if onetime and recurring:
         return HYBRID                # hardware device + subscription
     if onetime:

@@ -190,6 +190,17 @@ class TestWtpUnitWiring(unittest.TestCase):
                          {"category": "b2b saas", "business_model": "subscription saas"})
         self.assertEqual(u, "/mo")          # recurring willingness IS monthly
 
+    def test_gym_dropin_without_scale_is_hybrid_not_subscription(self):
+        # Mirror of the physical branch on the digital path: drop-in + membership = HYBRID
+        # even when market_scale is missing (early-classification failure edge).
+        from business_model import classify_business_model
+        self.assertEqual(
+            classify_business_model(
+                {"category": "boutique gym",
+                 "summary": "a strength gym, $30 drop-in classes plus optional membership"},
+                None),
+            "hybrid")
+
     def test_classifier_food_venue_without_scale_is_transactional(self):
         # Root regression (found by the salad case): the 7-kind rewrite dropped the
         # transactional fallback on the digital path — a restaurant-category profile with
