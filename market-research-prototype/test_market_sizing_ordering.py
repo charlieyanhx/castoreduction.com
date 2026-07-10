@@ -61,3 +61,37 @@ class TestEnforceOrdering(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOrderingSurvivesTriangulation(unittest.TestCase):
+    """D1 item 2 (G2/D04): estimate_market_size clamps SOM<=SAM<=TAM, but triangulate_sizing
+    then REWRITES tam.mid (median across origins) — if it pulls TAM below SAM, nothing
+    re-checked. Baseline: 3 national-path reports shipped SAM > TAM (e.g. 315M > 180M).
+    The final gate (gate_and_annotate_sizing) must re-enforce the funnel."""
+
+    def test_gate_reclamps_after_tam_rewrite(self):
+        from plan import gate_and_annotate_sizing
+        # As left by triangulate_sizing: TAM mid pulled DOWN below the existing SAM.
+        sizing = {
+            "tam": {"mid": 180_000_000, "low": 150_000_000, "high": 210_000_000,
+                    "method_top_down": {"value_usd": 180_000_000, "source": "x", "calculation": ""}},
+            "sam": {"mid": 315_000_000, "low": 260_000_000, "high": 370_000_000},
+            "som": {"mid": 3_000_000, "low": 2_000_000, "high": 4_000_000},
+        }
+        out = gate_and_annotate_sizing(sizing, {"scale": "national_digital"})
+        self.assertLessEqual(out["sam"]["mid"], out["tam"]["mid"])       # funnel restored
+        self.assertLessEqual(out["som"]["mid"], out["sam"]["mid"])
+        # and the correction is DISCLOSED, not silent (clamp_note + weakest_assumptions)
+        self.assertIn("clamp_note", out["sam"])
+        self.assertTrue(any("Funnel correction" in a for a in out.get("weakest_assumptions", [])))
+
+    def test_gate_leaves_clean_funnel_alone(self):
+        from plan import gate_and_annotate_sizing
+        sizing = {
+            "tam": {"mid": 1_000_000_000, "method_top_down": {"value_usd": 1e9, "source": "x", "calculation": ""}},
+            "sam": {"mid": 200_000_000},
+            "som": {"mid": 10_000_000},
+        }
+        out = gate_and_annotate_sizing(sizing, {"scale": "national_digital"})
+        self.assertEqual(out["sam"]["mid"], 200_000_000)
+        self.assertNotIn("clamp_note", out["sam"])

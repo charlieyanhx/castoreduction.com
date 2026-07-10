@@ -173,6 +173,16 @@ def gate_and_annotate_sizing(sizing: dict, scale_decision: dict | None) -> dict:
     downstream readers (som.mid, etc.) keep working. cycle33.
     """
     out = dict(sizing or {})
+    # G2 (D04): re-enforce SOM ≤ SAM ≤ TAM *here*, at the END of the sizing chain.
+    # estimate_market_size clamps once, but ground_sizing_bottom_up / triangulate_sizing
+    # rewrite tam.mid afterwards — if triangulation pulls TAM below SAM, the funnel broke
+    # silently (baseline: 3 national-path reports shipped SAM > TAM). The clamp itself
+    # discloses via clamp_note + weakest_assumptions.
+    try:
+        from market_sizing import _enforce_sizing_ordering
+        out = _enforce_sizing_ordering(out)
+    except Exception as e:
+        log.warning("[plan] final ordering enforcement failed (non-fatal): %s", e)
     try:
         from skills.sizing.validate import validate_numbers
         tam_block = out.get("tam") or {}
