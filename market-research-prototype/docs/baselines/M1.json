@@ -1,0 +1,44 @@
+{
+  "gate": "M1",
+  "pass": 5,
+  "fail": 0,
+  "na": 0,
+  "verdict": "PASS",
+  "checks": [
+    {
+      "id": "H01",
+      "phase": "P0",
+      "name": "tools carry routing-grade docstrings",
+      "ok": true,
+      "detail": "all 36 tools have substantive docstrings"
+    },
+    {
+      "id": "H02",
+      "phase": "P0",
+      "name": "negative scope on every tool/skill",
+      "ok": true,
+      "detail": "every tool/skill states negative scope"
+    },
+    {
+      "id": "H03",
+      "phase": "P0",
+      "name": "agent role+produces contracts",
+      "ok": true,
+      "detail": "all 7 agents carry role+produces+doc"
+    },
+    {
+      "id": "H04",
+      "phase": "P0",
+      "name": "emphasis-marker discipline (2-40/module)",
+      "ok": true,
+      "detail": "emphasis markers per prompt module: {'four_ps.py': 1, 'market_sizing.py': 2}"
+    },
+    {
+      "id": "H05",
+      "phase": "P0",
+      "name": "KV-stable prompts (no time/random)",
+      "ok": true,
+      "detail": "no time/randomness in prompt-building modules"
+    }
+  ]
+}
