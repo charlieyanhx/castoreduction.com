@@ -21,13 +21,24 @@ log = get("jobs")
 
 import os
 # cycle32 deploy: allow env override so a Docker volume at /data is usable.
-DB = Path(os.environ.get("JOBS_DB_PATH") or (Path(__file__).parent / ".jobs.sqlite"))
-DB.parent.mkdir(parents=True, exist_ok=True)
+# W1 gap-closure: the path is resolved PER CONNECTION (not once at import) so tests
+# can point JOBS_DB_PATH at an isolated temp DB regardless of import order — the
+# taste-dedup flake was tests sharing the production .jobs.sqlite, where a cached
+# job from an earlier run shadowed the mocked one.
+
+
+def _db_path() -> Path:
+    return Path(os.environ.get("JOBS_DB_PATH") or (Path(__file__).parent / ".jobs.sqlite"))
+
+
+DB = _db_path()  # back-compat snapshot of the default; connections use _db_path()
 _lock = threading.Lock()
 
 
 def _conn():
-    conn = sqlite3.connect(DB, timeout=10, isolation_level=None)  # autocommit
+    path = _db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path, timeout=10, isolation_level=None)  # autocommit
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS jobs (

@@ -12,14 +12,17 @@ from unittest.mock import patch
 os.environ.setdefault("MRP_LOG_LEVEL", "ERROR")
 os.environ.setdefault("ANTHROPIC_API_KEY", "sk-test-fake")
 
-# Isolate job DB per test session
+# Isolate the job DB for this session — via the ENV var, set before importing api:
+# jobs._db_path() resolves JOBS_DB_PATH per connection (the old `jobs_mod.DB = ...`
+# attribute patch no longer has any effect). Without this, standalone runs
+# (`python test_api.py`) would write test jobs into the production .jobs.sqlite.
 _tmp_jobs = tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False)
 _tmp_jobs.close()
-import jobs as jobs_mod
-jobs_mod.DB = _tmp_jobs.name
+os.environ["JOBS_DB_PATH"] = _tmp_jobs.name
 
 from fastapi.testclient import TestClient
 import api
+import jobs as jobs_mod
 
 client = TestClient(api.app)
 
@@ -34,6 +37,16 @@ def _wait_for_job(job_id: str, timeout: float = 5.0) -> dict:
             return data
         time.sleep(0.05)
     raise TimeoutError(f"job {job_id} did not finish within {timeout}s")
+
+
+class TestAAADbIsolation(unittest.TestCase):
+    """Guard: the whole file must run against an isolated temp DB — never the
+    production .jobs.sqlite (named to sort/define first)."""
+
+    def test_jobs_db_is_isolated_from_production(self):
+        from pathlib import Path
+        prod = Path(jobs_mod.__file__).parent / ".jobs.sqlite"
+        self.assertNotEqual(jobs_mod._db_path(), prod)
 
 
 class TestBasicRoutes(unittest.TestCase):
@@ -165,15 +178,21 @@ class TestReportEndpoint(unittest.TestCase):
         self.assertIn("strong trend", md)
 
     def test_report_for_taste(self):
+        # Unique brand/domain: /taste DEDUPES by params against completed jobs, and
+        # TestTasteEndpoint.test_post_taste already completes a Foo/foo.com job with a
+        # minimal mock — reusing its params returns THAT job (cached=True) and this
+        # test's richer mock never runs (the old "flake": deterministic collision,
+        # not randomness).
         fake = {
-            "brand": "Foo",
+            "brand": "ReportCo",
             "confidence": 0.9,
             "confidence_reasoning": "rich data",
             "purchase_motivation": "fast results",
             "hook_angles_that_would_work": ["hook 1", "hook 2"],
         }
         with patch("taste.decode_taste", return_value=fake):
-            r = client.post("/taste", json={"brand": "Foo", "domain": "foo.com"})
+            r = client.post("/taste", json={"brand": "ReportCo", "domain": "reportco.example"})
+        self.assertNotIn("cached", r.json())        # must be a fresh job, not a dedup hit
         job_id = r.json()["job_id"]
         _wait_for_job(job_id)
         r = client.get(f"/jobs/{job_id}/report")
