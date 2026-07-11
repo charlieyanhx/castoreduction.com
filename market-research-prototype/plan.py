@@ -919,6 +919,36 @@ def _promote_geo_competitors(result: dict, description: str, profile: dict, geo:
     return opps
 
 
+def _surface_late_geo_competitors(result: dict, geo_competitors: list, category: str = "") -> None:
+    """F3 (location path): once the hyperlocal trade-area sizing override runs, surface
+    its REAL geographic competitors (OSM) when the early discover step found none at
+    its expected key — so the report shows actual nearby rivals instead of "0
+    competitors found". A SEPARATE code path from _promote_geo_competitors (which
+    fires earlier, before web discovery runs at all).
+
+    B1/D16 close-out fix: this used to overwrite ranked_opportunities + geo_sourced
+    via a dict spread, but never touched competitor_density — so the report still
+    cited the STALE pre-override density (a small LLM-guessed candidate count) against
+    the 25-30 real geo competitors now on display. Caught live by D16 on the wave2.75
+    regen (5dbf3f54, 94008e7c, 955a4b3b, a618db1a, c48497fa, e8baf9dd). Mutates
+    result["discover"] in place when geo_competitors is non-empty and nothing existing
+    is already populated; no-op otherwise."""
+    existing = ((result.get("discover") or {}).get("ranked_opportunities")
+                or (result.get("discover") or {}).get("competitors") or [])
+    if not geo_competitors or existing:
+        return
+    result["discover"] = {
+        **(result.get("discover") or {}),
+        "ranked_opportunities": geo_competitors,
+        "geo_sourced": True,
+        "category": category,
+        "competitor_density": len(geo_competitors),  # B1/D16: keep in sync
+    }
+    if "discover" not in result["_steps_completed"]:
+        result["_steps_completed"].append("discover")
+    log.info("[plan] geo-competitors surfaced: %d nearby venues", len(geo_competitors))
+
+
 def build_provenance_summary(result: dict) -> dict | None:
     """Aggregate the raw run trace (result['_trace']) into a clean 'Data Provenance' view for the
     debug panel: per data-source (which tool, how many calls, real-sourced vs failed, a sample
@@ -1970,21 +2000,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                 result["_steps_completed"].append("market_sizing")
             log.info("[plan] hyperlocal sizing override (%s @ %s)",
                      (scale_decision or {}).get("scale"), hl.get("_hyperlocal_location"))
-            # Surface the REAL geographic competitors (OSM) when web discovery was empty,
-            # so the report shows actual nearby rivals instead of "0 competitors found".
-            geo = hl.get("geo_competitors") or []
-            existing = ((result.get("discover") or {}).get("ranked_opportunities")
-                        or (result.get("discover") or {}).get("competitors") or [])
-            if geo and not existing:
-                result["discover"] = {
-                    **(result.get("discover") or {}),
-                    "ranked_opportunities": geo,
-                    "geo_sourced": True,
-                    "category": (profile or {}).get("category", ""),
-                }
-                if "discover" not in result["_steps_completed"]:
-                    result["_steps_completed"].append("discover")
-                log.info("[plan] geo-competitors surfaced: %d nearby venues", len(geo))
+            _surface_late_geo_competitors(result, hl.get("geo_competitors") or [],
+                                          category=(profile or {}).get("category", ""))
     except Exception as e:
         log.warning("[plan] hyperlocal override failed (non-fatal): %s", e)
         result["_steps_completed"].append("market_sizing")

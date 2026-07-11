@@ -991,6 +991,30 @@ class TestCompetitorDensity(unittest.TestCase):
         self.assertEqual(len(opps), 30)
         self.assertEqual(result["discover"]["competitor_density"], 30)
 
+    def test_late_geo_surfacing_updates_density_too(self):
+        # Wave 2.75 close-out, SECOND site: the F3 hyperlocal sizing override (a
+        # SEPARATE code path from the M1 early promotion above — fires when
+        # size_by_scale returns geo_competitors and the earlier discover step found
+        # none at its expected key) also overwrites ranked_opportunities +
+        # geo_sourced without touching competitor_density. Real D16 catches on the
+        # wave2.75 regen: 5dbf3f54, 94008e7c, 955a4b3b, a618db1a, c48497fa, e8baf9dd
+        # — all still showing the stale density=12 after 25-30 geo competitors were
+        # surfaced late.
+        from plan import _surface_late_geo_competitors
+        result = {"discover": {"competitor_density": 12, "active_signal_density": 1},
+                  "_steps_completed": []}
+        geo_competitors = [{"brand": f"Venue {i}"} for i in range(25)]
+        _surface_late_geo_competitors(result, geo_competitors)
+        self.assertEqual(result["discover"]["competitor_density"], 25)
+        self.assertTrue(result["discover"]["geo_sourced"])
+
+    def test_late_geo_surfacing_noop_when_no_geo_or_already_populated(self):
+        from plan import _surface_late_geo_competitors
+        result = {"discover": {"competitor_density": 12}, "_steps_completed": []}
+        _surface_late_geo_competitors(result, [])  # no geo competitors -> no-op
+        self.assertEqual(result["discover"]["competitor_density"], 12)
+        self.assertNotIn("geo_sourced", result["discover"])
+
 
 if __name__ == "__main__":
     unittest.main()
