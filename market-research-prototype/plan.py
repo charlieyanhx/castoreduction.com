@@ -884,6 +884,41 @@ def geo_competitor_opps(description: str, profile: dict, market_scale: dict | No
         return []
 
 
+def _promote_geo_competitors(result: dict, description: str, profile: dict, geo: str) -> list:
+    """M1 fix (audit): for a PHYSICAL-LOCAL venture, the real competitors are the nearby
+    venues (OSM), not LLM-guessed national DTC brands. Classify scale early (cheap;
+    reused by the later sizing step) and, if physical-local, PROMOTE the geo
+    competitors to the canonical `opps` set NOW — so clustering, differentiators,
+    personas, and pricing all analyze the actual local rivals.
+
+    B1/D16 close-out fix: the promotion used to replace ranked_opportunities but leave
+    competitor_density at its stale pre-promotion web-discovery value — a hyperlocal
+    cafe promoted to 30 real nearby venues still reported density=12 (the LLM-guessed
+    DTC brand count), caught live by D16 on the wave2.75 regen. Density now stays in
+    sync with whichever set is canonical. Mutates result["discover"] in place;
+    returns the current opps list (geo-promoted, or the original LLM set)."""
+    disc = result.get("discover") or {}
+    opps = (disc.get("synthesis", {}) or {}).get("ranked_opportunities", [])
+    try:
+        if result.get("market_scale") is None:
+            from skills.sizing.classify import classify_market_scale
+            result["market_scale"] = classify_market_scale(description, geo).payload
+            if "market_scale" not in result["_steps_completed"]:
+                result["_steps_completed"].append("market_scale")
+        geo_opps = geo_competitor_opps(description, profile, result.get("market_scale"))
+        if len(geo_opps) >= 3:
+            opps = geo_opps
+            disc.setdefault("synthesis", {})["ranked_opportunities"] = geo_opps
+            disc["geo_sourced"] = True
+            disc["category"] = (profile or {}).get("category", "")
+            disc["competitor_density"] = len(geo_opps)  # B1/D16: keep in sync
+            result["discover"] = disc
+            log.info("[plan] M1: promoted %d geo competitors to the canonical set", len(geo_opps))
+    except Exception as e:
+        log.warning("[plan] early geo-competitor promotion failed (non-fatal): %s", e)
+    return opps
+
+
 def build_provenance_summary(result: dict) -> dict | None:
     """Aggregate the raw run trace (result['_trace']) into a clean 'Data Provenance' view for the
     debug panel: per data-source (which tool, how many calls, real-sourced vs failed, a sample
@@ -1284,30 +1319,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     result["_steps_completed"].append("discover")
     checkpoint()
 
-    opps = (disc.get("synthesis", {}) or {}).get("ranked_opportunities", [])
-
-    # M1 fix (audit): for a PHYSICAL-LOCAL venture, the real competitors are the nearby venues
-    # (OSM), not LLM-guessed national DTC brands. Classify scale early (cheap; reused by the
-    # later sizing step) and, if physical-local, PROMOTE the geo competitors to the canonical
-    # `opps` set NOW — so clustering, differentiators, personas, and pricing all analyze the
-    # actual local rivals. Previously the geo set was fetched late (in sizing) and discarded
-    # because LLM discovery had already populated `opps` with the wrong national brands.
-    try:
-        if result.get("market_scale") is None:
-            from skills.sizing.classify import classify_market_scale
-            result["market_scale"] = classify_market_scale(description, geo).payload
-            if "market_scale" not in result["_steps_completed"]:
-                result["_steps_completed"].append("market_scale")
-        geo_opps = geo_competitor_opps(description, profile, result.get("market_scale"))
-        if len(geo_opps) >= 3:
-            opps = geo_opps
-            disc.setdefault("synthesis", {})["ranked_opportunities"] = geo_opps
-            disc["geo_sourced"] = True
-            disc["category"] = (profile or {}).get("category", "")
-            result["discover"] = disc
-            log.info("[plan] M1: promoted %d geo competitors to the canonical set", len(geo_opps))
-    except Exception as e:
-        log.warning("[plan] early geo-competitor promotion failed (non-fatal): %s", e)
+    opps = _promote_geo_competitors(result, description, profile, geo)
 
     competitor_domains = [o["domain"] for o in opps if o.get("domain")][:8]
 

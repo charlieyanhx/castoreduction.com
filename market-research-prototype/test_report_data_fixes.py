@@ -970,6 +970,27 @@ class TestCompetitorDensity(unittest.TestCase):
         self.assertIn("9", rendered)
         self.assertIn("2", rendered)
 
+    def test_geo_promotion_updates_density_too(self):
+        # Wave 2.75 close-out catch: the hyperlocal geo-competitor promotion
+        # (plan.py M1 fix) replaces discover.synthesis.ranked_opportunities with the
+        # real OSM competitor set but left competitor_density at its stale
+        # web-discovery value — a hyperlocal cafe promoted to 30 real nearby venues
+        # still reported density=12 (the earlier LLM-guessed DTC brand count).
+        # D16 caught this live on the wave2.75 regen (e8baf9dd, 94008e7c).
+        import plan
+        from unittest.mock import patch
+        geo_opps = [{"domain": f"venue{i}.com", "rank": i, "geo_sourced": True} for i in range(30)]
+        disc = {"synthesis": {"ranked_opportunities": [{"domain": "old.com"}] * 12},
+               "competitor_density": 12, "active_signal_density": 1}
+        # market_scale already set -> the deferred classify_market_scale import/call
+        # is skipped entirely, so nothing else needs mocking.
+        with patch("plan.geo_competitor_opps", return_value=geo_opps):
+            result = {"discover": disc, "market_scale": {"scale": "hyperlocal"},
+                     "_steps_completed": []}
+            opps = plan._promote_geo_competitors(result, "a cafe", {}, "US")
+        self.assertEqual(len(opps), 30)
+        self.assertEqual(result["discover"]["competitor_density"], 30)
+
 
 if __name__ == "__main__":
     unittest.main()
