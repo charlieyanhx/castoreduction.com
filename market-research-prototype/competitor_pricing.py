@@ -66,6 +66,7 @@ def scrape_brand_prices(domain: str, max_paths: int = MAX_PATHS_PER_DOMAIN) -> d
     domain = domain.lower().strip().replace("https://", "").replace("http://", "").rstrip("/")
     all_prices: list[float] = []
     paths_tried = []
+    page_text_sample = ""
 
     for path in PRICE_PATHS[:max_paths]:
         url = f"https://{domain}{path}"
@@ -75,11 +76,15 @@ def scrape_brand_prices(domain: str, max_paths: int = MAX_PATHS_PER_DOMAIN) -> d
                 continue
             # W2/D13 content gate: a parked lander or JS shell returns 200 with junk
             # numbers on it (a registrar's domain-sale price) — never extract from it.
-            from scrape.structured import page_is_substantive
+            from scrape.structured import page_is_substantive, main_text
             ok, why = page_is_substantive(r.text)
             if not ok:
                 log.debug(f"  {url} skipped by content gate: {why}")
                 continue
+            # W2-5: keep a text sample of the first substantive page so the caller
+            # can judge category relevance before this domain enters the median.
+            if not page_text_sample:
+                page_text_sample = main_text(r.text)[:2000]
             paths_tried.append(path or "/")
             prices = extract_prices_from_html(r.text)
             if prices:
@@ -106,13 +111,21 @@ def scrape_brand_prices(domain: str, max_paths: int = MAX_PATHS_PER_DOMAIN) -> d
         "max": round(max(trimmed), 2) if trimmed else None,
         "count": len(all_prices),
         "paths_tried": paths_tried,
+        "page_text_sample": page_text_sample,
     }
 
 
-def gather_competitor_prices(domains: list[str], max_workers: int = 4) -> dict:
+def gather_competitor_prices(domains: list[str], max_workers: int = 4,
+                             category: str = "") -> dict:
     """
     Scrape prices from multiple competitor domains in parallel.
     Returns {per_domain: [...], category_median, category_range}.
+
+    W2-5: with a `category`, each domain's page text is embedding-checked against it
+    (sources.category_page_relevance); off-category domains keep their row (flagged
+    off_category, with the relevance score) but are EXCLUDED from category_median —
+    an apparel store's prices never anchor a restaurant's PSM. Abstain (None
+    relevance: no embeddings / no text) never excludes.
     """
     per_domain: list[dict] = []
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -123,8 +136,19 @@ def gather_competitor_prices(domains: list[str], max_workers: int = 4) -> dict:
             except Exception:
                 continue
 
-    # Aggregate medians across competitors that yielded prices
-    medians = [d["median"] for d in per_domain if d.get("median")]
+    if category:
+        from sources import RELEVANCE_THRESHOLD, category_page_relevance
+        for d in per_domain:
+            rel = category_page_relevance(category, d.get("page_text_sample") or "")
+            d["relevance"] = rel
+            d["off_category"] = rel is not None and rel < RELEVANCE_THRESHOLD
+            if d["off_category"]:
+                log.info(f"  {d['domain']} excluded from category median "
+                         f"(relevance {rel:.2f} < {RELEVANCE_THRESHOLD})")
+
+    # Aggregate medians across competitors that yielded prices (off-category excluded)
+    medians = [d["median"] for d in per_domain
+               if d.get("median") and not d.get("off_category")]
     return {
         "per_domain": per_domain,
         "competitor_count": len(per_domain),

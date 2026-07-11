@@ -48,6 +48,19 @@ def _trafilatura_text(html: str) -> str:
     return trafilatura.extract(html, include_comments=False) or ""
 
 
+def main_text(html: str) -> str:
+    """Readable main-content text of a page (trafilatura, tag-strip fallback).
+    Whitespace-normalized. Do NOT use for price/structured extraction — that is
+    extract/extract_prices; this is for relevance judgments and summaries."""
+    if not html:
+        return ""
+    try:
+        text = _trafilatura_text(html)
+    except Exception:
+        text = re.sub(r"<[^>]+>", " ", html)
+    return " ".join(text.split())
+
+
 def page_is_substantive(html: str) -> tuple[bool, str]:
     """Content-validity gate: True only when the page carries real readable content.
 

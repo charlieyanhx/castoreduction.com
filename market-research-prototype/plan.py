@@ -1287,7 +1287,9 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         if not competitor_domains:
             return {}
         log.info(f"[plan] Step 10b: scraping prices across {len(competitor_domains)} competitors")
-        return gather_competitor_prices(competitor_domains[:6])
+        # W2-5: category relevance gate — off-category pages never anchor the median.
+        return gather_competitor_prices(competitor_domains[:6],
+                                        category=profile.get("category", ""))
 
     def _reddit_task():
         """Pull Reddit customer voice for the top competitor (or category if none)."""

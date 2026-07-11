@@ -172,6 +172,37 @@ def root_domain(host_or_url: str) -> str:
         return ".".join(parts[-2:]) if len(parts) >= 2 else host
 
 
+# ---------- semantic relevance gate (W2-5) ----------
+# bge-small cosine between the venture category and a page's text: unrelated
+# industries score ~0.1-0.35, on-category pages 0.55+. The threshold sits in the gap.
+RELEVANCE_THRESHOLD = 0.45
+
+
+def category_page_relevance(category: str, page_text: str) -> Optional[float]:
+    """Cosine similarity (fastembed bge-small via clustering's loader) between the
+    venture category and a scraped page's text. Returns None to ABSTAIN — when
+    embeddings are unavailable, the category is empty, or the text is too thin to
+    judge — and callers must treat None as "do not block". Do NOT use for brand-name
+    comparison (that is brand_names_match) or domain roots (root_domain)."""
+    cat = (category or "").strip()
+    text = " ".join((page_text or "").split())[:2000]
+    if not cat or len(text) < 80:
+        return None
+    try:
+        import numpy as np
+        from clustering import _build_semantic_embeddings
+        embs = _build_semantic_embeddings([cat, text])
+        if embs is None or len(embs) != 2:
+            return None
+        a, b = embs[0], embs[1]
+        den = float(np.linalg.norm(a) * np.linalg.norm(b))
+        if not den:
+            return None
+        return float(np.dot(a, b) / den)
+    except Exception:
+        return None
+
+
 # ---------- brand near-dupe collapse (W2-4) ----------
 # "Calm", "Calm.com", "Calm Business" are ONE company: exact-lowercase dedup can't
 # see it, so discovery inflated competitor counts and enrichment ran per variant.
@@ -247,7 +278,8 @@ def is_parked_domain(domain: str, html: str = "", final_url: str = "") -> bool:
     return False
 
 
-def validate_domain(domain: str, context_keyword: str = "", brand_name: str = "") -> dict:
+def validate_domain(domain: str, context_keyword: str = "", brand_name: str = "",
+                    category: str = "") -> dict:
     """
     HEAD + lightweight GET to confirm a domain is reachable AND is plausibly
     the right brand. Returns:
@@ -302,6 +334,13 @@ def validate_domain(domain: str, context_keyword: str = "", brand_name: str = ""
         keyword_hit = bool(context_keyword) and context_keyword.lower() in text
 
         parked = is_parked_domain(domain, html=html, final_url=r.url)
+
+        # W2-5 relevance gate: brand + keyword can both match while the page CONTENT
+        # is another industry entirely (apparel page for a restaurant venture).
+        # None = abstain (embeddings unavailable / thin text) — never blocks.
+        relevance = category_page_relevance(category, text) if category else None
+        off_category = relevance is not None and relevance < RELEVANCE_THRESHOLD
+
         return {
             "domain": domain,
             "ok": True,
@@ -312,7 +351,9 @@ def validate_domain(domain: str, context_keyword: str = "", brand_name: str = ""
             "meta_desc": meta_desc[:200],
             "keyword_match": keyword_hit,
             "brand_match": brand_match,
-            "strong_match": (not parked) and keyword_hit and brand_match,
+            "relevance": relevance,
+            "off_category": off_category,
+            "strong_match": (not parked) and keyword_hit and brand_match and not off_category,
         }
     except Exception as e:
         return {"domain": domain, "ok": False, "error": str(e)}

@@ -331,7 +331,8 @@ def _gather_signals(brand: dict, category: str, geo: str) -> dict:
     domain_confidence = None
     llm_guess = brand.get("likely_domain")
     if llm_guess:
-        v = validate_domain(llm_guess, context_keyword=context_kw, brand_name=name)
+        v = validate_domain(llm_guess, context_keyword=context_kw, brand_name=name,
+                            category=category)  # W2-5: content relevance gate
         # NEW: reject parked domains
         if v.get("parked"):
             log.info(f"  rejected parked domain for {name}: {llm_guess}")
