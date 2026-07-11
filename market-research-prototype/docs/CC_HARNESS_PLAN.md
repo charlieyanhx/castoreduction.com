@@ -570,6 +570,16 @@ audit trail IS the project log — no separate status reports.
   reconcile-to-the-decimal + report/citation.py), NOT the Wave 1-2 reliability/routing/
   data-layer scope — whose floor holds (deterministic gate D01-D14 = 100%). The Wave-2
   HARD exit gate was met independently of R4.
+- **Wave 2.75 inserted (D7-8): R4 criticals burn-down** — the calendar's Wave 3
+  (persistence) shifts +2 days. Rationale: the verified R4 panel showed the remaining
+  trust gap is report substance, and 4 of its 5 clusters root-cause to surgical,
+  deterministic fixes (wrong density input; hybrid /mo-price pick cascading into the
+  subscription fallback; missing WTP↔price reconciliation; discarded relevance verdict
+  in ranking) — each cheaper than a persistence day and each guarded by a new detector
+  (D16-D19). Full spec: `docs/R4_BURNDOWN.md`, written as a self-contained executor
+  brief (root-caused on Fable; executable by Sonnet/Haiku-class models per the tiering
+  strategy — token-lean: corpus SIMULATION per item, ONE regen + a scoped R4 mini-panel
+  at close-out only). D15 (2c94c13) already removed the largest cluster.
 - **R4 harness defect found + fixed** (the credit-ceiling runs exposed it): the panel's
   aggregation counted a dead verifier the same as "verifier ran and upheld" (both →
   refuted:false), so a truncated run could silently pass off unverified findings as
