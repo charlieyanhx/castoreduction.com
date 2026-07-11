@@ -816,5 +816,55 @@ class TestProvenanceTrace(unittest.TestCase):
         self.assertIsNone(plan.build_provenance_summary({}))
 
 
+class TestCompetitorDensity(unittest.TestCase):
+    """B1/D16: competitor_density used to count web-momentum signals (_score>20),
+    not competitors. A cafe with 30 real OSM-sourced venues and no web presence
+    scored density=1, and the viability prompt faithfully rendered '1 meaningful
+    competitor' — a real R4 critical (e8baf9dd, 955a4b3b, 94008e7c)."""
+
+    def test_d16_fires_on_the_real_wave2_shape(self):
+        from gates import d16_density_matches_ranked
+        # e55db08e shape: density=2, 9 ranked opportunities (from wave2_r4.json)
+        r = {"discover": {"competitor_density": 2,
+                          "synthesis": {"ranked_opportunities": [{}] * 9}}}
+        f = d16_density_matches_ranked(r, None)
+        self.assertIs(f.ok, False, f.detail)
+
+    def test_d16_passes_when_density_matches_ranked_count(self):
+        from gates import d16_density_matches_ranked
+        r = {"discover": {"competitor_density": 9,
+                          "synthesis": {"ranked_opportunities": [{}] * 9}}}
+        f = d16_density_matches_ranked(r, None)
+        self.assertIsNot(f.ok, False, f.detail)
+
+    def test_d16_na_when_no_ranked_list(self):
+        from gates import d16_density_matches_ranked
+        f = d16_density_matches_ranked({"discover": {"competitor_density": 2}}, None)
+        self.assertIsNone(f.ok)
+
+    def test_discover_density_counts_ranked_set_not_signal_hits(self):
+        # 9 enriched candidates, only 2 with _score>20 (web momentum).
+        # Fixed behavior: competitor_density == 9 (the real count discovered),
+        # active_signal_density == 2 (the old web-momentum-only count, preserved
+        # as a separate field for anyone who wants it).
+        from discover import _density_counts
+        enriched = [{"_score": 5}] * 7 + [{"_score": 25}] * 2
+        density, active = _density_counts(enriched)
+        self.assertEqual(density, 9)
+        self.assertEqual(active, 2)
+
+    def test_viability_prompt_shows_both_density_numbers(self):
+        # The prompt must never again render a density that contradicts the
+        # discovered competitor count — show both, honestly.
+        from four_ps import VIABILITY_PROMPT
+        rendered = VIABILITY_PROMPT.format(
+            company="X", category="Y", product="", price="", place="", promotion="",
+            density=9, active_density=2, avg_score=10, audience_confidence=50,
+            signal_count=3,
+        )
+        self.assertIn("9", rendered)
+        self.assertIn("2", rendered)
+
+
 if __name__ == "__main__":
     unittest.main()

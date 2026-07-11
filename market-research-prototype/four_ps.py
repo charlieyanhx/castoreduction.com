@@ -134,7 +134,7 @@ PLACE: {place}
 PROMOTION: {promotion}
 
 KEY METRICS:
-- Competitive density: {density} meaningful competitors
+- Competitive density: {density} competitors identified ({active_density} with active web-momentum signals — reviews, trend, social)
 - Avg competitor opportunity score: {avg_score}
 - Target audience confidence: {audience_confidence}
 - Signals collected: {signal_count}
@@ -773,6 +773,7 @@ def score_viability(
     avg_score: float,
     audience_confidence: float,
     signal_count: int,
+    active_density: int = 0,
     # Iter 43 (issue I): real cross-pipeline data rather than LLM guessing
     differentiators_strength: str | None = None,
     differentiators_count: int | None = None,
@@ -825,6 +826,7 @@ def score_viability(
             place=_section_text(four_ps.get("place"))[:600],
             promotion=_section_text(four_ps.get("promotion"))[:800],
             density=density,
+            active_density=active_density,
             avg_score=avg_score,
             audience_confidence=audience_confidence,
             signal_count=signal_count,

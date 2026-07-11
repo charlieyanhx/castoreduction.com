@@ -37,7 +37,7 @@ def render_discover(result: dict) -> str:
         lines.append("## Meta signals")
         lines.append("")
         if density is not None:
-            lines.append(f"- **Competitor density:** {density} brands with meaningful signal")
+            lines.append(f"- **Competitor density:** {density} competitors identified")
         if avg is not None:
             lines.append(f"- **Average opportunity score:** {avg}")
         trends = (result.get("steps") or {}).get("trends") or {}

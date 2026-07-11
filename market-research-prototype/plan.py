@@ -1976,6 +1976,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         profile=profile,
         four_ps=four_ps,
         density=disc.get("competitor_density") or 0,
+        active_density=disc.get("active_signal_density") or 0,
         avg_score=disc.get("avg_opportunity_score") or 0,
         audience_confidence=top_audience.get("confidence", 0) or 0,
         signal_count=signal_count,

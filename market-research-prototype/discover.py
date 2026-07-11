@@ -132,7 +132,7 @@ SYNTHESIS_PROMPT = """You are ranking market opportunities from momentum signals
 
 Category: {category}
 Category-level trend slope (12mo): {slope}
-Competitor density: {density} (brands with meaningful signal found — low = open opportunity, high = crowded)
+Competitors discovered: {density} total; {active_density} with meaningful web-momentum signal (low = open opportunity, high = crowded)
 Average opportunity score across candidates: {avg_score}
 
 Candidate brands with evidence:
@@ -193,6 +193,18 @@ MEGABRAND_NAMES = {
     # Fashion / beauty mega
     "loreal", "l'oreal", "estee lauder", "estée lauder", "shiseido",
 }
+
+
+def _density_counts(enriched: list[dict]) -> tuple[int, int]:
+    """B1/D16: competitor_density must count the actual competitor SET discovered
+    (len(enriched)), not web-momentum hits (_score>20). A hyperlocal cafe with 30
+    real OSM-sourced venues and zero web presence used to score density=1 — the
+    viability prompt then faithfully rendered '1 meaningful competitor' against a
+    market with 30 real rivals (R4 criticals: e8baf9dd, 955a4b3b, 94008e7c).
+    Returns (competitor_density, active_signal_density) — the latter preserves the
+    old web-momentum-only count as a distinct, honestly-labeled signal."""
+    active = sum(1 for e in enriched if (e.get("_score") or 0) > 20)
+    return len(enriched), active
 
 
 def _is_megabrand(brand_name: str) -> bool:
@@ -508,12 +520,13 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
     # 5. LLM synthesis
     log.info("[discover] step 5/5: llm synthesis")
     enriched_sorted = sorted(enriched, key=lambda x: x.get("_score", 0), reverse=True)
-    density = sum(1 for e in enriched_sorted if (e.get("_score") or 0) > 20)
+    density, active_density = _density_counts(enriched_sorted)
     avg_score = (
         round(sum((e.get("_score") or 0) for e in enriched_sorted) / len(enriched_sorted), 1)
         if enriched_sorted else 0
     )
     result["competitor_density"] = density
+    result["active_signal_density"] = active_density
     result["avg_opportunity_score"] = avg_score
 
     try:
@@ -523,6 +536,7 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
                 category=category,
                 slope=result.get("steps", {}).get("trends", {}).get("slope_12m"),
                 density=density,
+                active_density=active_density,
                 avg_score=avg_score,
                 candidates=json.dumps(enriched_sorted, default=str)[:5000],
             ),

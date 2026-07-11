@@ -225,6 +225,25 @@ def d15_tam_coherent_across_sections(r: dict, html: Optional[str]) -> Finding:
                    if off else f"SAM-derivation TAM matches headline ({round(tam_mid/1e6)}M)")
 
 
+def d16_density_matches_ranked(r: dict, html: Optional[str]) -> Finding:
+    """B1: competitor_density must be a plausible count of the ACTUAL ranked
+    competitor set, not a filtered web-momentum count. The R4 critical shape:
+    a hyperlocal cafe with 30 real OSM-sourced venues scored competitor_density=1
+    (only 1 had web-momentum signal), and the viability prompt then faithfully
+    argued '1 meaningful competitor' against a 30-venue market. FAIL when density
+    is under half the ranked-list length. N/A when no ranked list is present."""
+    disc = r.get("discover") or {}
+    density = disc.get("competitor_density")
+    if density is None:
+        return Finding(None, "no competitor_density recorded")
+    ops = disc.get("ranked_opportunities") or (disc.get("synthesis") or {}).get("ranked_opportunities") or []
+    if not ops:
+        return Finding(None, "no ranked competitor list")
+    ok = density >= len(ops) / 2
+    return Finding(ok, f"density={density} vs {len(ops)} ranked competitors"
+                   if not ok else f"density={density} plausible for {len(ops)} ranked")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -241,6 +260,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D13", "no scraped benchmark on geo-sourced set", "fabricated price benchmark", "fail", d13_benchmark_not_fabricated),
     Invariant("D14", "no failed 4Ps sections", "silent section failure", "warn", d14_no_failed_sections),
     Invariant("D15", "TAM coherent across sections", "same number, two values (audit C1)", "fail", d15_tam_coherent_across_sections),
+    Invariant("D16", "competitor_density matches ranked set", "wrong density input to viability", "fail", d16_density_matches_ranked),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
