@@ -172,6 +172,62 @@ def root_domain(host_or_url: str) -> str:
         return ".".join(parts[-2:]) if len(parts) >= 2 else host
 
 
+# ---------- brand near-dupe collapse (W2-4) ----------
+# "Calm", "Calm.com", "Calm Business" are ONE company: exact-lowercase dedup can't
+# see it, so discovery inflated competitor counts and enrichment ran per variant.
+_BRAND_TLD_TAIL_RE = re.compile(r"\.(com|io|co|ai|net|org|app|dev)\b")
+_BRAND_SUFFIX_RE = re.compile(
+    r"\b(inc|llc|ltd|corp|co|company|business|app|hq|labs?|for teams)\b")
+
+
+def _brand_key(name: str) -> str:
+    """Canonical comparison form for a brand name: lowercase, TLD tails and
+    corporate/product-line suffixes stripped, punctuation collapsed."""
+    n = (name or "").lower().strip()
+    n = _BRAND_TLD_TAIL_RE.sub("", n)
+    n = re.sub(r"[^a-z0-9 ]+", " ", n)
+    n = _BRAND_SUFFIX_RE.sub("", n)
+    return " ".join(n.split())
+
+
+def brand_names_match(a: str, b: str, threshold: int = 92) -> bool:
+    """True when two brand-name strings plausibly denote the same company
+    ('Headspace'/'Head Space'; 'Calm'/'Calm Business'). Distinct brands with
+    shared stems stay distinct ('BetterUp' vs 'BetterHelp' scores ~78).
+    Do NOT use for domain/host comparison — that is root_domain's job."""
+    ka, kb = _brand_key(a), _brand_key(b)
+    if not ka or not kb:
+        return False
+    if ka == kb:
+        return True
+    from rapidfuzz import fuzz
+    return max(fuzz.ratio(ka, kb), fuzz.token_sort_ratio(ka, kb)) >= threshold
+
+
+def collapse_near_dupes(items: list, key: str = "name", threshold: int = 92,
+                        max_out: int | None = None) -> list:
+    """Collapse near-duplicate entries by fuzzy brand-name match. First occurrence
+    wins, so callers' priority ordering is preserved. Items may be dicts (compared
+    on `key`) or plain strings. Entries whose canonical form is shorter than 2
+    chars (empty, bare suffixes like 'Inc.') are dropped."""
+    from rapidfuzz import fuzz
+    kept: list = []
+    keys: list[str] = []
+    for it in items:
+        raw = (it.get(key) if isinstance(it, dict) else it) or ""
+        k = _brand_key(str(raw))
+        if len(k) < 2:
+            continue
+        if any(k == e or max(fuzz.ratio(k, e), fuzz.token_sort_ratio(k, e)) >= threshold
+               for e in keys):
+            continue
+        keys.append(k)
+        kept.append(it)
+        if max_out is not None and len(kept) >= max_out:
+            break
+    return kept
+
+
 def is_parked_domain(domain: str, html: str = "", final_url: str = "") -> bool:
     """Return True if the domain is parked / for sale / on a marketplace."""
     domain_lc = domain.lower()

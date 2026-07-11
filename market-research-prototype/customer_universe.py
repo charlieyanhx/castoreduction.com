@@ -198,6 +198,16 @@ _NEWS_HEADLINE_RE = re.compile(
 _DOLLAR_AMOUNT_RE = re.compile(r"\$\s*\d+(\.\d+)?\s*(M|B|K|million|billion)?", re.I)
 
 
+def _merge_prospects(method_lists: list[list[dict]], target_count: int) -> list[dict]:
+    """Merge the discovery methods' outputs, collapsing near-duplicate company names
+    (W2-4: 'Acme'/'Acme Corp'/'acme.com' are ONE prospect — exact-lowercase dedup
+    couldn't see it). First occurrence wins, so method priority (A before B before
+    C/D/E) is preserved. Caps at 2x target_count like the old inline loop."""
+    from sources import collapse_near_dupes
+    flat = [c for lst in method_lists for c in lst]
+    return collapse_near_dupes(flat, max_out=target_count * 2)
+
+
 def _is_plausible_company_name(name: str) -> bool:
     """Iter 39: stricter junk filter — kills review widget alt-text masquerading as customer names.
     cycle22: also reject DDG news-headline titles like 'Nexxa.ai Raises $4.4M in Pre' that
@@ -871,17 +881,9 @@ def _build_customer_universe_inner(
             if len(method_e) >= target_count:
                 break
 
-    # --- Merge + dedupe (by name lowercased) ---
-    merged: list[dict] = []
-    seen = set()
-    for c in method_a + method_b + method_c + method_d + method_e:
-        key = (c.get("name") or "").lower().strip()
-        if not key or key in seen or len(key) < 2:
-            continue
-        seen.add(key)
-        merged.append(c)
-        if len(merged) >= target_count * 2:
-            break
+    # --- Merge + dedupe (W2-4: near-dupe collapse, not just exact-lowercase) ---
+    merged = _merge_prospects([method_a, method_b, method_c, method_d, method_e],
+                              target_count)
 
     # Keep top target_count by: method A (high-confidence) first, then B, then C/D
     def _bucket(c):

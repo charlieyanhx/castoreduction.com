@@ -289,6 +289,32 @@ def _signal_score(signals: dict) -> float:
     return round(max(0.0, min(100.0, score)), 1)
 
 
+def _union_named_competitors(candidates: list[dict], named_competitors) -> list[dict]:
+    """cycle29 + W2-4: operator-named competitors are GUARANTEED to flow through —
+    but a near-duplicate of an existing candidate ('Calm Business' when 'Calm.com'
+    was already surfaced) TAGS the existing entry as operator-seeded instead of
+    appending a second copy of the same company. Returns a new list."""
+    if not named_competitors:
+        return candidates
+    from sources import brand_names_match
+    out = [dict(c) for c in candidates]
+    for nc in named_competitors:
+        nc_clean = (nc or "").strip()
+        if not nc_clean:
+            continue
+        hit = next((c for c in out
+                    if brand_names_match(c.get("name") or "", nc_clean)), None)
+        if hit is not None:
+            hit["_seed"] = "operator"
+            continue
+        out.append({
+            "name": nc_clean,
+            "query_evidence": "named_in_description",
+            "_seed": "operator",
+        })
+    return out
+
+
 def _gather_signals(brand: dict, category: str, geo: str) -> dict:
     """
     Pull all free signals for one brand. Category is used as disambiguation
@@ -649,21 +675,17 @@ def discover(category: str, geo: str = "US", max_candidates: int = 10, business_
         result["error"] = "no brand candidates found from rising queries"
         return result
 
+    # W2-4: collapse near-duplicate trends candidates ('Calm'/'Calm App') before the
+    # operator union so enrichment never runs twice for one company.
+    from sources import collapse_near_dupes
+    candidates = collapse_near_dupes(candidates)
+
     # cycle29: union explicit named_competitors from the venture description
     # so they are GUARANTEED to flow through. Was losing Calm Business / Lyra /
     # Big Health / BetterUp because trends-based discovery surfaced different
     # brands than the operator named.
     if named_competitors:
-        existing_names = {(c.get("name") or "").lower() for c in candidates}
-        for nc in named_competitors:
-            nc_clean = (nc or "").strip()
-            if nc_clean and nc_clean.lower() not in existing_names:
-                candidates.append({
-                    "name": nc_clean,
-                    "query_evidence": "named_in_description",
-                    "_seed": "operator",
-                })
-                existing_names.add(nc_clean.lower())
+        candidates = _union_named_competitors(candidates, named_competitors)
         # Bump max_candidates so we don't immediately truncate operator seeds
         max_candidates = max(max_candidates, len(candidates))
         log.info(f"  → seeded {len(named_competitors)} operator-named competitors; total candidates: {len(candidates)}")
