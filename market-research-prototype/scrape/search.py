@@ -1,14 +1,16 @@
 """
-Iter 38: search-engine cascade.
+Iter 38 + W2: search-engine cascade.
 
 Order:
-  1. Brave Search API   (if BRAVE_SEARCH_KEY env set; 2k/mo free, no CC)
-  2. SearXNG public     (free, public instance, no key)
-  3. ddgs               (current default — falls through often)
+  1. Tavily Search API  (if TAVILY_API_KEY env set; 1k credits/mo free — the
+                         agent-grade backend: clean JSON, relevance-scored, W2 item 1)
+  2. Brave Search API   (if BRAVE_SEARCH_KEY env set; 2k/mo free, no CC)
+  3. SearXNG public     (free, public instance, no key)
+  4. ddgs               (falls through often)
 
 We stop at the first backend that returns ≥1 result. Each backend has its own
 small wrapper with a uniform output shape:
-  [{"title": str, "url": str, "snippet": str, "source": "brave"|"searxng"|"ddg"}]
+  [{"title": str, "url": str, "snippet": str, "source": "tavily"|"brave"|"searxng"|"ddg"}]
 
 Per-call timeout is short (8s) — search shouldn't be the slow part.
 """
@@ -44,7 +46,8 @@ def search(query: str, max_results: int = 8, prefer_domain: str | None = None) -
     if prefer_domain:
         q = f"site:{prefer_domain} {q}"
 
-    for name, backend in (("brave", _brave), ("searxng", _searxng), ("ddgs", _ddgs)):
+    for name, backend in (("tavily", _tavily), ("brave", _brave),
+                          ("searxng", _searxng), ("ddgs", _ddgs)):
         try:
             results = backend(q, max_results=max_results)
             if results:
@@ -55,6 +58,41 @@ def search(query: str, max_results: int = 8, prefer_domain: str | None = None) -
             continue
     log.info("search ALL backends empty for %r", q[:80])
     return []
+
+
+# ---------- Tavily ----------
+def _tavily(query: str, max_results: int = 8) -> list[dict]:
+    """Tavily search — REST via the house request() helper (no SDK), keyed on
+    TAVILY_API_KEY; returns [] without a key so the cascade degrades to the old
+    order. The key travels in the Authorization header, never the URL."""
+    key = os.environ.get("TAVILY_API_KEY", "").strip()
+    if not key:
+        return []
+    r = request(
+        "POST",
+        "https://api.tavily.com/search",
+        json={"query": query, "max_results": max_results},
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        timeout=8,
+    )
+    if not r or not r.ok:
+        return []
+    try:
+        data = r.json()
+    except Exception:
+        return []
+    results = []
+    for h in data.get("results") or []:
+        url = h.get("url") or ""
+        if not url:
+            continue
+        results.append({
+            "title": h.get("title") or "",
+            "url": url,
+            "snippet": h.get("content") or "",
+            "source": "tavily",
+        })
+    return results[:max_results]
 
 
 # ---------- Brave ----------
