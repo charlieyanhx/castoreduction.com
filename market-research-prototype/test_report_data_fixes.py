@@ -39,6 +39,23 @@ class TestWtpBand(unittest.TestCase):
         agg = _aggregate([_iv("A", None), _iv("B", None)])
         self.assertIsNone(agg["willingness_to_pay"])
 
+    def test_unanimous_payers_are_a_consensus_point_not_a_range(self):
+        # W2 close-out gate catch (becc8783): all 4 segments said exactly $10 →
+        # shipped as a 10/10/10 "range" with single_point=False → D10 degenerate-band
+        # blocking failure. Unanimity is a CONSENSUS POINT: informative, but it must
+        # be disclosed as a point, never typeset as a fake range.
+        agg = _aggregate([_iv("A", 10), _iv("B", 10), _iv("C", 10), _iv("D", 10)])
+        wtp = agg["willingness_to_pay"]
+        self.assertTrue(wtp["single_point"])
+        self.assertTrue(wtp["consensus"])          # 4-of-4 agreeing, not 1-of-4
+        self.assertEqual(wtp["point"], 10)
+        self.assertEqual(wtp["n_would_pay"], 4)
+        self.assertNotIn("low", wtp)               # no fabricated band
+        # and the D10 gate must treat the produced record as clean
+        from gates import d10_wtp_band_sane
+        f = d10_wtp_band_sane({"consumer_research": {"synthesis": agg}}, None)
+        self.assertIsNot(f.ok, False, f.detail)
+
 
 class TestSomCapacityAnchor(unittest.TestCase):
     """The live bug: SOM = bare fair-share ÷ (competitors+1) → $5,164 for a cafe in a

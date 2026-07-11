@@ -85,7 +85,12 @@ class TestSkill(unittest.TestCase):
             ev = consumer_research_skill("A SaaS for X.", n_perspectives=2)
         self.assertEqual(ev.count, 2)
         self.assertEqual(ev.cost_meta["n_segments"], 2)
-        self.assertEqual(ev.payload["synthesis"]["willingness_to_pay"]["median"], 80)
+        # Both mocked segments say exactly $80 — that is a consensus POINT, not a
+        # range (W2/D10 fix); this assertion used to expect the degenerate band.
+        wtp = ev.payload["synthesis"]["willingness_to_pay"]
+        self.assertEqual(wtp["point"], 80)
+        self.assertTrue(wtp["single_point"])
+        self.assertTrue(wtp["consensus"])
         self.assertIn("fast setup", ev.payload["synthesis"]["shared_needs"])
 
     def test_no_perspectives_returns_skeleton(self):

@@ -101,10 +101,16 @@ def _aggregate(interviews: list[dict], wtp_unit: str = "/mo") -> dict:
             and not isinstance(iv["willingness_to_pay_usd"], bool)]
     wtps_sorted = sorted(wtps)
     wtp_band = None
-    if len(wtps_sorted) >= 2:
+    if len(wtps_sorted) >= 2 and wtps_sorted[0] != wtps_sorted[-1]:
         mid = wtps_sorted[len(wtps_sorted) // 2]
         wtp_band = {"low": wtps_sorted[0], "median": mid, "high": wtps_sorted[-1],
                     "single_point": False,
+                    "n_would_pay": len(wtps_sorted), "n_total": len(interviews)}
+    elif len(wtps_sorted) >= 2:
+        # W2 close-out gate catch (D10): every committed segment named the SAME price.
+        # Unanimity is a consensus POINT — informative (stronger than 1-of-N), but it
+        # must be disclosed as a point, never typeset as a fake low/median/high range.
+        wtp_band = {"point": wtps_sorted[0], "single_point": True, "consensus": True,
                     "n_would_pay": len(wtps_sorted), "n_total": len(interviews)}
     elif len(wtps_sorted) == 1:
         # Only one segment committed to a price — NOT a band. Don't fake low/high.
