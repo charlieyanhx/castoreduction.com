@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 import sys
 from dataclasses import dataclass, field
@@ -189,6 +190,41 @@ def d14_no_failed_sections(r: dict, html: Optional[str]) -> Finding:
     return Finding(not bad, f"failed sections: {bad}" if bad else "all sections generated")
 
 
+_TAM_FIG_RE = re.compile(r"TAM[^$]{0,12}\$?\s*([\d.]+)\s*([BMK])\b", re.I)
+
+
+def _tam_figures(text: str) -> list[float]:
+    """Dollar magnitudes explicitly labeled 'TAM $X' in a free-text string."""
+    out = []
+    for m in _TAM_FIG_RE.finditer(text or ""):
+        try:
+            out.append(float(m.group(1)) * {"B": 1e9, "M": 1e6, "K": 1e3}[m.group(2).upper()])
+        except (ValueError, KeyError):
+            pass
+    return out
+
+
+def d15_tam_coherent_across_sections(r: dict, html: Optional[str]) -> Finding:
+    """C1 single-value coherence (the audit's cross-cutting invariant, ported to a
+    deterministic detector): every 'TAM $X' figure cited in the SAM derivation must
+    match the headline tam.mid. The R4 audit's dominant CRITICAL cluster (9/16 reports)
+    was triangulation rewriting tam.mid to the median while sam.calculation /
+    serviceability_waterfall kept citing the pre-triangulation TAM — two different TAMs
+    in one section. N/A when the SAM derivation is a bottom-up build with no TAM anchor."""
+    ms = r.get("market_sizing") or {}
+    tam_mid = _num((ms.get("tam") or {}).get("mid"))
+    if not tam_mid:
+        return Finding(None, "no headline TAM")
+    sam = ms.get("sam") or {}
+    figs = _tam_figures(sam.get("calculation") or "") + _tam_figures(sam.get("serviceability_waterfall") or "")
+    if not figs:
+        return Finding(None, "SAM derivation cites no TAM figure (bottom-up)")
+    off = [f for f in figs if abs(f - tam_mid) / tam_mid > 0.10]
+    return Finding(not off,
+                   f"SAM cites TAM {[round(f/1e6) for f in off]}M but headline is {round(tam_mid/1e6)}M"
+                   if off else f"SAM-derivation TAM matches headline ({round(tam_mid/1e6)}M)")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -204,6 +240,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D12", "provenance trace present", "debuggability invariant", "warn", d12_provenance),
     Invariant("D13", "no scraped benchmark on geo-sourced set", "fabricated price benchmark", "fail", d13_benchmark_not_fabricated),
     Invariant("D14", "no failed 4Ps sections", "silent section failure", "warn", d14_no_failed_sections),
+    Invariant("D15", "TAM coherent across sections", "same number, two values (audit C1)", "fail", d15_tam_coherent_across_sections),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

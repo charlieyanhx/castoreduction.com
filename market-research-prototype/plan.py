@@ -1017,8 +1017,67 @@ def triangulate_sizing(sizing: dict) -> dict:
     # the NEW mid so they stay consistent (else the gate's segmentation_sum check
     # correctly blocks every report). Segments rescale by share_pct, else proportionally.
     out = _renormalize_segmentation(out, tri.get("point"))
+    # D15 / audit C1: SAM and its calc strings were anchored to the PRE-triangulation
+    # TAM — the report then showed two different TAMs in one section (the R4 panel's
+    # dominant CRITICAL cluster, 10/16). Re-derive SAM from the canonical TAM so the
+    # serviceability fraction is preserved and every 'TAM $X' string cites the headline.
+    out = _resync_sam_after_triangulation(out, tam.get("mid"), tri.get("point"))
     log.info("[plan] triangulated TAM: point=%s n_independent=%s confidence=%s",
              tri.get("point"), tri.get("n_independent"), tri.get("confidence"))
+    return out
+
+
+_TAM_TOKEN_RE = re.compile(r"(TAM[^$]{0,12})\$?\s*[\d.]+\s*[BMK]\b", re.I)
+
+
+def _fmt_tam_short(v: float) -> str:
+    """Compact TAM figure matching the sizing strings' style ('$1.4B', '$437.5M')."""
+    v = float(v)
+    if v >= 1e9:
+        return f"${v / 1e9:.1f}B"
+    if v >= 1e6:
+        return f"${v / 1e6:.0f}M"
+    if v >= 1e3:
+        return f"${v / 1e3:.0f}K"
+    return f"${v:.0f}"
+
+
+def _rewrite_tam_tokens(text: str, canonical: float) -> str:
+    """Replace every 'TAM $X<unit>' figure in a free-text string with the canonical
+    TAM, preserving the surrounding qualitative wording (serviceability factors etc.)."""
+    if not text:
+        return text
+    return _TAM_TOKEN_RE.sub(lambda m: m.group(1) + _fmt_tam_short(canonical), text)
+
+
+def _resync_sam_after_triangulation(sizing: dict, old_tam_mid, new_tam_mid) -> dict:
+    """D15 / audit C1 fix: after triangulation moves the headline TAM, re-derive SAM
+    from it so the funnel and its buyer-facing strings stay coherent.
+
+    SAM = TAM x serviceability, and the serviceability fraction is a market-structure
+    property independent of the absolute TAM — so SAM scales by the SAME ratio the TAM
+    moved (preserving that fraction), and every 'TAM $X' token in sam.calculation /
+    serviceability_waterfall is rewritten to the canonical headline. SOM keeps its own
+    anchor (analog/capacity) and is re-clamped to SAM downstream by
+    _enforce_sizing_ordering. No-op when TAM didn't move or inputs are unusable."""
+    old = old_tam_mid if isinstance(old_tam_mid, (int, float)) and not isinstance(old_tam_mid, bool) else None
+    new = new_tam_mid if isinstance(new_tam_mid, (int, float)) and not isinstance(new_tam_mid, bool) else None
+    if not old or not new or old <= 0 or new <= 0:
+        return sizing
+    ratio = new / old
+    if abs(ratio - 1.0) < 1e-9:
+        return sizing  # triangulation didn't move the headline
+    out = dict(sizing)
+    sam = dict(out.get("sam") or {})
+    if not sam:
+        return out
+    for k in ("low", "mid", "high"):
+        v = sam.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            sam[k] = round(v * ratio)
+    sam["calculation"] = _rewrite_tam_tokens(sam.get("calculation") or "", new)
+    sam["serviceability_waterfall"] = _rewrite_tam_tokens(sam.get("serviceability_waterfall") or "", new)
+    out["sam"] = sam
     return out
 
 
