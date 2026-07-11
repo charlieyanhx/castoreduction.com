@@ -603,6 +603,64 @@ class TestHybridDevicePrice(unittest.TestCase):
         self.assertIsNone(f.ok)
 
 
+class TestWtpPriceReconciliation(unittest.TestCase):
+    """B3/D18: consumer-style WTP interviews ($150-1,500) and the PSM-recommended
+    price ($125,000/unit) can render side by side with an 83x gap and no comment.
+    Real R4 criticals: 800c261b, e55db08e, 4a755faa. Fix is a disclosed-mismatch
+    flag — never fabricated agreement, never silently averaged."""
+
+    def test_flags_large_gap_band_shape(self):
+        from plan import reconcile_wtp_with_price
+        wtp = {"low": 150, "median": 800, "high": 1500, "unit": "/unit"}
+        flag = reconcile_wtp_with_price(wtp, 125000)
+        self.assertIsNotNone(flag)
+        self.assertEqual(flag["wtp"], 800)
+        self.assertEqual(flag["recommended"], 125000)
+        self.assertAlmostEqual(flag["ratio"], 156.2, places=1)
+        self.assertIn("do not average", flag["note"].lower())
+
+    def test_flags_large_gap_point_shape(self):
+        from plan import reconcile_wtp_with_price
+        wtp = {"point": 10, "single_point": True, "unit": "/mo"}
+        flag = reconcile_wtp_with_price(wtp, 125000)
+        self.assertIsNotNone(flag)
+        self.assertEqual(flag["wtp"], 10)
+
+    def test_no_flag_when_prices_agree(self):
+        from plan import reconcile_wtp_with_price
+        wtp = {"low": 5, "median": 7.5, "high": 8.5, "unit": "/drink"}
+        self.assertIsNone(reconcile_wtp_with_price(wtp, 6.5))
+
+    def test_no_flag_missing_either_number(self):
+        from plan import reconcile_wtp_with_price
+        self.assertIsNone(reconcile_wtp_with_price(None, 125000))
+        self.assertIsNone(reconcile_wtp_with_price({"median": 7.5}, None))
+
+    def test_d18_fires_on_the_real_wave2_shape(self):
+        from gates import d18_wtp_price_reconciled
+        r = {"consumer_research": {"synthesis": {"willingness_to_pay":
+            {"low": 150, "median": 800, "high": 1500, "unit": "/unit"}}},
+            "pricing": {"psm": {"optimal_price_point": 125000}}}
+        f = d18_wtp_price_reconciled(r, None)
+        self.assertIs(f.ok, False, f.detail)
+
+    def test_d18_passes_when_flag_present(self):
+        from gates import d18_wtp_price_reconciled
+        r = {"consumer_research": {"synthesis": {
+            "willingness_to_pay": {"low": 150, "median": 800, "high": 1500, "unit": "/unit"},
+            "wtp_price_mismatch": {"wtp": 800, "recommended": 125000, "ratio": 156.3}}},
+            "pricing": {"psm": {"optimal_price_point": 125000}}}
+        f = d18_wtp_price_reconciled(r, None)
+        self.assertIsNot(f.ok, False, f.detail)
+
+    def test_d18_na_when_prices_agree_or_missing(self):
+        from gates import d18_wtp_price_reconciled
+        agree = {"consumer_research": {"synthesis": {"willingness_to_pay":
+            {"low": 5, "median": 7.5, "high": 8.5}}}, "pricing": {"psm": {"optimal_price_point": 6.5}}}
+        self.assertIsNone(d18_wtp_price_reconciled(agree, None).ok)
+        self.assertIsNone(d18_wtp_price_reconciled({}, None).ok)
+
+
 class TestGeoCompetitorPromotion(unittest.TestCase):
     """M1: a physical-local venture's competitors must be the real nearby venues (OSM),
     promoted to the canonical set — not LLM-guessed national brands. General + deterministic:

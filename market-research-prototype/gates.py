@@ -265,6 +265,28 @@ def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> F
                    "on a transactional venture" if bad else "financials use the unit shape")
 
 
+def d18_wtp_price_reconciled(r: dict, html: Optional[str]) -> Finding:
+    """B3: a large gap between the consumer-research WTP synthesis and the PSM-
+    recommended price must be disclosed (plan.reconcile_wtp_with_price), never
+    rendered side by side with no comment. Real R4 shape: WTP $150-1,500/unit vs a
+    $125,000/unit recommendation, 83-100x apart, unflagged (800c261b, e55db08e,
+    4a755faa). FAIL when the ratio is outside 0.1x-10x and no wtp_price_mismatch
+    flag is present. N/A when either number is missing or they already agree."""
+    syn = ((r.get("consumer_research") or {}).get("synthesis") or {})
+    wtp = syn.get("willingness_to_pay") or {}
+    wtp_point = wtp.get("median") if wtp.get("median") is not None else wtp.get("point")
+    recommended = (r.get("pricing") or {}).get("psm", {}).get("optimal_price_point")
+    if not wtp_point or not recommended:
+        return Finding(None, "WTP or recommended price missing")
+    ratio = _num(recommended) / _num(wtp_point) if _num(wtp_point) else None
+    if ratio is None or 0.1 <= ratio <= 10:
+        return Finding(None, "WTP and recommended price agree (no mismatch)")
+    flagged = "wtp_price_mismatch" in syn
+    return Finding(flagged, f"WTP {wtp_point} vs recommended {recommended} "
+                   f"({ratio:.0f}x) — unflagged" if not flagged else
+                   f"mismatch disclosed ({ratio:.0f}x)")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -283,6 +305,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D15", "TAM coherent across sections", "same number, two values (audit C1)", "fail", d15_tam_coherent_across_sections),
     Invariant("D16", "competitor_density matches ranked set", "wrong density input to viability", "fail", d16_density_matches_ranked),
     Invariant("D17", "per-unit venture never on subscription fallback", "hybrid device price mis-extracted", "fail", d17_per_unit_not_on_subscription_fallback),
+    Invariant("D18", "WTP reconciled with recommended price", "83x gap rendered uncommented", "fail", d18_wtp_price_reconciled),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

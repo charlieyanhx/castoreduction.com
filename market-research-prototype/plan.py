@@ -302,6 +302,46 @@ def extract_device_price(text: str) -> float | None:
     return None
 
 
+def reconcile_wtp_with_price(wtp: dict | None, recommended: float | None) -> dict | None:
+    """B3/D18: flag a large gap between the consumer-research WTP synthesis and the
+    PSM-recommended price — never fabricate agreement, never silently average them.
+
+    Real R4 shape: a consumer WTP band of $150-1,500/unit rendered beside a
+    $125,000/unit PSM recommendation with no comment (800c261b, e55db08e,
+    4a755faa — 83-100x gaps). The two numbers usually answer different questions
+    (a simulated individual's casual willingness-to-pay vs. an enterprise/B2B
+    budget-holder's price point), so the fix discloses the mismatch rather than
+    reconciling the values. Returns None when either number is missing or the
+    ratio is within 0.1x-10x (no mismatch worth flagging)."""
+    if not wtp or not recommended:
+        return None
+    wtp_point = wtp.get("median") if wtp.get("median") is not None else wtp.get("point")
+    if not wtp_point:
+        return None
+    try:
+        wtp_point = float(wtp_point)
+        recommended = float(recommended)
+    except (TypeError, ValueError):
+        return None
+    if wtp_point <= 0:
+        return None
+    ratio = recommended / wtp_point
+    if 0.1 <= ratio <= 10:
+        return None
+    return {
+        "wtp": wtp_point,
+        "recommended": recommended,
+        "ratio": round(ratio, 1),
+        "note": (
+            f"The consumer willingness-to-pay simulation (${wtp_point:,.0f}) and the "
+            f"recommended price (${recommended:,.0f}) differ by {ratio:,.0f}x — likely "
+            "different buyer framings (an individual's casual budget vs. a business "
+            "purchase decision). Do NOT average or silently pick one; validate "
+            "willingness-to-pay with real buyer interviews before pricing."
+        ),
+    }
+
+
 def reconcile_pricing(stated: float | None, recommended) -> dict | None:
     """Compare the user's stated price to the model's recommendation, visibly.
 
@@ -1670,6 +1710,18 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         result["price_reconciliation"] = recon
         log.info("[plan] price reconciliation: stated=%s recommended=%s verdict=%s",
                  recon["stated_usd"], recon["recommended_usd"], recon["verdict"])
+
+    # B3/D18: a SEPARATE reconciliation — the consumer-research WTP simulation vs the
+    # PSM-recommended price. These can differ by 10-100x (a simulated individual's
+    # casual WTP vs. an enterprise/B2B budget-holder's price point) and used to render
+    # side by side with no comment. Disclose the mismatch; never fabricate agreement.
+    _wtp_syn = (result.get("consumer_research") or {}).get("synthesis") or {}
+    wtp_flag = reconcile_wtp_with_price(_wtp_syn.get("willingness_to_pay"),
+                                        psm_result.get("optimal_price_point"))
+    if wtp_flag:
+        _wtp_syn["wtp_price_mismatch"] = wtp_flag
+        log.info("[plan] WTP/price mismatch flagged: wtp=%s recommended=%s ratio=%sx",
+                 wtp_flag["wtp"], wtp_flag["recommended"], wtp_flag["ratio"])
 
     if psm_result.get("optimal_price_point"):
         # cycle38: route ALL per-unit kinds (transactional/ecommerce/services/hybrid) through the
