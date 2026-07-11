@@ -25,8 +25,49 @@ Output:
 """
 from __future__ import annotations
 import json
+import re
 from typing import Any
 from urllib.parse import urljoin, urlparse
+
+
+# ---------- content-validity gate (W2/D13) ----------
+# Page-level parked/thin markers. Complements sources.is_parked_domain (which reasons
+# about the DOMAIN/host); this gate reasons about the PAGE CONTENT in hand.
+_PARKED_TEXT_RE = re.compile(
+    r"(domain (?:is )?for sale|buy this domain|domain parking|parking lander|"
+    r"parked (?:free )?(?:courtesy|by)|this (?:web ?page|site) is parked|"
+    r"sedo|hugedomains|dan\.com|afternic|bodis|parkingcrew)", re.I)
+# Below this much extracted text a "page" is a shell or lander, not content. Real
+# pricing pages carry plan descriptions well past this.
+MIN_CONTENT_CHARS = 400
+
+
+def _trafilatura_text(html: str) -> str:
+    """Main-content text via trafilatura (isolated so the gate can degrade if it breaks)."""
+    import trafilatura
+    return trafilatura.extract(html, include_comments=False) or ""
+
+
+def page_is_substantive(html: str) -> tuple[bool, str]:
+    """Content-validity gate: True only when the page carries real readable content.
+
+    A parked lander, registrar shell, or JS-only stub yields almost no main-content
+    text — reject it BEFORE price extraction can fabricate a benchmark from it (the
+    audit's "$2,495 domain-sale price became the category median" failure). Never
+    raises; if trafilatura breaks, falls back to tag-stripped text length.
+    """
+    if not html or len(html) < 50:
+        return False, "empty html"
+    try:
+        text = _trafilatura_text(html)
+    except Exception:
+        text = re.sub(r"<[^>]+>", " ", html)
+    text = " ".join(text.split())
+    if _PARKED_TEXT_RE.search(text) or _PARKED_TEXT_RE.search(html[:5000]):
+        return False, "parked-domain markers on page"
+    if len(text) < MIN_CONTENT_CHARS:
+        return False, f"thin content ({len(text)} chars extracted)"
+    return True, f"substantive ({len(text)} chars)"
 
 
 def extract(html: str, base_url: str = "") -> dict:

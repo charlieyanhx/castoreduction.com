@@ -73,6 +73,13 @@ def scrape_brand_prices(domain: str, max_paths: int = MAX_PATHS_PER_DOMAIN) -> d
             r = mrp_http.get(url, timeout=8, max_retries=0, allow_redirects=True)
             if r.status_code != 200:
                 continue
+            # W2/D13 content gate: a parked lander or JS shell returns 200 with junk
+            # numbers on it (a registrar's domain-sale price) — never extract from it.
+            from scrape.structured import page_is_substantive
+            ok, why = page_is_substantive(r.text)
+            if not ok:
+                log.debug(f"  {url} skipped by content gate: {why}")
+                continue
             paths_tried.append(path or "/")
             prices = extract_prices_from_html(r.text)
             if prices:
