@@ -2210,7 +2210,7 @@ class TestTrustpilotVelocityFix(unittest.TestCase):
             {"title": "x", "body": "y", "stars": 5, "date": "2026-02-01T00:00:00Z"},
             {"title": "x", "body": "y", "stars": 5, "date": "2026-03-01T00:00:00Z"},
         ]
-        with patch("sources.trustpilot_reviews", return_value=fake_reviews):
+        with patch("tools.sources.trustpilot.trustpilot_reviews", return_value=fake_reviews):  # W2-6: moved with the code
             result = sources.trustpilot_momentum("smallsample-test.com")
         self.assertTrue(result.get("on_trustpilot"))
         self.assertIsNone(result.get("velocity_slope"))
@@ -2234,7 +2234,7 @@ class TestTrustpilotVelocityFix(unittest.TestCase):
             {"title": "x", "body": "y", "stars": 4, "date": "2026-04-01T00:00:00Z"},
             {"title": "x", "body": "y", "stars": 4, "date": "2026-04-10T00:00:00Z"},
         ]
-        with patch("sources.trustpilot_reviews", return_value=fake_reviews):
+        with patch("tools.sources.trustpilot.trustpilot_reviews", return_value=fake_reviews):  # W2-6: moved with the code
             result = sources.trustpilot_momentum("growth-test.com")
         self.assertTrue(result.get("on_trustpilot"))
         self.assertIsNotNone(result.get("velocity_slope"))
