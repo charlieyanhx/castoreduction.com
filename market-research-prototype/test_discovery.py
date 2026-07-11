@@ -151,5 +151,84 @@ class TestRootDomain(unittest.TestCase):
             "thebrand.co.uk", final_url="https://www.thebrand.co.uk/"))
 
 
+class TestOffCategoryRanking(unittest.TestCase):
+    """B4/D19: _gather_signals resolved a domain via validate_domain (which the W2-5
+    relevance gate already annotates with off_category/relevance) but discarded those
+    fields — so a 183-day-old crypto-SaaS domain ranked #1 "direct" competitor for a
+    superconductor venture purely on domain age (real R4 critical: e55db08e, Theon
+    Technology). Fix: retain the verdict on the enriched entry, and ranking must never
+    present an off-category entry as "direct"."""
+
+    def _hermetic_gather(self, validate_return, name, likely_domain, category):
+        """Mock every network-touching call inside _gather_signals so the test is
+        fast and deterministic — only the domain-validation verdict under test
+        (and its off_category/relevance flow-through) is exercised for real."""
+        from discover import _gather_signals
+        with patch("discover.validate_domain", return_value=validate_return), \
+             patch("discover.brand_trend_slope", return_value={}), \
+             patch("discover.trustpilot_momentum", return_value={}), \
+             patch("discover.reddit_mentions", return_value=[]), \
+             patch("discover.estimate_domain_age_days", return_value=183), \
+             patch("discover.wayback_activity", return_value={"error": "skip"}), \
+             patch("discover.instagram_signal", return_value={"has_instagram": False}), \
+             patch("discover.time.sleep"):
+            return _gather_signals({"name": name, "likely_domain": likely_domain},
+                                   category, "US")
+
+    def test_gather_signals_retains_relevance_verdict(self):
+        fake_validate = {"ok": True, "strong_match": True, "parked": False,
+                         "final_url": "https://theontechnology.com/", "title": "Theon",
+                         "relevance": 0.12, "off_category": True}
+        out = self._hermetic_gather(fake_validate, "Theon Technology",
+                                    "theontechnology.com", "superconducting tape")
+        self.assertTrue(out.get("off_category"))
+        self.assertEqual(out.get("relevance_score"), 0.12)
+
+    def test_gather_signals_no_flag_when_on_category(self):
+        fake_validate = {"ok": True, "strong_match": True, "parked": False,
+                         "final_url": "https://realsupercon.com/", "title": "Real",
+                         "relevance": 0.81, "off_category": False}
+        out = self._hermetic_gather(fake_validate, "Real Supercon",
+                                    "realsupercon.com", "superconducting tape")
+        self.assertFalse(out.get("off_category"))
+
+    def test_rank_demotes_and_relabels_off_category_entries(self):
+        from discover import _apply_relevance_to_ranking
+        entries = [
+            {"brand": "Theon Technology", "_score": 40, "off_category": True, "relevance": "direct"},
+            {"brand": "Real Supercon", "_score": 20, "off_category": False, "relevance": "direct"},
+        ]
+        out = _apply_relevance_to_ranking(entries)
+        # off-category entry sorted last regardless of its higher raw score
+        self.assertEqual([e["brand"] for e in out], ["Real Supercon", "Theon Technology"])
+        self.assertEqual(out[1]["relevance"], "reference")  # never "direct" when off-category
+        self.assertEqual(out[0]["relevance"], "direct")     # on-category untouched
+
+    def test_d19_fires_on_off_category_direct_in_top3(self):
+        from gates import d19_no_off_category_direct_competitor
+        r = {"discover": {"synthesis": {"ranked_opportunities": [
+            {"rank": 1, "brand": "Theon Technology", "off_category": True, "relevance": "direct"},
+            {"rank": 2, "brand": "Real Supercon", "off_category": False, "relevance": "direct"},
+        ]}}}
+        f = d19_no_off_category_direct_competitor(r, None)
+        self.assertIs(f.ok, False, f.detail)
+
+    def test_d19_passes_when_off_category_not_direct(self):
+        from gates import d19_no_off_category_direct_competitor
+        r = {"discover": {"synthesis": {"ranked_opportunities": [
+            {"rank": 1, "brand": "Real Supercon", "off_category": False, "relevance": "direct"},
+            {"rank": 2, "brand": "Theon Technology", "off_category": True, "relevance": "reference"},
+        ]}}}
+        f = d19_no_off_category_direct_competitor(r, None)
+        self.assertIsNot(f.ok, False, f.detail)
+
+    def test_d19_na_without_relevance_fields(self):
+        from gates import d19_no_off_category_direct_competitor
+        r = {"discover": {"synthesis": {"ranked_opportunities": [
+            {"rank": 1, "brand": "X", "relevance": "direct"}]}}}
+        f = d19_no_off_category_direct_competitor(r, None)
+        self.assertIsNone(f.ok)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -327,6 +327,24 @@ def _union_named_competitors(candidates: list[dict], named_competitors) -> list[
     return out
 
 
+def _apply_relevance_to_ranking(entries: list[dict]) -> list[dict]:
+    """B4/D19: an off-category domain (content relevance below the W2-5 threshold)
+    must never present as a "direct" competitor, and never outrank on-category
+    entries by raw signal score alone (a stale/idle domain with a matching age still
+    isn't a rival). Sorted with on-category entries first (stable by their existing
+    order otherwise); any off_category entry has its relevance forced to "reference".
+    Entries without an off_category field are treated as on-category (no verdict
+    available — do not penalize what wasn't checked)."""
+    out = []
+    for e in entries:
+        e = dict(e)
+        if e.get("off_category"):
+            e["relevance"] = "reference"
+        out.append(e)
+    out.sort(key=lambda e: bool(e.get("off_category")))
+    return out
+
+
 def _gather_signals(brand: dict, category: str, geo: str) -> dict:
     """
     Pull all free signals for one brand. Category is used as disambiguation
@@ -360,6 +378,13 @@ def _gather_signals(brand: dict, category: str, geo: str) -> dict:
                 out["description"] = v["meta_desc"]
             elif v.get("title"):
                 out["description"] = v["title"]
+        # B4/D19: retain the W2-5 relevance verdict regardless of strong_match outcome
+        # — validate_domain already computed it, and discarding it let an off-category
+        # domain (e.g. a crypto-SaaS site for a superconductor venture) rank as a
+        # "direct" competitor purely on domain age, with no relevance signal at all.
+        if "relevance" in v or "off_category" in v:
+            out["relevance_score"] = v.get("relevance")
+            out["off_category"] = bool(v.get("off_category"))
     if not domain:
         try:
             p = probe_domain_patterns(name, context_keyword=context_kw)
@@ -548,29 +573,46 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
         # Also ensure it has the expected structure
         if not isinstance(synthesis, dict) or "ranked_opportunities" not in synthesis:
             raise RuntimeError(f"LLM returned malformed synthesis: missing ranked_opportunities")
+        # B4/D19: the LLM ranks/labels relevance itself and doesn't see off_category —
+        # merge the W2-5 verdict back in by domain (fallback: brand name) so an
+        # off-category domain can never present as "direct" or outrank on-category
+        # entries by raw score.
+        by_domain = {e.get("domain"): e for e in enriched_sorted if e.get("domain")}
+        by_brand = {e.get("brand"): e for e in enriched_sorted if e.get("brand")}
+        for op in synthesis.get("ranked_opportunities") or []:
+            src = by_domain.get(op.get("domain")) or by_brand.get(op.get("brand"))
+            if src and "off_category" in src:
+                op["off_category"] = src["off_category"]
+                op["relevance_score"] = src.get("relevance_score")
+        synthesis["ranked_opportunities"] = _apply_relevance_to_ranking(
+            synthesis["ranked_opportunities"])
         result["synthesis"] = synthesis
     except Exception as e:
         log.warning("LLM synthesis failed (%s), building raw ranking", e)
+        raw_ranked = [
+            {
+                "rank": i,
+                "brand": c.get("brand"),
+                "domain": c.get("domain"),
+                "description": c.get("description", ""),
+                "opportunity_score": c.get("_score", 0),
+                "relevance": "direct",
+                "off_category": c.get("off_category", False),
+                "relevance_score": c.get("relevance_score"),
+                "signals": {
+                    k: c.get(k) for k in
+                    ["trend_slope", "trustpilot_reviews", "trustpilot_avg_stars",
+                     "ig_followers", "wayback_avg_per_month", "domain_age_days"]
+                    if c.get(k) is not None
+                },
+                "thesis": "(LLM synthesis unavailable — review raw signals)",
+                "suggested_next_step": "decode_taste" if c.get("_score", 0) > 20 else "investigate_further",
+            }
+            for i, c in enumerate(enriched_sorted, 1)
+        ]
         result["synthesis"] = {
             "category_read": f"Category '{category}' with {len(enriched_sorted)} candidates analyzed.",
-            "ranked_opportunities": [
-                {
-                    "rank": i,
-                    "brand": e.get("brand"),
-                    "domain": e.get("domain"),
-                    "description": e.get("description", ""),
-                    "opportunity_score": e.get("_score", 0),
-                    "signals": {
-                        k: e.get(k) for k in
-                        ["trend_slope", "trustpilot_reviews", "trustpilot_avg_stars",
-                         "ig_followers", "wayback_avg_per_month", "domain_age_days"]
-                        if e.get(k) is not None
-                    },
-                    "thesis": "(LLM synthesis unavailable — review raw signals)",
-                    "suggested_next_step": "decode_taste" if e.get("_score", 0) > 20 else "investigate_further",
-                }
-                for i, e in enumerate(enriched_sorted, 1)
-            ],
+            "ranked_opportunities": _apply_relevance_to_ranking(raw_ranked),  # B4/D19
             "_synthesis_error": str(e),
         }
 

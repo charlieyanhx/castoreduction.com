@@ -287,6 +287,23 @@ def d18_wtp_price_reconciled(r: dict, html: Optional[str]) -> Finding:
                    f"mismatch disclosed ({ratio:.0f}x)")
 
 
+def d19_no_off_category_direct_competitor(r: dict, html: Optional[str]) -> Finding:
+    """B4: no off-category domain (content relevance below the W2-5 threshold) may
+    present as a "direct" competitor in the top 3 ranked opportunities. Real R4
+    critical (e55db08e): a 183-day-old crypto-SaaS domain ("Theon Technology") ranked
+    #1 direct rival for a superconducting-tape venture purely on domain age, with no
+    relevance signal checked. N/A when the ranking carries no off_category/relevance
+    fields at all (older corpora, or a discovery run with no LLM-validated domains)."""
+    disc = r.get("discover") or {}
+    ops = disc.get("ranked_opportunities") or (disc.get("synthesis") or {}).get("ranked_opportunities") or []
+    top3 = ops[:3]
+    if not any("off_category" in o for o in top3):
+        return Finding(None, "no relevance verdict on the top-3 ranking")
+    bad = [o.get("brand") for o in top3 if o.get("off_category") and o.get("relevance") == "direct"]
+    return Finding(not bad, f"off-category 'direct' competitor(s) in top 3: {bad}"
+                   if bad else "no off-category domain ranked as direct")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -306,6 +323,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D16", "competitor_density matches ranked set", "wrong density input to viability", "fail", d16_density_matches_ranked),
     Invariant("D17", "per-unit venture never on subscription fallback", "hybrid device price mis-extracted", "fail", d17_per_unit_not_on_subscription_fallback),
     Invariant("D18", "WTP reconciled with recommended price", "83x gap rendered uncommented", "fail", d18_wtp_price_reconciled),
+    Invariant("D19", "no off-category 'direct' competitor in top 3", "wrong-industry rival ranked #1", "fail", d19_no_off_category_direct_competitor),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
