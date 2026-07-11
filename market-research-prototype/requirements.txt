@@ -42,3 +42,4 @@ playwright-stealth>=1.0   # bypass bot detection on Trustpilot
 anthropic>=0.39
 groq>=0.9
 google-genai>=1.0
+tldextract>=5.3           # W2-3: registrable-root extraction (kills the .co.uk collapse); offline PSL snapshot

@@ -142,6 +142,36 @@ PARKING_PATTERNS = re.compile(
 )
 
 
+_TLD_EXTRACTOR = None
+
+
+def root_domain(host_or_url: str) -> str:
+    """Registrable root of a host or URL ('www.thebrand.co.uk' → 'thebrand.co.uk'),
+    multi-part-TLD aware via tldextract's bundled public-suffix snapshot (offline —
+    no list fetch). W2 item 3: the naive last-two-labels join collapsed UK/AU brands
+    to their public suffix ('co.uk'), which then became the stored domain, the dedup
+    key, and a literal fetch target. Falls back to the naive join if tldextract is
+    unavailable. Do NOT pass bare brand names — this is for hosts/URLs."""
+    global _TLD_EXTRACTOR
+    host = (host_or_url or "").lower().strip()
+    if "://" in host:
+        host = host.split("://", 1)[1]
+    host = host.split("/", 1)[0].split("?", 1)[0].split(":", 1)[0].rstrip(".")
+    if not host:
+        return ""
+    try:
+        import tldextract
+        if _TLD_EXTRACTOR is None:
+            _TLD_EXTRACTOR = tldextract.TLDExtract(suffix_list_urls=())  # offline snapshot
+        ext = _TLD_EXTRACTOR(host)
+        if ext.domain and ext.suffix:
+            return f"{ext.domain}.{ext.suffix}"
+        return host
+    except Exception:
+        parts = host.split(".")
+        return ".".join(parts[-2:]) if len(parts) >= 2 else host
+
+
 def is_parked_domain(domain: str, html: str = "", final_url: str = "") -> bool:
     """Return True if the domain is parked / for sale / on a marketplace."""
     domain_lc = domain.lower()
@@ -152,7 +182,7 @@ def is_parked_domain(domain: str, html: str = "", final_url: str = "") -> bool:
         if m:
             check_hosts.append(m.group(1).lower())
     for host in check_hosts:
-        root = ".".join(host.split(".")[-2:])
+        root = root_domain(host)
         if root in PARKED_HOSTS or host in PARKED_HOSTS:
             return True
     # Check page content for parking text patterns
@@ -269,9 +299,7 @@ def probe_domain_patterns(brand: str, context_keyword: str = "") -> Optional[dic
     best: Optional[dict] = None
 
     def _root(final_url: str) -> str:
-        host = final_url.replace("https://", "").replace("http://", "").split("/")[0]
-        parts = host.split(".")
-        return ".".join(parts[-2:]) if len(parts) >= 2 else host
+        return root_domain(final_url)  # W2-3: multi-part-TLD aware (no co.uk collapse)
 
     for pat in patterns:
         v = validate_domain(pat, context_keyword=context_keyword, brand_name=brand)
@@ -338,7 +366,7 @@ def resolve_brand_domain(brand: str, context: str = "") -> Optional[str]:
             if not m2:
                 continue
             host = m2.group(1).lower()
-            root = ".".join(host.split(".")[-2:]) if host.count(".") >= 1 else host
+            root = root_domain(host)  # W2-3: multi-part-TLD aware
             if root in blocked_hosts or host in blocked_hosts:
                 continue
             return host  # first organic non-blocked result

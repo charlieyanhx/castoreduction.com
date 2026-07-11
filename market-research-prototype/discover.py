@@ -310,9 +310,10 @@ def _gather_signals(brand: dict, category: str, geo: str) -> dict:
         if v.get("parked"):
             log.info(f"  rejected parked domain for {name}: {llm_guess}")
         elif v.get("ok") and v.get("strong_match"):
-            host = v["final_url"].replace("https://", "").replace("http://", "").split("/")[0]
-            parts = host.split(".")
-            domain = ".".join(parts[-2:]) if len(parts) >= 2 else host
+            # W2-3: registrable root, multi-part-TLD aware — the naive last-two-labels
+            # join stored 'co.uk' as a UK brand's domain (then fetched https://co.uk).
+            from sources import root_domain
+            domain = root_domain(v["final_url"])
             out["domain_source"] = "llm_validated"
             domain_confidence = "high"
             # Capture homepage description for the UI

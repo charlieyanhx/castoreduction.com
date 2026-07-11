@@ -113,5 +113,43 @@ class TestEndToEndThroughHarness(unittest.TestCase):
             self.assertTrue(c["sources"])
 
 
+class TestRootDomain(unittest.TestCase):
+    """W2 item 3: registrable-root extraction via tldextract. The live bug: the
+    naive `".".join(host.split(".")[-2:])` collapsed 'www.thebrand.co.uk' to
+    'co.uk' — a UK brand's stored domain became the public suffix itself, and the
+    pipeline then literally fetched https://co.uk (seen retrying in run logs)."""
+
+    def test_multipart_tlds_keep_the_brand_label(self):
+        from sources import root_domain
+        self.assertEqual(root_domain("www.thebrand.co.uk"), "thebrand.co.uk")
+        self.assertEqual(root_domain("shop.brand.com.au"), "brand.com.au")
+        self.assertEqual(root_domain("thebrand.co.uk"), "thebrand.co.uk")
+
+    def test_simple_tlds_unchanged(self):
+        from sources import root_domain
+        self.assertEqual(root_domain("sub.brand.com"), "brand.com")
+        self.assertEqual(root_domain("brand.io"), "brand.io")
+        self.assertEqual(root_domain("brand.com"), "brand.com")
+
+    def test_accepts_full_urls_and_ports(self):
+        from sources import root_domain
+        self.assertEqual(root_domain("https://www.thebrand.co.uk/menu?x=1"), "thebrand.co.uk")
+        self.assertEqual(root_domain("http://brand.com:8080/"), "brand.com")
+
+    def test_degenerate_inputs(self):
+        from sources import root_domain
+        self.assertEqual(root_domain(""), "")
+        self.assertEqual(root_domain("localhost"), "localhost")
+
+    def test_parked_marketplace_matched_through_subdomain(self):
+        # is_parked_domain's host matching must see the true registrable root, so a
+        # parking redirect to a marketplace SUBDOMAIN still matches PARKED_HOSTS.
+        from sources import is_parked_domain
+        self.assertTrue(is_parked_domain(
+            "brandx.com", final_url="https://park.sedoparking.com/brandx"))
+        self.assertFalse(is_parked_domain(
+            "thebrand.co.uk", final_url="https://www.thebrand.co.uk/"))
+
+
 if __name__ == "__main__":
     unittest.main()
