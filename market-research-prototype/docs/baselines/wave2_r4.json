@@ -1,8 +1,10 @@
 {
   "ring": "R4",
   "wave": "wave2",
-  "status": "COMPLETE \u2014 127/127 agents, 0 errors, every serious finding adversarially verified",
-  "coverage": "16/16 ventures x 12 rubric rows = 192 cells",
+  "status": "COMPLETE + VALID \u2014 127/127 agents, gap-aware aggregation, 0 verification gaps",
+  "valid": true,
+  "verification_gaps": 0,
+  "coverage": "16/16 ventures x 12 rubric rows = 192 cells; every CRIT/HIGH finding has a real verifier verdict (verifier_died=false on all)",
   "result": {
     "pass_pct": 35.9,
     "pass": 69,
@@ -22,8 +24,9 @@
     "R7": 3,
     "R8": 1
   },
-  "dominant_theme": "cross-section numeric incoherence (R12/R2/R3/R11: same headline number, different values per section) + WTP-vs-price mismatch on deep-tech/B2B ventures (R9). Both are Wave-4 targets (report/forecast.py reconciliation, report/citation.py) \u2014 NOT reliability/routing/data-layer (the Wave 1-2 scope, whose floor holds: deterministic gate D01-D14 = 100%).",
-  "baseline_caveat": "This panel (4 dimension-groups scoring the 12 rubric rows R1-R12) is NOT identical methodology to the M0 audit (19 cells incl. 7 cross-cutting invariants; AUDIT_RESULTS.md read 21% pass / 47 CRITICAL; plan M0 note '26%/6' differs and is likely a different scoping). Treat 35.9%/31 as the Wave-2 baseline for THIS panel methodology; M7/M8 trend against it. Directionally pass-rate is up and criticals well below the audit's 47.",
+  "dominant_theme": "cross-section numeric incoherence (R12/R2/R3/R11: same headline number, different values per section) + WTP-vs-price mismatch on deep-tech/B2B ventures (R9). Both are Wave-4 targets (report/forecast.py reconciliation, report/citation.py) \u2014 NOT the Wave 1-2 reliability/routing/data-layer floor (deterministic gate D01-D14 = 100%).",
+  "verification_note": "First aggregation conflated dead-verifier with not-refuted (both -> refuted:false); hardened to track verifier_died explicitly and mark the run INVALID on any gap. This result re-confirmed at 0 gaps via cached replay (0 tokens).",
+  "baseline_caveat": "Panel scores the 12 rubric rows R1-R12 (4 dimension-groups); NOT identical methodology to the M0 audit (19 cells incl. 7 invariants; AUDIT_RESULTS.md read 21%/47; plan '26%/6' is a different scoping). This is the Wave-2 baseline for THIS panel; M7/M8 trend against it.",
   "per_venture_pass_of_12": {
     "5dbf3f54": 8,
     "a618db1a": 8,

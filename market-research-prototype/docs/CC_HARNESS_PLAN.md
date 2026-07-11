@@ -570,6 +570,14 @@ audit trail IS the project log — no separate status reports.
   reconcile-to-the-decimal + report/citation.py), NOT the Wave 1-2 reliability/routing/
   data-layer scope — whose floor holds (deterministic gate D01-D14 = 100%). The Wave-2
   HARD exit gate was met independently of R4.
+- **R4 harness defect found + fixed** (the credit-ceiling runs exposed it): the panel's
+  aggregation counted a dead verifier the same as "verifier ran and upheld" (both →
+  refuted:false), so a truncated run could silently pass off unverified findings as
+  confirmed. This run survived on persistence (resumed until 0 agent errors), not
+  correctness. Fixed: the aggregation now tracks `verifier_died` per finding, emits
+  `verification_gaps` + a `valid` flag, and a run with any gap is INVALID. Re-confirmed
+  the Wave-2 R4 at **0 gaps, valid=true** via cached replay (0 tokens). The M7/M8 R4
+  claims run through this hardened panel.
 - **W2 close-out doubles as the W1-deferred corpus ritual**: this regen is the R3 +
   reproducibility (identical to the cent) + R5 smoke (PASS 42s) confirmation of the
   W1 `call_json` changes that §5d parked at the W1 close.
