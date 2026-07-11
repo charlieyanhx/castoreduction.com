@@ -61,7 +61,9 @@ RED tests (`test_report_data_fixes.py`, new class `TestCompetitorDensity`):
   `active_signal_density==2` (call the discover step or extract its density block into
   a small pure function `_density_counts(enriched) -> tuple[int,int]` and test that).
 
-Simulation (paste as-is, expect **14 → 0** D16 failures after recomputing density):
+Simulation (paste as-is; on the stored corpus D16-as-specified fires on **11** ventures
+pre-fix — 14 have some mismatch but 3 fall under the half-of-ranked threshold — and
+must be **0** after recomputing density):
 ```python
 # sim: recompute density from stored ranked lists across out/wave2_corpus
 import json, glob
