@@ -31,6 +31,18 @@ from .validate import validate_numbers
 _SPEND_CACHE: dict[str, float] = {}
 
 
+def _validation_note_sources(address: str) -> dict:
+    """G5-shallow / D11: the validation-advice sources named in the honesty notes,
+    geography-aware. A Lisbon operator must not be told to validate Portuguese
+    household data against US Census ACS / BLS CEX (US-only sources). Do NOT use for
+    grounding claims — this only names where the OPERATOR should verify estimates."""
+    from market_sizing import is_non_us_geography
+    if is_non_us_geography(address):
+        return {"households": "your national statistics office (e.g. Eurostat/INE in the EU)",
+                "spend": "your national household expenditure survey (category spend/household)"}
+    return {"households": "US Census ACS", "spend": "BLS Consumer Expenditure Survey"}
+
+
 def _estimate_households(location: str, radius_m: int) -> Optional[float]:
     """Estimate trade-area households as catchment AREA × LLM-estimated residential DENSITY
     (households/km²) — a labeled fallback when Census ACS is unavailable.
@@ -236,15 +248,16 @@ def size_hyperlocal(
         notes.append("Address could not be geocoded (Census + OSM Nominatim "
                      "unavailable) — trade-area sized from an estimated household "
                      "count; competitor density via OSM was skipped.")
+    _note_srcs = _validation_note_sources(address)
     if not spend_is_sourced and spend:
         # Estimated spend is the load-bearing per-unit input → TAM can't be "high".
         _lower("medium")
-        notes.append("Annual spend/household is an LLM estimate, not BLS-sourced — "
-                     "validate against BLS Consumer Expenditure Survey before relying on TAM.")
+        notes.append("Annual spend/household is an LLM estimate, not survey-sourced — "
+                     f"validate against {_note_srcs['spend']} before relying on TAM.")
     if not households_sourced and households:
         _lower("low")  # estimated catchment size is the other load-bearing input
-        notes.append("Trade-area households is an LLM estimate, not Census-sourced — "
-                     "validate against US Census ACS before relying on TAM.")
+        notes.append("Trade-area households is an LLM estimate, not census-sourced — "
+                     f"validate against {_note_srcs['households']} before relying on TAM.")
 
     if households and spend:
         tam = households * spend

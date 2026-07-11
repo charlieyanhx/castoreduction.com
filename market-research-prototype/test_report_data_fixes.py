@@ -1016,5 +1016,49 @@ class TestCompetitorDensity(unittest.TestCase):
         self.assertNotIn("geo_sourced", result["discover"])
 
 
+class TestNonUsValidationSources(unittest.TestCase):
+    """G5-shallow / D11: the hyperlocal adapter hardcoded 'US Census ACS' + 'BLS CEX'
+    as the operator's validation sources for EVERY venture — a Lisbon cafe was told
+    to validate Portuguese household data against US-only sources (wave2.75 D11 warn,
+    94008e7c). The numbers themselves were honest (disclosed LLM estimates; no US
+    data was actually used) — only the ADVICE was wrong. The deep G5 (real Eurostat/
+    INE grounding + EUR framing) stays deferred; this fixes the advice strings."""
+
+    def test_lisbon_gets_national_sources_not_us(self):
+        from market_sizing import validation_sources_for
+        srcs = " ".join(validation_sources_for("Lisbon, Portugal"))
+        self.assertNotIn("US Census", srcs)
+        self.assertNotIn("BLS", srcs)
+        self.assertIn("national statistics", srcs.lower())
+
+    def test_us_location_keeps_census_and_bls(self):
+        from market_sizing import validation_sources_for
+        srcs = " ".join(validation_sources_for("Silver Lake, Los Angeles"))
+        self.assertIn("US Census ACS", srcs)
+        self.assertIn("BLS", srcs)
+
+    def test_unknown_location_defaults_to_us(self):
+        from market_sizing import validation_sources_for
+        srcs = " ".join(validation_sources_for(""))
+        self.assertIn("US Census ACS", srcs)
+
+    def test_d11_passes_on_the_fixed_shape(self):
+        from market_sizing import validation_sources_for
+        from gates import d11_currency_sources
+        r = {"profile": {"geography": "Portugal", "summary": "a cafe in Lisbon, Portugal"},
+            "market_sizing": {"sources_to_validate": validation_sources_for("Lisbon, Portugal")}}
+        f = d11_currency_sources(r, None)
+        self.assertIsNot(f.ok, False, f.detail)
+
+    def test_hyperlocal_notes_are_geography_aware(self):
+        from skills.sizing.hyperlocal import _validation_note_sources
+        non_us = _validation_note_sources("Lisbon, Portugal")
+        self.assertNotIn("US Census", non_us["households"])
+        self.assertNotIn("BLS", non_us["spend"])
+        us = _validation_note_sources("Austin, TX")
+        self.assertIn("US Census ACS", us["households"])
+        self.assertIn("BLS", us["spend"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -648,6 +648,44 @@ def _enforce_sizing_ordering(result: dict) -> dict:
     return result
 
 
+# G5-shallow / D11: geography-aware validation-source recommendations. A Lisbon cafe
+# was told to validate Portuguese household data against US Census ACS + BLS CEX —
+# US-only sources (wave2.75 D11 warn, 94008e7c). Mirrors gates.py NON_US_MARKERS.
+# The deep G5 (real Eurostat/INE data grounding + non-USD framing) stays deferred;
+# this only makes the operator ADVICE honest for the venture's geography.
+NON_US_MARKERS = (
+    "portugal", "lisbon", "canada", "mexico", "brazil", "united kingdom", " uk", "london",
+    "germany", "berlin", "france", "paris", "spain", "madrid", "italy", "japan", "tokyo",
+    "china", "india", "australia", "singapore", "netherlands", "europe",
+)
+
+
+def is_non_us_geography(text: str) -> bool:
+    """True when the free-text location/geography names a non-US market."""
+    blob = (text or "").lower()
+    return any(m in blob for m in NON_US_MARKERS)
+
+
+def validation_sources_for(location: str) -> list[str]:
+    """The 3 sources a hyperlocal operator should validate the trade-area inputs
+    against — geography-aware. US (or unknown) keeps Census ACS + BLS CEX; a non-US
+    venture is pointed at its national statistics office instead of US-only sources
+    it cannot use. Do NOT use to claim data grounding — these are validation ADVICE
+    strings; actual grounding status is disclosed separately per input."""
+    if is_non_us_geography(location):
+        where = (location or "").strip() or "the venture's market"
+        return [
+            f"national statistics office household data for {where} (e.g. Eurostat/INE in the EU)",
+            f"national household expenditure survey for {where} (category spend/household)",
+            "local single-unit revenue benchmarks (SOM anchor)",
+        ]
+    return [
+        "US Census ACS (trade-area households)",
+        "BLS Consumer Expenditure Survey (category spend/household)",
+        "local single-unit revenue benchmarks (SOM anchor)",
+    ]
+
+
 def format_currency(n) -> str:
     """Format a number as $1.2B / $450M / $25K — for display."""
     if n is None:

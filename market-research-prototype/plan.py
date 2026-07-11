@@ -34,7 +34,7 @@ from place import analyze_competitor_channels, recommend_place
 from four_ps import assemble_4ps, assemble_4ps_split, score_viability
 from clustering import cluster_competitors, find_whitespace
 from competitor_pricing import gather_competitor_prices
-from market_sizing import estimate_market_size
+from market_sizing import estimate_market_size, validation_sources_for
 from financials import project_three_year, Y3_CAPTURE
 from personas import synthesize_personas
 from logger import get
@@ -832,11 +832,9 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
         # "data quality" and "weakest assumptions" slots (otherwise they read "unknown").
         "data_quality": p.get("confidence") or "low",
         "weakest_assumptions": notes[:3],
-        "sources_to_validate": [
-            "US Census ACS (trade-area households)",
-            "BLS Consumer Expenditure Survey (category spend/household)",
-            "local single-unit revenue benchmarks (SOM anchor)",
-        ],
+        # G5-shallow / D11: geography-aware — a Lisbon cafe must not be told to
+        # validate Portuguese household data against US-only sources.
+        "sources_to_validate": validation_sources_for(location),
         "scale_decision": scale_decision,
         "_hyperlocal_location": location, "_osm_value": osm,
     }
