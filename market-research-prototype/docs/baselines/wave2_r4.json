@@ -1,0 +1,45 @@
+{
+  "ring": "R4",
+  "wave": "wave2",
+  "status": "COMPLETE \u2014 127/127 agents, 0 errors, every serious finding adversarially verified",
+  "coverage": "16/16 ventures x 12 rubric rows = 192 cells",
+  "result": {
+    "pass_pct": 35.9,
+    "pass": 69,
+    "warn": 68,
+    "fail": 55,
+    "total": 192,
+    "criticals_confirmed": 31,
+    "highs_confirmed": 24
+  },
+  "criticals_by_dimension": {
+    "R12": 8,
+    "R3": 5,
+    "R9": 5,
+    "R2": 3,
+    "R11": 3,
+    "R6": 3,
+    "R7": 3,
+    "R8": 1
+  },
+  "dominant_theme": "cross-section numeric incoherence (R12/R2/R3/R11: same headline number, different values per section) + WTP-vs-price mismatch on deep-tech/B2B ventures (R9). Both are Wave-4 targets (report/forecast.py reconciliation, report/citation.py) \u2014 NOT reliability/routing/data-layer (the Wave 1-2 scope, whose floor holds: deterministic gate D01-D14 = 100%).",
+  "baseline_caveat": "This panel (4 dimension-groups scoring the 12 rubric rows R1-R12) is NOT identical methodology to the M0 audit (19 cells incl. 7 cross-cutting invariants; AUDIT_RESULTS.md read 21% pass / 47 CRITICAL; plan M0 note '26%/6' differs and is likely a different scoping). Treat 35.9%/31 as the Wave-2 baseline for THIS panel methodology; M7/M8 trend against it. Directionally pass-rate is up and criticals well below the audit's 47.",
+  "per_venture_pass_of_12": {
+    "5dbf3f54": 8,
+    "a618db1a": 8,
+    "e8baf9dd": 7,
+    "955a4b3b": 7,
+    "c48497fa": 6,
+    "becc8783": 5,
+    "4a755faa": 5,
+    "28d0ec61": 4,
+    "174ae091": 4,
+    "3219f4db": 3,
+    "94008e7c": 3,
+    "348c69ca": 3,
+    "8add1fa2": 2,
+    "de34e328": 2,
+    "800c261b": 1,
+    "e55db08e": 1
+  }
+}

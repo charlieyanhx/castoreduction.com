@@ -555,14 +555,21 @@ audit trail IS the project log — no separate status reports.
   flagged becc8783 shipping a degenerate WTP band (4 segments all $10 → 10/10/10
   "range"). Root-fixed as a consensus-point disclosure per §3 rule 4 (gate-found bug
   → R1 test → fix); venture re-run; core gate then 122/122 = 100%.
-- **W2 close-out — R4 panel INCOMPLETE (credit ceiling)**: the R4 checkpoint hit a
-  usage-credit wall at 35/107 agents (8/16 ventures fully scored, verification pass
-  truncated). Its numbers (~24% pass over the fully-scored subset, criticals inflated
-  because dead skeptics can't refute) are NOT a valid trend point vs 26%/6 — recorded
-  in `docs/baselines/wave2_r4_partial.json` as incomplete, NOT trended. The Wave-2
-  HARD exit gate (`gates.py --gate all` + reproducibility pair + R5 smoke) is met
-  independently; R4 is a checkpoint, and the formal R4 claim lives at M7/M8 anyway.
-  Full R4 re-run DEFERRED pending credits.
+- **W2 close-out — R4 panel COMPLETE** (`docs/baselines/wave2_r4.json`): took three
+  passes across two credit-ceiling resets (35→93→127 agents) to finish; final run
+  127/127, 0 errors, every CRITICAL/HIGH finding adversarially verified. Result:
+  **35.9% cells PASS (69/192), 31 CRITICAL, 24 HIGH**, full 16/16 coverage.
+  BASELINE CAVEAT: this panel (4 dimension-groups over the 12 rubric rows R1-R12) is
+  NOT identical methodology to the M0 audit (19 cells incl. 7 invariants; the actual
+  AUDIT_RESULTS.md read 21%/47, and the plan's "26%/6" M0 note is a different scoping)
+  — so 35.9%/31 is the Wave-2 baseline for THIS panel, which M7/M8 trend against;
+  directionally pass-rate up and criticals well under the audit's 47. The confirmed
+  CRITICALs cluster on cross-section numeric incoherence (R12=8, R3=5, R2=3, R11=3:
+  one headline number rendered with different values across sections) and WTP-vs-price
+  mismatch on deep-tech/B2B ventures (R9=5). Both are Wave-4 targets (report/forecast.py
+  reconcile-to-the-decimal + report/citation.py), NOT the Wave 1-2 reliability/routing/
+  data-layer scope — whose floor holds (deterministic gate D01-D14 = 100%). The Wave-2
+  HARD exit gate was met independently of R4.
 - **W2 close-out doubles as the W1-deferred corpus ritual**: this regen is the R3 +
   reproducibility (identical to the cent) + R5 smoke (PASS 42s) confirmation of the
   W1 `call_json` changes that §5d parked at the W1 close.
