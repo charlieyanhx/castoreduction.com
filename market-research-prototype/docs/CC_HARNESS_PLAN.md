@@ -541,3 +541,28 @@ audit trail IS the project log — no separate status reports.
   taste-dedup R1 failure was root-caused as a deterministic dedup param collision
   (not flakiness) and fixed with per-connection `JOBS_DB_PATH` + session temp DBs —
   R1 at literal 100% (733/733) from here on.
+- **W2 item 1 — Tavily via house REST, not the SDK** (120eccd): the plan's file list
+  included requirements.txt assuming tavily-python; the backend follows the _brave
+  pattern (scrape.http.request), so no new dep. LIVE-SMOKE CONFIRM STILL PENDING:
+  TAVILY_API_KEY not yet in .env at the W2 close-out — the cascade degrades to the
+  old order until it lands; run the 5-query smoke when it does.
+- **W2 item 2 wiring site** (ead4a51): the content gate lives in scrape/structured.py
+  per the plan, but the wiring is in competitor_pricing.scrape_brand_prices (not in
+  the plan's file list) — that is where pages physically enter price extraction.
+- **W2 item 3 widened** (0838d1c): root_domain wired at all FOUR naive-root sites
+  (plan named two); same unit of work, one helper.
+- **W2 close-out — D10 caught live by the R3 ring** (efa0723): the fresh-corpus gate
+  flagged becc8783 shipping a degenerate WTP band (4 segments all $10 → 10/10/10
+  "range"). Root-fixed as a consensus-point disclosure per §3 rule 4 (gate-found bug
+  → R1 test → fix); venture re-run; core gate then 122/122 = 100%.
+- **W2 close-out — R4 panel INCOMPLETE (credit ceiling)**: the R4 checkpoint hit a
+  usage-credit wall at 35/107 agents (8/16 ventures fully scored, verification pass
+  truncated). Its numbers (~24% pass over the fully-scored subset, criticals inflated
+  because dead skeptics can't refute) are NOT a valid trend point vs 26%/6 — recorded
+  in `docs/baselines/wave2_r4_partial.json` as incomplete, NOT trended. The Wave-2
+  HARD exit gate (`gates.py --gate all` + reproducibility pair + R5 smoke) is met
+  independently; R4 is a checkpoint, and the formal R4 claim lives at M7/M8 anyway.
+  Full R4 re-run DEFERRED pending credits.
+- **W2 close-out doubles as the W1-deferred corpus ritual**: this regen is the R3 +
+  reproducibility (identical to the cent) + R5 smoke (PASS 42s) confirmation of the
+  W1 `call_json` changes that §5d parked at the W1 close.

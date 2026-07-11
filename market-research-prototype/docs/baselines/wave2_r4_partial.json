@@ -1,0 +1,25 @@
+{
+  "status": "INCOMPLETE \u2014 credit ceiling at 35/107 agents",
+  "ventures_fully_scored": "8/16",
+  "ventures_partial": [
+    "348c69ca",
+    "174ae091"
+  ],
+  "ventures_zero": [
+    "becc8783",
+    "4a755faa",
+    "5dbf3f54",
+    "c48497fa",
+    "955a4b3b",
+    "a618db1a"
+  ],
+  "over_fully_scored_only": {
+    "pass": 23,
+    "warn": 33,
+    "fail": 40,
+    "total": 96,
+    "pass_pct": 24.0
+  },
+  "caveat": "FAIL/critical counts are PRE-verification (skeptic pass truncated by same ceiling) \u2014 inflated; NOT comparable to the 26%/6 baseline.",
+  "note": "Deterministic hard gate (the real Wave-2 exit) is green: core 122/122=100%, all 154/155."
+}

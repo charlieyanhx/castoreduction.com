@@ -72,6 +72,7 @@ What it owns, and where it lives today:
 | Tool registry + `@tool` decorator | **exists** | `tools/registry.py` |
 | Skill registry + `@skill` decorator | **exists** | `skills/registry.py` |
 | `Evidence` envelope (uniform return) | **exists** | `tools/registry.py` |
+| Scraper modules (first shimmed split, W2) | **exists** | `tools/sources/{trustpilot,forums,articles,vertical}.py`; `sources.py` re-exports (domain/trends/ads/social clusters still there, moving with the waves that touch them) |
 | Error isolation (no crash propagation) | **exists** | both registries |
 | Deterministic spine (22-step pipeline) | **exists** | `plan.py`, `skills/pipeline.py` |
 | **CodeAct executor** (model writes Python over the registry) | build | `harness/codeact.py` |
