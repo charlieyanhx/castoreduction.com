@@ -244,6 +244,27 @@ def d16_density_matches_ranked(r: dict, html: Optional[str]) -> Finding:
                    if not ok else f"density={density} plausible for {len(ops)} ranked")
 
 
+def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
+    """B2: a per-unit venture (transactional/ecommerce/services/hybrid) whose economics
+    landed on the transactional model must NOT have financials on the subscription
+    shape (a 'customers' key in the scenario table — that's churn-annualized revenue
+    for a one-time-sale business). Real R4 chain (8add1fa2): a hybrid hardware+app
+    venture's device price was mis-extracted as its $5/mo app fee, margin went
+    negative, economics errored, and financials silently fell back to subscription
+    math. N/A when the venture isn't per-unit or financials are absent."""
+    if r.get("business_model_kind") not in PER_UNIT_KINDS:
+        return Finding(None, "not a per-unit model")
+    econ = r.get("economics") or {}
+    if econ.get("model") != "transactional":
+        return Finding(None, "economics not on the transactional model")
+    year3 = (((r.get("financials") or {}).get("scenarios") or {}).get("base") or {}).get("year_3") or {}
+    if not year3:
+        return Finding(None, "no financials scenario table")
+    bad = "customers" in year3
+    return Finding(not bad, "financials year_3 carries 'customers' (subscription shape) "
+                   "on a transactional venture" if bad else "financials use the unit shape")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -261,6 +282,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D14", "no failed 4Ps sections", "silent section failure", "warn", d14_no_failed_sections),
     Invariant("D15", "TAM coherent across sections", "same number, two values (audit C1)", "fail", d15_tam_coherent_across_sections),
     Invariant("D16", "competitor_density matches ranked set", "wrong density input to viability", "fail", d16_density_matches_ranked),
+    Invariant("D17", "per-unit venture never on subscription fallback", "hybrid device price mis-extracted", "fail", d17_per_unit_not_on_subscription_fallback),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

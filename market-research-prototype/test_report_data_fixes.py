@@ -556,6 +556,53 @@ class TestAtSomScenarioCoherence(unittest.TestCase):
         self.assertIs(_enrich_economics_at_som(base, None), base)       # no SOM yet
 
 
+class TestHybridDevicePrice(unittest.TestCase):
+    """B2/D17: for a hybrid hardware+subscription venture ("$199 device plus $5/mo
+    app"), extract_stated_price greedily matched the /mo phrase and returned $5 as
+    the venture's "unit price" — against $45 hardware COGS that's a negative margin,
+    economics errors, and financials SILENTLY falls back to the subscription model
+    (churn-annualizing a one-time hardware sale). Real R4 critical chain: 8add1fa2
+    R2/R6/R7/R12."""
+
+    HYBRID_DESC = ("A smart home air-quality monitor — $199 device plus a $5 per "
+                   "month premium app subscription.")
+
+    def test_extract_device_price_finds_the_hardware_figure(self):
+        from plan import extract_device_price
+        self.assertEqual(extract_device_price(self.HYBRID_DESC), 199.0)
+
+    def test_extract_device_price_ignores_monthly_phrases(self):
+        from plan import extract_device_price
+        self.assertIsNone(extract_device_price("a B2B SaaS billed at $99/month"))
+
+    def test_extract_device_price_none_without_a_device_noun(self):
+        from plan import extract_device_price
+        self.assertIsNone(extract_device_price("a cafe charging $6 per drink"))
+
+    def test_d17_fires_on_the_real_wave2_shape(self):
+        from gates import d17_per_unit_not_on_subscription_fallback
+        # 8add1fa2 shape: hybrid model, transactional economics, but financials
+        # landed on the subscription (customers) shape.
+        r = {"business_model_kind": "hybrid",
+            "economics": {"model": "transactional"},
+            "financials": {"scenarios": {"base": {"year_3": {"customers": 310}}}}}
+        f = d17_per_unit_not_on_subscription_fallback(r, None)
+        self.assertIs(f.ok, False, f.detail)
+
+    def test_d17_passes_on_a_real_transactional_shape(self):
+        from gates import d17_per_unit_not_on_subscription_fallback
+        r = {"business_model_kind": "transactional",
+            "economics": {"model": "transactional"},
+            "financials": {"scenarios": {"base": {"year_3": {"units": 4000}}}}}
+        f = d17_per_unit_not_on_subscription_fallback(r, None)
+        self.assertIsNot(f.ok, False, f.detail)
+
+    def test_d17_na_without_financials(self):
+        from gates import d17_per_unit_not_on_subscription_fallback
+        f = d17_per_unit_not_on_subscription_fallback({"business_model_kind": "hybrid"}, None)
+        self.assertIsNone(f.ok)
+
+
 class TestGeoCompetitorPromotion(unittest.TestCase):
     """M1: a physical-local venture's competitors must be the real nearby venues (OSM),
     promoted to the canonical set — not LLM-guessed national brands. General + deterministic:

@@ -272,6 +272,36 @@ def extract_unit_price(text: str) -> float | None:
         return None
 
 
+# B2/D17: a hybrid hardware+subscription price ("$199 device plus $5/mo app"). The
+# monthly _STATED_PRICE_RE greedily matched the $5/mo phrase and returned it as the
+# venture's "unit price" — against real hardware COGS that's a negative margin,
+# economics errors, and financials silently fell back to the subscription model
+# (churn-annualizing a one-time hardware sale). This looks for a $ figure near a
+# device noun that is NOT itself a /mo phrase.
+_DEVICE_PRICE_RE = re.compile(
+    r"\$\s*(\d[\d,]*\.?\d*)\s*(?:\w+\s+){0,3}?"
+    r"(?:device|hardware|unit|kit|sensor|monitor|gadget|appliance)\b",
+    re.IGNORECASE)
+_MONTHLY_WORD_RE = re.compile(r"/|\bper\b|\bmonth(?:ly)?\b|\bmo\b", re.I)
+
+
+def extract_device_price(text: str) -> float | None:
+    """Pull the one-time hardware/device price from a hybrid venture's description
+    ('$199 device plus a $5 per month app' -> 199.0). Returns None when the only
+    dollar figure near a device noun is ITSELF a monthly phrase (e.g. '$5 per month
+    device fee'), or no device noun is present at all."""
+    if not text:
+        return None
+    for m in _DEVICE_PRICE_RE.finditer(text):
+        if _MONTHLY_WORD_RE.search(m.group(0)):
+            continue  # the words between $ and the device noun say this IS monthly
+        try:
+            return float(m.group(1).replace(",", ""))
+        except ValueError:
+            continue
+    return None
+
+
 def reconcile_pricing(stated: float | None, recommended) -> dict | None:
     """Compare the user's stated price to the model's recommendation, visibly.
 
@@ -1654,13 +1684,18 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         from pricing import estimate_cost_structure
         _cost = estimate_cost_structure(profile.get("category", ""), _opt) if _opt else None
         # Transactional retail prices per real unit (e.g. $6/drink), not the PSM monthly point.
-        # Prefer an explicit per-unit stated price ("$6 per drink"); fall back to a monthly
-        # stated price, then the PSM optimal.
+        # Prefer an explicit per-unit stated price ("$6 per drink"), then a one-time
+        # device/hardware price ("$199 device" — B2/D17: a hybrid hardware+subscription
+        # venture used to fall through to the /mo app fee here, produce a negative
+        # margin against real hardware COGS, error out of economics, and silently land
+        # financials on the subscription model). Falls back to a monthly stated price,
+        # then the PSM optimal.
         _unit_price = extract_unit_price(description)
+        _device_price = extract_device_price(description)
         _stated = extract_stated_price(description)
         _unit_noun = _psm_unit  # cycle38: model-derived unit, never "/mo" for a per-unit venture
         if is_transactional:
-            _price_per_unit = float(_unit_price or _stated or _opt)
+            _price_per_unit = float(_unit_price or _device_price or _stated or _opt)
         else:
             _price_per_unit = _opt
 
