@@ -62,6 +62,47 @@ def model_directive(business_model_kind: str | None, economics: dict | None = No
         "ad-supported, frame economics on users/engagement, not subscriber CLV:CAC.")
 
 
+def price_anchor_directive(business_model_kind: str | None, economics: dict | None,
+                           van_westendorp: dict | None) -> str:
+    """C2/D21: a hard guardrail injected into every 4Ps section (mirrors model_directive's
+    pattern) so Place/Product/Promotion — which get NO pricing context in their own
+    prompts, only Price does — cannot invent a different average order/job/booking/
+    transaction dollar figure than the one number the numbers spine actually uses.
+    Real R4 critical: a marketplace's Price section correctly used $450 (the PSM
+    optimal / average booking value); Place invented $200 "average job size"; Product
+    invented $100 "average order" — three numbers, none anchored to anything.
+
+    Per-unit models (transactional/ecommerce/services/hybrid) prefer economics.
+    price_per_unit — the REAL transaction price (B2: this can differ from the PSM
+    monthly optimal_price_point, which is the wrong number for those models). Returns
+    "" when no price is available (nothing to anchor)."""
+    kind = (business_model_kind or "").lower()
+    econ = economics or {}
+    vw = van_westendorp or {}
+    if kind in ("transactional", "ecommerce", "services", "hybrid"):
+        price = econ.get("price_per_unit")
+        unit = econ.get("unit") or "unit"
+        label = f"${price:,.2f} per {unit}" if price else None
+    elif kind == "marketplace":
+        price = vw.get("optimal_price_point")
+        label = (f"${price:,.2f} average transaction/booking value (platform revenue "
+                 f"= this × take-rate, NOT the full amount)") if price else None
+    elif kind == "subscription":
+        price = vw.get("optimal_price_point")
+        label = f"${price:,.2f}/mo" if price else None
+    else:
+        price = vw.get("optimal_price_point")
+        label = f"${price:,.2f}" if price else None
+    if not price:
+        return ""
+    return (
+        "\n\nPRICE ANCHOR — the ONE canonical transaction/order/job/booking value for "
+        f"this venture: {label}. If you cite ANY average order/job/booking/transaction "
+        "dollar figure anywhere in this section, it MUST be this exact number — do NOT "
+        "invent, estimate, or restate a different figure."
+    )
+
+
 FOUR_PS_PROMPT = """You are writing a paid-grade 4Ps marketing plan for a new venture. Output goes into a McKinsey-style report. Follow these rules:
 
 1. Every claim must be grounded in observable signals (traffic momentum, real customer voice, competitor homepage scrape, PSM/Max-Diff outputs).
@@ -565,11 +606,15 @@ def assemble_4ps_split(
     # M4: every section gets the monetization-model guardrail so none invents subscription/
     # MRR/SaaS framing the numbers spine never computed.
     _md = model_directive(business_model_kind, economics)
+    # C2/D21: every section ALSO gets the price anchor — Place/Product/Promotion have no
+    # pricing context in their own prompts, so without this they hallucinate a different
+    # average order/job/booking value than what Price actually uses.
+    _pa = price_anchor_directive(business_model_kind, economics, van_westendorp)
     tasks = {
-        "product": _product_prompt(profile_blob, features_blob, competitors_blob, audience_celebrated) + _md,
-        "price": _price_prompt(profile_blob, pricing_blob, benchmark_blob, economics_blob, psm_ok=psm_ok) + _md,
-        "place": _place_prompt(profile_blob, place_blob, audience_life_context) + _md,
-        "promotion": _promotion_prompt(profile_blob, audience_blob, reddit_themes_blob) + _md,
+        "product": _product_prompt(profile_blob, features_blob, competitors_blob, audience_celebrated) + _md + _pa,
+        "price": _price_prompt(profile_blob, pricing_blob, benchmark_blob, economics_blob, psm_ok=psm_ok) + _md + _pa,
+        "place": _place_prompt(profile_blob, place_blob, audience_life_context) + _md + _pa,
+        "promotion": _promotion_prompt(profile_blob, audience_blob, reddit_themes_blob) + _md + _pa,
     }
 
     results: dict = {}

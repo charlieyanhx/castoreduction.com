@@ -350,6 +350,58 @@ def d20_sam_self_consistent(r: dict, html: Optional[str]) -> Finding:
                    if off else f"SAM narrative matches headline ({round(sam_mid/1e6)}M)")
 
 
+_AVG_ORDER_RE = re.compile(
+    r"\$\s*([\d,]+(?:\.\d+)?)\s*average\s+(?:order|job|booking|transaction)\b", re.I)
+
+
+def _avg_order_figures(text: str) -> list[float]:
+    """Dollar magnitudes labeled '$X average order/job/booking/transaction' in prose."""
+    out = []
+    for m in _AVG_ORDER_RE.finditer(text or ""):
+        try:
+            out.append(float(m.group(1).replace(",", "")))
+        except ValueError:
+            pass
+    return out
+
+
+def _canonical_arpu(r: dict) -> Optional[float]:
+    """Mirrors four_ps.price_anchor_directive's resolution: per-unit models use the
+    REAL unit price (economics.price_per_unit); others use the PSM optimal point."""
+    kind = str(r.get("business_model_kind") or "").lower()
+    econ = r.get("economics") or {}
+    if kind in ("transactional", "ecommerce", "services", "hybrid"):
+        return _num(econ.get("price_per_unit"))
+    return _num((r.get("pricing") or {}).get("psm", {}).get("optimal_price_point"))
+
+
+def d21_arpu_coherent_across_sections(r: dict, html: Optional[str]) -> Finding:
+    """C2: Place/Product/Promotion get NO pricing context in their own prompts (only
+    Price does), so an "average order/job/booking" dollar figure appearing in their
+    prose is genuinely invented, not miscomputed. Real R4 critical (a marketplace):
+    Price used $450 (correct), Place said $200 "average job size", Product said $100
+    "average order" — three numbers for one concept. FAILs when any section's figure
+    disagrees with the canonical ARPU (economics.price_per_unit for per-unit models,
+    else the PSM optimal point). N/A when no section names an average-order figure at
+    all, or no canonical ARPU is available to check against."""
+    canon = _canonical_arpu(r)
+    fp = r.get("four_ps") or {}
+    all_figs: dict[str, list[float]] = {}
+    for section in ("product", "price", "place", "promotion"):
+        nar = str((fp.get(section) or {}).get("narrative") or "")
+        figs = _avg_order_figures(nar)
+        if figs:
+            all_figs[section] = figs
+    if not all_figs:
+        return Finding(None, "no section names an average order/job/booking figure")
+    if not canon:
+        return Finding(None, "no canonical ARPU available to check against")
+    bad = {s: fs for s, fs in all_figs.items()
+          if any(abs(f - canon) / canon > 0.02 for f in fs)}
+    return Finding(not bad, f"sections disagree with canonical ${canon:,.0f}: {bad}"
+                   if bad else f"all sections agree with canonical ${canon:,.0f}")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -371,6 +423,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D18", "WTP reconciled with recommended price", "83x gap rendered uncommented", "fail", d18_wtp_price_reconciled),
     Invariant("D19", "no off-category 'direct' competitor in top 3", "wrong-industry rival ranked #1", "fail", d19_no_off_category_direct_competitor),
     Invariant("D20", "SAM narrative coherent with headline", "same SAM, two values", "fail", d20_sam_self_consistent),
+    Invariant("D21", "ARPU coherent across 4Ps sections", "invented order/job/booking value", "fail", d21_arpu_coherent_across_sections),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

@@ -729,6 +729,67 @@ class TestSamSelfConsistency(unittest.TestCase):
         self.assertIsNot(f.ok, False, f.detail)
 
 
+class TestArpuCrossSectionConsistency(unittest.TestCase):
+    """C2/D21: Place/Product/Promotion get ZERO pricing context in their prompts (only
+    Price does) — so when their prose invents an "average order/job/booking" dollar
+    figure, it's genuinely hallucinated from nothing, not computed wrong. Real R4
+    critical (174ae091, a marketplace): Price narrative used $450 (the PSM optimal /
+    average booking value), Place said $200 "average job size", Product said $100
+    "average order" — three numbers for one concept, unreconciled."""
+
+    def test_price_anchor_present_for_marketplace(self):
+        from four_ps import price_anchor_directive
+        d = price_anchor_directive("marketplace", economics={}, van_westendorp={"optimal_price_point": 450})
+        self.assertIn("450", d)
+        self.assertIn("do not invent", d.lower())
+
+    def test_price_anchor_uses_real_unit_price_for_transactional(self):
+        from four_ps import price_anchor_directive
+        # B2 shape: economics.price_per_unit is the REAL number, which may differ
+        # from the PSM monthly optimal — the anchor must prefer the real one.
+        d = price_anchor_directive("transactional", economics={"price_per_unit": 6.5, "unit": "drink"},
+                                   van_westendorp={"optimal_price_point": 38})
+        self.assertIn("6.5", d)
+        self.assertNotIn("38", d)
+
+    def test_price_anchor_empty_when_no_price_available(self):
+        from four_ps import price_anchor_directive
+        self.assertEqual(price_anchor_directive("marketplace", {}, {}), "")
+
+    def test_d21_fires_on_the_real_wave2_75_shape(self):
+        from gates import d21_arpu_coherent_across_sections
+        r = {"pricing": {"psm": {"optimal_price_point": 450}},
+            "business_model_kind": "marketplace",
+            "four_ps": {
+                "price": {"narrative": "Charging a 15% take rate yields $67.50 in "
+                                       "platform revenue per $450 average booking."},
+                "place": {"narrative": "a 15% take rate on an estimated $200 average "
+                                       "job size, yielding $30 of platform revenue"},
+                "product": {"narrative": "the 15% take rate on a $100 average order "
+                                        "yields thin margins"},
+            }}
+        f = d21_arpu_coherent_across_sections(r, None)
+        self.assertIs(f.ok, False, f.detail)
+
+    def test_d21_passes_when_sections_agree(self):
+        from gates import d21_arpu_coherent_across_sections
+        r = {"pricing": {"psm": {"optimal_price_point": 450}},
+            "business_model_kind": "marketplace",
+            "four_ps": {
+                "place": {"narrative": "a 15% take rate on the $450 average booking"},
+                "product": {"narrative": "the take rate on a $450 average booking"},
+            }}
+        f = d21_arpu_coherent_across_sections(r, None)
+        self.assertIsNot(f.ok, False, f.detail)
+
+    def test_d21_na_without_average_order_language(self):
+        from gates import d21_arpu_coherent_across_sections
+        r = {"pricing": {"psm": {"optimal_price_point": 450}}, "four_ps": {
+            "place": {"narrative": "partner with brokers like Mercer and Aon"}}}
+        f = d21_arpu_coherent_across_sections(r, None)
+        self.assertIsNone(f.ok)
+
+
 class TestGeoCompetitorPromotion(unittest.TestCase):
     """M1: a physical-local venture's competitors must be the real nearby venues (OSM),
     promoted to the canonical set — not LLM-guessed national brands. General + deterministic:
