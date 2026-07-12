@@ -540,23 +540,14 @@ ALL fields REQUIRED. growth_cagr_pct must be a SINGLE number (e.g. 23, not "18-2
             except (TypeError, ValueError):
                 pass
 
-    # cycle22: SAM serviceability_waterfall is a free-text narrative the LLM
-    # frequently hallucinates with wrong TAM ($120B for a $1B TAM venture).
-    # Regenerate the waterfall string from the actual TAM mid + sam mid so the
-    # narrative can never disagree with the headline numbers.
-    sam = result.get("sam") or {}
-    if tam_mid and sam.get("mid"):
-        try:
-            tam_v = float(tam_mid)
-            sam_v = float(sam["mid"])
-            pct = (sam_v / tam_v * 100.0) if tam_v else 0
-            sam["serviceability_waterfall"] = (
-                f"TAM {format_currency(tam_v)} → serviceable slice "
-                f"~{pct:.1f}% (geo + ICP + channel) → SAM {format_currency(sam_v)}"
-            )
-            result["sam"] = sam
-        except (TypeError, ValueError):
-            pass
+    # cycle22 + C1/D20: SAM's calculation/serviceability_waterfall are free-text
+    # narratives the LLM frequently hallucinates incoherent with its OWN sam.mid
+    # (wrong TAM, or a self-inconsistent percentage/dollar pair). Regenerate BOTH
+    # strings from the canonical tam_mid + sam.mid so the narrative can never
+    # disagree with the headline number. This is only a FIRST pass — the true last
+    # word is _enforce_sizing_ordering, which re-syncs again after any clamp moves
+    # sam.mid (a clamp here would otherwise leave these strings stale again).
+    result["sam"] = _sync_sam_narrative(result.get("sam") or {}, tam_mid)
 
     # Iter 43-cycle21 (issue 2): coerce growth_cagr_pct to a number even if LLM
     # returned a range string like "18-28" or "20%" — render layer expects numeric.
@@ -597,6 +588,35 @@ ALL fields REQUIRED. growth_cagr_pct must be a SINGLE number (e.g. 23, not "18-2
     result = _enforce_sizing_ordering(result)
 
     return result
+
+
+def _sync_sam_narrative(sam: dict, tam_mid) -> dict:
+    """C1/D20: rewrite sam['calculation'] and sam['serviceability_waterfall'] from
+    the canonical tam_mid + sam['mid'] so neither string can ever disagree with the
+    headline SAM number (or with each other — a real R4 finding: one venture's
+    waterfall showed a percentage and a dollar figure that didn't even agree with
+    EACH OTHER, let alone with sam.mid). No-op when either input is unusable.
+    Returns a NEW dict; does not mutate the input."""
+    sam = dict(sam or {})
+    sam_mid = sam.get("mid")
+    if not tam_mid or not sam_mid:
+        return sam
+    try:
+        tam_v, sam_v = float(tam_mid), float(sam_mid)
+    except (TypeError, ValueError):
+        return sam
+    if not tam_v:
+        return sam
+    pct = sam_v / tam_v * 100.0
+    sam["calculation"] = (
+        f"TAM {format_currency(tam_v)} mid × {pct:.1f}% serviceable slice "
+        f"= {format_currency(sam_v)} SAM"
+    )
+    sam["serviceability_waterfall"] = (
+        f"TAM {format_currency(tam_v)} → serviceable slice "
+        f"~{pct:.1f}% (geo + ICP + channel) → SAM {format_currency(sam_v)}"
+    )
+    return sam
 
 
 def _enforce_sizing_ordering(result: dict) -> dict:
@@ -645,6 +665,14 @@ def _enforce_sizing_ordering(result: dict) -> dict:
         for c in corrections:
             wa.append("Funnel correction: " + c)
         result["weakest_assumptions"] = wa
+
+    # C1/D20: this is the TRUE end of the sizing chain (matches the G2/D04 fix's own
+    # "re-enforce at the end" philosophy) — re-sync the SAM narrative strings here,
+    # AFTER any clamp above may have moved sam.mid, so they can never go stale again
+    # regardless of which upstream step (raw LLM incoherence, triangulation, or this
+    # very clamp) last touched the number.
+    if result.get("sam"):
+        result["sam"] = _sync_sam_narrative(result["sam"], tam)
     return result
 
 

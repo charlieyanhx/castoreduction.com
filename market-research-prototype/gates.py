@@ -304,6 +304,52 @@ def d19_no_off_category_direct_competitor(r: dict, html: Optional[str]) -> Findi
                    if bad else "no off-category domain ranked as direct")
 
 
+_SAM_FIG_RE = re.compile(r"SAM[^$]{0,12}\$?\s*([\d.]+)\s*([BMK])\b", re.I)
+
+
+def _sam_figures(text: str) -> list[float]:
+    """Dollar magnitudes explicitly labeled 'SAM $X' in a free-text string."""
+    out = []
+    for m in _SAM_FIG_RE.finditer(text or ""):
+        try:
+            out.append(float(m.group(1)) * {"B": 1e9, "M": 1e6, "K": 1e3}[m.group(2).upper()])
+        except (ValueError, KeyError):
+            pass
+    return out
+
+
+def d20_sam_self_consistent(r: dict, html: Optional[str]) -> Finding:
+    """C1: every 'SAM $X' figure cited in sam.calculation / sam.serviceability_waterfall
+    must match the headline sam.mid — a SEPARATE defect from D15 (which checks the TAM
+    figure in those same strings). Root cause: sam.mid can be moved by triangulation OR
+    by the funnel-ordering clamp (_enforce_sizing_ordering), and the narrative strings
+    used to only get re-synced once, early, before either of those could run. Real R4
+    critical (174ae091): mid=$195.8M vs strings say $202.5M. N/A when the SAM narrative
+    cites no SAM figure at all (a bottom-up-only calculation).
+
+    Tolerance note: comparing raw sam_mid to a figure parsed back out of a 1-decimal-
+    place display string (e.g. "$1.4B") is NOT apples-to-apples — format_currency's own
+    rounding can introduce a ~3-4% artifact (1.35B displays as "1.4B", parses back as
+    1.40B) that is the SAME magnitude as the real bug this detects. So sam_mid is passed
+    through the identical formatter before comparing — both sides see the same rounding,
+    and only a genuinely different underlying number trips the (now tight) threshold."""
+    ms = r.get("market_sizing") or {}
+    sam = ms.get("sam") or {}
+    sam_mid = _num(sam.get("mid"))
+    if not sam_mid:
+        return Finding(None, "no headline SAM")
+    figs = _sam_figures(sam.get("calculation") or "") + _sam_figures(sam.get("serviceability_waterfall") or "")
+    if not figs:
+        return Finding(None, "SAM narrative cites no SAM figure")
+    from market_sizing import format_currency
+    canon = _sam_figures(f"SAM {format_currency(sam_mid)}")
+    baseline = canon[0] if canon else sam_mid
+    off = [f for f in figs if abs(f - baseline) / baseline > 0.005]
+    return Finding(not off,
+                   f"SAM narrative cites {[round(f/1e6) for f in off]}M but headline is {round(sam_mid/1e6)}M"
+                   if off else f"SAM narrative matches headline ({round(sam_mid/1e6)}M)")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -324,6 +370,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D17", "per-unit venture never on subscription fallback", "hybrid device price mis-extracted", "fail", d17_per_unit_not_on_subscription_fallback),
     Invariant("D18", "WTP reconciled with recommended price", "83x gap rendered uncommented", "fail", d18_wtp_price_reconciled),
     Invariant("D19", "no off-category 'direct' competitor in top 3", "wrong-industry rival ranked #1", "fail", d19_no_off_category_direct_competitor),
+    Invariant("D20", "SAM narrative coherent with headline", "same SAM, two values", "fail", d20_sam_self_consistent),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

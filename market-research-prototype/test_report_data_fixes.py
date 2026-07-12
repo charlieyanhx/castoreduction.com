@@ -661,6 +661,74 @@ class TestWtpPriceReconciliation(unittest.TestCase):
         self.assertIsNone(d18_wtp_price_reconciled({}, None).ok)
 
 
+class TestSamSelfConsistency(unittest.TestCase):
+    """C1/D20: sam.mid, sam.calculation, and sam.serviceability_waterfall are three
+    independently-set values that can disagree — a real R4 critical found on the
+    wave2.75 close-out (174ae091: mid=$195.8M vs strings say $202.5M; 800c261b:
+    mid=$1.35B vs waterfall says $2.2B/105.9%, self-inconsistent even with each
+    other). Root cause: _enforce_sizing_ordering clamps sam.mid (matching the
+    existing G2 pattern) but never re-syncs the narrative strings, and the older
+    cycle22 fix only regenerated serviceability_waterfall (never calculation) and
+    ran BEFORE the ordering clamp. Fix: a single final regeneration of BOTH strings
+    from the canonical (post-clamp) tam/sam mids, at the true end of the chain."""
+
+    def test_d20_fires_on_the_real_wave2_75_shape(self):
+        from gates import d20_sam_self_consistent
+        r = {"market_sizing": {"tam": {"mid": 1_100_000_000},
+            "sam": {"mid": 195_770_536,
+                    "calculation": "TAM $1.1B mid * 15% take rate = $202.5M SAM",
+                    "serviceability_waterfall": "TAM $1.1B → serviceable slice ~17.1% "
+                                                "(geo + ICP + channel) → SAM $202.5M"}}}
+        f = d20_sam_self_consistent(r, None)
+        self.assertIs(f.ok, False, f.detail)
+
+    def test_d20_passes_when_strings_match_mid(self):
+        from gates import d20_sam_self_consistent
+        r = {"market_sizing": {"tam": {"mid": 1_100_000_000},
+            "sam": {"mid": 195_800_000,
+                    "calculation": "TAM $1.1B mid * 17.8% = $195.8M SAM",
+                    "serviceability_waterfall": "TAM $1.1B → serviceable slice ~17.8% "
+                                                "(geo + ICP + channel) → SAM $195.8M"}}}
+        f = d20_sam_self_consistent(r, None)
+        self.assertIsNot(f.ok, False, f.detail)
+
+    def test_d20_na_without_sam_or_string(self):
+        from gates import d20_sam_self_consistent
+        self.assertIsNone(d20_sam_self_consistent({}, None).ok)
+        self.assertIsNone(d20_sam_self_consistent(
+            {"market_sizing": {"sam": {"mid": 100, "calculation": "no dollar figure here"}}},
+            None).ok)
+
+    def test_regenerate_sam_narrative_matches_canonical_mid(self):
+        from market_sizing import _sync_sam_narrative
+        sam = _sync_sam_narrative({"mid": 195_800_000}, tam_mid=1_100_000_000)
+        self.assertIn("195.8M", sam["calculation"])
+        self.assertIn("195.8M", sam["serviceability_waterfall"])
+        # the implied percentage in the waterfall matches sam/tam exactly
+        self.assertIn("17.8%", sam["serviceability_waterfall"])
+
+    def test_ordering_clamp_resyncs_narrative(self):
+        # The 800c261b shape: raw LLM SAM ($2.2B) exceeded TAM ($1.5B) -> clamped
+        # to 90% of TAM. The narrative strings must reflect the CLAMPED value, not
+        # the pre-clamp raw LLM figure.
+        from market_sizing import _enforce_sizing_ordering
+        result = {
+            "tam": {"mid": 1_500_000_000},
+            "sam": {"mid": 2_200_000_000,
+                   "calculation": "TAM $1.5B * garbled math = $2.2B SAM",
+                   "serviceability_waterfall": "TAM $1.5B → serviceable slice "
+                                               "~146.7% (geo + ICP + channel) → SAM $2.2B"},
+            "som": {"mid": 100},
+        }
+        out = _enforce_sizing_ordering(result)
+        self.assertEqual(out["sam"]["mid"], 1_350_000_000)  # 90% of TAM, unchanged behavior
+        self.assertIn("1.4B", out["sam"]["calculation"])       # format_currency($1.35B) rounds to 1.4B
+        self.assertIn("1.4B", out["sam"]["serviceability_waterfall"])
+        from gates import d20_sam_self_consistent
+        f = d20_sam_self_consistent({"market_sizing": out}, None)
+        self.assertIsNot(f.ok, False, f.detail)
+
+
 class TestGeoCompetitorPromotion(unittest.TestCase):
     """M1: a physical-local venture's competitors must be the real nearby venues (OSM),
     promoted to the canonical set — not LLM-guessed national brands. General + deterministic:
