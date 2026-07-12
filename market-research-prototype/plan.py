@@ -2062,12 +2062,17 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
 
     if som_mid and optimal_price:
         log.info("[plan] Step 10b: 3-year financial projections")
+        # C3/D17-extend: marketplace routes to its own revenue-only projection — the
+        # subscription branch would treat the average booking value as a monthly
+        # seat fee (the real R4 critical this fixes).
+        _fin_model = ("transactional" if is_per_unit(biz_kind)
+                     else "marketplace" if biz_kind == "marketplace" else "subscription")
         proj = project_three_year(
             som_mid=float(som_mid),
             optimal_price=float(optimal_price),
             break_even_customers=be_customers,
             break_even_costs=be,  # cycle36: surface the cost assumptions in the report
-            model=("transactional" if is_per_unit(biz_kind) else "subscription"),  # cycle37/38
+            model=_fin_model,  # cycle37/38 + C3
             economics=result.get("economics"),
         )
         if not proj.get("error"):

@@ -472,6 +472,34 @@ class TestBusinessModelAware(unittest.TestCase):
         self.assertIn("customers", s["year_3"])                # original subscription shape intact
         self.assertEqual(proj["assumptions"]["annual_price_per_customer"], 456.0)
 
+    def test_marketplace_financials_use_revenue_not_subscription_customers(self):
+        # C3/D17-extend: the real R4 critical — a 15%-take-rate marketplace's
+        # financials were computed as "annual price per customer: $5400 (5% monthly
+        # churn)" (= the $450 average-booking value treated as a MONTHLY SEAT FEE),
+        # directly contradicting the venture's own "zero subscription fees" claim.
+        # economics.note prescribes GMV x take-rate, but take-rate% and avg
+        # transaction value are disclosed operator-unknowns (needs_operator_input) —
+        # so financials must not fabricate them either; it reports revenue-only.
+        from financials import project_three_year
+        econ = {"model": "marketplace",
+               "revenue_basis": "take-rate on third-party GMV",
+               "needs_operator_input": ["take-rate %", "avg transaction value"]}
+        proj = project_three_year(som_mid=3_000_000, optimal_price=450.0,
+                                  model="marketplace", economics=econ)
+        self.assertEqual(proj["model"], "marketplace")
+        s = proj["scenarios"]["base"]
+        self.assertIn("revenue_usd", s["year_3"])
+        self.assertNotIn("customers", s["year_3"])              # no fabricated subscriber count
+        self.assertNotIn("annual_price_per_customer", proj["assumptions"])
+        self.assertNotIn("monthly_churn_pct", proj["assumptions"])
+
+    def test_marketplace_year3_revenue_matches_som_capture(self):
+        from financials import project_three_year, Y3_CAPTURE
+        proj = project_three_year(som_mid=3_000_000, optimal_price=450.0,
+                                  model="marketplace", economics={"model": "marketplace"})
+        agg = proj["scenarios"]["aggressive"]["year_3"]["revenue_usd"]
+        self.assertEqual(agg, round(3_000_000 * Y3_CAPTURE["aggressive"]))
+
 
 class TestAtSomScenarioCoherence(unittest.TestCase):
     """G3/D08: the "profitable at SOM" claim must be computed at the SAME ceiling the
@@ -601,6 +629,25 @@ class TestHybridDevicePrice(unittest.TestCase):
         from gates import d17_per_unit_not_on_subscription_fallback
         f = d17_per_unit_not_on_subscription_fallback({"business_model_kind": "hybrid"}, None)
         self.assertIsNone(f.ok)
+
+    def test_d17_fires_on_marketplace_subscription_shape(self):
+        # C3/D17-extend: marketplace isn't in PER_UNIT_KINDS, so the original D17
+        # never covered it — a marketplace's financials fell back to the SAME
+        # subscription-churn shape unguarded (the real R4 critical: "$5400 annual
+        # price per customer, 5% monthly churn" for a take-rate marketplace).
+        from gates import d17_per_unit_not_on_subscription_fallback
+        r = {"business_model_kind": "marketplace",
+            "financials": {"scenarios": {"base": {"year_3": {"customers": 111}}},
+                           "assumptions": {"annual_price_per_customer": 5400.0}}}
+        f = d17_per_unit_not_on_subscription_fallback(r, None)
+        self.assertIs(f.ok, False, f.detail)
+
+    def test_d17_passes_on_marketplace_revenue_shape(self):
+        from gates import d17_per_unit_not_on_subscription_fallback
+        r = {"business_model_kind": "marketplace", "financials": {"model": "marketplace",
+            "scenarios": {"base": {"year_3": {"revenue_usd": 600000}}}}}
+        f = d17_per_unit_not_on_subscription_fallback(r, None)
+        self.assertIsNot(f.ok, False, f.detail)
 
 
 class TestWtpPriceReconciliation(unittest.TestCase):

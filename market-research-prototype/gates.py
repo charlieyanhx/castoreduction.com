@@ -245,24 +245,38 @@ def d16_density_matches_ranked(r: dict, html: Optional[str]) -> Finding:
 
 
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
-    """B2: a per-unit venture (transactional/ecommerce/services/hybrid) whose economics
-    landed on the transactional model must NOT have financials on the subscription
-    shape (a 'customers' key in the scenario table — that's churn-annualized revenue
-    for a one-time-sale business). Real R4 chain (8add1fa2): a hybrid hardware+app
-    venture's device price was mis-extracted as its $5/mo app fee, margin went
-    negative, economics errored, and financials silently fell back to subscription
-    math. N/A when the venture isn't per-unit or financials are absent."""
-    if r.get("business_model_kind") not in PER_UNIT_KINDS:
-        return Finding(None, "not a per-unit model")
-    econ = r.get("economics") or {}
-    if econ.get("model") != "transactional":
-        return Finding(None, "economics not on the transactional model")
+    """B2 + C3: a venture whose business model is NOT a true subscription
+    (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
+    financials on the subscription shape (a 'customers' key / 'annual_price_per_
+    customer' assumption in the scenario table — that's churn-annualized revenue,
+    wrong for both a one-time-sale business AND a take-rate marketplace).
+
+    Two real R4 chains this catches: (1) 8add1fa2 (hybrid) — a device price was
+    mis-extracted as its $5/mo app fee, margin went negative, economics errored, and
+    financials silently fell back to subscription math. (2) 174ae091 (marketplace) —
+    the average booking value was treated as a monthly seat fee ("$5400/yr, 5%
+    monthly churn") for a venture whose own differentiator claims "zero subscription
+    fees". N/A when the venture is a true subscription, or financials are absent."""
+    kind = r.get("business_model_kind")
     year3 = (((r.get("financials") or {}).get("scenarios") or {}).get("base") or {}).get("year_3") or {}
-    if not year3:
-        return Finding(None, "no financials scenario table")
-    bad = "customers" in year3
-    return Finding(not bad, "financials year_3 carries 'customers' (subscription shape) "
-                   "on a transactional venture" if bad else "financials use the unit shape")
+    if kind in PER_UNIT_KINDS:
+        econ = r.get("economics") or {}
+        if econ.get("model") != "transactional":
+            return Finding(None, "economics not on the transactional model")
+        if not year3:
+            return Finding(None, "no financials scenario table")
+        bad = "customers" in year3
+        return Finding(not bad, "financials year_3 carries 'customers' (subscription shape) "
+                       "on a transactional venture" if bad else "financials use the unit shape")
+    if kind == "marketplace":
+        if not year3:
+            return Finding(None, "no financials scenario table")
+        assumptions = (r.get("financials") or {}).get("assumptions") or {}
+        bad = "customers" in year3 or "annual_price_per_customer" in assumptions
+        return Finding(not bad, "financials carry a subscription shape ('customers' or "
+                       "annual_price_per_customer) on a marketplace venture" if bad
+                       else "financials use the revenue-only shape")
+    return Finding(None, "not a per-unit or marketplace model")
 
 
 def d18_wtp_price_reconciled(r: dict, html: Optional[str]) -> Finding:

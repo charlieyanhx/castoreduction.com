@@ -79,6 +79,41 @@ def project_three_year_transactional(
     }
 
 
+def project_three_year_marketplace(som_mid: float) -> dict:
+    """3-year projection for a MARKETPLACE venture (take-rate on third-party GMV):
+    revenue-only ramp off the SOM ceiling — no subscriber count, no churn, no
+    per-customer ARPU (C3/D17-extend).
+
+    economics.py's marketplace stub (cycle38) deliberately discloses take-rate% and
+    avg-transaction-value as operator-unknowns rather than fabricating them — so
+    financials must not fabricate a transaction/customer count from them either.
+    SOM is already denominated in obtainable ANNUAL PLATFORM REVENUE (post-take-rate),
+    so the standard S-curve ramp applies directly to revenue, with nothing else shown."""
+    scenarios = {}
+    for label, y3_capture in Y3_CAPTURE.items():
+        y3_rev = som_mid * y3_capture
+        scenarios[label] = {
+            "year3_market_share_pct": round(y3_capture * 100, 1),
+            "year_1": {"revenue_usd": round(y3_rev * 0.08)},
+            "year_2": {"revenue_usd": round(y3_rev * 0.35)},
+            "year_3": {"revenue_usd": round(y3_rev)},
+        }
+    return {
+        "model": "marketplace",
+        "scenarios": scenarios,
+        "assumptions": {
+            "model": "marketplace",
+            "som_mid_used": round(som_mid, 0),
+            "growth_curve": "S-curve: y1=8%, y2=35%, y3=100% of year-3 ceiling",
+            "revenue_basis": "Platform revenue = GMV × take-rate (SOM is already "
+                             "denominated in obtainable platform revenue). Take-rate % "
+                             "and average transaction value are operator-unknowns — see "
+                             "economics.needs_operator_input — so no transaction count or "
+                             "per-customer figure is fabricated here.",
+        },
+    }
+
+
 def project_three_year(
     som_mid: float | None,
     optimal_price: float | None,
@@ -100,6 +135,16 @@ def project_three_year(
     """
     if not som_mid or not optimal_price or optimal_price <= 0:
         return {"error": "Need SOM and optimal price to project financials"}
+
+    # C3/D17-extend: a marketplace has no per-customer subscription price — routing it
+    # through the subscription branch below treated the average transaction/booking
+    # value as a MONTHLY SEAT FEE (real R4 critical: "$5400 annual price per customer,
+    # 5% monthly churn" for a 15%-take-rate marketplace with zero subscription fees).
+    # economics discloses take-rate% and avg-transaction-value as operator-unknowns
+    # (cycle38's marketplace stub never fabricates them) — so financials must not
+    # fabricate a transaction/customer count either; it reports revenue-only.
+    if model == "marketplace":
+        return project_three_year_marketplace(som_mid=som_mid)
 
     # cycle37: transactional retail uses its own projection (no subscription customer counts).
     if model == "transactional" and economics and "error" not in economics:
