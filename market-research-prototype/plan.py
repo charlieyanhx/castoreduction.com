@@ -1819,15 +1819,16 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         # --- Per-unit pricing + competitor benchmark table (user feedback #3b) ---
         try:
             from pricing import build_benchmark_table
-            if is_transactional:
-                unit = _unit_noun
-            else:
-                biz_model = (profile.get("business_model") or "").lower()
-                unit = "seat" if "b2b" in biz_model or "saas" in biz_model else "account"
+            # _unit_noun == unit_for_model(biz_kind, ...) — already correct for every
+            # kind (seat/account for subscription, booking for marketplace, the real
+            # per-unit noun for transactional/etc). The old branch hand-rolled a
+            # SEPARATE seat/account guess for "not is_transactional" that happened to
+            # diverge from it for marketplace ("$450 per account" SaaS framing on a
+            # per-booking price — R4 catch, 174ae091).
             bench = build_benchmark_table(
                 our_tiers=psm_result.get("recommended_tiers", []),
                 competitor_pricing=competitor_pricing_data,
-                pricing_unit=unit,
+                pricing_unit=_unit_noun,
                 competitor_brands=opps[:8],
                 recurring=_pricing_is_recurring(biz_kind),  # D06: only true subscriptions
             )

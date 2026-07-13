@@ -1513,6 +1513,21 @@ class TestBenchmarkTable(unittest.TestCase):
         out = build_benchmark_table([{"name": "Pro", "price": 40}], {}, pricing_unit="seat")
         self.assertEqual(out["our_pro_price_label"], "$40/month per seat")
 
+    def test_pricing_benchmark_unit_source_already_covers_every_kind(self):
+        # R4 catch, second half of the same defect (D06 gate re-fired after the
+        # recurring-flag fix alone): the benchmark call site used to hand-roll a
+        # SEPARATE "seat"/"account" guess for "not is_transactional" ventures, which
+        # diverged from unit_for_model's already-correct marketplace->"booking"
+        # mapping — "$450 per account" was still SaaS framing even without "/mo".
+        # Fix was to delete the redundant branch and always use unit_for_model's
+        # output (already computed once as _unit_noun at the call site); this
+        # confirms that source covers every kind so nothing was lost by deleting it.
+        from plan import unit_for_model
+        self.assertEqual(unit_for_model("marketplace", "x", {}), "booking")
+        self.assertEqual(unit_for_model("subscription", "a B2B SaaS platform", {}), "seat")
+        self.assertEqual(unit_for_model("subscription", "a consumer app", {}), "account")
+        self.assertEqual(unit_for_model("ad_supported", "x", {}), "user")
+
     def test_marketplace_pricing_is_never_recurring(self):
         # R4 catch (174ae091, R5 CRITICAL): a marketplace's per-booking price
         # rendered "$350/mo per account" — plan.py derived recurring=not
