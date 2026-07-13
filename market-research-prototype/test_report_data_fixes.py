@@ -1137,11 +1137,11 @@ class TestCompetitorDensity(unittest.TestCase):
     def test_viability_prompt_shows_both_density_numbers(self):
         # The prompt must never again render a density that contradicts the
         # discovered competitor count — show both, honestly.
-        from four_ps import VIABILITY_PROMPT
+        from four_ps import VIABILITY_PROMPT, unit_economics_rubric
         rendered = VIABILITY_PROMPT.format(
             company="X", category="Y", product="", price="", place="", promotion="",
             density=9, active_density=2, avg_score=10, audience_confidence=50,
-            signal_count=3,
+            signal_count=3, unit_economics_rubric=unit_economics_rubric("subscription"),
         )
         self.assertIn("9", rendered)
         self.assertIn("2", rendered)
@@ -1242,6 +1242,140 @@ class TestCompetitiveDensityDirective(unittest.TestCase):
         for call in mock_call.call_args_list:
             user_prompt = call.kwargs.get("user") or call.args[1]
             self.assertIn("30 competitor", user_prompt)
+
+
+class TestUnitEconomicsRubric(unittest.TestCase):
+    """D22 item 2: DIMENSION 3 of VIABILITY_PROMPT was a single hardcoded CLV:CAC-ratio
+    rubric for EVERY business_model_kind, but the only real_metrics ever fed to it
+    (economics_evc/economics_clv) are subscription-only keys — every other kind was
+    scored against a rubric it had zero data to satisfy (R11 root cause, matches the
+    audit's model_directive()/price_anchor_directive() pattern at four_ps.py:22-103)."""
+
+    def test_subscription_keeps_clv_cac_rubric(self):
+        from four_ps import unit_economics_rubric
+        d = unit_economics_rubric("subscription")
+        self.assertIn("CLV", d)
+        self.assertIn("CAC", d)
+        self.assertIn("payback", d.lower())
+
+    def test_per_unit_kinds_get_contribution_margin_rubric(self):
+        # Explicitly naming CLV:CAC as "does NOT apply" is fine (same guardrail-by-name
+        # pattern as model_directive's _NO_SUB clause) — what must NOT survive is CLV:CAC
+        # as a scored band (e.g. "CLV/CAC 3-5:1").
+        from four_ps import unit_economics_rubric
+        for kind in ("transactional", "ecommerce", "services", "hybrid"):
+            d = unit_economics_rubric(kind)
+            self.assertIn("contribution margin", d.lower(), kind)
+            self.assertNotIn("CLV/CAC 1-3", d, kind)
+            self.assertNotIn("CLV/CAC 3-5", d, kind)
+            self.assertNotIn("CLV/CAC 5:1", d, kind)
+
+    def test_marketplace_gets_take_rate_rubric(self):
+        from four_ps import unit_economics_rubric
+        d = unit_economics_rubric("marketplace")
+        self.assertIn("take-rate", d.lower())
+        self.assertNotIn("CLV/CAC 1-3", d)
+        self.assertNotIn("CLV/CAC 3-5", d)
+
+    def test_ad_supported_gets_cost_to_serve_rubric(self):
+        from four_ps import unit_economics_rubric
+        d = unit_economics_rubric("ad_supported")
+        self.assertIn("cost-to-serve", d.lower())
+        self.assertNotIn("CLV/CAC 1-3", d)
+        self.assertNotIn("CLV/CAC 3-5", d)
+
+    def test_unknown_kind_falls_back_to_generic_non_saas_rubric(self):
+        # Safer to stay generic than silently assume subscription for an
+        # unclassified kind.
+        from four_ps import unit_economics_rubric
+        d = unit_economics_rubric(None)
+        self.assertTrue(d.strip())
+        self.assertNotIn("CLV", d)
+
+    def test_all_variants_still_carry_the_dimension_3_header(self):
+        from four_ps import unit_economics_rubric
+        for kind in (None, "subscription", "transactional", "marketplace", "ad_supported"):
+            self.assertIn("DIMENSION 3", unit_economics_rubric(kind))
+
+
+class TestViabilityPromptRubricWiring(unittest.TestCase):
+    """score_viability must select the DIMENSION 3 rubric text by business_model_kind
+    (not always the CLV:CAC one), and must surface the venture's REAL computed unit
+    economics (retail contribution margin, marketplace take-rate basis, ad-supported
+    revenue basis) into real_metrics so the LLM has something concrete to anchor to —
+    today it only ever reads economics_evc/economics_clv, which are subscription-only
+    keys and are None for every other kind."""
+
+    @staticmethod
+    def _capture_prompt(**kwargs):
+        from unittest.mock import patch
+        import four_ps
+        captured = {}
+
+        def fake_call_json(system, user, **_):
+            captured["prompt"] = user
+            return {"scores": {
+                "market_opportunity": {"score": 50, "reasoning": "x"},
+                "differentiation_strength": {"score": 50, "reasoning": "x"},
+                "unit_economics_health": {"score": 50, "reasoning": "x"},
+                "gtm_feasibility": {"score": 50, "reasoning": "x"},
+                "execution_data_confidence": {"score": 50, "reasoning": "x"},
+            }, "headline": "x", "summary": "x", "strengths": [], "risks": [],
+                "critical_assumptions": [], "recommended_next_steps": [],
+                "kill_criteria": [], "regulatory_considerations": "none material",
+                "confidence_in_score": "low"}
+
+        with patch.object(four_ps, "call_json", side_effect=fake_call_json):
+            four_ps.score_viability(
+                profile={"name": "X", "category": "Y"}, four_ps={}, density=5,
+                avg_score=10, audience_confidence=50, signal_count=3, **kwargs,
+            )
+        return captured["prompt"]
+
+    def test_marketplace_prompt_gets_take_rate_rubric_not_clv_cac(self):
+        prompt = self._capture_prompt(
+            business_model_kind="marketplace",
+            economics={"model": "marketplace",
+                       "revenue_basis": "take-rate on third-party GMV",
+                       "needs_operator_input": ["take-rate %", "buyer & seller CAC"]},
+        )
+        self.assertIn("take-rate", prompt.lower())
+        self.assertNotIn("CLV/CAC", prompt)
+
+    def test_marketplace_economics_surfaced_into_real_metrics(self):
+        prompt = self._capture_prompt(
+            business_model_kind="marketplace",
+            economics={"model": "marketplace",
+                       "revenue_basis": "take-rate on third-party GMV",
+                       "needs_operator_input": ["take-rate %", "buyer & seller CAC"]},
+        )
+        self.assertIn("take-rate on third-party GMV", prompt)
+
+    def test_retail_unit_economics_surfaced_into_real_metrics(self):
+        prompt = self._capture_prompt(
+            business_model_kind="transactional",
+            economics={"model": "transactional", "unit": "drink",
+                       "contribution_margin_pct": 35.0,
+                       "break_even_units_per_month": 420},
+        )
+        self.assertIn("35", prompt)
+        self.assertIn("contribution margin", prompt.lower())
+
+    def test_ad_supported_economics_surfaced_into_real_metrics(self):
+        prompt = self._capture_prompt(
+            business_model_kind="ad_supported",
+            economics={"model": "ad_supported",
+                       "revenue_basis": "advertising (eCPM x engagement)",
+                       "needs_operator_input": ["eCPM", "fill rate"]},
+        )
+        self.assertIn("advertising (eCPM x engagement)", prompt)
+
+    def test_subscription_still_uses_clv_cac_rubric(self):
+        prompt = self._capture_prompt(
+            business_model_kind="subscription",
+            economics_evc="healthy", economics_clv=450.0,
+        )
+        self.assertIn("CLV/CAC", prompt)
 
 
 class TestNonUsValidationSources(unittest.TestCase):

@@ -132,6 +132,65 @@ def competitive_density_directive(density: int | None, active_density: int | Non
     )
 
 
+def unit_economics_rubric(business_model_kind: str | None) -> str:
+    """D22 item 2: VIABILITY_PROMPT's DIMENSION 3 rubric was a single hardcoded
+    CLV:CAC-ratio band for EVERY business_model_kind, but the only real_metrics ever
+    fed to it (economics_evc/economics_clv) are subscription-only keys — every other
+    kind was being scored against a rubric it had zero data to satisfy (R11 root
+    cause). Mirrors model_directive()'s branch-by-kind pattern (four_ps.py:22-62):
+    the rubric TEXT itself, not just the guardrail appended after it, now matches the
+    venture's real revenue basis."""
+    kind = (business_model_kind or "").lower()
+    if kind == "subscription":
+        return (
+            "DIMENSION 3: UNIT ECONOMICS HEALTH (CLV/CAC, gross margin, payback)\n"
+            "  1-25:   Negative gross margin OR CLV/CAC < 1:1 OR payback >24mo\n"
+            "  26-50:  Marginal: CLV/CAC 1-3:1, payback 12-24mo, requires scale to work\n"
+            "  51-75:  Healthy: CLV/CAC 3-5:1, payback 6-12mo, proven elsewhere in category\n"
+            "  76-100: Exceptional: CLV/CAC 5:1+, payback <6mo, capital-efficient"
+        )
+    if kind in ("transactional", "ecommerce", "services", "hybrid"):
+        return (
+            "DIMENSION 3: UNIT ECONOMICS HEALTH (contribution margin, break-even volume)\n"
+            "  This is a PER-UNIT venture (one-time sale, not a subscription) — CLV:CAC and\n"
+            "  payback-month language do NOT apply. Score against contribution margin and\n"
+            "  break-even volume instead:\n"
+            "  1-25:   Contribution margin ≤0% OR the break-even volume is implausible for the venue/channel\n"
+            "  26-50:  Thin margin (<20%) OR break-even requires a stretch volume\n"
+            "  51-75:  Healthy margin (20-40%) with a realistic break-even volume\n"
+            "  76-100: Strong margin (40%+) with break-even reached at a modest, low-risk volume"
+        )
+    if kind == "marketplace":
+        return (
+            "DIMENSION 3: UNIT ECONOMICS HEALTH (take-rate economics, two-sided CAC)\n"
+            "  This is a MARKETPLACE (take-rate on GMV) — there is no per-subscriber CLV:CAC.\n"
+            "  Score against take-rate viability and two-sided acquisition cost instead:\n"
+            "  1-25:   Take-rate too thin to cover two-sided CAC, or one side (supply/demand) has no acquisition plan\n"
+            "  26-50:  Plausible take-rate but unproven liquidity — CAC for both sides unmodeled\n"
+            "  51-75:  Healthy take-rate with a credible plan to acquire and retain both sides\n"
+            "  76-100: Take-rate + liquidity strategy already proven in an analogous marketplace at this stage"
+        )
+    if kind == "ad_supported":
+        return (
+            "DIMENSION 3: UNIT ECONOMICS HEALTH (ad revenue per user vs cost-to-serve)\n"
+            "  This venture is FREE to the user (ad-supported) — there is no subscriber price, so\n"
+            "  subscriber CLV:CAC does not apply. Score against ad revenue per active user vs\n"
+            "  cost-to-serve instead:\n"
+            "  1-25:   Cost-to-serve exceeds plausible ad revenue per user (eCPM x engagement)\n"
+            "  26-50:  Roughly break-even per user; needs scale or a higher-eCPM niche to work\n"
+            "  51-75:  Ad revenue per user comfortably covers cost-to-serve at realistic eCPM/fill-rate\n"
+            "  76-100: High-value audience/niche commands premium eCPM; wide margin per user"
+        )
+    # Unknown/unclassified kind — stay generic rather than assume subscription.
+    return (
+        "DIMENSION 3: UNIT ECONOMICS HEALTH (margin and payback, whatever the revenue basis)\n"
+        "  1-25:   Negative or unclear margin; no credible path to profitability per unit of value delivered\n"
+        "  26-50:  Marginal profitability; requires scale or favorable assumptions to work\n"
+        "  51-75:  Healthy margin with a realistic path to break-even\n"
+        "  76-100: Strong, capital-efficient margin with a fast path to break-even"
+    )
+
+
 FOUR_PS_PROMPT = """You are writing a paid-grade 4Ps marketing plan for a new venture. Output goes into a McKinsey-style report. Follow these rules:
 
 1. Every claim must be grounded in observable signals (traffic momentum, real customer voice, competitor homepage scrape, PSM/Max-Diff outputs).
@@ -238,11 +297,7 @@ DIMENSION 2: DIFFERENTIATION STRENGTH
   51-75:  2-3 strong differentiators with concrete evidence (IP, data, brand, network)
   76-100: Novel category creator OR structural moat (regulatory, network effect, proprietary data)
 
-DIMENSION 3: UNIT ECONOMICS HEALTH (CLV/CAC, gross margin, payback)
-  1-25:   Negative gross margin OR CLV/CAC < 1:1 OR payback >24mo
-  26-50:  Marginal: CLV/CAC 1-3:1, payback 12-24mo, requires scale to work
-  51-75:  Healthy: CLV/CAC 3-5:1, payback 6-12mo, proven elsewhere in category
-  76-100: Exceptional: CLV/CAC 5:1+, payback <6mo, capital-efficient
+{unit_economics_rubric}
 
 DIMENSION 4: GTM FEASIBILITY (channel access, sales motion, time-to-first-customer)
   1-25:   Buyer hard to reach, long enterprise sales cycle, no warm channel
@@ -893,6 +948,24 @@ def score_viability(
         real_metrics.append(f"- EVC verdict: '{economics_evc}'. **Anchor unit_economics_health to this** — 'data-thin' or 'over-priced' should pull score below 50.")
     if economics_clv is not None:
         real_metrics.append(f"- CLV: ${economics_clv}.")
+    # D22 item 2: economics_evc/economics_clv are subscription-only keys — for every
+    # other kind, real_metrics had NOTHING for unit_economics_health. Surface the
+    # actual computed economics object (retail_unit_economics' contribution margin,
+    # or the honest marketplace/ad_supported revenue_basis disclosure) instead.
+    _econ = economics or {}
+    if _econ.get("model") == "transactional" and _econ.get("contribution_margin_pct") is not None:
+        real_metrics.append(
+            f"- Unit economics (per-unit, {_econ.get('unit', 'unit')}): contribution margin "
+            f"{_econ['contribution_margin_pct']}%, break-even {_econ.get('break_even_units_per_month', '?')} "
+            f"{_econ.get('unit', 'units')}/month. **Anchor unit_economics_health to this** — do NOT "
+            "invent a CLV:CAC ratio.")
+    elif business_model_kind in ("marketplace", "ad_supported") and _econ.get("revenue_basis"):
+        _needs = ", ".join(_econ.get("needs_operator_input") or [])
+        real_metrics.append(
+            f"- Unit economics ({business_model_kind}): {_econ['revenue_basis']}."
+            + (f" Still needs operator input: {_needs}." if _needs else "")
+            + " **Anchor unit_economics_health to this revenue basis** — do NOT invent a "
+              "subscriber CLV:CAC ratio.")
     real_metrics_blob = "\n".join(real_metrics) if real_metrics else "(no cross-pipeline metrics passed)"
 
     result = call_json(
@@ -910,6 +983,7 @@ def score_viability(
             avg_score=avg_score,
             audience_confidence=audience_confidence,
             signal_count=signal_count,
+            unit_economics_rubric=unit_economics_rubric(business_model_kind),
         ) + "\n\nREAL PIPELINE METRICS (anchor scoring to these — they are authoritative over your guesses):\n" + real_metrics_blob
           + model_directive(business_model_kind, economics),  # M4: no subscription bleed in viability
         max_tokens=4500,  # iter 40: bumped from 3000 — added 5-dim per-dimension scoring with reasoning, was truncating to 2/5 dims
