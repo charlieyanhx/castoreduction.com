@@ -1378,6 +1378,83 @@ class TestViabilityPromptRubricWiring(unittest.TestCase):
         self.assertIn("CLV/CAC", prompt)
 
 
+class TestViabilityDensityCoherence(unittest.TestCase):
+    """D22 item 3: the safety net for the KNOWN LIMITATION in item 1's
+    competitive_density_directive — a hyperlocal venture's real competitor set can be
+    surfaced LATE (after 4Ps/Viability prompts were already dispatched), so Viability's
+    OWN written prose can still invent/echo a stale competitor count. Real R4 critical:
+    viability reasoning said "1 meaningful competitor" while the report's own
+    Competitors section listed 248. Mines "only/just N competitors" and "N competitors
+    identified/found/in the market" claims and checks them against the real, final
+    discover.competitor_density (or active_signal_density, item 1's secondary number)."""
+
+    def test_competitor_count_claims_extracts_the_known_bug_phrasing(self):
+        from gates import _competitor_count_claims
+        self.assertEqual(
+            _competitor_count_claims("low competitive density of only one meaningful competitor."),
+            [1])
+        self.assertEqual(
+            _competitor_count_claims("low competitive density of only 3 meaningful competitors."),
+            [3])
+        self.assertEqual(
+            _competitor_count_claims("5 direct competitors identified in the audit."), [5])
+
+    def test_competitor_count_claims_ignores_unrelated_digit_adjacency(self):
+        from gates import _competitor_count_claims
+        # "top N competitors" names a subset, not a total count claim.
+        self.assertEqual(_competitor_count_claims("the top 3 competitors by revenue"), [])
+        # A dollar figure that happens to precede the word "competitor" as an adjective.
+        self.assertEqual(_competitor_count_claims("a $250 competitor price point"), [])
+
+    def test_d22_fires_when_reasoning_disagrees_with_real_density(self):
+        from gates import d22_viability_reasoning_density_coherent
+        r = {"discover": {"competitor_density": 248},
+            "viability": {"summary": "The venture faces low competitive density of "
+                                      "only 1 meaningful competitor in the category."}}
+        f = d22_viability_reasoning_density_coherent(r, None)
+        self.assertIs(f.ok, False, f.detail)
+
+    def test_d22_passes_when_reasoning_matches_real_density(self):
+        from gates import d22_viability_reasoning_density_coherent
+        r = {"discover": {"competitor_density": 3},
+            "viability": {"scores": {
+                "market_opportunity": {"reasoning": "Facing only 3 meaningful "
+                                                     "competitors, share is winnable."}}}}
+        f = d22_viability_reasoning_density_coherent(r, None)
+        self.assertIsNot(f.ok, False, f.detail)
+
+    def test_d22_passes_when_claim_matches_active_signal_density(self):
+        # competitive_density_directive (item 1) surfaces BOTH numbers as canonical —
+        # a claim matching either is coherent, not just the raw competitor_density.
+        from gates import d22_viability_reasoning_density_coherent
+        r = {"discover": {"competitor_density": 30, "active_signal_density": 12},
+            "viability": {"strengths": ["Only 12 competitors show active web momentum"]}}
+        f = d22_viability_reasoning_density_coherent(r, None)
+        self.assertIsNot(f.ok, False, f.detail)
+
+    def test_d22_scans_risks_too(self):
+        from gates import d22_viability_reasoning_density_coherent
+        r = {"discover": {"competitor_density": 40},
+            "viability": {"risks": [
+                {"risk": "Only 2 competitors identified means the market may be "
+                         "harder to validate than assumed."}]}}
+        f = d22_viability_reasoning_density_coherent(r, None)
+        self.assertIs(f.ok, False, f.detail)
+
+    def test_d22_na_without_explicit_claim(self):
+        from gates import d22_viability_reasoning_density_coherent
+        r = {"discover": {"competitor_density": 30},
+            "viability": {"summary": "Strong differentiation and healthy margins."}}
+        f = d22_viability_reasoning_density_coherent(r, None)
+        self.assertIsNone(f.ok)
+
+    def test_d22_na_without_density_data(self):
+        from gates import d22_viability_reasoning_density_coherent
+        r = {"discover": {}, "viability": {"summary": "Only 1 meaningful competitor."}}
+        f = d22_viability_reasoning_density_coherent(r, None)
+        self.assertIsNone(f.ok)
+
+
 class TestNonUsValidationSources(unittest.TestCase):
     """G5-shallow / D11: the hyperlocal adapter hardcoded 'US Census ACS' + 'BLS CEX'
     as the operator's validation sources for EVERY venture — a Lisbon cafe was told

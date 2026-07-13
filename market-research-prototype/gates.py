@@ -422,6 +422,87 @@ def d21_arpu_coherent_across_sections(r: dict, html: Optional[str]) -> Finding:
                    if bad else f"all sections agree with canonical ${canon:,.0f}")
 
 
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+_NUM_TOKEN = r"(?:\d[\d,]*|" + "|".join(_NUMBER_WORDS) + r")"
+_DENSITY_CLAIM_RE = re.compile(
+    r"\b(?:only|just)\s+(" + _NUM_TOKEN + r")\s+(?:meaningful\s+|direct\s+|real\s+|"
+    r"identified\s+|active\s+)*competitors?\b"
+    r"|\b(" + _NUM_TOKEN + r")\s+(?:meaningful\s+|direct\s+|real\s+|identified\s+|"
+    r"active\s+)*competitors?\s+(?:identified|found|in\s+(?:the|this)\s+(?:market|category))\b",
+    re.I,
+)
+
+
+def _competitor_count_claims(text: str) -> list[int]:
+    """Numeric 'only/just N competitors' or 'N competitors identified/found/in the
+    market' claims — the exact phrasing shape of the real R4 critical (viability
+    reasoning said "only one meaningful competitor" while the Competitors section
+    listed 248). Handles both digit and spelled-out one-ten (LLM prose spells out
+    small numbers). Deliberately narrow (unlike a bare '\\d+ competitors?') so it
+    does not fire on subset references ("the top 3 competitors by revenue") or an
+    adjacent price figure ("a $250 competitor price point")."""
+    out = []
+    for m in _DENSITY_CLAIM_RE.finditer(text or ""):
+        raw = (m.group(1) or m.group(2)).lower()
+        if raw in _NUMBER_WORDS:
+            out.append(_NUMBER_WORDS[raw])
+        else:
+            try:
+                out.append(int(raw.replace(",", "")))
+            except ValueError:
+                pass
+    return out
+
+
+def d22_viability_reasoning_density_coherent(r: dict, html: Optional[str]) -> Finding:
+    """D22 item 3: competitive_density_directive (item 1, four_ps.py) and the
+    business-model-aware real_metrics (item 2) reduce, but do not eliminate, the
+    chance that Viability's OWN written prose invents a competitor count that
+    disagrees with the real, FINAL discover.competitor_density — especially the
+    documented KNOWN LIMITATION case (see competitive_density_directive's docstring)
+    where a hyperlocal venture's real competitor set is only surfaced LATE, after
+    4Ps/Viability prompts were already dispatched with the pre-override density.
+    This gate is the safety net, checked against the finished report. Mines
+    'only/just N competitors' and 'N competitors identified/found/in the market'
+    claims from viability's per-dimension reasoning, summary, strengths, and risks;
+    a claim is coherent if it matches EITHER competitor_density or
+    active_signal_density (item 1's own two canonical numbers). N/A when viability
+    names no such claim, or no density has been computed to check against."""
+    disc = r.get("discover") or {}
+    density = disc.get("competitor_density")
+    active = disc.get("active_signal_density")
+    valid = {n for n in (density, active) if n is not None}
+
+    v = r.get("viability") or {}
+    texts: dict[str, str] = {}
+    for dim, block in (v.get("scores") or {}).items():
+        texts[f"scores.{dim}.reasoning"] = (block or {}).get("reasoning") or ""
+    texts["summary"] = v.get("summary") or ""
+    for i, s in enumerate(v.get("strengths") or []):
+        texts[f"strengths[{i}]"] = s or ""
+    for i, risk in enumerate(v.get("risks") or []):
+        if isinstance(risk, dict):
+            texts[f"risks[{i}]"] = risk.get("risk") or ""
+
+    claims: dict[str, list[int]] = {}
+    for loc, t in texts.items():
+        cs = _competitor_count_claims(t)
+        if cs:
+            claims[loc] = cs
+    if not claims:
+        return Finding(None, "viability names no explicit competitor-count claim")
+    if not valid:
+        return Finding(None, "no competitor_density computed to check against")
+
+    bad = {loc: cs for loc, cs in claims.items() if any(c not in valid for c in cs)}
+    return Finding(not bad,
+                   f"viability claims disagree with real density {sorted(valid)}: {bad}"
+                   if bad else f"viability's competitor claims match real density {sorted(valid)}")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -444,6 +525,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D19", "no off-category 'direct' competitor in top 3", "wrong-industry rival ranked #1", "fail", d19_no_off_category_direct_competitor),
     Invariant("D20", "SAM narrative coherent with headline", "same SAM, two values", "fail", d20_sam_self_consistent),
     Invariant("D21", "ARPU coherent across 4Ps sections", "invented order/job/booking value", "fail", d21_arpu_coherent_across_sections),
+    Invariant("D22", "viability reasoning coherent with real competitor density", "invented competitor-count claim (audit item 3)", "fail", d22_viability_reasoning_density_coherent),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
