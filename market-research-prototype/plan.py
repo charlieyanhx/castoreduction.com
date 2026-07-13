@@ -1954,6 +1954,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             economics=result.get("economics"),
             reddit_signal=reddit_data,
             business_model_kind=biz_kind,  # M4: forbid model bleed in the 4Ps narrative
+            competitor_density=disc.get("competitor_density"),  # D22: anchor competitor counts
+            active_signal_density=disc.get("active_signal_density"),
         )
 
     # cycle33: classify market scale (numbers-right engine). Non-breaking — the

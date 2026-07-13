@@ -1192,6 +1192,58 @@ class TestCompetitorDensity(unittest.TestCase):
         self.assertNotIn("geo_sourced", result["discover"])
 
 
+class TestCompetitiveDensityDirective(unittest.TestCase):
+    """D22 item 1: Place/Product/Promotion never received a competitor count in their
+    own prompts at all (only Viability did) — so a section could invent one, and later
+    Viability's reasoning could echo the invented number instead of the real one. Real
+    R4 critical: "only one meaningful competitor" cited while the report's own
+    Competitors section listed 248. Mirrors price_anchor_directive's C2/D21 pattern."""
+
+    def test_directive_states_the_canonical_count(self):
+        from four_ps import competitive_density_directive
+        d = competitive_density_directive(30, 12)
+        self.assertIn("30 competitor", d)
+        self.assertIn("12 with active", d)
+        self.assertIn("do not invent", d.lower())
+
+    def test_singular_phrasing_for_one(self):
+        from four_ps import competitive_density_directive
+        d = competitive_density_directive(1, 1)
+        self.assertIn("1 competitor", d)
+        self.assertNotIn("1 competitors", d)
+
+    def test_omits_active_clause_when_equal(self):
+        from four_ps import competitive_density_directive
+        d = competitive_density_directive(30, 30)
+        self.assertNotIn("active", d)
+
+    def test_empty_when_density_unavailable(self):
+        from four_ps import competitive_density_directive
+        self.assertEqual(competitive_density_directive(None, None), "")
+
+    def test_assemble_4ps_split_threads_density_into_every_section(self):
+        # Every section's prompt must carry the directive — not just Place, which is
+        # the only one that already mentioned "competitor density" in its own brief.
+        from unittest.mock import patch
+        import four_ps
+        captured = {}
+
+        def fake_run(name, prompt_text):
+            captured[name] = prompt_text
+            return {"narrative": "x", "key_takeaways": [], "citations": []}
+
+        with patch.object(four_ps, "call_json") as mock_call:
+            mock_call.return_value = {"narrative": "x", "key_takeaways": [], "citations": []}
+            four_ps.assemble_4ps_split(
+                profile={"name": "X", "summary": "", "category": "", "business_model": ""},
+                competitors=[], top_audience={}, max_diff={}, van_westendorp={},
+                place={}, competitor_density=30, active_signal_density=12,
+            )
+        for call in mock_call.call_args_list:
+            user_prompt = call.kwargs.get("user") or call.args[1]
+            self.assertIn("30 competitor", user_prompt)
+
+
 class TestNonUsValidationSources(unittest.TestCase):
     """G5-shallow / D11: the hyperlocal adapter hardcoded 'US Census ACS' + 'BLS CEX'
     as the operator's validation sources for EVERY venture — a Lisbon cafe was told

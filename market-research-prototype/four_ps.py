@@ -103,6 +103,35 @@ def price_anchor_directive(business_model_kind: str | None, economics: dict | No
     )
 
 
+def competitive_density_directive(density: int | None, active_density: int | None) -> str:
+    """D22 item 1: a hard guardrail injected into every 4Ps section (same pattern as
+    price_anchor_directive/model_directive) so Place/Product/Promotion — which never
+    received a competitor-count number in their own prompts at all — cannot invent or
+    echo a stale competitor count that later contradicts the number Viability is given.
+
+    Real R4 critical: a report claimed "1 meaningful competitor" in the Market
+    Opportunity reasoning while its own Competitors section listed 248 comparable
+    venues — the density number never reached the 4Ps sections that fed that
+    reasoning, only Viability's own prompt saw it. Returns "" when no density is
+    available yet (nothing to anchor).
+
+    KNOWN LIMITATION: for a physical-local venture where the real competitor set is
+    only surfaced LATE (the F3 hyperlocal sizing override, after 4Ps has already been
+    dispatched — see _surface_late_geo_competitors), this directive sees the
+    pre-override density. D22's gate (d22_viability_reasoning_density_coherent) is the
+    safety net for that residual case, checked against the FINAL report."""
+    if density is None:
+        return ""
+    n = f"{density} competitor{'s' if density != 1 else ''}"
+    if active_density is not None and active_density != density:
+        n += f" ({active_density} with active web-momentum signal)"
+    return (
+        "\n\nCOMPETITIVE DENSITY — the ONE canonical competitor count for this venture: "
+        f"{n}. If you cite ANY number of competitors/rivals anywhere in this section, it "
+        "MUST be this exact count — do NOT invent, estimate, or restate a different number."
+    )
+
+
 FOUR_PS_PROMPT = """You are writing a paid-grade 4Ps marketing plan for a new venture. Output goes into a McKinsey-style report. Follow these rules:
 
 1. Every claim must be grounded in observable signals (traffic momentum, real customer voice, competitor homepage scrape, PSM/Max-Diff outputs).
@@ -471,6 +500,8 @@ def assemble_4ps_split(
     economics: dict | None = None,
     reddit_signal: dict | None = None,
     business_model_kind: str | None = None,
+    competitor_density: int | None = None,
+    active_signal_density: int | None = None,
 ) -> dict:
     """
     Iter 35 step 6: run the 4Ps as 4 parallel focused prompts instead of one
@@ -610,11 +641,15 @@ def assemble_4ps_split(
     # pricing context in their own prompts, so without this they hallucinate a different
     # average order/job/booking value than what Price actually uses.
     _pa = price_anchor_directive(business_model_kind, economics, van_westendorp)
+    # D22 item 1: every section ALSO gets the competitor-density anchor — none of the
+    # 4Ps section prompts previously received a competitor count at all, only Viability
+    # did, so a 4Ps section could invent one that later contradicted it.
+    _cd = competitive_density_directive(competitor_density, active_signal_density)
     tasks = {
-        "product": _product_prompt(profile_blob, features_blob, competitors_blob, audience_celebrated) + _md + _pa,
-        "price": _price_prompt(profile_blob, pricing_blob, benchmark_blob, economics_blob, psm_ok=psm_ok) + _md + _pa,
-        "place": _place_prompt(profile_blob, place_blob, audience_life_context) + _md + _pa,
-        "promotion": _promotion_prompt(profile_blob, audience_blob, reddit_themes_blob) + _md + _pa,
+        "product": _product_prompt(profile_blob, features_blob, competitors_blob, audience_celebrated) + _md + _pa + _cd,
+        "price": _price_prompt(profile_blob, pricing_blob, benchmark_blob, economics_blob, psm_ok=psm_ok) + _md + _pa + _cd,
+        "place": _place_prompt(profile_blob, place_blob, audience_life_context) + _md + _pa + _cd,
+        "promotion": _promotion_prompt(profile_blob, audience_blob, reddit_themes_blob) + _md + _pa + _cd,
     }
 
     results: dict = {}
