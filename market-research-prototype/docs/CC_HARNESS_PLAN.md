@@ -591,3 +591,47 @@ audit trail IS the project log — no separate status reports.
 - **W2 close-out doubles as the W1-deferred corpus ritual**: this regen is the R3 +
   reproducibility (identical to the cent) + R5 smoke (PASS 42s) confirmation of the
   W1 `call_json` changes that §5d parked at the W1 close.
+- **D22 (post-Wave-2.8): "Python computes, LLM narrates" audit + burn-down** — a
+  6-agent parallel code audit (user directive: stop letting the LLM do math; every
+  number gets one Python-computed source of truth, the LLM only narrates it) surfaced
+  7 findings; the user selected items 1-3 (the root-cause set) for immediate
+  execution, deferring items 4-7 (forced-non-empty `ip_credentials` differentiator;
+  differentiators.py's false docstring claim of Product/Promotion/EVC integration;
+  hardcoded TAM range-caption string; tier-b/c domain-resolution relevance-gate gap)
+  as audited-but-unscoped.
+  - **item 1** (7aa18b7): `competitive_density_directive()` threads density +
+    active_density into every 4Ps section prompt (Place/Product/Promotion previously
+    got none at all — only Viability did), mirroring `model_directive`/
+    `price_anchor_directive`. Documented known limitation: the F3 late geo-competitor
+    override (`_surface_late_geo_competitors`) still runs AFTER 4Ps dispatch, so a
+    hyperlocal venture's pre-override density can still leak into 4Ps prose — item 3
+    is the safety net for that residual case.
+  - **item 2** (8ab6d34): `VIABILITY_PROMPT`'s DIMENSION 3 was a single hardcoded
+    CLV:CAC rubric for every business_model_kind, but the only real_metrics ever fed
+    to it (economics_evc/economics_clv) are subscription-only keys — every other kind
+    was scored against a rubric with zero data to satisfy it (the flagged R11 root
+    cause). Added `unit_economics_rubric(kind)` (CLV:CAC for subscription,
+    contribution-margin/break-even for per-unit, take-rate/two-sided-CAC for
+    marketplace, ad-revenue-per-user/cost-to-serve for ad_supported) plus real_metrics
+    enrichment reading the actual computed economics object per kind.
+  - **item 3** (d228ccf): new gate `d22_viability_reasoning_density_coherent` mines
+    "only/just N competitors" / "N competitors identified/found/in the market" claims
+    (digit or spelled-out one-ten) from viability's own reasoning/summary/strengths/
+    risks and fails on disagreement with the real competitor_density or
+    active_signal_density — the safety net named in item 1's known-limitation note.
+  - **Close-out verification (token-lean, scoped not full-corpus)**: unit suite 856
+    passed/5 skipped (was 779 pre-D22, +77 net new tests across items 1-3); gates.py
+    --gate all run against the stale 16-venture wave2 corpus showed D22 firing 0 false
+    positives (2 ventures with an explicit claim both pass, rest correctly N/A). LIVE
+    regen (real LLM calls, not simulation) of 2 ventures spanning the two audited
+    business-model shapes — 174ae091 (marketplace) and 28d0ec61 (hybrid/per-unit) —
+    both landed 0 gate failures (D01-D22) and, read directly from the fresh output,
+    confirm the rubric fix: 174ae091's unit_economics_health reasoning now reads "The
+    15% take rate yields a healthy $67.50 per booking, but two-sided CAC ... remain
+    unmodeled" (zero CLV:CAC language); 28d0ec61's reads "a strong 65.5% contribution
+    margin with a highly achievable break-even volume of 309 bottles per month" (exact
+    match to `economics.contribution_margin_pct`). Deliberately did NOT re-run the
+    full 14-16 venture corpus or the expensive R4 LLM-judge panel for this scoped fix
+    — the two live regens directly exercise the two kinds items 1-3 targeted, and the
+    unit tests already pin the wiring for subscription/ecommerce/services/ad_supported
+    which weren't independently re-verified live.
