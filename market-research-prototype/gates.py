@@ -98,8 +98,14 @@ def d05_unit_no_monthly(r: dict, html: Optional[str]) -> Finding:
 
 
 def d06_html_no_saas_bleed(r: dict, html: Optional[str]) -> Finding:
-    if r.get("business_model_kind") not in PER_UNIT_KINDS:
-        return Finding(None, "not a per-unit model")
+    # C3/D06-extend: marketplace ventures (take-rate per transaction) are also
+    # never-recurring — same subscription-phrase leak class as per-unit models. Real
+    # R4 catch: a marketplace's per-booking price rendered "$350/mo per account".
+    # Kept separate from PER_UNIT_KINDS (shared with D05, where marketplace genuinely
+    # isn't "per-unit" in the unit-noun sense) rather than widening that set.
+    kind = r.get("business_model_kind")
+    if kind not in PER_UNIT_KINDS and kind != "marketplace":
+        return Finding(None, "not a per-unit or marketplace model")
     if html is None:
         return Finding(None, "no HTML in corpus")
     hits = [p for p in ("/month per ", "B2B SaaS benchmark", "per account") if p in html]

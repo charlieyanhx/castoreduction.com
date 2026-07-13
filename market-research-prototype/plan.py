@@ -285,6 +285,21 @@ _DEVICE_PRICE_RE = re.compile(
 _MONTHLY_WORD_RE = re.compile(r"/|\bper\b|\bmonth(?:ly)?\b|\bmo\b", re.I)
 
 
+_NON_RECURRING_KINDS = {"transactional", "ecommerce", "services", "hybrid", "marketplace"}
+
+
+def _pricing_is_recurring(biz_kind: str) -> bool:
+    """C3/D06-extend: which business-model kinds get '/month per <unit>' benchmark
+    labels. Real R4 catch (174ae091 R5 CRITICAL): a marketplace's per-booking price
+    ("$350/booking") rendered as "$350/mo per account" — the call site derived
+    recurring=not is_transactional, and is_transactional is False for marketplace
+    too (it isn't in business_model.PER_UNIT_KINDS), so "not per-unit -> must be
+    recurring" was wrong for the one other genuinely-non-recurring kind. Only
+    'subscription' is a true recurring seat/account fee; ad_supported is free to the
+    user (no price to label at all in this path, but never recurring either)."""
+    return biz_kind not in _NON_RECURRING_KINDS and biz_kind != "ad_supported"
+
+
 def extract_device_price(text: str) -> float | None:
     """Pull the one-time hardware/device price from a hybrid venture's description
     ('$199 device plus a $5 per month app' -> 199.0). Returns None when the only
@@ -1814,7 +1829,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                 competitor_pricing=competitor_pricing_data,
                 pricing_unit=unit,
                 competitor_brands=opps[:8],
-                recurring=not is_transactional,  # D06: per-unit ventures never "/month per"
+                recurring=_pricing_is_recurring(biz_kind),  # D06: only true subscriptions
             )
             if "error" not in bench:
                 result["pricing"]["benchmark"] = bench

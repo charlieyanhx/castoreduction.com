@@ -1513,6 +1513,19 @@ class TestBenchmarkTable(unittest.TestCase):
         out = build_benchmark_table([{"name": "Pro", "price": 40}], {}, pricing_unit="seat")
         self.assertEqual(out["our_pro_price_label"], "$40/month per seat")
 
+    def test_marketplace_pricing_is_never_recurring(self):
+        # R4 catch (174ae091, R5 CRITICAL): a marketplace's per-booking price
+        # rendered "$350/mo per account" — plan.py derived recurring=not
+        # is_transactional, and is_transactional is False for marketplace too (it
+        # isn't in PER_UNIT_KINDS), so the "not per-unit -> must be recurring"
+        # inference was wrong for the one other non-recurring kind.
+        from plan import _pricing_is_recurring
+        self.assertFalse(_pricing_is_recurring("marketplace"))
+        self.assertFalse(_pricing_is_recurring("transactional"))   # unchanged
+        self.assertFalse(_pricing_is_recurring("hybrid"))          # unchanged
+        self.assertFalse(_pricing_is_recurring("ad_supported"))    # free-to-user, not a seat fee
+        self.assertTrue(_pricing_is_recurring("subscription"))     # the only true recurring kind
+
 
 class TestEconomics(unittest.TestCase):
     """Iter 35 step 1: CLV + CAC + EVC arithmetic (spec step 10 fix + user feedback #2)."""
