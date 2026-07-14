@@ -145,6 +145,8 @@ class TestWebGroundedDiscovery(unittest.TestCase):
         import discover
         web = [{"name": "WebRivalCo", "domain": "webrival.com"}]
         with patch("discover._msd", return_value=self._ev(web)), \
+             patch("discover._verify_competitor_completeness",
+                   side_effect=lambda cands, *a, **k: cands), \
              patch("discover._gather_signals", side_effect=lambda brand, category, geo:
                    {"brand": brand.get("name"), "_score": 10}), \
              patch("discover.call_json", return_value={"ranked_opportunities": []}):
@@ -288,6 +290,56 @@ class TestPricingPathAndJsRender(unittest.TestCase):
             out = cp.scrape_brand_prices("acmesaas.com", max_paths=2)
         self.assertIsNotNone(out["median"])
         self.assertIn(49.0, out["prices_found"])
+
+
+class TestCompetitorCompletenessLoop(unittest.TestCase):
+    """Item 4 (verification loop): a second adversarial pass that attacks the LLM-recall
+    blind spot — seeds live 'alternatives to <known competitor>' searches off the CURRENT
+    set and asks an LLM, grounded in fresh results, which real competitors are MISSING."""
+
+    def _wire(self, missing):
+        from tools import Evidence
+        hits = [{"title": "Best CRM", "snippet": "HubSpot, Zoho, Pipedrive",
+                 "url": "https://x.com"}]
+        return (patch("tools.scrape.web_search",
+                      side_effect=lambda q, max_results=6: Evidence("s", "scrape", 1, payload=hits)),
+                patch("tools.scrape.filter_aggregator_domains",
+                      side_effect=lambda rows: Evidence("f", "scrape", len(rows), payload=rows)),
+                patch("discover.call_json", return_value={"missing": missing}))
+
+    def test_adds_missing_competitors(self):
+        import discover
+        ws, fad, cj = self._wire([{"name": "Zoho CRM", "domain": "zoho.com"}])
+        with ws, fad, cj:
+            out = discover._verify_competitor_completeness(
+                [{"name": "HubSpot"}], "CRM software", "US")
+        names = {c["name"] for c in out}
+        self.assertIn("Zoho CRM", names)
+        zoho = next(c for c in out if c["name"] == "Zoho CRM")
+        self.assertEqual(zoho["_seed"], "completeness")
+
+    def test_dedups_against_existing(self):
+        import discover
+        ws, fad, cj = self._wire([{"name": "hubspot"}])  # already present, diff case
+        with ws, fad, cj:
+            out = discover._verify_competitor_completeness([{"name": "HubSpot"}], "CRM", "US")
+        self.assertEqual(len([c for c in out if c["name"].lower() == "hubspot"]), 1)
+
+    def test_graceful_on_search_failure(self):
+        import discover
+        with patch("tools.scrape.web_search", side_effect=RuntimeError("down")):
+            out = discover._verify_competitor_completeness([{"name": "HubSpot"}], "CRM", "US")
+        self.assertEqual([c["name"] for c in out], ["HubSpot"])
+
+    def test_caps_additions(self):
+        import discover
+        many = [{"name": f"Rival{i}"} for i in range(20)]
+        ws, fad, cj = self._wire(many)
+        with ws, fad, cj:
+            out = discover._verify_competitor_completeness(
+                [{"name": "HubSpot"}], "CRM", "US", max_add=6)
+        added = [c for c in out if c.get("_seed") == "completeness"]
+        self.assertLessEqual(len(added), 6)
 
 
 if __name__ == "__main__":

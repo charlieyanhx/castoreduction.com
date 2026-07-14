@@ -381,6 +381,75 @@ def _union_web_discovered_competitors(candidates: list[dict], category: str, geo
     return candidates
 
 
+_COMPLETENESS_SYSTEM = (
+    "You audit a competitor list for COMPLETENESS. Given a venture, the competitors "
+    "already found, and fresh web-search results, name REAL competitor companies that "
+    "are clearly MISSING from the list — actual companies/products drawn from the "
+    "search results that genuinely compete, NOT ones already found, NOT review sites / "
+    "publishers (Forbes, G2, Capterra, PCMag…), NOT generic phrases ('Best CRM'). If "
+    "the list already looks complete, return an empty list. Return ONLY JSON: "
+    "{\"missing\": [{\"name\": str, \"domain\": str|null}]}."
+)
+
+
+def _verify_competitor_completeness(candidates: list[dict], category: str, geo: str,
+                                    max_add: int = 6, ceiling: int = 20) -> list[dict]:
+    """Item 4 (scraper audit — the verification loop): a SECOND, adversarial pass that
+    attacks the LLM-recall blind spot the fan-out can still share. It seeds live searches
+    off the CURRENT set ('alternatives to <known competitor>') plus category queries,
+    then asks an LLM — grounded in the fresh search results, not its own memory — which
+    real competitors are MISSING, and unions them in. This is the 'what did we miss?'
+    critic: 'alternatives to X' surfaces rivals that no category query returns.
+
+    Best-effort and additive: any failure (backends down, no LLM) leaves the set
+    untouched. Mutates + returns the list."""
+    try:
+        from tools.scrape import web_search, filter_aggregator_domains
+        existing = [(c.get("name") or "").strip() for c in candidates if c.get("name")]
+        queries = [f"top {category} companies", f"{category} competitors"]
+        for seed in existing[:2]:
+            queries.append(f"alternatives to {seed}")
+        hits: list[dict] = []
+        for q in queries[:4]:
+            ev = web_search(q, max_results=6)
+            rows = (filter_aggregator_domains(ev.payload or []).payload) or []
+            hits.extend(r for r in rows if isinstance(r, dict))
+        if not hits:
+            return candidates
+        lines = [f"- {h.get('title','')} | {(h.get('snippet') or '')[:140]}" for h in hits[:30]]
+        raw = call_json(
+            system=_COMPLETENESS_SYSTEM,
+            user=(f"VENTURE: {category}\n\nALREADY FOUND:\n"
+                  + "\n".join(f"- {n}" for n in existing)
+                  + "\n\nFRESH SEARCH RESULTS:\n" + "\n".join(lines)),
+            max_tokens=500,
+        ) or {}
+    except Exception as e:
+        log.warning("[discover] completeness check failed (non-fatal): %s", e)
+        return candidates
+    existing_lower = {n.lower() for n in existing}
+    added = 0
+    for m in (raw.get("missing") or []):
+        if added >= max_add or len(candidates) >= ceiling:
+            break
+        if not isinstance(m, dict):
+            continue
+        name = (m.get("name") or "").strip()
+        if not name or name.lower() in existing_lower:
+            continue
+        candidates.append({
+            "name": name,
+            "domain": m.get("domain"),
+            "query_evidence": "completeness_check",
+            "_seed": "completeness",
+        })
+        existing_lower.add(name.lower())
+        added += 1
+    if added:
+        log.info("[discover] completeness critic surfaced %d missing competitor(s)", added)
+    return candidates
+
+
 def _apply_relevance_to_ranking(entries: list[dict]) -> list[dict]:
     """B4/D19: an off-category domain (content relevance below the W2-5 threshold)
     must never present as a "direct" competitor, and never outrank on-category
@@ -553,6 +622,12 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
     # web-grounded instead of LLM-recall-only. Best-effort; leaves candidates unchanged
     # if search is unavailable.
     candidates = _union_web_discovered_competitors(candidates, category, geo, max_candidates)
+
+    # Item 4 (scraper audit): a second, adversarial completeness pass — 'alternatives to
+    # <known competitor>' searches + an LLM 'what did we miss?' critic grounded in the
+    # fresh results — surfaces real rivals the fan-out / LLM recall both missed. Runs
+    # before enrichment so any additions get the same signal gathering + hygiene.
+    candidates = _verify_competitor_completeness(candidates, category, geo)
 
     # 3. Gather signals for each candidate.
     # Iter 39: parallelize — each candidate's signal gathering is fully

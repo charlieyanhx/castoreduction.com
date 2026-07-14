@@ -666,3 +666,49 @@ audit trail IS the project log — no separate status reports.
         absolute counts (bleed 1→0, density 4→1) are the softer upper read; truth is
         between. Artifacts: scratchpad/{judge_results.json, aggregate_judgment.py},
         wave_d22_corpus/.
+- **Scraper-stack audit + repair (SCR items 1-4)** — a 6-agent parallel audit of the
+  web-scraping subsystem (acquisition/extraction/resilience/data-flow) found the load-
+  bearing INPUT layer was the weakest, and — the key insight — weak for a fixable
+  TOOL/wiring reason, not a model reason. Scores: discovery 3/10, fetch 4/10, content-
+  extraction 4/10, structured-extraction 3/10, anti-hallucination 7/10 (the real moat).
+  User directed: fix all four highest-leverage items, don't stop until done.
+  - **item 1 — the two dead scrapers** (0efa57b): (a) tools/scrape.fetch_page called
+    scrape.crawl.fetch_page(url, max_chars=) against a (url, timeout=) signature →
+    TypeError on EVERY call, swallowed by @tool → the entire bottom-up ARPU scrape
+    (price_intel) was dead in production; also the dict return was treated as a string.
+    Fixed extraction + added a plain-HTTP fallback. (b) trustpilot used json.loads()
+    with no `import json` → NameError swallowed → zero reviews parsed ever. Root env
+    gap: the Playwright chromium binary was never installed (`playwright install
+    chromium`); done. Verified LIVE: fetch_page('example.com') now returns real
+    rendered HTML.
+  - **item 2 — competitor discovery grounded in live web search** (847b154): the
+    shipped set for non-local ventures was LLM-recall only (Trends-extraction / LLM
+    generation); the tested multi-strategy fan-out existed but was NEVER called by
+    run_plan. Wired it into discover._run_signal_gathering_and_synthesis (unions before
+    enrichment, best-effort/graceful). CRUCIAL quality fix — the reason it was benched:
+    it used raw search-result TITLES as competitor names + never filtered aggregators,
+    so a live run returned "10 Best CRM | Forbes" / pcmag.com as "competitors". Added an
+    LLM extraction pass mining REAL vendor names from titles+snippets (drops publishers).
+    Verified LIVE: "CRM for small business" → Freshsales, HubSpot, Pipedrive, Bigin by
+    Zoho, monday CRM, Creatio (all 'direct'), vs the prior listicle garbage. Documented
+    TAVILY_API_KEY / BRAVE_SEARCH_KEY in .env.example (code already consumes them; real
+    keys are the operator's to supply — without them the cascade degrades to flaky public
+    SearXNG+ddgs).
+  - **item 3 — pricing path + JS render + extraction precision** (af1b165): /pricing &
+    /plans were never probed (PRICE_PATHS index 3+ vs MAX_PATHS=2) so SaaS prices were
+    invisible → front-loaded them, widened to 4. Added _fetch_pricing_html JS-render
+    fallback for SPA pricing pages. Precision: when a page ships structured price markup
+    (schema.org/JSON-LD/microdata), TRUST it and skip the regex-over-all-text (the audit's
+    one-$68 → [5,20,25,50,68,500] noise). First ground-truth extraction tests in the repo.
+  - **item 4 — competitor-completeness verification loop** (the user's own idea): a
+    second, adversarial pass (discover._verify_competitor_completeness) that seeds live
+    'alternatives to <known competitor>' searches off the CURRENT set and asks an LLM,
+    grounded in fresh results, 'what real competitors are missing?' — attacks the LLM-
+    recall blind spot the fan-out can still share. Verified LIVE: thin {Asana, Trello}
+    set → surfaced ProjectManager, Microsoft Project, ClickUp.
+  - Discipline: every fix RED-tested first (new test_scraper_fixes.py — 24 tests across
+    the 4 items — plus updates to test_discovery_multi / test_integration for the new
+    call seams), each verified LIVE against the real web, committed per item. HONEST
+    caveat: full-corpus regen + R4 re-measure of these scraper changes NOT yet run —
+    the wins are proven at the unit + live-smoke level, not yet in a report-level
+    accuracy delta.

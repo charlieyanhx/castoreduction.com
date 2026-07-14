@@ -200,6 +200,8 @@ class TestDiscoverIntegration(unittest.TestCase):
              patch("discover.wayback_activity", return_value=FAKE_WAYBACK), \
              patch("discover.estimate_domain_age_days", return_value=450), \
              patch("discover._msd", return_value=_no_web), \
+             patch("discover._verify_competitor_completeness",
+                   side_effect=lambda cands, *a, **k: cands), \
              patch("discover.validate_domain", return_value={
                  "ok": True, "final_url": "https://acmeskincare.com/",
                  "strong_match": True, "keyword_match": True, "brand_match": True,
@@ -250,6 +252,8 @@ class TestDiscoverIntegration(unittest.TestCase):
                 {"name": "TestBrand", "likely_domain": "testbrand.com", "query_evidence": "LLM-generated"},
             ]
         }), patch("discover._msd", return_value=_no_web), \
+             patch("discover._verify_competitor_completeness",
+                   side_effect=lambda cands, *a, **k: cands), \
              patch("discover._gather_signals", return_value={
             "brand": "TestBrand", "domain": "testbrand.com", "_score": 50
         }):
