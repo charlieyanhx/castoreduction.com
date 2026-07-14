@@ -44,6 +44,64 @@ _CLASSIFY_SYSTEM = (
     "\"relationship\": \"direct\"|\"indirect\"|\"adjacent\", \"reason\": str}]}."
 )
 
+_EXTRACT_SYSTEM = (
+    "You extract real competitor COMPANY/PRODUCT names from web-search results about a "
+    "venture. The results are mostly listicles ('10 Best CRM Tools') and review pages — "
+    "the real competitors are the VENDORS named inside the titles and snippets (e.g. "
+    "HubSpot, Zoho CRM, Pipedrive), NOT the article headline and NOT the review-site / "
+    "publisher that wrote it (Forbes, PCMag, TechRadar, G2, Capterra, NerdWallet, "
+    "FitSmallBusiness, etc.), and NOT generic phrases ('Best CRM', 'CRM Software'). "
+    "Extract the actual companies. Return ONLY JSON: {\"companies\": [{\"name\": str, "
+    "\"domain\": str|null}]} — set domain to the vendor's own domain when a result IS "
+    "that vendor's site, else null."
+)
+
+
+def _extract_companies_from_hits(description: str, hits: list[dict],
+                                 max_companies: int) -> list[dict]:
+    """LLM pass that turns raw search hits (titles + snippets, mostly listicles) into
+    real vendor names. This is the quality fix that makes the fan-out shippable: without
+    it, _merge_candidates uses the search-result TITLE as the competitor name, so the
+    'competitors' come out as '10 Best CRM | Forbes' on forbes.com. Listicle snippets are
+    the richest source of real competitor names ('our picks: HubSpot, Zoho, Pipedrive'),
+    so we mine them explicitly. Returns [] on failure (caller falls back)."""
+    if not hits:
+        return []
+    lines = []
+    for h in hits[:40]:
+        if not isinstance(h, dict):
+            continue
+        t = (h.get("title") or "").strip()
+        s = (h.get("snippet") or "").strip()
+        u = (h.get("url") or "").strip()
+        lines.append(f"- {t} | {s[:160]} | {u}")
+    if not lines:
+        return []
+    raw = call_json(
+        system=_EXTRACT_SYSTEM,
+        user=f"VENTURE:\n{description}\n\nSEARCH RESULTS:\n" + "\n".join(lines),
+        max_tokens=800,
+    ) or {}
+    out: list[dict] = []
+    seen: set[str] = set()
+    for c in (raw.get("companies") or []):
+        if not isinstance(c, dict):
+            continue
+        name = (c.get("name") or "").strip()
+        key = _norm(name)
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "name": name,
+            "domain": _norm(c.get("domain") or "") or "",
+            "mentions": 1,
+            "sources": ["llm_extract"],
+        })
+        if len(out) >= max_companies:
+            break
+    return out
+
 # Fallback strategies if the planner LLM degrades — still better than one query.
 _DEFAULT_STRATEGIES = [
     {"name": "category", "query": "{d} companies"},
@@ -125,8 +183,21 @@ def multi_strategy_discovery(
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         evidences = list(pool.map(lambda s: _execute(s, results_per_strategy), strategies))
 
-    # Publisher — dedupe + rank by cross-strategy agreement (reused from discovery).
-    competitors = _merge_candidates(evidences, max_candidates)
+    # Publisher — turn raw hits into REAL vendor names. Primary: an LLM extraction pass
+    # that mines competitor names out of the (mostly listicle) titles + snippets. Without
+    # this the fan-out returned search-result titles as competitors ('10 Best CRM | Forbes'
+    # on forbes.com) — the reason it was never shipped. Fallback: the old cross-strategy
+    # agreement merge on aggregator-FILTERED hits, so we never regress to zero.
+    all_hits: list[dict] = []
+    for ev in evidences:
+        rows = ev.payload if isinstance(ev.payload, list) else []
+        all_hits.extend(r for r in rows if isinstance(r, dict))
+    competitors = _extract_companies_from_hits(description, all_hits, max_candidates)
+    if not competitors:
+        from tools.scrape import filter_aggregator_domains as _fad
+        filtered = (_fad(all_hits).payload or []) if all_hits else []
+        merge_src = [Evidence("search:filtered", "scrape", len(filtered), payload=filtered)]
+        competitors = _merge_candidates(merge_src, max_candidates)
 
     # Classifier — direct / indirect / adjacent.
     rel_map = _classify_relationships(description, competitors) if classify else {}

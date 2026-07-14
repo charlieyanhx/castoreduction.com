@@ -189,6 +189,9 @@ class TestDiscoverIntegration(unittest.TestCase):
         from unittest.mock import patch
         import discover
 
+        from tools import Evidence
+        _no_web = Evidence("multi_strategy_discovery", "skill_output", 0,
+                           payload={"competitors": []})
         with patch("discover.time.sleep"), \
              patch("discover.google_trends_rising", return_value=FAKE_TRENDS), \
              patch("discover.brand_trend_slope", return_value=FAKE_BRAND_TREND), \
@@ -196,6 +199,7 @@ class TestDiscoverIntegration(unittest.TestCase):
              patch("discover.reddit_mentions", return_value=FAKE_REDDIT), \
              patch("discover.wayback_activity", return_value=FAKE_WAYBACK), \
              patch("discover.estimate_domain_age_days", return_value=450), \
+             patch("discover._msd", return_value=_no_web), \
              patch("discover.validate_domain", return_value={
                  "ok": True, "final_url": "https://acmeskincare.com/",
                  "strong_match": True, "keyword_match": True, "brand_match": True,
@@ -236,13 +240,17 @@ class TestDiscoverIntegration(unittest.TestCase):
         """When Google Trends returns nothing, pipeline falls back to LLM brand generation."""
         import discover
 
+        from tools import Evidence
+        _no_web = Evidence("multi_strategy_discovery", "skill_output", 0,
+                           payload={"competitors": []})
         with patch("discover.google_trends_rising", return_value={
             "category": "empty", "slope_12m": 0, "rising_queries": []
         }), patch("discover.call_json", return_value={
             "brands": [
                 {"name": "TestBrand", "likely_domain": "testbrand.com", "query_evidence": "LLM-generated"},
             ]
-        }), patch("discover._gather_signals", return_value={
+        }), patch("discover._msd", return_value=_no_web), \
+             patch("discover._gather_signals", return_value={
             "brand": "TestBrand", "domain": "testbrand.com", "_score": 50
         }):
             result = discover.discover("empty", geo="US")

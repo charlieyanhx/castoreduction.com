@@ -85,5 +85,137 @@ class TestTrustpilotJsonImport(unittest.TestCase):
         self.assertEqual(out[0]["stars"], 5)
 
 
+class TestWebGroundedDiscovery(unittest.TestCase):
+    """Item 2: the shipped competitor set for non-local ventures was LLM-recall only
+    (Trends-extraction or LLM generation) — the tested multi-strategy web fan-out
+    (skills/discovery_multi) existed but was never called by the pipeline. discover.py
+    now unions its live-web competitors into the candidate set before enrichment."""
+
+    def _ev(self, competitors):
+        from tools import Evidence
+        return Evidence("multi_strategy_discovery", "skill_output", len(competitors),
+                        payload={"competitors": competitors})
+
+    def test_unions_web_competitors_into_candidates(self):
+        import discover
+        candidates = [{"name": "AlphaCo"}]
+        web = [{"name": "BetaCo", "domain": "beta.com", "relationship": "direct"},
+               {"name": "GammaCo", "domain": "gamma.io", "relationship": "indirect"}]
+        with patch("discover._msd", return_value=self._ev(web)):
+            out = discover._union_web_discovered_competitors(candidates, "CRM", "US", 10)
+        names = {c["name"] for c in out}
+        self.assertEqual(names, {"AlphaCo", "BetaCo", "GammaCo"})
+        beta = next(c for c in out if c["name"] == "BetaCo")
+        self.assertEqual(beta["_seed"], "web_fanout")
+        self.assertEqual(beta["domain"], "beta.com")
+
+    def test_dedups_against_existing_candidates(self):
+        import discover
+        candidates = [{"name": "BetaCo"}]
+        web = [{"name": "betaco", "domain": "beta.com"}]  # same name, different case
+        with patch("discover._msd", return_value=self._ev(web)):
+            out = discover._union_web_discovered_competitors(candidates, "CRM", "US", 10)
+        self.assertEqual(len([c for c in out if c["name"].lower() == "betaco"]), 1)
+
+    def test_graceful_when_search_returns_nothing(self):
+        import discover
+        candidates = [{"name": "AlphaCo"}]
+        with patch("discover._msd", return_value=self._ev([])):
+            out = discover._union_web_discovered_competitors(candidates, "CRM", "US", 10)
+        self.assertEqual([c["name"] for c in out], ["AlphaCo"])
+
+    def test_graceful_when_search_raises(self):
+        import discover
+        candidates = [{"name": "AlphaCo"}]
+        with patch("discover._msd", side_effect=RuntimeError("backends down")):
+            out = discover._union_web_discovered_competitors(candidates, "CRM", "US", 10)
+        self.assertEqual([c["name"] for c in out], ["AlphaCo"])
+
+    def test_respects_ceiling(self):
+        import discover
+        candidates = [{"name": f"C{i}"} for i in range(17)]
+        web = [{"name": f"W{i}", "domain": f"w{i}.com"} for i in range(10)]
+        with patch("discover._msd", return_value=self._ev(web)):
+            out = discover._union_web_discovered_competitors(candidates, "CRM", "US", 10, ceiling=18)
+        self.assertLessEqual(len(out), 18)
+
+    def test_signal_gathering_pulls_in_web_competitors(self):
+        # End-to-end at the function level: _run_signal_gathering_and_synthesis must
+        # union web competitors, so they land in the enriched/ranked set + density.
+        import discover
+        web = [{"name": "WebRivalCo", "domain": "webrival.com"}]
+        with patch("discover._msd", return_value=self._ev(web)), \
+             patch("discover._gather_signals", side_effect=lambda brand, category, geo:
+                   {"brand": brand.get("name"), "_score": 10}), \
+             patch("discover.call_json", return_value={"ranked_opportunities": []}):
+            result = discover._run_signal_gathering_and_synthesis(
+                {"steps": {}}, [{"name": "AlphaCo"}], "CRM", "US", 10)
+        enriched_names = {e.get("brand") for e in result["steps"]["signals"]}
+        self.assertIn("WebRivalCo", enriched_names)
+        self.assertIn("AlphaCo", enriched_names)
+
+
+class TestFanoutExtractionQuality(unittest.TestCase):
+    """Item 2 (quality): the live fan-out surfaced listicle/review-site TITLES as
+    'competitors' ("10 Best CRM | Forbes", pcmag.com, capterra.com) — worse than LLM
+    recall. multi_strategy_discovery now runs an LLM extraction pass that mines the
+    REAL vendor names from result titles+snippets and drops publisher/review sites."""
+
+    def _hits(self):
+        return [
+            {"title": "10 Best Small Business CRM 2026 | Forbes Advisor",
+             "snippet": "Our picks: HubSpot, Zoho CRM, Pipedrive lead the pack.",
+             "url": "https://forbes.com/advisor/crm", "source": "search:best_of"},
+            {"title": "The Best CRM Software We've Tested | PCMag",
+             "snippet": "HubSpot and Salesforce top our ratings this year.",
+             "url": "https://pcmag.com/picks/best-crm", "source": "search:category"},
+            {"title": "HubSpot CRM — Free CRM for Small Business",
+             "snippet": "HubSpot's free CRM.", "url": "https://hubspot.com/products/crm",
+             "source": "search:alternatives"},
+        ]
+
+    def test_extracts_vendor_names_not_listicle_titles(self):
+        import skills.discovery_multi as dm
+        # one call_json return satisfies planner (strategies), extractor (companies),
+        # and classifier (classified) — the skill calls call_json for each.
+        combined = {
+            "strategies": [{"name": "category", "query": "crm software"}],
+            "companies": [{"name": "HubSpot", "domain": "hubspot.com"},
+                          {"name": "Zoho CRM", "domain": "zoho.com"},
+                          {"name": "Pipedrive", "domain": "pipedrive.com"}],
+            "classified": [],
+        }
+        hits = self._hits()
+        with patch("skills.discovery_multi.call_json", return_value=combined), \
+             patch("skills.discovery_multi.web_search",
+                   side_effect=lambda q, max_results=8: __import__("tools").Evidence(
+                       "search", "scrape", len(hits), payload=hits)):
+            ev = dm.multi_strategy_discovery(description="CRM for small business",
+                                             geo="US", max_candidates=10)
+        names = {c["name"] for c in ev.payload["competitors"]}
+        self.assertIn("HubSpot", names)
+        self.assertIn("Zoho CRM", names)
+        # the listicle/publisher titles must NOT appear as competitors
+        for bad in names:
+            self.assertNotIn("Forbes", bad)
+            self.assertNotIn("PCMag", bad)
+            self.assertNotIn("Best", bad)
+
+    def test_falls_back_to_domain_merge_when_extraction_empty(self):
+        # If the extractor yields nothing, don't regress to zero competitors —
+        # fall back to the aggregator-filtered domain-merge path.
+        import skills.discovery_multi as dm
+        combined = {"strategies": [{"name": "category", "query": "crm"}],
+                    "companies": [], "classified": []}
+        hits = [{"title": "HubSpot CRM", "snippet": "crm",
+                 "url": "https://hubspot.com", "source": "search:category"}]
+        with patch("skills.discovery_multi.call_json", return_value=combined), \
+             patch("skills.discovery_multi.web_search",
+                   side_effect=lambda q, max_results=8: __import__("tools").Evidence(
+                       "search", "scrape", len(hits), payload=hits)):
+            ev = dm.multi_strategy_discovery(description="CRM", geo="US", max_candidates=10)
+        self.assertGreaterEqual(len(ev.payload["competitors"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

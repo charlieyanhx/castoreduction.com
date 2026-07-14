@@ -64,9 +64,16 @@ class TestClassify(unittest.TestCase):
 
 
 class TestEndToEnd(unittest.TestCase):
+    # NOTE: the pipeline is now planner → LLM EXTRACTOR → classifier (3 call_json calls).
+    # The extractor is the primary name source (mines real vendors from listicle
+    # titles/snippets — see test_scraper_fixes.TestFanoutExtractionQuality). The
+    # cross-strategy-agreement MERGE is the FALLBACK when extraction yields nothing;
+    # test_fan_out_dedupe_and_classify exercises that fallback path explicitly.
+
     def test_fan_out_dedupe_and_classify(self):
         plan = {"strategies": [{"name": "cat", "query": "crm"},
                                {"name": "alt", "query": "alternatives"}]}
+        extract_empty = {"companies": []}  # force the agreement-ranking fallback path
         # Two strategies; "Acme" appears in both → ranks first via cross-strategy agreement.
         searches = iter([
             _search_ev([{"title": "Acme", "url": "https://acme.com"},
@@ -79,7 +86,8 @@ class TestEndToEnd(unittest.TestCase):
             {"name": "Globex", "relationship": "indirect", "reason": "substitute"},
             {"name": "Initech", "relationship": "adjacent", "reason": "tangential"},
         ]}
-        with patch("skills.discovery_multi.call_json", side_effect=[plan, classify]), \
+        with patch("skills.discovery_multi.call_json",
+                   side_effect=[plan, extract_empty, classify]), \
              patch("skills.discovery_multi.web_search", side_effect=lambda q, max_results=8: next(searches)):
             ev = multi_strategy_discovery("a CRM", max_candidates=10)
         comps = ev.payload["competitors"]
@@ -93,9 +101,26 @@ class TestEndToEnd(unittest.TestCase):
         for c in comps:
             self.assertTrue(c["sources"])
 
+    def test_extractor_is_primary_name_source(self):
+        # Primary path: the LLM extractor returns clean vendor names, which win over
+        # the raw-title merge. (classify=False → 2 call_json calls: planner, extractor.)
+        plan = {"strategies": [{"name": "cat", "query": "crm"}]}
+        extract = {"companies": [{"name": "HubSpot", "domain": "hubspot.com"},
+                                 {"name": "Zoho CRM", "domain": "zoho.com"}]}
+        with patch("skills.discovery_multi.call_json", side_effect=[plan, extract]), \
+             patch("skills.discovery_multi.web_search",
+                   return_value=_search_ev([{"title": "10 Best CRM | Forbes",
+                                             "snippet": "HubSpot, Zoho lead",
+                                             "url": "https://forbes.com/x"}])):
+            ev = multi_strategy_discovery("a CRM", classify=False)
+        names = {c["name"] for c in ev.payload["competitors"]}
+        self.assertEqual(names, {"HubSpot", "Zoho CRM"})
+        self.assertNotIn("10 Best CRM | Forbes", names)  # listicle title dropped
+
     def test_classify_can_be_skipped(self):
         plan = {"strategies": [{"name": "cat", "query": "crm"}]}
-        with patch("skills.discovery_multi.call_json", side_effect=[plan]), \
+        extract = {"companies": [{"name": "Acme", "domain": "acme.com"}]}
+        with patch("skills.discovery_multi.call_json", side_effect=[plan, extract]), \
              patch("skills.discovery_multi.web_search",
                    return_value=_search_ev([{"title": "Acme", "url": "https://acme.com"}])):
             ev = multi_strategy_discovery("a CRM", classify=False)

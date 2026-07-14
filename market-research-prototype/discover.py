@@ -327,6 +327,60 @@ def _union_named_competitors(candidates: list[dict], named_competitors) -> list[
     return out
 
 
+def _msd(*args, **kwargs):
+    """Lazy indirection to skills.discovery_multi.multi_strategy_discovery — kept as a
+    module-level function so it's a stable patch seam in tests AND avoids a top-level
+    import cycle (discovery_multi imports from skills.discovery, which pulls tools)."""
+    from skills.discovery_multi import multi_strategy_discovery
+    return multi_strategy_discovery(*args, **kwargs)
+
+
+def _union_web_discovered_competitors(candidates: list[dict], category: str, geo: str,
+                                      max_candidates: int, ceiling: int = 18) -> list[dict]:
+    """Item 2 (scraper audit): ground the competitor SET in LIVE WEB SEARCH, not only
+    LLM recall / Google-Trends extraction. Runs the multi-strategy fan-out
+    (skills.discovery_multi): parallel diverse web searches (category / 'alternatives
+    to X' / 'best <category>' / review-site angles) → dedupe + rank by cross-strategy
+    agreement → direct/indirect classification. Its real, web-sourced competitors are
+    unioned into the candidate list BEFORE signal gathering, so they flow through the
+    same enrichment / ranking / hygiene gates as every other candidate.
+
+    Additive + best-effort: if the search backends are down or return nothing (e.g. no
+    TAVILY_API_KEY/BRAVE_SEARCH_KEY and public SearXNG unreachable), the LLM/Trends
+    candidates are left untouched — the pipeline degrades to the prior behavior rather
+    than failing. Physical-local ventures are additionally covered by the OSM geo path
+    in plan.py, which overrides this set when it fires. Mutates+returns the list."""
+    try:
+        ev = _msd(description=category, geo=geo, max_candidates=max_candidates)
+        web = (getattr(ev, "payload", None) or {}).get("competitors") or []
+    except Exception as e:
+        log.warning("[discover] web fan-out discovery failed (non-fatal): %s", e)
+        return candidates
+    if not web:
+        log.info("[discover] web fan-out returned no competitors (backends down / no keys?)")
+        return candidates
+    existing = {(c.get("name") or "").strip().lower() for c in candidates}
+    added = 0
+    for c in web:
+        if len(candidates) >= ceiling:
+            break
+        name = (c.get("name") or "").strip()
+        if not name or name.lower() in existing:
+            continue
+        candidates.append({
+            "name": name,
+            "domain": c.get("domain"),
+            "query_evidence": "web_search",
+            "_seed": "web_fanout",
+            "relationship": c.get("relationship"),
+        })
+        existing.add(name.lower())
+        added += 1
+    log.info("[discover] web fan-out grounded the set with %d live competitors "
+             "(%d total candidates)", added, len(candidates))
+    return candidates
+
+
 def _apply_relevance_to_ranking(entries: list[dict]) -> list[dict]:
     """B4/D19: an off-category domain (content relevance below the W2-5 threshold)
     must never present as a "direct" competitor, and never outrank on-category
@@ -493,6 +547,13 @@ def _gather_signals(brand: dict, category: str, geo: str) -> dict:
 
 def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category: str, geo: str, max_candidates: int) -> dict:
     """Shared logic for steps 3-5: gather signals, optional Meta, LLM synthesis."""
+    # Item 2 (scraper audit): ground the candidate set in live web search before
+    # enrichment — both candidate paths (Trends-extraction and LLM-generation) funnel
+    # through here, so this is the single point that makes the shipped competitor set
+    # web-grounded instead of LLM-recall-only. Best-effort; leaves candidates unchanged
+    # if search is unavailable.
+    candidates = _union_web_discovered_competitors(candidates, category, geo, max_candidates)
+
     # 3. Gather signals for each candidate.
     # Iter 39: parallelize — each candidate's signal gathering is fully
     # independent (different domains, different APIs). Sequential was
