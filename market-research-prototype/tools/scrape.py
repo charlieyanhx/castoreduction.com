@@ -115,7 +115,27 @@ def fetch_page(url: str, max_chars: int = 200_000) -> Evidence:
     fetch_via_wayback.
     """
     from scrape.crawl import fetch_page as _impl
-    html = _impl(url, max_chars=max_chars)
+    # crawl4ai returns a dict {html, markdown, status, success} on a JS-rendered
+    # fetch, or None when the headless browser is unavailable (not installed) or the
+    # render fails. Two bugs lived here: (a) it was called with max_chars=, which the
+    # impl's (url, timeout=) signature rejected → TypeError on EVERY call (swallowed by
+    # @tool into an error Evidence, so the whole bottom-up-ARPU scrape was silently
+    # dead); (b) the dict return was treated as a string. Extract the HTML string, and
+    # fall back to the plain-HTTP client so a missing browser still yields static HTML
+    # instead of nothing.
+    result = _impl(url)
+    html = ""
+    if isinstance(result, dict):
+        html = result.get("html") or result.get("markdown") or ""
+    elif isinstance(result, str):  # defensive: tolerate a str impl
+        html = result
+    if not html:
+        from scrape.http import request
+        resp = request("GET", url)
+        if resp is not None and getattr(resp, "status_code", 0) == 200:
+            html = resp.text or ""
+    if html and max_chars:
+        html = html[:max_chars]
     return Evidence(
         source="fetch_page", category="scrape",
         count=1 if html else 0, payload=html,
