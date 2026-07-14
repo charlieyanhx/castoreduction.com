@@ -217,5 +217,78 @@ class TestFanoutExtractionQuality(unittest.TestCase):
         self.assertGreaterEqual(len(ev.payload["competitors"]), 1)
 
 
+_PRICING_TEXT = (
+    "Simple, transparent pricing for teams of every size. Choose the plan that fits "
+    "your workflow and upgrade any time. All plans include unlimited projects, priority "
+    "email support, and a 14-day free trial with no credit card required. Compare the "
+    "Starter, Growth, and Enterprise tiers below to find the right fit for your team. "
+    "Thousands of small businesses trust our platform to run their day to day operations."
+)
+
+
+class TestPriceExtractionGroundTruth(unittest.TestCase):
+    """Item 3: the audit showed extraction on a real messy page turned one real $68
+    price into [5,20,25,50,68,500] (median $37.50) — the regex-over-all-text grabs
+    shipping thresholds, discounts, etc. Fix: when a page ships structured price
+    markup (schema.org/JSON-LD/microdata — most real pricing pages do), TRUST those
+    and skip the noisy regex entirely."""
+
+    def test_structured_prices_beat_regex_noise(self):
+        from scrape.structured import extract_prices
+        html = f'''<html><head>
+        <script type="application/ld+json">
+        {{"@type":"Product","name":"Starter","offers":{{"@type":"Offer","price":"29.00","priceCurrency":"USD"}}}}
+        </script>
+        <script type="application/ld+json">
+        {{"@type":"Product","name":"Growth","offers":{{"@type":"Offer","price":"99.00","priceCurrency":"USD"}}}}
+        </script>
+        </head><body><p>{_PRICING_TEXT}</p>
+        <div class="promo">$5 off your first month! Free shipping on orders over $50.
+        Enterprise plans from $2000. Was $250, now cheaper.</div>
+        </body></html>'''
+        amts = {p["amount"] for p in extract_prices(html)}
+        self.assertIn(29.0, amts)
+        self.assertIn(99.0, amts)
+        # The marketing noise must NOT pollute the price set.
+        self.assertNotIn(5.0, amts)
+        self.assertNotIn(50.0, amts)
+        self.assertNotIn(250.0, amts)
+
+    def test_unstructured_page_still_captures_the_real_price(self):
+        # No structured markup → regex fallback. We still capture the real price
+        # (precision on fully-unstructured pages stays a known limitation, but we must
+        # not MISS the real number).
+        from scrape.structured import extract_prices
+        html = f'<html><body><p>{_PRICING_TEXT}</p><span class="price">$68.00</span></body></html>'
+        amts = {p["amount"] for p in extract_prices(html)}
+        self.assertIn(68.0, amts)
+
+
+class TestPricingPathAndJsRender(unittest.TestCase):
+    """Item 3: competitor_pricing probed only ['', '/products'] (MAX_PATHS=2), so a
+    SaaS competitor's prices — which live on /pricing — were never fetched. And it was
+    plain-HTTP only, so JS-rendered pricing pages yielded nothing."""
+
+    def test_pricing_path_is_within_probed_slice(self):
+        import competitor_pricing as cp
+        probed = cp.PRICE_PATHS[:cp.MAX_PATHS_PER_DOMAIN]
+        self.assertIn("/pricing", probed)
+
+    def test_js_render_fallback_when_plain_http_is_thin(self):
+        # Plain HTTP returns a thin JS shell → the browser render supplies the real
+        # (structured-priced) pricing page, and the price is extracted.
+        import competitor_pricing as cp
+        rendered = (f'<html><head><script type="application/ld+json">'
+                    f'{{"@type":"Product","offers":{{"@type":"Offer","price":"49.00","priceCurrency":"USD"}}}}'
+                    f'</script></head><body><p>{_PRICING_TEXT}</p></body></html>')
+        with patch("competitor_pricing.mrp_http.get",
+                   return_value=_Resp(200, "<html><body>loading…</body></html>")), \
+             patch("scrape.crawl.fetch_page",
+                   return_value={"html": rendered, "markdown": "", "status": 200}):
+            out = cp.scrape_brand_prices("acmesaas.com", max_paths=2)
+        self.assertIsNotNone(out["median"])
+        self.assertIn(49.0, out["prices_found"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -221,6 +221,15 @@ def extract_prices(html: str) -> list[dict]:
     except Exception:
         pass
 
+    # PRECISION (Item 3 / scraper audit): a page that ships structured price markup
+    # (schema.org Offer / microdata / bare itemprop) has already told us its REAL
+    # prices with high confidence. Do NOT then run the regex-over-all-text pass, which
+    # scoops up shipping thresholds, discounts, and "was $250" strikethroughs as if
+    # they were prices (the audit's one-real-$68 → [5,20,25,50,68,500] failure). Only
+    # fall through to regex when structured extraction found nothing.
+    if out:
+        return out
+
     # 2. price-parser regex over visible text — catches inline `$49/mo` etc
     try:
         from price_parser import Price

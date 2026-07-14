@@ -25,8 +25,38 @@ log = get("pricing_scrape")
 
 # Common price patterns in HTML
 PRICE_RE = re.compile(r'\$\s*(\d{1,4}(?:[.,]\d{2})?)')
-PRICE_PATHS = ["", "/products", "/shop", "/pricing", "/store", "/products/all"]
-MAX_PATHS_PER_DOMAIN = 2
+# Item 3 (scraper audit): /pricing and /plans (where SaaS/subscription competitors
+# actually list prices) were NEVER reached — they sat at index 3+ while
+# MAX_PATHS_PER_DOMAIN=2 probed only ['', '/products']. Front-load the pricing paths
+# and widen the slice so both SaaS (/pricing, /plans) and ecommerce (/products) are hit.
+PRICE_PATHS = ["", "/pricing", "/plans", "/products", "/shop", "/store"]
+MAX_PATHS_PER_DOMAIN = 4
+
+
+def _fetch_pricing_html(url: str) -> str:
+    """Plain HTTP first; if the page is empty / a non-substantive JS shell (SPA pricing
+    pages are frequently client-rendered), fall back to the headless-browser render
+    (Item 3). Returns the best available HTML string, or '' on total failure."""
+    html = ""
+    try:
+        r = mrp_http.get(url, timeout=8, max_retries=0, allow_redirects=True)
+        if getattr(r, "status_code", 0) == 200:
+            html = r.text or ""
+    except Exception:
+        html = ""
+    from scrape.structured import page_is_substantive
+    if html and page_is_substantive(html)[0]:
+        return html
+    # Plain HTTP gave nothing usable — try the JS render (crawl4ai). Requires the
+    # chromium binary; without it crawl returns None and we keep the thin html.
+    try:
+        from scrape.crawl import fetch_page as _crawl
+        res = _crawl(url)
+        if isinstance(res, dict) and (res.get("html") or res.get("markdown")):
+            return res.get("html") or res.get("markdown") or ""
+    except Exception:
+        pass
+    return html
 
 
 def extract_prices_from_html(html: str) -> list[float]:
@@ -71,22 +101,24 @@ def scrape_brand_prices(domain: str, max_paths: int = MAX_PATHS_PER_DOMAIN) -> d
     for path in PRICE_PATHS[:max_paths]:
         url = f"https://{domain}{path}"
         try:
-            r = mrp_http.get(url, timeout=8, max_retries=0, allow_redirects=True)
-            if r.status_code != 200:
+            # Item 3: plain HTTP, then a headless-browser render fallback for JS-heavy
+            # (SPA) pricing pages that return an empty shell over plain HTTP.
+            html = _fetch_pricing_html(url)
+            if not html:
                 continue
             # W2/D13 content gate: a parked lander or JS shell returns 200 with junk
             # numbers on it (a registrar's domain-sale price) — never extract from it.
             from scrape.structured import page_is_substantive, main_text
-            ok, why = page_is_substantive(r.text)
+            ok, why = page_is_substantive(html)
             if not ok:
                 log.debug(f"  {url} skipped by content gate: {why}")
                 continue
             # W2-5: keep a text sample of the first substantive page so the caller
             # can judge category relevance before this domain enters the median.
             if not page_text_sample:
-                page_text_sample = main_text(r.text)[:2000]
+                page_text_sample = main_text(html)[:2000]
             paths_tried.append(path or "/")
-            prices = extract_prices_from_html(r.text)
+            prices = extract_prices_from_html(html)
             if prices:
                 all_prices.extend(prices)
                 if len(all_prices) >= 5:
