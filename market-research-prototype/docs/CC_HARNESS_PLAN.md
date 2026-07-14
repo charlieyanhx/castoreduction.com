@@ -635,3 +635,34 @@ audit trail IS the project log — no separate status reports.
     — the two live regens directly exercise the two kinds items 1-3 targeted, and the
     unit tests already pin the wiring for subscription/ecommerce/services/ad_supported
     which weren't independently re-verified live.
+  - **MEASURED accuracy delta (full 16-venture live regen + blinded A/B judge panel)** —
+    ran on user request ("did the accuracy improve?"). Regenerated ALL 16 ventures with
+    real LLM calls (809s, 0 failures), then a 32-agent Workflow (16 blind A/B judges +
+    16 adversarial verifiers, 0 errors) scored NEW (D22-fixed) vs OLD (out/wave2_corpus
+    baseline) viability reasoning, blinded per-venture, on the dimensions items 1-3
+    targeted. VERDICT — improvement is REAL but modest and concentrated in density
+    coherence, NOT the unit-econ rubric:
+      * Deterministic cross-section coherence (all fixes combined): 83.9% (177/211,
+        stale corpus) → **100% (218/218, 0 blocking failures)** on the fresh corpus.
+        Conflates D15-D22 + regeneration, not D22-isolated.
+      * Competitor-density coherence (item 1's target): viability claims that contradict
+        the real density: OLD **4 → NEW 1**. The 1 residual (800c261b) is a borderline
+        QUALIFIED claim ("zero direct *room-temperature* superconductor rivals" vs
+        density 12 broad-category) — arguably legitimate, and correctly OUTSIDE D22's
+        deliberately-narrow regex (which fired 0 on the fresh corpus). Clearest win.
+      * Unit-economics model-appropriateness (item 2's target): absolute per-judge counts
+        NEW **16/16** vs OLD **15/16** appropriate; CLV:CAC bleed on non-subscription
+        OLD **1 → NEW 0**. BUT head-to-head, adversarially verified, NEW won only **3/16**
+        — the skeptic REFUTED the "improvement" in 13/16 as cosmetic, because the OLD
+        reports were ALREADY mostly model-appropriate (the pre-existing M4 model_directive
+        does most of the subscription-bleed prevention; item 2's rubric is a marginal
+        refinement, not a step-change). The 3 genuine wins (800c261b, 94008e7c, e8baf9dd)
+        were as much factual-correctness (stating a strong 64-76% margin as strong, vs the
+        old report calling it "marginal") as pure model-framing.
+      * Honest scope: this A/B measures ONLY the viability dimensions D22 touched — it is
+        a sharper instrument for "did THIS change help" than the headline R4 panel, but it
+        does NOT reproduce or move the 33.9% full-rubric R4 number. Adversarial verify is
+        conservative (biased toward "no real gain"), so 3/16 is a lower bound and the
+        absolute counts (bleed 1→0, density 4→1) are the softer upper read; truth is
+        between. Artifacts: scratchpad/{judge_results.json, aggregate_judgment.py},
+        wave_d22_corpus/.
