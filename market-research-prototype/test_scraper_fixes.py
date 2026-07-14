@@ -64,6 +64,43 @@ class TestFetchPageWrapper(unittest.TestCase):
         self.assertEqual(len(ev.payload), 50)
 
 
+class TestVerticalPubsReImport(unittest.TestCase):
+    """Bug 1c (found by the end-to-end pipeline run, same class as trustpilot's json):
+    tools/sources/vertical.py uses re.search() at the category-match site but never
+    imports re — a NameError on the FIRST pattern check, so vertical trade-press
+    enrichment was dead for every non-tech venture ('vertical_pubs fetch failed:
+    name 're' is not defined' in the live log)."""
+
+    def test_matches_vertical_without_nameerror(self):
+        import tools.sources.vertical as vp
+        fake_hits = [{"title": "Acme raises round", "url": "https://fiercehealthcare.com/a",
+                      "snippet": "Acme news"}]
+        with patch("scrape.search.search", return_value=fake_hits):
+            out = vp.vertical_publication_mentions("Acme", "healthcare EMR software", limit=5)
+        self.assertTrue(any(r["url"].startswith("http") for r in out))
+        self.assertEqual(out[0]["publication"], "fiercehealthcare.com")
+
+
+class TestForumsReImport(unittest.TestCase):
+    """Bug 1d (found by the codebase-wide undefined-name scan, same class): forums.py's
+    stackexchange_mentions uses re.sub() to strip HTML from answer bodies but never
+    imports re — dead the moment a Stack Exchange result has HTML in its body."""
+
+    class _R:
+        status_code = 200
+        def json(self):
+            return {"items": [{"title": "How to X", "body": "<p>Use <b>Acme</b></p>",
+                               "score": 5, "link": "https://so.com/q/1"}]}
+
+    def test_strips_body_html_without_nameerror(self):
+        import tools.sources.forums as fm
+        with patch("cache.get", return_value=None), patch("cache.put"), \
+             patch("tools.sources.forums.mrp_http.get", return_value=self._R()):
+            out = fm.stackexchange_mentions("Acme", limit=5)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["body"], "Use Acme")  # tags stripped, whitespace collapsed
+
+
 class TestTrustpilotJsonImport(unittest.TestCase):
     """Bug 1b: tools/sources/trustpilot.py uses json.loads() at the __NEXT_DATA__
     parse site but never imports json — a NameError swallowed by the local try/except,

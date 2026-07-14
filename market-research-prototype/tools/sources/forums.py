@@ -6,6 +6,7 @@ keep fixes localized here.
 """
 from __future__ import annotations
 
+import re
 import urllib.parse
 
 import requests
