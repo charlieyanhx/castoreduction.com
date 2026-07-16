@@ -712,3 +712,39 @@ audit trail IS the project log — no separate status reports.
     caveat: full-corpus regen + R4 re-measure of these scraper changes NOT yet run —
     the wins are proven at the unit + live-smoke level, not yet in a report-level
     accuracy delta.
+- **Wave 3 (D7-10) — ledger / transcript / resume: items 1, 2, 4 landed; 3 and 5 open.**
+  - **ORDER DEVIATION**: built item 4 (resume) before item 3 (hooks/streaming). Both
+    hang off the same new ledger sink, and resume consumes transcript.replay directly,
+    so doing it while that was fresh was cheaper and lower-risk. Item 3 is a different
+    surface (api.py SSE + web/workspace.js) and is unblocked either way.
+  - **item 1** (5fe9741): `persistence/ledger.py` RunLedger — append-only, thread-safe,
+    3 event layers (step/tool/llm); `events()` returns copies so history can't be
+    rewritten. provenance.py is now a thin VIEW over it, API + event shape unchanged
+    (build_provenance_summary, the report panel and gate D12 all read through it).
+    FOUND WHILE WIRING: plan.py never called set_step() at all, so every provenance
+    event ever shipped with step=None — step labels are populated for the first time.
+    New `_step_done(result, name)` writes to BOTH `_steps_completed` and the ledger so
+    they cannot drift; all 29 raw append sites converted; later made idempotent (resume
+    re-enters with steps already complete, and gate D01 counts that list's length —
+    verified real runs carry 17-19 UNIQUE steps, no duplicates, so dedup is safe).
+  - **item 2** (d47e8d2): `persistence/transcript.py` — per-run JSONL flushed per event
+    (the flush is the point: a killed run keeps everything up to its last event).
+    Guarantees replay→identical state, and tolerates a truncated final line (SIGKILL
+    lands mid-write; a crash costs that one event, never the history). RunLedger gained
+    an optional sink; jobs.run_async attaches/detaches a per-job writer.
+  - **item 4**: `persistence/resume.py` — reconciles the two records a killed run leaves:
+    the jobs row (step OUTPUTS, checkpointed) and the transcript (what COMPLETED, flushed
+    per event). A kill between them leaves the transcript ahead, so completed-steps is the
+    UNION with the transcript authoritative. `plan.run_plan(resume_from=...)` seeds from it
+    and `_skip_step` skips ONLY on intact evidence — a step marked complete whose output is
+    missing/empty/errored is recomputed (a hole in the report costs more than redoing a step).
+    VERIFIED LIVE: a real pipeline SIGKILL'd at 45s mid-discover left a durable transcript
+    (`completed: ['profile']`); resume returned an intact seed; the resumed run logged
+    "profile RESUMED ... (skipped)" with **0 duplicate LLM calls**.
+  - **M3 SCOPE — HONEST**: the gate's "kill-sweep 4/4, ≤1 dup LLM call" is NOT yet claimable.
+    The resume machinery is complete and proven, but `_skip_step` is currently applied to ONE
+    step (profile). Broad skip coverage needs each step's local variables restorable from
+    `result`, which is exactly what item 5 (extract steps → `orchestrator/steps/`) enables —
+    run_plan is a ~900-line linear function whose locals feed forward, so adding 20+ skip
+    guards before the split would be the kind of big-bang §1 forbids. M2/M3 gate runs are
+    deferred to the item-3/item-5 close-out rather than claimed early.

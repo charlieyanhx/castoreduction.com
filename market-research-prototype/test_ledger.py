@@ -215,6 +215,19 @@ class TestPlanStepEmission(unittest.TestCase):
             plan._step_done(result, name)
         self.assertEqual(L.LEDGER.steps(), result["_steps_completed"])
 
+    def test_step_done_is_idempotent(self):
+        # Resume (item 4) re-enters run_plan with steps already marked complete; the
+        # step's own _step_done must not append a second time. _steps_completed is
+        # "which steps are done", not a call counter — and gate D01 counts its length.
+        import plan
+        import provenance
+        from persistence import ledger as L
+        provenance.reset()
+        result: dict = {"_steps_completed": ["profile"]}
+        plan._step_done(result, "profile")
+        self.assertEqual(result["_steps_completed"], ["profile"])
+        self.assertEqual(L.LEDGER.counts().get("step"), None)  # no duplicate event
+
     def test_step_done_survives_ledger_failure(self):
         # Provenance is a debugging feature — it must never be able to fail a run.
         import plan

@@ -53,12 +53,43 @@ def _step_done(result: dict, name: str) -> None:
     feature and must never be able to fail a run.
     """
     steps = result.setdefault("_steps_completed", [])
+    if name in steps:
+        # Idempotent: resume (item 4) re-enters run_plan with steps already marked
+        # complete, and a couple of steps (discover) are finalized from more than one
+        # site. _steps_completed answers "which steps are done", not "how many times
+        # did this run" — and gate D01 counts its length, so a double-append would
+        # quietly inflate it.
+        return
     steps.append(name)
     try:
         import provenance as _p
         _p.record_step(name, status="complete")
     except Exception:
         pass
+
+
+def _skip_step(result: dict, name: str, *output_keys: str) -> bool:
+    """Should this step be skipped because a prior (killed) run already did it?
+    — Wave 3 item 4's "step-skip on INTACT Evidence".
+
+    Two conditions, both required:
+      1. the step is recorded complete (from persistence.resume's reconciliation of the
+         jobs row + the durable transcript), and
+      2. every output key it owns is actually present, non-empty, and not an error.
+
+    Condition 2 is the safety property. A step marked complete whose payload is missing,
+    empty, or carries an error is RECOMPUTED — redoing a step costs seconds; shipping a
+    report with a hole in it costs trust.
+    """
+    if name not in (result.get("_steps_completed") or []):
+        return False
+    for k in output_keys:
+        v = result.get(k)
+        if v is None or v == {} or v == [] or v == "":
+            return False
+        if isinstance(v, dict) and v.get("error"):
+            return False
+    return True
 
 
 def _run_with_timeout(fn, *args, timeout_s: int = 180, label: str = "", **kwargs):
@@ -1318,7 +1349,8 @@ def refine_pipeline_result(result: dict, description: str, geo: str, profile: di
 
 
 def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progress=None,
-             operator_weights: dict | None = None, refine: bool = False) -> dict:
+             operator_weights: dict | None = None, refine: bool = False,
+             resume_from: dict | None = None) -> dict:
     """
     Run the full market research pipeline on a raw description.
 
@@ -1327,9 +1359,19 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     If `refine=True`, runs the generator-evaluator-refine loop after the pipeline
     (independent judge + deterministic gate → regenerate weak sections). Opt-in
     because it adds LLM cost; default path is unchanged.
+    If `resume_from` is given (see persistence.resume.resume(job_id)), the run is
+    SEEDED with a killed run's outputs and every step whose evidence is intact is
+    skipped rather than recomputed — Wave 3 item 4.
     """
     t_start = time.time()
-    result: dict = {"_steps_completed": []}
+    # Wave 3 item 4: seed from a prior killed run. Steps are skipped individually via
+    # _skip_step (intact-evidence only), so a partial/corrupt seed degrades to a normal
+    # full run rather than propagating holes.
+    result: dict = dict(resume_from or {})
+    result.setdefault("_steps_completed", [])
+    if resume_from:
+        log.info("[plan] resuming with %d completed step(s): %s",
+                 len(result["_steps_completed"]), result["_steps_completed"])
 
     # Provenance trace (debugging): record every data-source + LLM call this run makes.
     try:
@@ -1352,10 +1394,14 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         result["operator_weights"] = operator_weights
 
     # --- Step 2: Extract profile ---
-    log.info("[plan] Step 2: extracting company profile")
-    profile = extract_company_profile(description)
-    if profile.get("error"):
-        return {"error": f"Profile extraction failed: {profile['error']}", "profile": profile}
+    if _skip_step(result, "profile", "profile"):
+        profile = result["profile"]
+        log.info("[plan] Step 2: profile RESUMED from prior run (skipped)")
+    else:
+        log.info("[plan] Step 2: extracting company profile")
+        profile = extract_company_profile(description)
+        if profile.get("error"):
+            return {"error": f"Profile extraction failed: {profile['error']}", "profile": profile}
 
     # Geography fallback: if LLM said "unknown" but user passed a geo, use the request value.
     # Prevents the embarrassing "Geography: unknown" in the cover page when we DO know.
