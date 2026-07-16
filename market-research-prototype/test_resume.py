@@ -150,14 +150,23 @@ class TestSkipOnIntactEvidence(unittest.TestCase):
 
 class TestRunPlanResumeSkipsWork(unittest.TestCase):
     """No duplicate LLM work for steps a prior run already finished (the M3 spirit:
-    resume costs ≤1 duplicated call, not a whole re-run)."""
+    resume costs ≤1 duplicated call, not a whole re-run).
+
+    NOTE the patch targets: these steps live in orchestrator/steps/ since the item-5
+    split, so patching plan.* would silently intercept NOTHING and the test would make
+    real LLM + network calls. Patch where the function is USED, not where it was.
+    """
+
+    # Where the extracted steps actually call out — the only correct patch targets.
+    _PROFILE = "orchestrator.steps.profile.extract_company_profile"
+    _DISCOVER = "orchestrator.steps.competitors.discover"
 
     def test_resume_from_skips_profile_extraction(self):
         import plan
         seed = {"_steps_completed": ["profile"],
                 "profile": {"name": "Acme", "category": "CRM", "business_model": "b2b saas"}}
-        with patch("plan.extract_company_profile") as mock_profile, \
-             patch("plan.discover", side_effect=RuntimeError("stop here")):
+        with patch(self._PROFILE) as mock_profile, \
+             patch(self._DISCOVER, side_effect=RuntimeError("stop here")):
             try:
                 plan.run_plan("a CRM", resume_from=seed)
             except Exception:
@@ -166,14 +175,30 @@ class TestRunPlanResumeSkipsWork(unittest.TestCase):
 
     def test_no_resume_still_extracts_profile(self):
         import plan
-        with patch("plan.extract_company_profile",
+        with patch(self._PROFILE,
                    return_value={"name": "Acme", "category": "CRM"}) as mock_profile, \
-             patch("plan.discover", side_effect=RuntimeError("stop here")):
+             patch(self._DISCOVER, side_effect=RuntimeError("stop here")):
             try:
                 plan.run_plan("a CRM")
             except Exception:
                 pass
         mock_profile.assert_called_once()
+
+    def test_resume_also_skips_the_discover_step(self):
+        # Item 5 gave discover its own guard — resume now skips two steps, not one.
+        import plan
+        seed = {"_steps_completed": ["profile", "discover"],
+                "profile": {"name": "Acme", "category": "CRM"},
+                "discover": {"competitor_density": 7, "synthesis": {}}}
+        with patch(self._PROFILE) as mock_profile, \
+             patch(self._DISCOVER) as mock_discover, \
+             patch("plan._promote_geo_competitors", side_effect=RuntimeError("stop here")):
+            try:
+                plan.run_plan("a CRM", resume_from=seed)
+            except Exception:
+                pass
+        mock_profile.assert_not_called()
+        mock_discover.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -763,6 +763,23 @@ audit trail IS the project log — no separate status reports.
     which 29 more edit sites would be the wrong way to add. It lands naturally with item
     5, where each step becomes a function that can label itself. The live-activity label
     degrades gracefully meanwhile (falls back to the bare tool name).
+  - **item 5 — the split BEGINS** (scoped to "the steps Wave 3 touched"): profile + discover
+    → `orchestrator/steps/{profile,competitors}.py`. The shared step machinery
+    (`skip_step`/`step_done`/`step_scope`) moved to `orchestrator/steps/__init__.py` because
+    an extracted step can't import plan (plan imports the steps — that's a cycle); plan.py
+    re-exports the two under their old private names, which IS the wave's "+shim".
+    RESOLVES THE ITEM-1 CORRECTION: `step_scope(name)` means each step now LABELS ITSELF, so
+    tool/llm events finally carry the `step` field — provenance can attribute a fetch to the
+    step that wanted it, which no amount of plan.py editing had ever done. Resume coverage
+    goes 1 step → 2 (discover got its own guard).
+  - **A REAL BUG THE SPLIT EXPOSED**: `test_resume.py` patched `plan.extract_company_profile`
+    and `plan.discover`. After the move those names are no longer the call sites, so the
+    patches silently intercepted NOTHING and the tests made REAL LLM + network calls — the
+    suite ballooned 2min → **26min** and one test failed. Patch targets corrected to
+    `orchestrator.steps.{profile,competitors}.*` (patch where a function is USED, not where
+    it once lived); those tests are back to 2.1s. The now-dead `extract_company_profile` /
+    `discover` imports were removed from plan.py (AST-verified unused). This is the exact
+    failure mode the split is meant to surface, and it argues for finishing it.
   - **M3 SCOPE — HONEST**: the gate's "kill-sweep 4/4, ≤1 dup LLM call" is NOT yet claimable.
     The resume machinery is complete and proven, but `_skip_step` is currently applied to ONE
     step (profile). Broad skip coverage needs each step's local variables restorable from

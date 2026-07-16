@@ -26,8 +26,6 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
-from company_profile import extract_company_profile
-from discover import discover
 from taste import decode_taste
 from pricing import simulate_max_diff, simulate_van_westendorp, compute_break_even
 from place import analyze_competitor_channels, recommend_place
@@ -42,54 +40,13 @@ from logger import get
 log = get("plan")
 
 
-def _step_done(result: dict, name: str) -> None:
-    """Mark a pipeline step COMPLETE (Wave 3 item 1).
-
-    Two records, one call: the in-result `_steps_completed` list the report/gates have
-    always read, AND an append-only ledger event. They must not drift — the ledger's
-    step events are what transcript replay (item 2) and resume (item 4) trust to know
-    what actually finished, so every completion goes through here rather than appending
-    to the list directly. Ledger recording is best-effort: provenance is a debugging
-    feature and must never be able to fail a run.
-    """
-    steps = result.setdefault("_steps_completed", [])
-    if name in steps:
-        # Idempotent: resume (item 4) re-enters run_plan with steps already marked
-        # complete, and a couple of steps (discover) are finalized from more than one
-        # site. _steps_completed answers "which steps are done", not "how many times
-        # did this run" — and gate D01 counts its length, so a double-append would
-        # quietly inflate it.
-        return
-    steps.append(name)
-    try:
-        import provenance as _p
-        _p.record_step(name, status="complete")
-    except Exception:
-        pass
-
-
-def _skip_step(result: dict, name: str, *output_keys: str) -> bool:
-    """Should this step be skipped because a prior (killed) run already did it?
-    — Wave 3 item 4's "step-skip on INTACT Evidence".
-
-    Two conditions, both required:
-      1. the step is recorded complete (from persistence.resume's reconciliation of the
-         jobs row + the durable transcript), and
-      2. every output key it owns is actually present, non-empty, and not an error.
-
-    Condition 2 is the safety property. A step marked complete whose payload is missing,
-    empty, or carries an error is RECOMPUTED — redoing a step costs seconds; shipping a
-    report with a hole in it costs trust.
-    """
-    if name not in (result.get("_steps_completed") or []):
-        return False
-    for k in output_keys:
-        v = result.get(k)
-        if v is None or v == {} or v == [] or v == "":
-            return False
-        if isinstance(v, dict) and v.get("error"):
-            return False
-    return True
+# Wave 3 item 5: the step machinery moved to orchestrator/steps/ so an extracted
+# step can use it without importing plan (plan imports the steps — the reverse
+# would be a cycle). Re-exported under the old private names: the "+shim" the
+# wave calls for, so existing callers and tests keep working untouched.
+from orchestrator.steps import skip_step as _skip_step, step_done as _step_done
+from orchestrator.steps.competitors import run_discover_step
+from orchestrator.steps.profile import run_profile_step
 
 
 def _run_with_timeout(fn, *args, timeout_s: int = 180, label: str = "", **kwargs):
@@ -1393,38 +1350,14 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     if operator_weights:
         result["operator_weights"] = operator_weights
 
-    # --- Step 2: Extract profile ---
-    if _skip_step(result, "profile", "profile"):
-        profile = result["profile"]
-        log.info("[plan] Step 2: profile RESUMED from prior run (skipped)")
-    else:
-        log.info("[plan] Step 2: extracting company profile")
-        profile = extract_company_profile(description)
-        if profile.get("error"):
-            return {"error": f"Profile extraction failed: {profile['error']}", "profile": profile}
-
-    # Geography fallback: if LLM said "unknown" but user passed a geo, use the request value.
-    # Prevents the embarrassing "Geography: unknown" in the cover page when we DO know.
-    geo_in_profile = (profile.get("geography") or "").strip().lower()
-    if geo_in_profile in ("", "unknown", "none", "n/a"):
-        profile["geography"] = geo
-        profile["_geography_source"] = "request_default"
-
-    result["profile"] = profile
-    _step_done(result, "profile")
+    # --- Step 2: Extract profile --- (extracted → orchestrator/steps/profile.py)
+    profile = run_profile_step(result, description, geo)
+    if profile.get("error"):
+        return {"error": f"Profile extraction failed: {profile['error']}", "profile": profile}
     checkpoint()
 
-    # --- Step 3: Competitive intelligence (via discover) ---
-    log.info(f"[plan] Step 3: discovering competitors in category '{profile.get('category')}'")
-    disc = discover(
-        profile["category"],
-        geo=geo,
-        max_candidates=max_candidates,
-        business_model=profile.get("business_model", ""),
-        named_competitors=profile.get("named_competitors") or [],
-    )
-    result["discover"] = disc
-    _step_done(result, "discover")
+    # --- Step 3: Competitive intelligence --- (→ orchestrator/steps/competitors.py)
+    disc = run_discover_step(result, profile, geo, max_candidates)
     checkpoint()
 
     opps = _promote_geo_competitors(result, description, profile, geo)
