@@ -375,6 +375,37 @@ def get_job(job_id: str):
     return j
 
 
+@app.get("/jobs/{job_id}/events")
+def get_job_events(job_id: str, since: int = 0):
+    """Live run events for a job — Wave 3 item 3 (R5: visible MID-run).
+
+    Reads the per-run transcript, which is flushed per event, so this returns what has
+    happened so far while the run is still going. That is finer-grained than polling
+    /jobs/{id}: the partial result only advances at checkpoints, so it can only ever
+    show completed steps, never the tool that is running right now.
+
+    Poll with `?since=next_since` to fetch only what is new. Unknown/never-run jobs are
+    an empty stream, not a 404 — a poller shouldn't have to special-case the window
+    between "job created" and "first event written".
+    """
+    from persistence import transcript as _t
+
+    events = _t.read_events(_t.path_for(job_id))
+    tail = events[since:] if since > 0 else events
+    counts: dict[str, int] = {}
+    for e in events:
+        k = e.get("layer") or "?"
+        counts[k] = counts.get(k, 0) + 1
+    return {
+        "job_id": job_id,
+        "events": tail,
+        "next_since": len(events),
+        "steps": [e.get("name") for e in events
+                  if e.get("layer") == "step" and e.get("status") == "complete"],
+        "counts": counts,
+    }
+
+
 class FeedbackRequest(BaseModel):
     rating: int = Field(..., ge=-1, le=1)
     section: str = "overall"

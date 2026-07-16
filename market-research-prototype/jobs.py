@@ -165,24 +165,33 @@ def _attach_transcript(job_id: str):
     either way, so every failure path here is swallowed.
     """
     try:
+        from entry import hooks as _hooks
         from persistence import transcript as _t
         from persistence.ledger import LEDGER
+
         writer = _t.TranscriptWriter(_t.path_for(job_id))
+        # Route the ledger through the hook BUS rather than binding the single sink
+        # directly to the transcript (Wave 3 item 3): the bus fans out, so live
+        # streaming/metrics can observe the same run without evicting the transcript.
+        token = _hooks.BUS.subscribe(writer)
         LEDGER.run_id = job_id
-        LEDGER.set_sink(writer)
-        return writer
+        LEDGER.set_sink(_hooks.BUS.emit)
+        return (writer, token)
     except Exception:
         log.debug("transcript unavailable for job %s", job_id, exc_info=True)
         return None
 
 
-def _detach_transcript(writer) -> None:
-    """Close the transcript and unhook it, so the next job in this process doesn't
+def _detach_transcript(handle) -> None:
+    """Unsubscribe + close the transcript, so the next job in this process doesn't
     append into the previous job's file."""
-    if writer is None:
+    if not handle:
         return
+    writer, token = handle
     try:
+        from entry import hooks as _hooks
         from persistence.ledger import LEDGER
+        _hooks.BUS.unsubscribe(token)
         LEDGER.set_sink(None)
         writer.close()
     except Exception:

@@ -67,6 +67,8 @@ let pollTimer = null;
 let lastSteps = [];        // completed step keys for the active job
 let lastResult = {};       // partial job result — drives live evidence detail
 let compTab = "steps";     // "steps" | "report"
+let lastSince = 0;         // cursor into the job's live event stream
+let liveEvent = null;      // most recent run event — drives the live activity label
 
 // Make the backend rigor FELT: turn a completed step into a one-line evidence detail
 // pulled from the live result (Census count, scraped price, triangulation, gate…).
@@ -250,6 +252,7 @@ function renderComputer() {
 
 function openJob(jobId, fresh) {
   activeJob = jobId; lastSteps = []; lastResult = {}; activeJobState = "running"; compTab = "steps";
+  lastSince = 0; liveEvent = null;   // fresh cursor into this job's event stream
   $("compStatus").innerHTML = `<span class="live-dot">working</span>`;
   $("scrubber").classList.remove("on");
   renderComputer();
@@ -258,6 +261,27 @@ function openJob(jobId, fresh) {
   pollTimer = setInterval(pollJob, 2500);
   document.querySelectorAll(".task").forEach((t) =>
     t.classList.toggle("active", t.dataset.id === jobId));
+}
+
+// Wave 3 item 3 (R5): pull the run's newest events and turn the latest one into a
+// human label. Cursor-based (`since`) so each poll only ships what's new. Failures are
+// silent — this is a nicety on top of the step counter, never a reason to break polling.
+async function pollLiveActivity() {
+  try {
+    const ev = await api("GET", `/jobs/${activeJob}/events?since=${lastSince}`);
+    if (typeof ev.next_since === "number") lastSince = ev.next_since;
+    if (ev.events && ev.events.length) liveEvent = ev.events[ev.events.length - 1];
+  } catch { /* keep the last known label */ }
+  return liveActivityLabel(liveEvent);
+}
+
+function liveActivityLabel(e) {
+  if (!e) return null;
+  const where = e.step || null;
+  if (e.layer === "tool") return where ? `${where} · ${e.name}` : e.name;
+  if (e.layer === "llm") return where ? `${where} · thinking` : "thinking";
+  if (e.layer === "step" && e.status !== "complete") return e.name;
+  return where;                       // a completed step → keep showing its phase
 }
 
 async function pollJob() {
@@ -270,7 +294,12 @@ async function pollJob() {
   lastSteps = r._steps_completed || [];
   if (j.state === "running") {
     const nextLbl = (STEPS.find(([k]) => !lastSteps.includes(k)) || [, "wrapping up"])[1];
-    $("compStatus").innerHTML = `<span class="live-dot">${nextLbl}…</span> · ${lastSteps.length}/${STEPS.length}`;
+    // The partial result only advances at CHECKPOINTS, so on its own it can just say
+    // which steps finished. The per-event transcript is flushed as things happen, so
+    // it can name what the run is doing right now (Wave 3 item 3 / R5).
+    const live = await pollLiveActivity();
+    $("compStatus").innerHTML =
+      `<span class="live-dot">${live || nextLbl}…</span> · ${lastSteps.length}/${STEPS.length}`;
     if (compTab === "steps") renderTimeline();
   } else {
     clearInterval(pollTimer); pollTimer = null;

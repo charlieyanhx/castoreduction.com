@@ -741,6 +741,28 @@ audit trail IS the project log — no separate status reports.
     VERIFIED LIVE: a real pipeline SIGKILL'd at 45s mid-discover left a durable transcript
     (`completed: ['profile']`); resume returned an intact seed; the resumed run logged
     "profile RESUMED ... (skipped)" with **0 duplicate LLM calls**.
+  - **item 3**: `entry/hooks.py` HookBus — the ledger has ONE sink and item 2 spent it on
+    the transcript, so the bus sits between: ledger → BUS.emit → N subscribers, each
+    delivery isolated (a raising subscriber can't break the run or starve the others;
+    same reasoning as the sink guard — observability never fails the thing it watches).
+    jobs.run_async now subscribes the transcript to the bus instead of owning the sink.
+    NEW `GET /jobs/{id}/events?since=` serves R5 off the per-event-flushed transcript —
+    strictly finer-grained than polling /jobs/{id}, whose partial result only advances at
+    CHECKPOINTS and so can only ever show completed steps, never the tool running right
+    now. workspace.js polls it (cursor-based) for a live activity label.
+    VERIFIED: endpoint returns 200 with real mid-run activity off the REAL SIGKILL'd run's
+    transcript (latest event = a live `web_search`, 8 items, mid-discover); the JS label
+    function exercised in node (7/7 cases). NOTE: `preview_start` is broken in this env
+    (ignores launch.json, falls back to a python3.9 http.server that hits a sandbox
+    PermissionError), so the browser-level check was replaced by endpoint-over-real-HTTP
+    + node execution of the pure JS logic.
+  - **CORRECTION to the item-1 note above**: "step labels are populated for the first
+    time" was overstated. Item 1 makes step EVENTS exist (name + status), which is what
+    resume needs. The `step` FIELD on tool/llm events is STILL None — labelling those
+    needs `set_step()` called at each step's START, which plan.py has never done and
+    which 29 more edit sites would be the wrong way to add. It lands naturally with item
+    5, where each step becomes a function that can label itself. The live-activity label
+    degrades gracefully meanwhile (falls back to the bare tool name).
   - **M3 SCOPE — HONEST**: the gate's "kill-sweep 4/4, ≤1 dup LLM call" is NOT yet claimable.
     The resume machinery is complete and proven, but `_skip_step` is currently applied to ONE
     step (profile). Broad skip coverage needs each step's local variables restorable from
