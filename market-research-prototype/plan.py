@@ -42,6 +42,25 @@ from logger import get
 log = get("plan")
 
 
+def _step_done(result: dict, name: str) -> None:
+    """Mark a pipeline step COMPLETE (Wave 3 item 1).
+
+    Two records, one call: the in-result `_steps_completed` list the report/gates have
+    always read, AND an append-only ledger event. They must not drift — the ledger's
+    step events are what transcript replay (item 2) and resume (item 4) trust to know
+    what actually finished, so every completion goes through here rather than appending
+    to the list directly. Ledger recording is best-effort: provenance is a debugging
+    feature and must never be able to fail a run.
+    """
+    steps = result.setdefault("_steps_completed", [])
+    steps.append(name)
+    try:
+        import provenance as _p
+        _p.record_step(name, status="complete")
+    except Exception:
+        pass
+
+
 def _run_with_timeout(fn, *args, timeout_s: int = 180, label: str = "", **kwargs):
     """Run a step with a hard timeout. Returns {} on timeout or error, logs warning."""
     with ThreadPoolExecutor(max_workers=1) as pool:
@@ -917,7 +936,7 @@ def _promote_geo_competitors(result: dict, description: str, profile: dict, geo:
             from skills.sizing.classify import classify_market_scale
             result["market_scale"] = classify_market_scale(description, geo).payload
             if "market_scale" not in result["_steps_completed"]:
-                result["_steps_completed"].append("market_scale")
+                _step_done(result, "market_scale")
         geo_opps = geo_competitor_opps(description, profile, result.get("market_scale"))
         if len(geo_opps) >= 3:
             opps = geo_opps
@@ -958,7 +977,7 @@ def _surface_late_geo_competitors(result: dict, geo_competitors: list, category:
         "competitor_density": len(geo_competitors),  # B1/D16: keep in sync
     }
     if "discover" not in result["_steps_completed"]:
-        result["_steps_completed"].append("discover")
+        _step_done(result, "discover")
     log.info("[plan] geo-competitors surfaced: %d nearby venues", len(geo_competitors))
 
 
@@ -1346,7 +1365,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         profile["_geography_source"] = "request_default"
 
     result["profile"] = profile
-    result["_steps_completed"].append("profile")
+    _step_done(result, "profile")
     checkpoint()
 
     # --- Step 3: Competitive intelligence (via discover) ---
@@ -1359,7 +1378,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         named_competitors=profile.get("named_competitors") or [],
     )
     result["discover"] = disc
-    result["_steps_completed"].append("discover")
+    _step_done(result, "discover")
     checkpoint()
 
     opps = _promote_geo_competitors(result, description, profile, geo)
@@ -1383,7 +1402,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             result["discover"] = disc
             hits = sum(1 for o in enriched[:6] if (o.get("firmographics") or {}).get("sources"))
             log.info(f"[plan] firmographics: {hits}/{min(6, len(enriched))} competitors enriched")
-            result["_steps_completed"].append("firmographics")
+            _step_done(result, "firmographics")
             checkpoint()
         except Exception as e:
             log.warning(f"[plan] firmographic enrichment failed (non-fatal): {e}")
@@ -1409,7 +1428,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                 log.warning(f"[plan] PCA axis labeling failed (non-fatal): {e}")
             result["clustering"] = clustering
             result["whitespace"] = whitespace
-            result["_steps_completed"].append("clustering")
+            _step_done(result, "clustering")
             checkpoint()
 
     # --- Step 3d: Differentiators + market gaps (spec step 3d — iter 36) ---
@@ -1424,7 +1443,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         )
         if "error" not in diffs:
             result["differentiators"] = diffs
-            result["_steps_completed"].append("differentiators")
+            _step_done(result, "differentiators")
             checkpoint()
     except Exception as e:
         log.warning(f"[plan] differentiators failed (non-fatal): {e}")
@@ -1445,7 +1464,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             )
             result["customer_universe"] = universe
             if universe.get("count", 0) > 0:
-                result["_steps_completed"].append("customer_universe")
+                _step_done(result, "customer_universe")
             checkpoint()
         except Exception as e:
             log.warning(f"[plan] customer universe failed (non-fatal): {e}")
@@ -1585,7 +1604,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     if reddit_data:
         result["reddit_signal"] = reddit_data
         if reddit_data.get("threads_found", 0) > 0:
-            result["_steps_completed"].append("reddit_signal")
+            _step_done(result, "reddit_signal")
         checkpoint()
 
     # cycle25: persist HN customer voice as its own signal
@@ -1596,7 +1615,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             "hits_found": len(hn_data),
             "hits": hn_data[:15],
         }
-        result["_steps_completed"].append("hn_signal")
+        _step_done(result, "hn_signal")
         checkpoint()
 
     # cycle27: persist Stack Exchange + DEV.to + Lobsters
@@ -1615,7 +1634,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                 "vertical_pubs": len(multisrc_data.get("vertical_pubs") or []),
             },
         }
-        result["_steps_completed"].append("multi_source_signal")
+        _step_done(result, "multi_source_signal")
         checkpoint()
 
     # Backwards-compat: keep `top_audience` as the first decoded profile
@@ -1623,7 +1642,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     if top_audience:
         result["audience"] = top_audience
         result["audiences"] = taste_results  # full set for transparency
-        result["_steps_completed"].append("audience")
+        _step_done(result, "audience")
     # Iter 40 (#3c): surface the cannot_decode brands so the report can show
     # "we tried but no consumer signal exists for these enterprise B2B brands"
     if cannot_decode_results:
@@ -1642,7 +1661,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         )
         if not personas_result.get("error"):
             result["personas"] = personas_result
-            result["_steps_completed"].append("personas")
+            _step_done(result, "personas")
             checkpoint()
 
     # --- Step 6c: STORM-style consumer research (multi-perspective) — cycle33 ---
@@ -1650,12 +1669,12 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                                          market_scale=result.get("market_scale"))
     if cr_payload:
         result["consumer_research"] = cr_payload
-        result["_steps_completed"].append("consumer_research")
+        _step_done(result, "consumer_research")
         checkpoint()
 
     if competitor_pricing_data and competitor_pricing_data.get("competitors_with_prices", 0) > 0:
         result["competitor_pricing"] = competitor_pricing_data
-        result["_steps_completed"].append("competitor_pricing")
+        _step_done(result, "competitor_pricing")
         checkpoint()
 
     # --- Step 9a: Max-Diff feature ranking (needs audience + profile) ---
@@ -1683,7 +1702,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         )
         result["max_diff"] = max_diff_result
         if not max_diff_result.get("error"):
-            result["_steps_completed"].append("max_diff")
+            _step_done(result, "max_diff")
             checkpoint()
 
     # --- Step 9b + Step 11 LLM recommendation in parallel (both need max_diff-ish inputs, but independent of each other) ---
@@ -1695,7 +1714,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         try:
             from skills.sizing.classify import classify_market_scale
             result["market_scale"] = classify_market_scale(description, geo).payload
-            result["_steps_completed"].append("market_scale")
+            _step_done(result, "market_scale")
             log.info("[plan] Step 7a (early): market scale = %s",
                      (result.get("market_scale") or {}).get("scale"))
         except Exception as e:
@@ -1754,7 +1773,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
 
     result["pricing"] = {"psm": psm_result}
     if not psm_result.get("error"):
-        result["_steps_completed"].append("pricing")
+        _step_done(result, "pricing")
         checkpoint()
 
     # C5 (Manus-parity): the user's stated price must not be silently dropped.
@@ -1894,7 +1913,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                                     "subscriber CLV:CAC does not apply."}
             result["economics"] = econ
             if "error" not in econ:
-                result["_steps_completed"].append("economics")
+                _step_done(result, "economics")
                 checkpoint()
         except Exception as e:
             log.warning(f"[plan] economics computation failed (non-fatal): {e}")
@@ -1914,18 +1933,18 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                 "revenue_basis": "take-rate on third-party GMV (platform revenue = GMV × take-rate, not full GMV)",
                 "needs_operator_input": ["take-rate %", "avg transaction value", "transactions/period", "buyer & seller CAC"],
                 "note": "Size revenue from GMV × take-rate; model two-sided CAC. Subscriber CLV:CAC does not apply."}
-        result["_steps_completed"].append("economics")
+        _step_done(result, "economics")
 
     result["place"] = place_result
     if not place_result.get("error"):
-        result["_steps_completed"].append("place")
+        _step_done(result, "place")
         checkpoint()
 
     # --- Step 12: Validation gate ---
     log.info("[plan] Step 12: validation gate")
     val = _validation_gate(result)
     result["validation"] = val
-    result["_steps_completed"].append("validation")
+    _step_done(result, "validation")
     checkpoint()
 
     # --- Step 7b: Market sizing (TAM/SAM/SOM) — parallel with 4Ps ---
@@ -1969,7 +1988,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             from skills.sizing.classify import classify_market_scale
             scale_decision = classify_market_scale(description, geo).payload
             result["market_scale"] = scale_decision
-            result["_steps_completed"].append("market_scale")
+            _step_done(result, "market_scale")
             log.info("[plan] Step 7a: market scale = %s → %s",
                      scale_decision.get("scale"), scale_decision.get("sizing_skill"))
         except Exception as e:
@@ -2013,21 +2032,21 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         if hl:
             result["market_sizing"] = hl
             if "market_sizing" not in result["_steps_completed"]:
-                result["_steps_completed"].append("market_sizing")
+                _step_done(result, "market_sizing")
             log.info("[plan] hyperlocal sizing override (%s @ %s)",
                      (scale_decision or {}).get("scale"), hl.get("_hyperlocal_location"))
             _surface_late_geo_competitors(result, hl.get("geo_competitors") or [],
                                           category=(profile or {}).get("category", ""))
     except Exception as e:
         log.warning("[plan] hyperlocal override failed (non-fatal): %s", e)
-        result["_steps_completed"].append("market_sizing")
+        _step_done(result, "market_sizing")
         checkpoint()
 
     # Honesty gate: never credit a PSM simulation that didn't actually run (audit cycle36).
     four_ps = scrub_failed_psm_citations(four_ps, result.get("pricing"))
     result["four_ps"] = four_ps
     if not four_ps.get("error"):
-        result["_steps_completed"].append("four_ps")
+        _step_done(result, "four_ps")
         checkpoint()
 
     # --- Steps 7-8: Per-segment scoring + weighting (iter 36, spec 7-8) ---
@@ -2052,7 +2071,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             )
             result["segment_ranking"] = ranking
             if "error" not in ranking:
-                result["_steps_completed"].append("segment_ranking")
+                _step_done(result, "segment_ranking")
             checkpoint()
         except Exception as e:
             log.warning(f"[plan] segment ranking failed (non-fatal): {e}")
@@ -2095,7 +2114,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         )
         if not proj.get("error"):
             result["financials"] = proj
-            result["_steps_completed"].append("financials")
+            _step_done(result, "financials")
             checkpoint()
 
     # --- Step 14: Viability score ---
@@ -2133,7 +2152,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         viability = _run_with_timeout(score_viability, timeout_s=180, label="viability(retry)", **viability_kwargs)
     result["viability"] = viability
     if not viability.get("error"):
-        result["_steps_completed"].append("viability")
+        _step_done(result, "viability")
         checkpoint()
     else:
         log.warning("[plan] viability FAILED twice — surfacing as validation flag")
