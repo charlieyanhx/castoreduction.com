@@ -64,11 +64,23 @@ def summarize(payload: Any, cost_meta: Optional[dict] = None, limit: int = 90) -
 class RunLedger:
     """Append-only, thread-safe event log for a single run."""
 
-    def __init__(self, run_id: str = "") -> None:
+    def __init__(self, run_id: str = "", sink: Optional[Any] = None) -> None:
         self.run_id = run_id
         self._events: list[dict] = []
         self._lock = threading.Lock()
         self._enabled = False
+        self._sink = sink
+
+    def set_sink(self, sink: Optional[Any]) -> None:
+        """Attach a callable invoked with each event as it is recorded.
+
+        This is how the ledger becomes durable without knowing about files:
+        persistence/transcript.TranscriptWriter is the sink that streams events to
+        per-run JSONL, so a run killed mid-flight still has everything up to its last
+        recorded event (which is what resume reads). A sink that raises is swallowed —
+        persistence must never be able to fail a run.
+        """
+        self._sink = sink
 
     # ---------- lifecycle ----------
     def start(self, run_id: str = "") -> None:
@@ -98,6 +110,11 @@ class RunLedger:
         ev.setdefault("t", round(time.time(), 3))
         with self._lock:
             self._events.append(ev)
+        if self._sink is not None:
+            try:
+                self._sink(ev)
+            except Exception:
+                pass  # a failing sink must never take the run down
         return ev
 
     def record_step(self, name: str, status: str = "complete", **extra) -> Optional[dict]:

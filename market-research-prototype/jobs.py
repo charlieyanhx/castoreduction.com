@@ -158,6 +158,37 @@ def cleanup_orphaned_jobs(grace_seconds: int = 60) -> int:
     return len(orphaned)
 
 
+def _attach_transcript(job_id: str):
+    """Point the run ledger at this job's durable JSONL transcript (Wave 3 item 2).
+
+    Returns the writer (or None if persistence is unavailable) — the run must proceed
+    either way, so every failure path here is swallowed.
+    """
+    try:
+        from persistence import transcript as _t
+        from persistence.ledger import LEDGER
+        writer = _t.TranscriptWriter(_t.path_for(job_id))
+        LEDGER.run_id = job_id
+        LEDGER.set_sink(writer)
+        return writer
+    except Exception:
+        log.debug("transcript unavailable for job %s", job_id, exc_info=True)
+        return None
+
+
+def _detach_transcript(writer) -> None:
+    """Close the transcript and unhook it, so the next job in this process doesn't
+    append into the previous job's file."""
+    if writer is None:
+        return
+    try:
+        from persistence.ledger import LEDGER
+        LEDGER.set_sink(None)
+        writer.close()
+    except Exception:
+        pass
+
+
 def run_async(job_id: str, fn: Callable[[], dict], progress_fn: Callable | None = None) -> None:
     """
     Spawn a thread to run fn(), catch any error, update job state.
@@ -172,6 +203,11 @@ def run_async(job_id: str, fn: Callable[[], dict], progress_fn: Callable | None 
 
     def worker():
         update(job_id, state="running")
+        # Wave 3 item 2: stream this run's ledger events to a durable per-run JSONL
+        # transcript keyed by job id. Attached BEFORE fn() so it captures everything —
+        # run_plan's provenance.reset() clears events but keeps the sink. Best-effort:
+        # a transcript problem must never stop the job from running.
+        writer = _attach_transcript(job_id)
         try:
             # If fn accepts a `progress` kwarg, pass it — otherwise call plain
             import inspect
@@ -185,6 +221,8 @@ def run_async(job_id: str, fn: Callable[[], dict], progress_fn: Callable | None 
         except Exception as e:
             log.exception("job %s failed", job_id)
             update(job_id, state="error", error=f"{type(e).__name__}: {e}")
+        finally:
+            _detach_transcript(writer)
 
     t = threading.Thread(target=worker, daemon=True, name=f"job-{job_id[:8]}")
     t.start()

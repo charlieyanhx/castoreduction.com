@@ -6,3 +6,5 @@ __pycache__/
 .jobs.sqlite
 out/
 .http_cache.sqlite
+.transcripts/
+jobs.db
