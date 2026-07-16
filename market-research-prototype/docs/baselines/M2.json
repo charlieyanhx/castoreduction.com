@@ -1,0 +1,23 @@
+{
+  "gate": "M2",
+  "pass": 2,
+  "fail": 0,
+  "na": 0,
+  "verdict": "PASS",
+  "checks": [
+    {
+      "id": "H06",
+      "phase": "P1",
+      "name": "RunLedger written by plan.py",
+      "ok": true,
+      "detail": "plan.py writes ledger step records via orchestrator.steps.step_done"
+    },
+    {
+      "id": "H07",
+      "phase": "P1",
+      "name": "per-run transcript",
+      "ok": true,
+      "detail": "transcript module present and attached per-run in jobs.run_async"
+    }
+  ]
+}

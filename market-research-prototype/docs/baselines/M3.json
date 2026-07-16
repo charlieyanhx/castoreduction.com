@@ -1,0 +1,16 @@
+{
+  "gate": "M3",
+  "pass": 1,
+  "fail": 0,
+  "na": 0,
+  "verdict": "PASS",
+  "checks": [
+    {
+      "id": "H08",
+      "phase": "P2",
+      "name": "resume() exists",
+      "ok": true,
+      "detail": "resume() exists and run_plan accepts resume_from= (behavioral test lives in test_resume.py)"
+    }
+  ]
+}

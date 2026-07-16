@@ -136,24 +136,51 @@ def h05_kv_stable_prompts() -> tuple[Optional[bool], str]:
 
 # ------------------------------------------------------------------ P1 — ledger & transcript
 def h06_run_ledger() -> tuple[Optional[bool], str]:
-    if not (_module_exists("ledger") or _has_attr("jobs", "ledger_append")):
+    # Wave 3 built this at the path the plan's §2b tree specifies (persistence/ledger.py);
+    # the old check looked for a flat `ledger.py` and so could never see it.
+    if not (_module_exists("persistence.ledger") or _has_attr("jobs", "ledger_append")):
         return None, "RunLedger not built yet (P1)"
-    src = _src("plan.py") or ""
-    ok = "ledger" in src
-    return ok, "plan.py writes ledger records" if ok else "ledger exists but plan.py never writes it"
+    # Existing is not the claim — the claim is that a RUN WRITES to it. plan.py records a
+    # step event per completed step through orchestrator.steps.step_done (the step
+    # machinery moved out of plan.py in item 5, so grepping plan.py for "ledger" would
+    # now be a false negative).
+    steps_src = _src("orchestrator/steps/__init__.py") or ""
+    plan_src = _src("plan.py") or ""
+    writes = "record_step" in steps_src
+    called = "_step_done(" in plan_src or "step_done(" in plan_src
+    ok = writes and called
+    if not ok:
+        return False, ("ledger exists but the pipeline never writes it "
+                       f"(record_step={writes}, called_from_plan={called})")
+    return True, "plan.py writes ledger step records via orchestrator.steps.step_done"
 
 
 def h07_transcript() -> tuple[Optional[bool], str]:
-    if not (_module_exists("transcript") or _has_attr("jobs", "transcript")):
+    if not (_module_exists("persistence.transcript") or _has_attr("jobs", "transcript")):
         return None, "per-run transcript not built yet (P1)"
-    return True, "transcript module present"
+    # A transcript nobody attaches is dead code — require the run wiring, not the module.
+    src = _src("jobs.py") or ""
+    ok = "TranscriptWriter" in src or "_attach_transcript" in src
+    return ok, ("transcript module present and attached per-run in jobs.run_async" if ok
+                else "transcript module present but never attached to a run")
 
 
 # ------------------------------------------------------------------ P2 — resume
 def h08_resume() -> tuple[Optional[bool], str]:
-    if not (_has_attr("plan", "resume") or _has_attr("jobs", "resume")):
+    if not (_has_attr("persistence.resume", "resume")
+            or _has_attr("plan", "resume") or _has_attr("jobs", "resume")):
         return None, "resume() not built yet (P2)"
-    return True, "resume() exists (behavioral test lives in test_resume.py)"
+    # resume() merely existing is trivial. It is only real if a run can be SEEDED from
+    # what it returns.
+    import inspect
+    try:
+        from plan import run_plan
+        if "resume_from" not in inspect.signature(run_plan).parameters:
+            return False, "resume() exists but run_plan cannot be seeded (no resume_from=)"
+    except Exception as e:
+        return False, f"could not verify run_plan seeding: {e}"
+    return True, ("resume() exists and run_plan accepts resume_from= "
+                  "(behavioral test lives in test_resume.py)")
 
 
 # ------------------------------------------------------------------ P3 — scheduler / tiering
