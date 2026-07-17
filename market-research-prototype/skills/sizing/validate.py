@@ -64,7 +64,14 @@ def safe_eval_formula(formula: str) -> Optional[float]:
     """
     if not formula:
         return None
-    norm = formula.lower().replace("×", "*").replace("÷", "/").replace("·", "*")
+    # Strip parenthetical citations BEFORE tokenizing — "(IBISWorld 2023)" injected the
+    # year 2023 as a phantom factor, which (with the "= $X" result tail) unbalanced
+    # nums-vs-ops and made this return None on the exact headline it exists to check
+    # (R2). Then keep only the LHS of "=": the RHS is the CLAIMED result being
+    # reconciled against, not part of the computation.
+    stripped = re.sub(r"\([^)]*\)", " ", formula)
+    stripped = stripped.split("=", 1)[0]
+    norm = stripped.lower().replace("×", "*").replace("÷", "/").replace("·", "*")
     nums: list[float] = []
     ops: list[str] = []
     expect_num = True
@@ -156,7 +163,12 @@ def _check(sizing: dict, max_share: float) -> tuple[list[dict], list[dict]]:
             continue
         ratio = computed / val
         label = fig.get("label", "?")
-        if ratio > 10 or ratio < 0.1:
+        # A formula reconciles to its OWN stated result, so a large gap is a dropped
+        # factor, not rounding (the R2 case: 30.6B×0.15×0.15=$688.5M printed as $4.59B,
+        # ratio 0.15 — a 6.7x self-contradiction that the old 10x/0.1x block waved
+        # through). Block at >2.5x either way; the 1.25/0.8 warn band still absorbs
+        # legitimate rounding.
+        if ratio > 2.5 or ratio < 0.4:
             blocks.append({"check": "formula_reconciliation",
                            "msg": f"{label}: formula computes {computed:,.0f} but value is "
                                   f"{val:,.0f} ({ratio:.2g}× off)"})

@@ -1,0 +1,40 @@
+{
+  "ring": "R4",
+  "wave": "wave4-exit",
+  "status": "PARTIAL \u2014 INVALID (credit-exhausted)",
+  "valid": false,
+  "why_invalid": "Two full-panel attempts on the exit corpus both died on Fable-5 usage credit / session limits (0 then 25 of ~151 agents completed). Every FAIL cell below had its adversarial verifier DIE, so the FAIL count is inflated \u2014 an unknown fraction would downgrade to WARN. NOT a validated pass_pct.",
+  "entry_baseline": {
+    "pass_pct": 13.0,
+    "criticals": 61,
+    "per_venture_pass_of_12": {
+      "174ae091": 1,
+      "28d0ec61": 0,
+      "3219f4db": 2,
+      "348c69ca": 2,
+      "4a755faa": 2,
+      "5dbf3f54": 2
+    }
+  },
+  "partial_read_6_ventures": {
+    "per_venture_pass_of_12_now": {
+      "174ae091": 5,
+      "28d0ec61": 3,
+      "3219f4db": 2,
+      "348c69ca": 3,
+      "4a755faa": 3,
+      "5dbf3f54": 6
+    },
+    "sum_pass_entry": 9,
+    "sum_pass_now": 22,
+    "note": "+13 PASS cells across the 6 fully-scored ventures \u2014 a LOWER BOUND, since the unverified FAILs would partly become WARNs. Directionally up on every venture."
+  },
+  "verified_cell_flips_on_the_marketplace_174ae091": {
+    "R5_pricing_unit": "FAIL(HIGH the /mo-per-booking leak) -> PASS  [verifier ran]",
+    "R7_financials": "FAIL -> PASS (SOM-band scenarios)          [verifier ran]",
+    "R6_economics": "FAIL(empty grid) -> WARN(residual break-even coherence)",
+    "R2_TAM": "still CRITICAL \u2014 DIFFERENT defect than forecast.py fixed (see below)"
+  },
+  "r2_residual_fixed_this_commit": "The exit R2 CRITICAL is an LLM method-formula whose printed result contradicts its own arithmetic: '$30.6B (IBISWorld 2023) * 15% * 15% = $4.59B' where 30.6B*0.15*0.15 = $688.5M (dropped take-rate factor, 6.7x). forecast.py takes value_usd as given and never checks the formula reproduces it; skills/sizing/validate.safe_eval_formula was SUPPOSED to but silently no-op'd (the citation year 2023 became a phantom factor + the '= result' tail unbalanced nums-vs-ops -> returned None). Fixed: strip parenthetical citations, take the LHS of '=', and block formula-vs-own-result gaps > 2.5x. Unit-verified on the exact real string; NOT yet confirmed end-to-end (needs a regen + panel, blocked on credits).",
+  "open_after_this_commit": "R2 (needs the regen to confirm the gate now blocks it end-to-end), R8 precision (cosine gate median 0.56 \u2014 separate LLM-judge fix), R9 WTP-vs-price, R11 viability, R12 integrity \u2014 all unmeasured since the panel could not complete."
+}
