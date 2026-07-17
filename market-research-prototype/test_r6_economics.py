@@ -72,8 +72,13 @@ class TestStubRenders(unittest.TestCase):
         env = Environment(loader=FileSystemLoader("templates"), autoescape=True,
                           undefined=api.SafeUndefined)
         src = env.loader.get_source(env, "report.html")[0]
-        start = src.index('<h3 style="margin-top:22px" id="economics">')
-        end = src.index("</div>", src.index("display:grid", start)) + len("</div>")
+        # TWO identical h3 blocks exist (one inside is_transactional, one general).
+        # The FIRST is unreachable for marketplace — slicing from it green-lit a dead
+        # edit once. Test the SECOND, the one a marketplace report actually renders.
+        first = src.index('<h3 style="margin-top:22px" id="economics">')
+        start = src.index('<h3 style="margin-top:22px" id="economics">', first + 1)
+        # end BEFORE the grid opens — its inner {% if %} blocks would unbalance the slice
+        end = src.index('<div style="display:grid', start)
         return env.from_string(src[start:end]).render(economics=economics)
 
     def test_marketplace_stub_shows_basis_and_operator_inputs(self):

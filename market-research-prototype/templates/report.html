@@ -1281,15 +1281,6 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 
 <!-- cycle37: TRANSACTIONAL UNIT ECONOMICS (contribution margin + break-even volume, no CLV/CAC/churn) -->
 <h3 style="margin-top:22px" id="economics">Unit Economics</h3>
-{# R6: marketplace/ad_supported economics is an HONEST stub (revenue basis + the
-   operator inputs it needs) — previously NONE of its keys were rendered, so this
-   heading sat over an empty grid while two other sections said "see Unit
-   Economics". Render the stub. #}
-{% if economics.revenue_basis and economics.needs_operator_input %}
-<p style="font-size:10.5pt"><strong>Revenue basis:</strong> {{ economics.revenue_basis }}</p>
-<p style="font-size:10pt;color:#6b7280"><strong>Operator inputs needed to complete unit economics:</strong> {{ economics.needs_operator_input | join(', ') }}.</p>
-{% if economics.note %}<p style="font-size:9.5pt;color:#9ca3af;font-style:italic">{{ economics.note }}</p>{% endif %}
-{% endif %}
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px">
   <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:12px">
     <div style="font-size:9pt;font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:.05em">Contribution margin</div>
@@ -1387,6 +1378,15 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <!-- ITER 35: UNIT ECONOMICS (CLV + CAC) + EVC (user feedback #2) -->
 {% if economics and not economics.error %}
 <h3 style="margin-top:22px" id="economics">Unit Economics</h3>
+{# R6: marketplace/ad_supported economics is an HONEST stub (revenue basis + the
+   operator inputs it needs) — previously NONE of its keys were rendered, so this
+   heading sat over an empty grid while two other sections said "see Unit
+   Economics". Render the stub. #}
+{% if economics.revenue_basis and economics.needs_operator_input %}
+<p style="font-size:10.5pt"><strong>Revenue basis:</strong> {{ economics.revenue_basis }}</p>
+<p style="font-size:10pt;color:#6b7280"><strong>Operator inputs needed to complete unit economics:</strong> {{ economics.needs_operator_input | join(', ') }}.</p>
+{% if economics.note %}<p style="font-size:9.5pt;color:#9ca3af;font-style:italic">{{ economics.note }}</p>{% endif %}
+{% endif %}
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px">
   {% if economics.clv and not economics.clv.error %}
   <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:12px">
