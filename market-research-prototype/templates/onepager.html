@@ -149,7 +149,10 @@ footer{text-align:center;font-size:8pt;color:#94a3b8;margin-top:18px;padding-top
     <div class="scenario">
       <div class="label" style="color:{{ '#ef4444' if label == 'conservative' else ('#3b82f6' if label == 'base' else '#10b981') }}">{{ label }}</div>
       <div class="y3">{{ format_currency(s.year_3.revenue_usd) }}</div>
-      <div class="sub">{{ s.year_3.customers }} customers · BE Y{{ s.break_even_year or '4+' }}</div>
+      {# W4/R7: model-blind "customers · BE Y4+" leaked subscription shape onto
+         marketplace/transactional one-pagers (SafeUndefined blanked .customers).
+         Only subscription scenarios carry customers; BE only when computed. #}
+      <div class="sub">{% if financials.model == 'subscription' and s.year_3.customers %}{{ s.year_3.customers }} customers{% endif %}{% if s.break_even_year %} · BE Y{{ s.break_even_year }}{% endif %}</div>
     </div>
     {% endfor %}
   </div>

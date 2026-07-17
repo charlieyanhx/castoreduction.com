@@ -510,7 +510,7 @@ def wtp_unit_for(description: str, profile: dict | None = None,
     return "/" + unit_for_model(kind, description, profile)
 
 
-def _enrich_economics_at_som(econ: dict, som_mid, category: str = "",
+def _enrich_economics_at_som(econ: dict, som_mid, som_high=None, category: str = "",
                              business_model: str = "") -> dict:
     """cycle37 + G3 (D08): once SOM is known, recompute transactional unit economics with
     the at-SOM-volume profitability — sizing runs after economics, so this can't happen at
@@ -529,8 +529,11 @@ def _enrich_economics_at_som(econ: dict, som_mid, category: str = "",
             variable_cost_per_unit=econ["variable_cost_per_unit"],
             monthly_fixed_cost=econ["monthly_fixed_cost"],
             unit=econ.get("unit", "unit"),
-            annual_revenue_usd=float(som_mid),
-            som_capture_frac=Y3_CAPTURE["aggressive"],
+            # W4-1: the aggressive scenario ceiling IS som.high now (band-driven),
+            # so the claim is computed there — bit-identical with the aggressive Y3
+            # row. Fallback keeps the legacy ladder ceiling when no band exists.
+            annual_revenue_usd=float(som_high) if som_high else float(som_mid),
+            som_capture_frac=1.0 if som_high else Y3_CAPTURE["aggressive"],
             cost_source=econ.get("cost_source", ""),
             category=category,
             business_model=business_model,
@@ -2087,7 +2090,12 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     # the hyperlocal trade-area model AFTER `sizing` was computed, so reading `sizing` here made
     # financials + at-SOM economics use a different SOM than the report's headline → two
     # contradictory SOMs ("profitable at SOM" vs "every scenario loses money"). One source now.
-    som_mid = ((result.get("market_sizing") or {}).get("som") or {}).get("mid")
+    _som_blk = (result.get("market_sizing") or {}).get("som") or {}
+    som_mid = _som_blk.get("mid")
+    # W4-1: the scenarios ride the SOM BAND (low/mid/high) — the sizing model's own
+    # venture-specific uncertainty — not a universal capture ladder on mid.
+    som_low, som_high = _som_blk.get("low"), _som_blk.get("high")
+    _mkt_scale = ((result.get("market_scale") or {}).get("scale") or "")
     optimal_price = psm_result.get("optimal_price_point")
     be = (result.get("pricing", {}) or {}).get("break_even", {}) or {}
     be_customers = be.get("break_even_customers")
@@ -2098,24 +2106,28 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     _econ = result.get("economics") or {}
     if _econ:
         result["economics"] = _enrich_economics_at_som(
-            _econ, som_mid,
+            _econ, som_mid, som_high=som_high,
             category=profile.get("category", ""),
             business_model=profile.get("business_model", ""))
 
-    if som_mid and optimal_price:
+    # W4-1: revenue-only models (marketplace, ad_supported) need no per-customer
+    # price — gating them on optimal_price starved a sized venture of ANY financials
+    # (3219f4db: SOM $2.5M, no projection at all).
+    _fin_model = ("transactional" if is_per_unit(biz_kind)
+                 else biz_kind if biz_kind in ("marketplace", "ad_supported")
+                 else "subscription")
+    _needs_price = _fin_model not in ("marketplace", "ad_supported")
+    if som_mid and (optimal_price or not _needs_price):
         log.info("[plan] Step 10b: 3-year financial projections")
-        # C3/D17-extend: marketplace routes to its own revenue-only projection — the
-        # subscription branch would treat the average booking value as a monthly
-        # seat fee (the real R4 critical this fixes).
-        _fin_model = ("transactional" if is_per_unit(biz_kind)
-                     else "marketplace" if biz_kind == "marketplace" else "subscription")
         proj = project_three_year(
             som_mid=float(som_mid),
-            optimal_price=float(optimal_price),
+            optimal_price=float(optimal_price) if optimal_price else None,
             break_even_customers=be_customers,
             break_even_costs=be,  # cycle36: surface the cost assumptions in the report
-            model=_fin_model,  # cycle37/38 + C3
+            model=_fin_model,  # cycle37/38 + C3 + W4-1
             economics=result.get("economics"),
+            som_low=som_low, som_high=som_high,
+            market_scale=_mkt_scale,
         )
         if not proj.get("error"):
             result["financials"] = proj
