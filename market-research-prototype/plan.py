@@ -1161,11 +1161,37 @@ def triangulate_sizing(sizing: dict) -> dict:
 
     tri = triangulate("TAM", ests)
     if tri.get("point") is not None:
-        out_tam["mid"] = tri["point"]  # median across independent origins (robust)
-        cross = [c["value"] for c in tri.get("cross_origin") or []]
-        if cross:
-            out_tam["low"] = round(min(cross) * 0.85)
-            out_tam["high"] = round(max(cross) * 1.15)
+        # W4-1: the FINAL owner of the headline — and the site that used to switch the
+        # derivation to a median while leaving market_sizing's "unweighted average"
+        # sentence lying, and derive low/high from cross[] (one entry PER ORIGIN, so
+        # all-llm collapsed the band to mid±15% under a caption claiming it spans the
+        # methods). Numbers and prose now regenerate together through the one model.
+        from report.forecast import Method as _FMethod, triangulate as _ftri
+        _methods = []
+        for k in ("method_top_down", "method_bottom_up", "method_analog"):
+            m = out_tam.get(k) or {}
+            v = m.get("value_usd")
+            try:
+                if v is not None:
+                    _methods.append(_FMethod(
+                        name=k.replace("method_", ""), value_usd=float(v),
+                        unit=(m.get("unit") or "revenue").lower(),
+                        origin=(m.get("data_origin") or "llm").lower(),
+                        formula=m.get("calculation") or "", source=m.get("source") or ""))
+            except (TypeError, ValueError):
+                continue
+        if _methods:
+            s = _ftri(_methods)
+            out_tam["mid"], out_tam["low"], out_tam["high"] = s.mid, s.low, s.high
+            out_tam["reconciliation"] = s.derivation
+            out_tam["range_basis"] = s.range_basis
+            out_tam["n_independent_origins"] = s.n_independent
+            for m in s.unit_conflict:
+                blk = out_tam.get(f"method_{m.name}")
+                if blk:
+                    blk["excluded_from_headline"] = True
+        else:  # no method blocks (pure-estimate path) — keep the origin-median point
+            out_tam["mid"] = tri["point"]
     out_tam["triangulation"] = tri
     out["tam"] = out_tam
     # Triangulation moved the headline TAM → re-derive any dependent figures from

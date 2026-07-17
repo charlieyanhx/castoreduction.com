@@ -571,7 +571,8 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 {# cycle36 (audit): disclose how the low/high band is derived so it is never mistaken for a measured CI. #}
 {% set _band = market_sizing.tam.band_note or market_sizing.sam.band_note or market_sizing.som.band_note %}
 {% if _band %}<div style="font-size:8.5pt;color:#9ca3af;margin:-4px 0 4px;font-style:italic">{{ _band }}</div>
-{% else %}<div style="font-size:8.5pt;color:#9ca3af;margin:-4px 0 4px;font-style:italic">Range spans the highest and lowest of the independent estimation methods, padded ±15%; it is a modeling band, not a measured confidence interval.</div>{% endif %}
+{% elif market_sizing.tam.range_basis %}<div style="font-size:8.5pt;color:#9ca3af;margin:-4px 0 4px;font-style:italic">{{ market_sizing.tam.range_basis }}</div>
+{% else %}<div style="font-size:8.5pt;color:#9ca3af;margin:-4px 0 4px;font-style:italic">Range is a modeling band around the triangulated estimate, not a measured confidence interval.</div>{% endif %}
 <!-- Iter 42 (issue 4): triangulated TAM via 3 methods + serviceability waterfall + analog SOM anchor -->
 {% set tam = market_sizing.tam %}
 {% if tam and (tam.method_top_down or tam.method_bottom_up or tam.method_analog) %}

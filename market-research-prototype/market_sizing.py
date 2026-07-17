@@ -89,16 +89,19 @@ Return JSON in this EXACT order (SOM first so it survives truncation):
     "currency": "USD", "unit": "annual revenue",
     "method_top_down": {{
       "value_usd": <number>,
+      "unit": "revenue" or "gmv" — what value_usd MEASURES. For take-rate/commission models: total transaction volume is "gmv"; platform revenue (take rate applied) is "revenue". Mixing them 6x-inflates TAM.,
       "calculation": "≤100 chars: industry report × geo × segment %",
       "source": "name of report or analyst, e.g. 'Gartner Digital Wellness 2024'"
     }},
     "method_bottom_up": {{
       "value_usd": <number>,
+      "unit": "revenue" or "gmv" — what value_usd MEASURES. For take-rate/commission models: total transaction volume is "gmv"; platform revenue (take rate applied) is "revenue". Mixing them 6x-inflates TAM.,
       "calculation": "≤100 chars: firm count × seats × ACV",
       "source": "BLS QCEW / Census SUSB / similar"
     }},
     "method_analog": {{
       "value_usd": <number>,
+      "unit": "revenue" or "gmv",
       "calculation": "≤100 chars: comparable's ARR × implied penetration inverse",
       "source": "company name + filing/press source"
     }},
@@ -121,6 +124,46 @@ RULES:
 - `sam` MUST show the serviceability waterfall (% drop-off at each step)
 - USD figures, annualized, rounded sensibly
 - If you don't know a specific industry report, cite the closest analog you do know — never fabricate report names"""
+
+
+_METHOD_KEYS = ("method_top_down", "method_bottom_up", "method_analog")
+
+
+def apply_tam_triangulation(tam_block: dict) -> None:
+    """W4-1: the ONE way a TAM headline gets written from its methods.
+
+    Replaces the three ad-hoc mean-recompute sites (first derivation, post-retry, and
+    the cycle25 'reconcile') that each rewrote mid/low/high under their own formula
+    while a hardcoded 'unweighted average' sentence stayed behind describing none of
+    them. Every write now regenerates BOTH the numbers and the prose from
+    report.forecast.triangulate — a number is never written without its sentence.
+    Mutates tam_block in place; no-op when no method carries a numeric value.
+    """
+    from report.forecast import Method, triangulate as _tri
+    methods = []
+    for k in _METHOD_KEYS:
+        m = tam_block.get(k) or {}
+        v = m.get("value_usd")
+        try:
+            if v is not None:
+                methods.append(Method(
+                    name=k.replace("method_", ""), value_usd=float(v),
+                    unit=(m.get("unit") or "revenue").lower(),
+                    origin=(m.get("data_origin") or "llm").lower(),
+                    formula=m.get("calculation") or "", source=m.get("source") or ""))
+        except (TypeError, ValueError):
+            continue
+    if not methods:
+        return
+    s = _tri(methods)
+    tam_block["mid"], tam_block["low"], tam_block["high"] = s.mid, s.low, s.high
+    tam_block["reconciliation"] = s.derivation
+    tam_block["range_basis"] = s.range_basis
+    tam_block["n_independent_origins"] = s.n_independent
+    excluded = {m.name for m in s.unit_conflict}
+    for k in _METHOD_KEYS:
+        if k.replace("method_", "") in excluded and tam_block.get(k):
+            tam_block[k]["excluded_from_headline"] = True
 
 
 def estimate_market_size(
@@ -373,22 +416,7 @@ ALL fields REQUIRED. growth_cagr_pct must be a SINGLE number (e.g. 23, not "18-2
         if k in tam_block and isinstance(tam_block[k].get("value_usd"), (int, float))
     ]
     if method_values:
-        try:
-            mvs = [float(v) for v in method_values]
-            tam_block["mid"] = round(sum(mvs) / len(mvs))
-            tam_block["low"] = round(min(mvs) * 0.85)
-            tam_block["high"] = round(max(mvs) * 1.15)
-            tam_block["reconciliation"] = (
-                f"3-method triangulation: top-down ${tam_block.get('method_top_down',{}).get('value_usd','?'):,}, "
-                f"bottom-up ${tam_block.get('method_bottom_up',{}).get('value_usd','?'):,}, "
-                f"analog ${tam_block.get('method_analog',{}).get('value_usd','?'):,}. "
-                f"Headline mid is the unweighted average."
-            ) if len(mvs) == 3 else (
-                f"Only {len(mvs)}/3 methods returned numeric values — "
-                f"reconciliation unreliable, treat headline as directional."
-            )
-        except (TypeError, ValueError):
-            pass
+        apply_tam_triangulation(tam_block)
 
     # Merge fields from sam/som/meta layers. The TAM block we just built takes precedence.
     result = {"tam": tam_block} if method_values else {}
@@ -475,14 +503,10 @@ ALL fields REQUIRED. growth_cagr_pct must be a SINGLE number (e.g. 23, not "18-2
             if k in tam and tam[k].get("value_usd")
         ]
         if method_values:
-            try:
-                mvs = [float(v) for v in method_values]
-                tam["mid"] = round(sum(mvs) / len(mvs))
-                tam["low"] = round(min(mvs) * 0.85)
-                tam["high"] = round(max(mvs) * 1.15)
-                result["tam"] = tam
-            except (TypeError, ValueError):
-                pass
+            # W4-1: same single writer as everywhere else — the retry changed the
+            # method set, so the prose must change with the numbers.
+            apply_tam_triangulation(tam)
+            result["tam"] = tam
 
     # cycle23: sam_seg layer also stochastic — sometimes returns segmentation: [],
     # which shows as an empty TAM segmentation table. Retry once if missing.
@@ -523,22 +547,12 @@ ALL fields REQUIRED. growth_cagr_pct must be a SINGLE number (e.g. 23, not "18-2
         except (TypeError, ValueError):
             pass
     if method_values:
-        new_mid = round(sum(method_values) / len(method_values))
-        new_low = round(min(method_values) * 0.85)  # 15% downside band
-        new_high = round(max(method_values) * 1.15)  # 15% upside band
-        # Only override if headline disagrees substantially (>20% off the method-average)
-        existing_mid = tam.get("mid")
-        if existing_mid:
-            try:
-                if abs(float(existing_mid) - new_mid) / new_mid > 0.20:
-                    log.info("[market_sizing] reconciling TAM mid %s → %s (avg of %d methods)",
-                             existing_mid, new_mid, len(method_values))
-                    tam["mid"] = new_mid
-                    tam["low"] = new_low
-                    tam["high"] = new_high
-                    result["tam"] = tam
-            except (TypeError, ValueError):
-                pass
+        # W4-1: no more 20%-tolerance "reconcile" under its own (mean) formula — the
+        # designated headline-can't-contradict-the-table site tolerated a 20%
+        # contradiction by design and would have reverted a correct median. One
+        # writer, always: recompute unconditionally through the single owner.
+        apply_tam_triangulation(tam)
+        result["tam"] = tam
 
     # cycle22 + C1/D20: SAM's calculation/serviceability_waterfall are free-text
     # narratives the LLM frequently hallucinates incoherent with its OWN sam.mid

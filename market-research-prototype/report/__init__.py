@@ -7,3 +7,10 @@ The wave exists because the old shape had five writers and no owner: TAM mid/low
 was recomputed at five sites under three different formulas, each overwriting the last
 while a hardcoded sentence kept describing the first one.
 """
+
+# The pre-existing top-level report.py (markdown renderers) moved to render_md.py when
+# this package claimed the `report` name — re-exported so `import report;
+# report.render_discover(...)` (api.py) keeps working unchanged.
+from report.render_md import (  # noqa: E402,F401
+    render_discover, render_taste, render_match, render_full,
+)
