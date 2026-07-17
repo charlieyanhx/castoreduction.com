@@ -81,6 +81,34 @@ Read the artifacts yourself and try to REFUTE it. Default: refuted=true (not-a-b
 human reading this report would genuinely distrust it because of this specific issue. A stylistic
 nit, a defensible methodological choice, or a correctly-disclosed limitation is NOT a bug.`
 
+// A transient socket drop must not invalidate a 2-hour, 15M-token run.
+//
+// The strict rule stays: ANY unverified finding => the whole run is INVALID. That rule
+// is right — a dead verifier is not evidence of anything, and a truncated run must
+// never masquerade as confirmed. But it was paired with a ONE-SHOT attempt, and at
+// ~0.5% transient API failure across ~117 verifiers, P(>=1 death) ~= 44%. Half of all
+// runs were unverifiable, and resuming just re-rolled the dice (observed: two
+// consecutive runs, two DIFFERENT random cells died, same "Connection closed
+// mid-response"). So fix the EFFORT, not the rule: a verdict is only "dead" after
+// VERIFY_ATTEMPTS honest tries. 0.005^3 per verifier => ~1e-5 across the panel.
+//
+// The attempt index is in the label so retries are distinct agents (visible in
+// progress, and never confused with the failed original on resume).
+const VERIFY_ATTEMPTS = 3
+
+async function verifyWithRetry(slug, f) {
+  for (let i = 0; i < VERIFY_ATTEMPTS; i++) {
+    const v = await agent(refutePrompt(slug, f), {
+      label: `verify:${slug}:${f.cell}${i ? ` (retry ${i})` : ''}`,
+      phase: 'Verify',
+      schema: VERDICT,
+    })
+    if (v) return v
+    log(`verifier for ${slug}:${f.cell} returned nothing (attempt ${i + 1}/${VERIFY_ATTEMPTS})`)
+  }
+  return null   // genuinely dead after N tries — a REAL verification gap
+}
+
 phase('Score')
 const scored = await pipeline(
   ARGS.ventures,
@@ -92,7 +120,7 @@ const scored = await pipeline(
       && (c.severity === 'CRITICAL' || c.severity === 'HIGH'))
     if (!serious.length) return { ...sc, verified: [] }
     return parallel(serious.map(f => () =>
-      agent(refutePrompt(sc.slug, f), { label: `verify:${sc.slug}:${f.cell}`, phase: 'Verify', schema: VERDICT })
+      verifyWithRetry(sc.slug, f)
         // A dead verifier (v == null) is NOT the same as "not refuted". Track it
         // explicitly so a truncated run can never masquerade as a confirmed finding.
         .then(v => ({ ...f, verifier_ran: !!v,
