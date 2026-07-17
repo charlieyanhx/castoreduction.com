@@ -511,7 +511,7 @@ def wtp_unit_for(description: str, profile: dict | None = None,
 
 
 def _enrich_economics_at_som(econ: dict, som_mid, som_high=None, category: str = "",
-                             business_model: str = "") -> dict:
+                             business_model: str = "", market_scale: str = "") -> dict:
     """cycle37 + G3 (D08): once SOM is known, recompute transactional unit economics with
     the at-SOM-volume profitability — sizing runs after economics, so this can't happen at
     economics time. Pure recompute, no LLM.
@@ -520,7 +520,8 @@ def _enrich_economics_at_som(econ: dict, som_mid, som_high=None, category: str =
     never at 100% capture: 2/16 baseline reports said "profitable at SOM" while every
     scenario row — including aggressive — lost money (D08 contradiction). Returns econ
     unchanged when not applicable (wrong model, no SOM, already enriched, or bad inputs)."""
-    if econ.get("model") != "transactional" or not som_mid or econ.get("at_som_volume"):
+    from business_model import is_per_unit as _ipu
+    if not _ipu(econ.get("model")) or not som_mid or econ.get("at_som_volume"):
         return econ
     from business_model import retail_unit_economics
     try:
@@ -537,6 +538,8 @@ def _enrich_economics_at_som(econ: dict, som_mid, som_high=None, category: str =
             cost_source=econ.get("cost_source", ""),
             category=category,
             business_model=business_model,
+            kind=econ.get("model", "transactional"),
+            market_scale=market_scale,
         )
     except Exception as e:
         log.warning("[plan] at-SOM economics enrich failed (non-fatal): %s", e)
@@ -1880,6 +1883,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                     cost_source=_cost["source"],
                     category=profile.get("category", ""),
                     business_model=profile.get("business_model", ""),
+                    kind=biz_kind,  # R6: model = the real kind, not hardcoded
                 )
             elif biz_kind == "subscription":
                 from economics import full_economics
@@ -2108,7 +2112,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         result["economics"] = _enrich_economics_at_som(
             _econ, som_mid, som_high=som_high,
             category=profile.get("category", ""),
-            business_model=profile.get("business_model", ""))
+            business_model=profile.get("business_model", ""),
+            market_scale=_mkt_scale)
 
     # W4-1: revenue-only models (marketplace, ad_supported) need no per-customer
     # price — gating them on optimal_price starved a sized venture of ANY financials

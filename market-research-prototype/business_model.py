@@ -198,6 +198,8 @@ def retail_unit_economics(
     cost_source: str = "",
     category: str = "",
     business_model: str = "",
+    kind: str = TRANSACTIONAL,
+    market_scale: str = "",
 ) -> dict:
     """Transactional retail unit economics — the honest analog of CLV:CAC for a per-visit business.
 
@@ -213,7 +215,7 @@ def retail_unit_economics(
     """
     margin = price_per_unit - variable_cost_per_unit
     out: dict = {
-        "model": TRANSACTIONAL,
+        "model": kind or TRANSACTIONAL,
         "unit": unit,
         "price_per_unit": round(price_per_unit, 2),
         "variable_cost_per_unit": round(variable_cost_per_unit, 2),
@@ -226,7 +228,9 @@ def retail_unit_economics(
     if margin <= 0:
         out["error"] = "price is below variable cost per unit — no positive contribution margin"
         return out
-    be_units_month = monthly_fixed_cost / margin
+    _margin_frac_disclosed = (out["contribution_margin_pct"] or 0) / 100.0
+    be_units_month = monthly_fixed_cost / (price_per_unit * _margin_frac_disclosed) \
+        if _margin_frac_disclosed else monthly_fixed_cost / margin
     out["break_even_units_per_month"] = round(be_units_month)
     out["break_even_units_per_day"] = round(be_units_month / 30.0, 1)
     if est_visits_per_year:
@@ -241,12 +245,22 @@ def retail_unit_economics(
         monthly_units = monthly_rev / price_per_unit if price_per_unit else 0
         margin_frac = (out["contribution_margin_pct"] or 0) / 100.0
         monthly_profit = round(monthly_rev * margin_frac - out["monthly_fixed_cost"])
-        out["at_som_volume"] = {
+        asv = {
             "monthly_revenue_usd": round(monthly_rev),
             "monthly_units": round(monthly_units),
             "monthly_units_per_day": round(monthly_units / 30.0, 1),
-            "monthly_operating_profit_usd": monthly_profit,
-            "profitable_at_som": monthly_profit > 0,
             "som_capture_pct": round(som_capture_frac * 100, 1),
+            "fixed_cost_basis": "single-site rent + staff + utilities",
         }
+        if "regional" in (market_scale or "").lower():
+            # A regional/multi-location SOM implies several sites' fixed costs; scaling
+            # revenue to that ceiling against ONE site's rent fabricates profit. Show
+            # the volume, withhold the profit verdict, say why.
+            asv["profit_withheld_reason"] = (
+                "SOM spans multiple locations but fixed cost is single-site — a "
+                "profit claim at this volume would understate costs.")
+        else:
+            asv["monthly_operating_profit_usd"] = monthly_profit
+            asv["profitable_at_som"] = monthly_profit > 0
+        out["at_som_volume"] = asv
     return out
