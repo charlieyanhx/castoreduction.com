@@ -42,10 +42,21 @@ _PARKED_TEXT_RE = re.compile(
 MIN_CONTENT_CHARS = 400
 
 
+# trafilatura drives lxml.html, whose class-lookup/parser state is process-global C
+# state — two threads extracting at once intermittently corrupt the heap and SIGABRT
+# the whole process (observed live: two _fetch_one workers both inside
+# trafilatura.extract at the crash). Every trafilatura call in this codebase must hold
+# this lock. Extraction is ~ms against network fetches, so serializing costs nothing.
+import threading
+
+TRAFILATURA_LOCK = threading.Lock()
+
+
 def _trafilatura_text(html: str) -> str:
     """Main-content text via trafilatura (isolated so the gate can degrade if it breaks)."""
     import trafilatura
-    return trafilatura.extract(html, include_comments=False) or ""
+    with TRAFILATURA_LOCK:
+        return trafilatura.extract(html, include_comments=False) or ""
 
 
 def main_text(html: str) -> str:

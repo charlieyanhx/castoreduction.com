@@ -94,13 +94,15 @@ def _extract_visible_text(html: str, max_chars: int = 3000) -> str:
     """
     if _HAS_TRAFILATURA:
         try:
-            text = trafilatura.extract(
-                html,
-                include_comments=False,
-                include_tables=False,
-                no_fallback=False,
-                favor_precision=True,
-            )
+            from scrape.structured import TRAFILATURA_LOCK
+            with TRAFILATURA_LOCK:
+                text = trafilatura.extract(
+                    html,
+                    include_comments=False,
+                    include_tables=False,
+                    no_fallback=False,
+                    favor_precision=True,
+                )
             if text:
                 return text[:max_chars]
         except Exception:
