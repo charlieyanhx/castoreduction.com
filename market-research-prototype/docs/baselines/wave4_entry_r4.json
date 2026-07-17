@@ -1,0 +1,56 @@
+{
+  "ring": "R4",
+  "wave": "wave4-entry",
+  "status": "VALID",
+  "valid": true,
+  "verification_gaps": 0,
+  "coverage": "16/16 ventures x 12 rubric rows = 192 cells; 181/181 agents done, 0 errors; every CRIT/HIGH has a real verifier verdict",
+  "result": {
+    "pass_pct": 13,
+    "pass": 25,
+    "warn": 62,
+    "fail": 105,
+    "total": 192,
+    "criticals_confirmed": 61,
+    "highs_confirmed": 44
+  },
+  "criticals_by_dimension": {
+    "R8": 11,
+    "R11": 11,
+    "R12": 8,
+    "R2": 7,
+    "R9": 7,
+    "R7": 6,
+    "R6": 5,
+    "R5": 3,
+    "R10": 2,
+    "R3": 1
+  },
+  "passes_by_dimension": {
+    "R4": 12,
+    "R1": 12,
+    "R6": 1
+  },
+  "vs_wave2_baseline": {
+    "wave2": {
+      "pass_pct": 35.9,
+      "pass": 69,
+      "total": 192,
+      "criticals": 31,
+      "highs": 24
+    },
+    "wave4_entry": {
+      "pass_pct": 13,
+      "pass": 25,
+      "total": 192,
+      "criticals": 61,
+      "highs": 44
+    },
+    "verdict": "WORSE on the headline metric (35.9% -> 13.0%; 31 -> 61 criticals)"
+  },
+  "comparability_caveat": "NOT a clean A/B. Different corpus (regenerated with current code) AND a fresh set of LLM judge invocations; the panel is an LLM jury whose severity drifts run-to-run. The D22 measurement earlier this session showed exactly this: absolute panel percentages are a weak instrument, and a PAIRED blind A/B was the sharp one. Treat 13.0% as this corpus's honest floor under a forensic jury, NOT as proof of a 23-point regression.",
+  "what_holds": "R1 market-scale routing 12/16 PASS (0 crit) and R4 business-model routing 12/16 PASS (0 crit) \u2014 the two dimensions earlier waves targeted are the ONLY two passing cleanly. Those fixes hold. Deterministic ring is 217/217 on the same corpus.",
+  "r8_diagnosis": "R8 criticals 1 -> 11 (+10), the largest jump, in the dimension the discovery grounding touched. NOT mass mis-binding: only 2/282 resolved domains are <60d old, and spot checks resolve correctly (Airthings->airthings.com 5529d, Kaiterra->kaiterra.com 8214d). The mechanic is a SMALL mis-bind rate amplified: each error lands on a TOP-ranked competitor, then gets scraped, thesis-generated and priced into the benchmark (PurpleAir->purpleair.shop age 7d; One Skin->an Indian rupee storefront; Clay->Clay Labs GTM SaaS). Richer sets (density 23 vs 1-12) give the unfixed resolver more chances to land an error in the top 3. Judges also noted off_category was COMPUTED and then ignored ('the report itself identifies Jiffy as custom-apparel, but leaves off_category=false'). Root = the DEFERRED audit item 7 (relevance gate on tier-b/c domain resolution) + enforcing the off_category verdict \u2014 not a defect in the fan-out, whose brand NAMES a judge called 'a genuinely good category read' of the real industry.",
+  "wave4_targets": "R2 (7 crit), R7 (6), R12 (8), R6 (5) cluster on TAM/forecast/\u8ca1 incoherence \u2014 GMV-vs-revenue unit mixing, a range that excludes its own input, reconciliation prose contradicting the headline, an 'Unit Economics' section rendering zero unit economics. That IS report/forecast.py (Wave 4 item 1).",
+  "harness_fix": "This run is the FIRST valid one: two prior full runs died on a single random verifier ('Connection closed mid-response'), because the strict rule (any dead verifier -> INVALID) was paired with a one-shot attempt \u2014 at ~0.5% x ~117 verifiers, ~44% of runs were unverifiable. verifyWithRetry (3 attempts) fixed the EFFORT, not the rule. Measurement was stable across all three runs (pass=25 every time), so the number was never in doubt \u2014 only its validity."
+}
