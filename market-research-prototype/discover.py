@@ -531,6 +531,26 @@ def _gather_signals(brand: dict, category: str, geo: str) -> dict:
                 domain_confidence = "medium"
         except Exception as e:
             out["ddg_error"] = str(e)
+    # R8 / audit item 7: tiers (b) pattern-probe and (c) DDG resolve a domain WITHOUT ever
+    # checking category relevance — validate_domain is the only tier that computes the
+    # verdict. Measured on the Wave-4-entry corpus: only 168/312 competitor signals carried
+    # an off_category verdict at all, so 46% reached the ranking with NO relevance signal.
+    # _apply_relevance_to_ranking deliberately does not penalize what wasn't checked, so
+    # those ranked as DIRECT competitors on signal score alone — and the pipeline then
+    # scraped the wrong site, wrote a thesis about it, and priced it into the benchmark
+    # (PurpleAir -> purpleair.shop age 7d; Clay -> Clay Labs GTM SaaS). Whichever tier wins,
+    # the SAME verdict runs before the domain is trusted. The re-fetch is served from the
+    # 24h requests-cache the probe just populated, so this costs ~nothing.
+    if domain and "off_category" not in out:
+        try:
+            v2 = validate_domain(domain, context_keyword=context_kw, brand_name=name,
+                                 category=category)
+            if "relevance" in v2 or "off_category" in v2:
+                out["relevance_score"] = v2.get("relevance")
+                out["off_category"] = bool(v2.get("off_category"))
+        except Exception as e:
+            out["relevance_check_error"] = str(e)
+
     if domain:
         out["domain"] = domain
         out["domain_confidence"] = domain_confidence
