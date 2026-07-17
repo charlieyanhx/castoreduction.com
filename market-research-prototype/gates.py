@@ -108,7 +108,13 @@ def d06_html_no_saas_bleed(r: dict, html: Optional[str]) -> Finding:
         return Finding(None, "not a per-unit or marketplace model")
     if html is None:
         return Finding(None, "no HTML in corpus")
-    hits = [p for p in ("/month per ", "B2B SaaS benchmark", "per account") if p in html]
+    # "/mo per " matters as much as "/month per ": the tier cards and optimal-price
+    # line render the ABBREVIATED form, so a list carrying only "/month per " reported
+    # "clean" on a marketplace that printed "$185.0/mo per booking" four times (caught
+    # by the Wave-4-entry R4 panel, R5). A gate's phrase list has to match what the
+    # renderer actually writes, not a near-miss of it.
+    hits = [p for p in ("/month per ", "/mo per ", "B2B SaaS benchmark", "per account")
+            if p in html]
     return Finding(not hits, f"SaaS phrases in rendered report: {hits}" if hits else "clean")
 
 

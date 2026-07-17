@@ -309,6 +309,12 @@ def build_benchmark_table(
 
     return {
         "pricing_unit": pricing_unit,
+        # Carry `recurring` OUT, not just in: the labels below already respect it, but the
+        # report template renders its own price strings and had no way to ask — so it
+        # hardcoded "/mo per <unit>" and printed "$185.0/mo per booking" on a marketplace
+        # (R4 panel, R5). Knowing the answer and not exposing it is what made the leak
+        # survive the C3/D06-extend fix.
+        "recurring": bool(recurring),
         "our_tiers": our_tiers_labeled,
         "our_pro_price": our_pro_price,
         "our_pro_price_label": _label(our_pro_price),

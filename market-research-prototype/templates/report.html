@@ -1322,14 +1322,18 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   {% for t in psm.recommended_tiers[:3] %}
   <div class="tier-card">
     <div class="name">{{ t.name }}</div>
-    <div class="price">${{ t.price }}{% if pricing_benchmark %}<span style="font-size:10pt;font-weight:400;color:#6b7280">/mo per {{ pricing_benchmark.pricing_unit }}</span>{% endif %}</div>
+    {# R4/R5: "/mo" ONLY when the benchmark says the model is recurring. This was
+       unconditional, so a marketplace's per-booking price rendered "$185.0/mo per
+       booking" — a subscription frame on a take-rate venture, contradicting the
+       "Prices stated per booking." line directly above it. #}
+    <div class="price">${{ t.price }}{% if pricing_benchmark %}<span style="font-size:10pt;font-weight:400;color:#6b7280">{% if pricing_benchmark.recurring %}/mo {% endif %}per {{ pricing_benchmark.pricing_unit }}</span>{% endif %}</div>
     <div class="for-whom">{{ t.for_whom or '' }}</div>
   </div>
   {% endfor %}
 </div>
 {% endif %}
 {% if psm.optimal_price_point %}
-<p style="font-size:11pt"><strong>Optimal price point:</strong> ${{ psm.optimal_price_point }}{% if pricing_benchmark %}/mo per {{ pricing_benchmark.pricing_unit }}{% endif %}.
+<p style="font-size:11pt"><strong>Optimal price point:</strong> ${{ psm.optimal_price_point }}{% if pricing_benchmark %}{% if pricing_benchmark.recurring %}/mo {% endif %}per {{ pricing_benchmark.pricing_unit }}{% endif %}.
 {% if psm.acceptable_range %} <strong>Acceptable range:</strong> ${{ psm.acceptable_range[0] }}–${{ psm.acceptable_range[1] }}.{% endif %}
 </p>
 {% endif %}
