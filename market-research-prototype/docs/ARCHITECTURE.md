@@ -37,7 +37,7 @@ away — `tools/registry.py` and `skills/registry.py` already *are* the harness 
 (uniform `Evidence` envelope, auto-discovery, per-call timing, error isolation).
 
 This is the convergent design every serious research agent independently arrived at
-(Manus, GPT Researcher, STORM, Claude Code — see `docs/process/` references). We are
+(Manus, GPT Researcher, STORM, Claude Code — see `docs/archive/process/` references). We are
 assembling it from proven parts, not inventing it.
 
 ---

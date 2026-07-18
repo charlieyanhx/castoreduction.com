@@ -133,9 +133,8 @@ No live external calls in any test.
 market-research-prototype/
 ├── README.md             # you are here
 ├── SHIP.md               # ship checklist + status (READY)
-├── METHOD.md             # scientific synthesis of methodology
 ├── CONTRIBUTING.md       # engineering policy + iteration changelog
-├── PLAN.md               # original architecture roadmap
+├── docs/                 # canonical plan (CC_HARNESS_PLAN.md) + archive/ (historical)
 ├── install.sh, test_all.sh
 ├── requirements.txt
 │

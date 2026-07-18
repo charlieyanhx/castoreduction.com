@@ -97,8 +97,8 @@ Verified end-to-end with MintBox v5 (subscription mint candy box) — 2026-04-21
 
 ### Docs
 - [x] README.md — setup + usage
-- [x] PLAN.md — original architecture roadmap
-- [x] METHOD.md — scientific synthesis of Seena method × spec
+- [x] docs/archive/PLAN.md — original architecture roadmap (archived)
+- [x] docs/archive/METHOD.md — scientific synthesis (archived)
 - [x] CONTRIBUTING.md — engineering policy + iteration changelog
 - [x] SHIP.md — this file
 - [x] CLAUDE.md (implicit via CONTRIBUTING) — verified-OSS-first policy
