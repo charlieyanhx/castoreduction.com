@@ -21,7 +21,41 @@ import os
 import time
 from typing import Optional
 
+from pydantic import BaseModel, Field
 from .registry import tool, Evidence
+
+
+# ---------------------------------------------------------------------------
+# Arg models — validated before any network call is made
+# ---------------------------------------------------------------------------
+
+class GeocodeAddressArgs(BaseModel):
+    address: str = Field(min_length=1, description="US street address to geocode")
+
+
+class AcsDemographicsArgs(BaseModel):
+    state_fips: str = Field(min_length=1, description="2-digit state FIPS code")
+    county_fips: str = Field(min_length=1, description="3-digit county FIPS code")
+    tract: Optional[str] = None
+    year: int = Field(default=2022, ge=2010, le=2030)
+
+
+class CensusBusinessCountsArgs(BaseModel):
+    naics: Optional[str] = None
+    category: Optional[str] = None
+    year: int = Field(default=2022, ge=2010, le=2030)
+
+
+class OsmArgs(BaseModel):
+    lat: float = Field(ge=-90.0, le=90.0)
+    lng: float = Field(ge=-180.0, le=180.0)
+    radius_m: int = Field(default=3000, gt=0, le=50000)
+    osm_value: str = Field(default="restaurant", min_length=1)
+    osm_key: str = Field(default="amenity", min_length=1)
+
+
+class OsmNamedArgs(OsmArgs):
+    limit: int = Field(default=40, gt=0, le=200)
 
 # US Census ACS 5-year variables.
 _ACS_HOUSEHOLDS = "B11001_001E"        # total households
@@ -113,7 +147,8 @@ def _fcc_fips(lat: float, lng: float) -> Optional[dict]:
             "source": "FCC Census Block API"}
 
 
-@tool(category="geo", returns="{lat, lng, state_fips, county_fips, tract}")
+@tool(category="geo", returns="{lat, lng, state_fips, county_fips, tract}",
+      args_model=GeocodeAddressArgs)
 def geocode_address(address: str) -> Evidence:
     """Geocode a US street address to lat/lng + Census geography (free, no key).
 
@@ -164,7 +199,8 @@ def geocode_address(address: str) -> Evidence:
                     payload=payload, cost_meta={"source": "US Census Geocoder"})
 
 
-@tool(category="geo", returns="{households, median_hh_income, population}")
+@tool(category="geo", returns="{households, median_hh_income, population}",
+      args_model=AcsDemographicsArgs)
 def acs_demographics(state_fips: str, county_fips: str,
                      tract: Optional[str] = None, year: int = 2022) -> Evidence:
     """Households, median household income, population for a county or tract.
@@ -244,7 +280,8 @@ def resolve_naics(category: str) -> Optional[str]:
         return None
 
 
-@tool(category="geo", returns="{establishments, naics, year, source}")
+@tool(category="geo", returns="{establishments, naics, year, source}",
+      args_model=CensusBusinessCountsArgs)
 def census_business_counts(naics: Optional[str] = None, category: Optional[str] = None,
                            year: int = 2022) -> Evidence:
     """US establishment count for a NAICS industry — live bottom-up unit count.
@@ -286,7 +323,8 @@ def census_business_counts(naics: Optional[str] = None, category: Optional[str] 
     )
 
 
-@tool(category="geo", returns="list[{name}] — named nearby competitors")
+@tool(category="geo", returns="list[{name}] — named nearby competitors",
+      args_model=OsmNamedArgs)
 def osm_named_competitors(lat: float, lng: float, radius_m: int = 3000,
                           osm_value: str = "restaurant", osm_key: str = "amenity",
                           limit: int = 40) -> Evidence:
@@ -326,7 +364,8 @@ def osm_named_competitors(lat: float, lng: float, radius_m: int = 3000,
     )
 
 
-@tool(category="geo", returns="{count, radius_m, category}")
+@tool(category="geo", returns="{count, radius_m, category}",
+      args_model=OsmArgs)
 def poi_competition(lat: float, lng: float, radius_m: int = 3000,
                     osm_value: str = "restaurant", osm_key: str = "amenity") -> Evidence:
     """Count competing POIs within a radius — competition density for fair-share.

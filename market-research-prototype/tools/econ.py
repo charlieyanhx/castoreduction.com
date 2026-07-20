@@ -17,7 +17,19 @@ import json
 import os
 from typing import Optional
 
+from pydantic import BaseModel, model_validator
 from .registry import tool, Evidence
+
+
+class BlsCexSpendArgs(BaseModel):
+    category: Optional[str] = None
+    series_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def at_least_one(self) -> "BlsCexSpendArgs":
+        if not self.category and not self.series_id:
+            raise ValueError("at least one of 'category' or 'series_id' must be provided")
+        return self
 
 _BLS_API = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
 
@@ -83,7 +95,8 @@ def _resolve_cex_series(category: str) -> Optional[str]:
         return None
 
 
-@tool(category="econ", returns="{annual_usd, series_id, source}")
+@tool(category="econ", returns="{annual_usd, series_id, source}",
+      args_model=BlsCexSpendArgs)
 def bls_cex_spend(category: Optional[str] = None,
                   series_id: Optional[str] = None) -> Evidence:
     """Annual household spend ($/yr) for a category from BLS CEX — a real source.
