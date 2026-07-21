@@ -502,8 +502,13 @@ class TestBusinessModelAware(unittest.TestCase):
 
 
 class TestAtSomScenarioCoherence(unittest.TestCase):
-    """G3/D08: the "profitable at SOM" claim must be computed at the SAME ceiling the
-    scenario table tops out at (aggressive = 60% of SOM), never at 100% capture.
+    """G3/D08: the "profitable at SOM" claim must agree with the scenario table.
+
+    Originally that agreement was struck at the AGGRESSIVE ceiling. The R4 panel
+    showed why that was the wrong side to agree on — see
+    test_at_som_label.py — so plan._enrich_economics_at_som now pins the claim to the
+    BASE row (som.mid). The direct-call cases below still exercise the explicit
+    som_capture_frac API, which is unchanged.
     Baseline contradiction (2/16 reports): profitable_at_som=True while every scenario
     row — including aggressive — lost money (e.g. aggressive Y3 = -$903/mo)."""
 
@@ -557,7 +562,7 @@ class TestAtSomScenarioCoherence(unittest.TestCase):
             self.assertEqual(e["at_som_volume"]["profitable_at_som"],
                              agg["break_even_year"] is not None, case)
 
-    def test_plan_enrich_site_passes_the_ceiling_and_d08_holds(self):
+    def test_plan_enrich_pins_the_claim_to_the_BASE_row_and_d08_holds(self):
         # The actual enrich path plan.py runs after sizing: base economics (no SOM yet)
         # -> enriched at the aggressive ceiling -> D08 gate holds on the combined record.
         from business_model import retail_unit_economics
@@ -566,12 +571,51 @@ class TestAtSomScenarioCoherence(unittest.TestCase):
         from plan import _enrich_economics_at_som
         base = retail_unit_economics(self.PRICE, self.COST, self.FIXED, unit="drink")
         self.assertNotIn("at_som_volume", base)
-        econ = _enrich_economics_at_som(base, self.SOM)
-        self.assertFalse(econ["at_som_volume"]["profitable_at_som"])  # was the contradiction
+        # Pass the whole band, as the pipeline does — _y3_ceilings needs low AND high.
+        lo, hi = self.SOM * 0.6, self.SOM * 1.3
+        econ = _enrich_economics_at_som(base, self.SOM, som_high=hi, som_low=lo)
+        asv = econ["at_som_volume"]
+
+        # UPDATED after the R4 panel. This used to assert profitable_at_som is False,
+        # which encoded the old 60%-of-SOM haircut rather than the invariant. The
+        # invariant is that the at-SOM claim cannot CONTRADICT the scenario table, and
+        # it is now satisfied on the honest side: the claim is computed at som.mid, so
+        # it is bit-identical with the BASE Y3 row instead of the AGGRESSIVE one.
+        #
+        # The old arrangement (claim == aggressive row, labelled "100% of SOM") is the
+        # defect the panel found on 12/16 ventures: Unit Economics read "profitable at
+        # the obtainable SOM volume" off a volume the table called "130% of SOM".
         proj = project_three_year(som_mid=self.SOM, optimal_price=self.PRICE,
-                                  model="transactional", economics=econ)
+                                  model="transactional", economics=econ,
+                                  som_low=lo, som_high=hi)
+        b3 = proj["scenarios"]["base"]["year_3"]
+        self.assertEqual(asv["som_capture_pct"], 100.0)
+        self.assertAlmostEqual(asv["monthly_revenue_usd"] * 12, b3["revenue_usd"], delta=1)
+        self.assertEqual(asv["monthly_operating_profit_usd"],
+                         b3["monthly_operating_profit_usd"])
+        self.assertNotEqual(asv["monthly_operating_profit_usd"],
+                            proj["scenarios"]["aggressive"]["year_3"]["monthly_operating_profit_usd"],
+                            "the claim is pinned to the aggressive row again")
+        # D08 on the SAME band the economics were built from. Rebuilding the
+        # projection without the band mixed two configurations — economics at 100% of
+        # SOM against a ladder table topping out at 60% — and the "contradiction" was
+        # the test's own, not the product's.
         f = d08_profit_coherent({"economics": econ, "financials": proj}, None)
         self.assertIsNot(f.ok, False, f.detail)
+
+    def test_d08_holds_on_the_ladder_path_too(self):
+        """No band: economics and the table must BOTH fall back to the ladder."""
+        from business_model import retail_unit_economics
+        from financials import project_three_year
+        from gates import d08_profit_coherent
+        from plan import _enrich_economics_at_som
+        econ = _enrich_economics_at_som(
+            retail_unit_economics(self.PRICE, self.COST, self.FIXED, unit="drink"),
+            self.SOM)
+        proj = project_three_year(som_mid=self.SOM, optimal_price=self.PRICE,
+                                  model="transactional", economics=econ)
+        self.assertIsNot(d08_profit_coherent(
+            {"economics": econ, "financials": proj}, None).ok, False)
 
     def test_enrich_noop_when_not_applicable(self):
         from plan import _enrich_economics_at_som

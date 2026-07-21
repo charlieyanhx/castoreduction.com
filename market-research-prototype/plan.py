@@ -513,7 +513,8 @@ def wtp_unit_for(description: str, profile: dict | None = None,
 
 
 def _enrich_economics_at_som(econ: dict, som_mid, som_high=None, category: str = "",
-                             business_model: str = "", market_scale: str = "") -> dict:
+                             business_model: str = "", market_scale: str = "",
+                             som_low=None) -> dict:
     """cycle37 + G3 (D08): once SOM is known, recompute transactional unit economics with
     the at-SOM-volume profitability — sizing runs after economics, so this can't happen at
     economics time. Pure recompute, no LLM.
@@ -526,17 +527,33 @@ def _enrich_economics_at_som(econ: dict, som_mid, som_high=None, category: str =
     if not _ipu(econ.get("model")) or not som_mid or econ.get("at_som_volume"):
         return econ
     from business_model import retail_unit_economics
+    from financials import _y3_ceilings
+    _base_ceiling = _y3_ceilings(float(som_mid), som_low, som_high)[0]["base"][0]
     try:
         return retail_unit_economics(
             price_per_unit=econ["price_per_unit"],
             variable_cost_per_unit=econ["variable_cost_per_unit"],
             monthly_fixed_cost=econ["monthly_fixed_cost"],
             unit=econ.get("unit", "unit"),
-            # W4-1: the aggressive scenario ceiling IS som.high now (band-driven),
-            # so the claim is computed there — bit-identical with the aggressive Y3
-            # row. Fallback keeps the legacy ladder ceiling when no band exists.
-            annual_revenue_usd=float(som_high) if som_high else float(som_mid),
-            som_capture_frac=1.0 if som_high else Y3_CAPTURE["aggressive"],
+            # The claim is pinned to the BASE scenario row, read from the SAME
+            # function financials uses to build that row (_y3_ceilings) rather than
+            # re-derived here. Two Python paths computing one quantity is how they
+            # drift, and they did: W4-1 computed this at som.high to be bit-identical
+            # with the AGGRESSIVE row. Agreeing was right; agreeing on the OPTIMISTIC
+            # row was not. The R4 panel found it on 12/16 ventures — Unit Economics
+            # read "profitable at the obtainable SOM volume" off a volume the table
+            # called "130% of SOM, aggressive", overstating profit 44%-2.2x, and two
+            # ventures claimed profitable when the base case loses money.
+            #
+            # Reading the shared ceiling also keeps the no-band case coherent: without
+            # a usable SOM band financials falls back to the 20% ladder, and a flat
+            # som.mid here would contradict it by 5x.
+            # Decomposed, not multiplied twice: retail_unit_economics computes
+            # obtainable = annual_revenue_usd x som_capture_frac, so the BASE ceiling
+            # is expressed as the FRACTION of som.mid, and som_capture_pct then
+            # reports the true share of SOM (100% with a band, 20% on the ladder).
+            annual_revenue_usd=float(som_mid),
+            som_capture_frac=_base_ceiling / float(som_mid),
             cost_source=econ.get("cost_source", ""),
             category=category,
             business_model=business_model,
@@ -2108,12 +2125,12 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     be_customers = be.get("break_even_customers")
 
     # cycle37 + G3: now that SOM is known, enrich transactional unit economics with the
-    # at-SOM-volume profitability, computed at the aggressive scenario ceiling so the claim
-    # can never contradict the scenario table (D08). See _enrich_economics_at_som.
+    # at-SOM-volume profitability, pinned to the BASE scenario row so the claim can never
+    # contradict the scenario table (D08/D23). See _enrich_economics_at_som.
     _econ = result.get("economics") or {}
     if _econ:
         result["economics"] = _enrich_economics_at_som(
-            _econ, som_mid, som_high=som_high,
+            _econ, som_mid, som_high=som_high, som_low=som_low,
             category=profile.get("category", ""),
             business_model=profile.get("business_model", ""),
             market_scale=_mkt_scale)

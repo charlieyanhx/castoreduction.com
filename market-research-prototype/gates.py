@@ -187,6 +187,28 @@ def _withheld_figures_asserted_in_prose(r: dict) -> list[str]:
     return hits
 
 
+def d23_at_som_matches_its_label(r: dict, html: Optional[str]) -> Finding:
+    """`at_som_volume` must be the volume its own label claims.
+
+    The dominant R12 integrity defect: Unit Economics computed profitability at
+    som.HIGH while labelling it `som_capture_pct: 100.0` and titling the box "at the
+    obtainable SOM volume" — the same volume the scenario table on the facing page
+    calls "130% of SOM (aggressive)". A buyer read it as "profitable at our obtainable
+    market". 12/16 corpus ventures. FAILS when the implied capture disagrees with the
+    stated one; N/A when there is no at-SOM claim or no SOM to check against."""
+    asv = ((r.get("economics") or {}).get("at_som_volume") or {})
+    monthly = _num(asv.get("monthly_revenue_usd"))
+    stated = _num(asv.get("som_capture_pct"))
+    som_mid = _num(((r.get("market_sizing") or {}).get("som") or {}).get("mid"))
+    if monthly is None or stated is None or not som_mid:
+        return Finding(None, "no at-SOM claim or no SOM to check against")
+    implied = (monthly * 12) / som_mid * 100
+    ok = abs(implied - stated) <= max(2.0, stated * 0.02)
+    return Finding(ok, f"at-SOM revenue implies {implied:.0f}% of SOM but is labelled "
+                       f"{stated:.0f}%" if not ok else
+                       f"at-SOM volume matches its {stated:.0f}% label")
+
+
 def d09_publishable_gated(r: dict, html: Optional[str]) -> Finding:
     """Failed validation must WITHHELD the numbers — not merely disclaim them.
 
@@ -592,6 +614,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D20", "SAM narrative coherent with headline", "same SAM, two values", "fail", d20_sam_self_consistent),
     Invariant("D21", "ARPU coherent across 4Ps sections", "invented order/job/booking value", "fail", d21_arpu_coherent_across_sections),
     Invariant("D22", "viability reasoning coherent with real competitor density", "invented competitor-count claim (audit item 3)", "fail", d22_viability_reasoning_density_coherent),
+    Invariant("D23", "at-SOM claim matches its own label", "R12: aggressive ceiling sold as the obtainable volume", "fail", d23_at_som_matches_its_label),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
