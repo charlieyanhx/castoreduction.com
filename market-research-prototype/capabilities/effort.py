@@ -31,12 +31,14 @@ _CONFIG: dict[str, dict] = {
         "agent_max_steps": 4,
         "competitor_enrich_limit": 5,
         "verify_with_llm": False,
+        "research_crew": False,
     },
     STANDARD: {
         "max_candidates": 20,
         "agent_max_steps": 6,
         "competitor_enrich_limit": 10,
         "verify_with_llm": False,
+        "research_crew": False,
     },
     DEEP: {
         "max_candidates": 35,
@@ -45,6 +47,8 @@ _CONFIG: dict[str, dict] = {
         # The verification loop the buyer asked for: worth the tokens only when the
         # report is going somewhere that justifies them.
         "verify_with_llm": True,
+        # Four specialist agents, each with its own harness loop. Same reasoning.
+        "research_crew": True,
     },
 }
 

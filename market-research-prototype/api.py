@@ -741,6 +741,8 @@ def get_job_report_html(job_id: str):
         validation=validation,
         # W6-1: what the pre-publication verifier found on THIS report.
         verification=r.get("verification"),
+        # W6: the research crew's integrated brief (deep effort only).
+        research_brief=r.get("research_brief"),
         psm=psm,
         competitors=competitors,
         competitor_chart=competitor_chart,

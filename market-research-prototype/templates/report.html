@@ -1655,6 +1655,24 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 
   <p><strong>Honest limitations.</strong> All "simulated" metrics (Max-Diff, PSM, segment scoring) are LLM estimates, not real surveys. Data age varies by source (Trustpilot live, Wayback up to weeks stale, Wikidata irregular). Use as directional signal, not ground truth.</p>
 
+  <!-- RESEARCH CREW BRIEF -->
+  {% if research_brief %}
+  {% if research_brief.error and not research_brief.brief %}
+  <p><strong>Research crew.</strong> Dispatched, but did not return a usable brief —
+  {{ research_brief.error }}. The rest of this report is unaffected; the crew is
+  additional evidence, not a dependency.</p>
+  {% elif research_brief.brief %}
+  <p><strong>Research crew brief.</strong> This run was set to deep effort, so four
+  specialist agents researched independently and a lead synthesised their findings.
+  Contributing:
+  {{ research_brief.contributing_agents | join(', ') if research_brief.contributing_agents else 'none' }}.</p>
+  <blockquote style="border-left:3px solid #d1d5db;margin:8px 0 0;padding:0 0 0 14px;color:#374151">
+    {{ research_brief.brief }}
+  </blockquote>
+  {% endif %}
+  {% endif %}
+  <!-- END RESEARCH CREW BRIEF -->
+
   {% if verification and verification.summary %}
   <p><strong>Pre-publication verification.</strong> This report was checked against
   {{ verification.summary.block + verification.summary.advisory + verification.summary.info }}
