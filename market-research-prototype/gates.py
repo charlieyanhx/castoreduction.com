@@ -145,15 +145,75 @@ def d08_profit_coherent(r: dict, html: Optional[str]) -> Finding:
     return Finding(ok, f"profitable_at_som=True but aggressive Y3 profit={y3} break_even={be}")
 
 
+def _fig_patterns(value: float) -> list[str]:
+    """Regexes matching how a dollar magnitude is RENDERED in prose ($1.22B, $180M)."""
+    pats = []
+    for unit, div in (("T", 1e12), ("B", 1e9), ("M", 1e6), ("K", 1e3)):
+        v = value / div
+        if not (0.1 <= v < 1000):
+            continue
+        for s in (f"{v:.2f}", f"{v:.1f}", f"{v:.0f}"):
+            pats.append(rf"\${re.escape(s)}\s*{unit}\b")
+    return pats
+
+
+def _withheld_figures_asserted_in_prose(r: dict) -> list[str]:
+    """Withheld headline figures that a NARRATIVE field restates as fact.
+
+    Narrative only — viability reasoning, the 4Ps sections, the executive summary.
+    The sizing table may still SHOW the figure beside its warning; that is the
+    disclosure. What is illegal is asserting it somewhere the reader takes as a
+    finding, which is what drove a 65/100 market-opportunity score off a number the
+    same report said not to rely on.
+    """
+    ms = r.get("market_sizing") or {}
+    fp = r.get("four_ps") or {}
+    prose_parts = [json.dumps(r.get("viability") or {}),
+                   str(fp.get("executive_summary") or "")]
+    for sect in ("product", "price", "place", "promotion"):
+        prose_parts.append(str((fp.get(sect) or {}).get("narrative") or ""))
+    prose = " ".join(prose_parts)
+
+    hits = []
+    for key in ("tam", "sam", "som"):
+        mid = _num((ms.get(key) or {}).get("mid"))
+        if not mid:
+            continue
+        for pat in _fig_patterns(mid):
+            m = re.search(pat, prose)
+            if m:
+                hits.append(f"{key.upper()} {m.group()}")
+                break
+    return hits
+
+
 def d09_publishable_gated(r: dict, html: Optional[str]) -> Finding:
+    """Failed validation must WITHHELD the numbers — not merely disclaim them.
+
+    The original check verified two things: publishable is False, and a withhold
+    banner exists in the html. Both can be true while the report restates the
+    withheld figure as a finding elsewhere — which is exactly what the R4 panel
+    caught on 174ae091 ("Failed validation - figures withheld" and "a massive $1.22B
+    TAM" in one document, with the score built on it), and what this gate returned
+    "gated correctly" for. The gate verified that a disclaimer was printed, not that
+    the report honoured it. All 4 corpus ventures that fail validation did this.
+    """
     ms = r.get("market_sizing") or {}
     val = ms.get("validation") or {}
     if val.get("passed") is not False:
         return Finding(None, "validation passed or absent")
     if ms.get("publishable") is not False:
         return Finding(False, "validation failed but publishable flag not False")
-    if html is not None and "failed validation" not in html and "do not rely" not in html.lower():
-        return Finding(False, "validation failed but no withhold banner rendered")
+    # Case-insensitive on BOTH clauses: the first was case-sensitive while the second
+    # lowercased, so a banner reading "Failed validation" satisfied only one of them.
+    if html is not None:
+        low = html.lower()
+        if "failed validation" not in low and "do not rely" not in low:
+            return Finding(False, "validation failed but no withhold banner rendered")
+    asserted = _withheld_figures_asserted_in_prose(r)
+    if asserted:
+        return Finding(False, "withheld figures restated as fact in narrative prose: "
+                              + ", ".join(asserted))
     return Finding(True, "gated correctly")
 
 
