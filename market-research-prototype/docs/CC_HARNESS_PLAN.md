@@ -877,3 +877,46 @@ audit trail IS the project log — no separate status reports.
   the R4 panel reads judgement, and it has repeatedly found defects the gates
   structurally cannot see. 219/219 means the report is internally coherent, not that
   it is good.
+
+### Waves 5–6 close-out
+
+All Wave 5 (D16–22) and Wave 6 (D23–27) items are landed. Deviations and findings:
+
+- **W5-1c was built TWICE, in parallel.** Another session pushed `3b96a1f` —
+  its own `capabilities/scheduler.py` + `gateway.py` plus pydantic arg models on
+  geo/econ/scrape — while this session built the same two modules. Reconciled by
+  MERGING rather than picking a side (commit `4c4a3c9`): theirs is the base (it
+  matches the plan row: `@tool` integration, arg models, dollar budget from config),
+  with three things grafted from this side —
+  signature-based validation covering all 36 registered tools rather than the 3 with
+  arg models; validation running BEFORE the budget deduction so a refused call is
+  never charged; and `call_named()`. Also fixed a latent bug in their failure guard,
+  which indexed `parallel_jobs` by an index into `tools` (wrong tool named, IndexError
+  once any job was mutating).
+
+- **plan.py's step timeouts were COSMETIC — a real production bug.** Two joins wrapped
+  `future.result(timeout=N)` inside `with ThreadPoolExecutor(...)`. The timeout fired
+  and the degraded value was set, but exiting the `with` calls `shutdown(wait=True)`,
+  so the block waited out the hung task anyway. Demonstrated: a 0.2s timeout on a 3s
+  task exited after 3.01s. These were the run's two most expensive pairs (PSM+place at
+  90s each, sizing+4Ps at 90s/120s) — one hung provider call was the difference between
+  a report in minutes and one in tens of them. Migrated to
+  `scheduler.run_labeled()`, whose timeout genuinely releases the batch. The degraded
+  shape (`{"error": ...}`, `None -> {}`) is preserved so no call site changed.
+
+- **THE CREW AND THE PLAN ARTIFACT WERE DEAD CODE.** `agents/crew.py` had existed since
+  cycle33 and was reachable only at `POST /research/crew`; the pipeline that produces
+  the deliverable never called it. `orchestrator/plan_artifact.py` was built and tested
+  in Wave 5 and imported by nothing. Both are the same failure: a green suite
+  certifying a module in isolation while the product never reaches it. Both now wired —
+  the crew as a DEEP-effort evidence stage, the artifact as `result["_plan"]`.
+
+- **The effort knob stopped short of intake.** The plan said intake→api→plan; only
+  api→plan was built, so the one place an operator describes what a report is FOR
+  could not set its depth. Closed with `POST /intake/{id}/effort`.
+
+- **Deferred, with a reason.** `D28–30 / M8 parity` (one deep-mode venture judged blind
+  against a BCC chapter) is NOT done: it needs a BCC chapter as the comparison artifact,
+  which is not in the repo. Everything else in §5b through Wave 6 is landed.
+
+  Suite at close: **1296 passed, 5 skipped.**
