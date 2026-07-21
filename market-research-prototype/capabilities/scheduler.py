@@ -178,3 +178,38 @@ class Scheduler:
             results[i] = _call_with_timeout(fn, kwargs, timeout)
 
         return results  # type: ignore[return-value]
+
+
+def run_labeled(tasks: dict) -> dict:
+    """Run labelled zero-arg callables concurrently; return {label: value}.
+
+    `tasks` maps a label to `(callable, timeout_seconds_or_None)`.
+
+    This exists to replace plan.py's hand-rolled joins, which shared a bug worth
+    naming: they wrapped `future.result(timeout=N)` in a `with ThreadPoolExecutor(...)`
+    block. The timeout DID fire and the degraded value WAS set — but exiting the
+    `with` calls shutdown(wait=True), so the block still waited out the hung task.
+    The timeout bought nothing except a log line claiming the pipeline had moved on.
+    Here the timeout genuinely releases the batch (see _call_with_timeout).
+
+    The return shape mirrors what those call sites already expect, so none of their
+    error handling changes:
+      * a task that returns a dict/list/scalar     -> that value
+      * a task that returns None                   -> {}   (call sites do `... or {}`)
+      * a task that times out or raises            -> {"error": "..."}
+    """
+    tasks = dict(tasks or {})
+    if not tasks:
+        return {}
+    labels = list(tasks)
+    specs = [{"fn": tasks[k][0], "concurrency": "parallel_safe",
+              "kwargs": {}, "timeout": tasks[k][1]} for k in labels]
+    out = {}
+    for label, ev in zip(labels, Scheduler().run(specs)):
+        if ev.error:
+            out[label] = {"error": ev.error}
+        elif isinstance(ev.payload, Evidence):     # a task that returned Evidence
+            out[label] = ev.payload
+        else:
+            out[label] = ev.payload if ev.payload is not None else {}
+    return out

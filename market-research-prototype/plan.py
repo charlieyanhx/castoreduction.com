@@ -26,6 +26,8 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
+from capabilities.scheduler import run_labeled
+
 from taste import decode_taste
 from pricing import simulate_max_diff, simulate_van_westendorp, compute_break_even
 from place import analyze_competitor_channels, recommend_place
@@ -1776,21 +1778,17 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             competitor_analysis=channel_data,
         )
 
-    psm_result = {}
-    place_result = {}
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        psm_fut = pool.submit(_psm_task)
-        place_fut = pool.submit(_place_llm_task)
-        try:
-            psm_result = psm_fut.result(timeout=90) or {}
-        except FutureTimeoutError:
-            log.warning("[plan] PSM timed out")
-            psm_result = {"error": "timed out"}
-        try:
-            place_result = place_fut.result(timeout=90) or {}
-        except FutureTimeoutError:
-            log.warning("[plan] place recommendation timed out")
-            place_result = {"error": "timed out"}
+    # W5 close-out: was a hand-rolled join whose timeout was COSMETIC. The
+    # `future.result(timeout=90)` fired and set the degraded value, but exiting the
+    # `with ThreadPoolExecutor(...)` calls shutdown(wait=True) — so the block waited
+    # out the hung task anyway. A stalled provider call cost its full wall clock and
+    # the log line claimed the pipeline had moved on. run_labeled releases the batch.
+    _joined = run_labeled({"psm": (_psm_task, 90), "place": (_place_llm_task, 90)})
+    psm_result = _joined["psm"]
+    place_result = _joined["place"]
+    for _k, _label in (("psm", "PSM"), ("place", "place recommendation")):
+        if isinstance(_joined[_k], dict) and _joined[_k].get("error"):
+            log.warning("[plan] %s failed: %s", _label, _joined[_k]["error"][:160])
 
     result["pricing"] = {"psm": psm_result}
     if not psm_result.get("error"):
@@ -2016,21 +2014,16 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         except Exception as e:
             log.warning("[plan] scale classification failed (non-fatal): %s", e)
 
-    sizing = {}
-    four_ps = {}
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        sizing_fut = pool.submit(_sizing_task)
-        fourps_fut = pool.submit(_four_ps_task)
-        try:
-            sizing = sizing_fut.result(timeout=90) or {}
-        except FutureTimeoutError:
-            log.warning("[plan] market sizing timed out")
-            sizing = {"error": "timed out"}
-        try:
-            four_ps = fourps_fut.result(timeout=120) or {}
-        except FutureTimeoutError:
-            log.warning("[plan] 4Ps synthesis timed out")
-            four_ps = {"error": "timed out"}
+    # W5 close-out: same cosmetic-timeout fix as the PSM/place join above. This is
+    # the pipeline's most expensive pair (sizing 90s, 4Ps synthesis 120s), so a hung
+    # call here was the difference between a report in minutes and one in tens of them.
+    _joined2 = run_labeled({"sizing": (_sizing_task, 90),
+                            "four_ps": (_four_ps_task, 120)})
+    sizing = _joined2["sizing"]
+    four_ps = _joined2["four_ps"]
+    for _k, _label in (("sizing", "market sizing"), ("four_ps", "4Ps synthesis")):
+        if isinstance(_joined2[_k], dict) and _joined2[_k].get("error"):
+            log.warning("[plan] %s failed: %s", _label, _joined2[_k]["error"][:160])
 
     if sizing and not sizing.get("error"):
         # C2: ground the bottom-up TAM in a live Census count BEFORE the gate, so
