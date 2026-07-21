@@ -30,6 +30,7 @@ import uuid
 from threading import Lock
 from typing import Any
 
+from capabilities.effort import STANDARD, resolve_effort
 from llm import call_json
 from logger import get
 
@@ -120,6 +121,10 @@ def start_session(initial_message: str | None = None) -> dict:
         "extracted": {f: None for f in ALL_FIELDS},
         "ready": False,
         "final_description": None,
+        # W6-3: how much depth this report deserves. Set at intake because that is
+        # where the operator describes what the report is FOR — before this, the only
+        # way to ask for a deep run was to know to pass `effort` to POST /plan by hand.
+        "effort": STANDARD,
     }
     with _lock:
         _sessions[sid] = session
@@ -139,7 +144,23 @@ def start_session(initial_message: str | None = None) -> dict:
         "extracted": session["extracted"],
         "ready": False,
         "user_msg_count": 0,
+        "effort": session["effort"],
     }
+
+
+def set_effort(session_id: str, effort: str) -> dict:
+    """Set how much depth this report deserves: quick | standard | deep.
+
+    Resolution goes through capabilities.effort, so an unrecognised value lands on
+    STANDARD and never on QUICK — the same rule the rest of the pipeline holds. A
+    typo must not quietly thin a report the operator meant to pay more for.
+    """
+    with _lock:
+        session = _sessions.get(session_id)
+    if not session:
+        return {"error": "session not found"}
+    session["effort"] = resolve_effort(effort)
+    return {"session_id": session_id, "effort": session["effort"]}
 
 
 def process_message(session_id: str, user_message: str) -> dict:

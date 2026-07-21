@@ -196,6 +196,26 @@ def post_intake_message(req: IntakeMessageRequest):
     return out
 
 
+class IntakeEffortRequest(BaseModel):
+    """W6-3: how much depth this report deserves — quick | standard | deep."""
+    effort: str = "standard"
+
+
+@app.post("/intake/{session_id}/effort")
+def post_intake_effort(session_id: str, req: IntakeEffortRequest):
+    """Set the effort level for this intake session.
+
+    Deliberately NOT validated by pydantic against an enum: an unrecognised value
+    resolves to standard inside capabilities.effort rather than 422-ing a brief the
+    operator already typed. It can never resolve DOWN to quick.
+    """
+    from intake import set_effort
+    out = set_effort(session_id, req.effort)
+    if out.get("error"):
+        raise HTTPException(status_code=404, detail=out["error"])
+    return out
+
+
 @app.get("/intake/{session_id}")
 def get_intake(session_id: str):
     """Read intake session state (transcript + extracted fields)."""

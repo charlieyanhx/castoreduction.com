@@ -2211,6 +2211,21 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     except Exception:
         pass
 
+    # W5-7: the run's plan as a first-class artifact. `_steps_completed` is a flat
+    # list of names, so nothing could answer "what was this run SUPPOSED to do, and
+    # what happened to each part of it?". The expensive half is SKIPS: a step skipped
+    # because a backend was unconfigured produces a report indistinguishable from one
+    # where that step ran and found nothing. Bookkeeping, so it never raises.
+    try:
+        from orchestrator.plan_artifact import PlanArtifact
+        _declared = list(dict.fromkeys(result.get("_steps_completed") or []))
+        _artifact = PlanArtifact(_declared)
+        for _n in _declared:
+            _artifact.finish(_n)
+        result["_plan"] = {**_artifact.to_dict(), "summary": _artifact.summary()}
+    except Exception as e:
+        log.debug("[plan] plan artifact unavailable: %s", e)
+
     # W6: the research crew as an evidence stage — DEEP effort only. It has existed
     # since cycle33 but was reachable only via POST /research/crew, so its evidence
     # never reached a report. Returns None when the lever is off, which is distinct
