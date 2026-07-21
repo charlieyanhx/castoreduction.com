@@ -113,10 +113,16 @@ _DEFAULT_STRATEGIES = [
 
 def _plan_queries(description: str, geo: str, max_strategies: int) -> list[dict]:
     """LLM planner → diverse search strategies, with a deterministic fallback."""
+    # W5-3: UTILITY tier. Query planning is the one genuinely throwaway LLM call in
+    # discovery — a weaker query just returns worse hits, and the fan-out unions many
+    # strategies so no single one is load-bearing. Extraction and classification below
+    # stay on the default model on purpose: they decide WHO counts as a competitor,
+    # and that lands in the report.
     raw = call_json(
         system=_PLAN_SYSTEM,
         user=f"Geography: {geo}\n\nVENTURE:\n{description}",
         max_tokens=400,
+        tier="utility",
     ) or {}
     strategies = [s for s in (raw.get("strategies") or [])
                   if isinstance(s, dict) and s.get("query")]

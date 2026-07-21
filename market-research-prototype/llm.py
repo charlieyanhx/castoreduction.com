@@ -255,7 +255,8 @@ def _strip_fences(text: str) -> str:
     return text
 
 
-def _try_one_backend(backend: str, system: str, user: str, max_tokens: int) -> tuple[str, int, int, str] | None:
+def _try_one_backend(backend: str, system: str, user: str, max_tokens: int,
+                     tier: Optional[str] = None) -> tuple[str, int, int, str] | None:
     """Try a single backend. Return (text, in_tok, out_tok, model) on success, None on transient failure."""
     cfg = BACKEND_DEFAULTS.get(backend) or {}
     key = os.environ.get(cfg.get("key_env", ""), "").strip()
@@ -264,8 +265,10 @@ def _try_one_backend(backend: str, system: str, user: str, max_tokens: int) -> t
     fn = _BACKENDS.get(backend)
     if not fn:
         return None
-    model_override = os.environ.get("CLAUDE_MODEL") or os.environ.get("LLM_MODEL")
-    model = model_override or cfg.get("model", "")
+    # W5-3: tier routing. model_for() honours CLAUDE_MODEL/LLM_MODEL itself, and
+    # resolves anything it doesn't recognise to the default — never downward.
+    from model.tiering import model_for
+    model = model_for(tier, backend, cfg.get("model", ""))
     try:
         text, in_tok, out_tok = fn(
             system + "\n\nCRITICAL: Return valid JSON only. No markdown fences, no commentary.",
@@ -293,7 +296,8 @@ def _try_one_backend(backend: str, system: str, user: str, max_tokens: int) -> t
         return None
 
 
-def _chain_text(system: str, user: str, max_tokens: int) -> Optional[str]:
+def _chain_text(system: str, user: str, max_tokens: int,
+                tier: Optional[str] = None) -> Optional[str]:
     """Run the cross-provider chain (primary → others) with whole-chain backoff.
     Returns raw text, or None when every backend is exhausted.
 
@@ -314,7 +318,7 @@ def _chain_text(system: str, user: str, max_tokens: int) -> Optional[str]:
             time.sleep(delay)
         for backend in chain:
             t0 = time.time()
-            out = _try_one_backend(backend, system, user, max_tokens)
+            out = _try_one_backend(backend, system, user, max_tokens, tier)
             if out is None:
                 continue
             text, in_tok, out_tok, model_used = out
@@ -337,15 +341,23 @@ def _chain_text(system: str, user: str, max_tokens: int) -> Optional[str]:
     return None
 
 
-def _cache_key(system: str, user: str, response_model: Optional[type] = None) -> str:
+def _cache_key(system: str, user: str, response_model: Optional[type] = None,
+               tier: Optional[str] = None) -> str:
     """Cache key over the full prompt — and the schema fingerprint when validating,
-    so a schema change never serves a stale shape from cache."""
+    so a schema change never serves a stale shape from cache.
+
+    W5-3: the tier is part of the key. The same prompt at two tiers is answered by two
+    different models, so a shared slot would let a UTILITY-model answer be served as a
+    REASONING one (or vice versa) depending only on which ran first.
+    """
     import hashlib
     schema_part = ""
     if response_model is not None:
         schema_part = response_model.__name__ + json.dumps(
             response_model.model_json_schema(), sort_keys=True)
-    digest = hashlib.sha256((system + "|||" + user + "|||" + schema_part).encode()).hexdigest()[:16]
+    from model.tiering import resolve_tier
+    parts = (system, user, schema_part, resolve_tier(tier))
+    digest = hashlib.sha256("|||".join(parts).encode()).hexdigest()[:16]
     return f"llm_json:{digest}"
 
 
@@ -369,7 +381,8 @@ def _parse_payload(text: str) -> tuple[Optional[object], Optional[str]]:
 
 
 def call_json(system: str, user: str, max_tokens: int = 2000,
-              response_model: Optional[type] = None, max_retries: int = 2) -> dict:
+              response_model: Optional[type] = None, max_retries: int = 2,
+              tier: Optional[str] = None) -> dict:
     """
     Call the configured LLM backend with JSON mode, through the cross-provider chain.
 
@@ -388,7 +401,7 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
     # statistical sampling so each --samples N run gets fresh LLM responses
     # and we measure real variance instead of cache hits.
     bypass = os.environ.get("LLM_CACHE_BYPASS", "").strip() in ("1", "true", "yes")
-    cache_key = _cache_key(system, user, response_model)
+    cache_key = _cache_key(system, user, response_model, tier)
     if not bypass:
         cached = cache_get(cache_key)
         if cached is not None:
@@ -421,7 +434,7 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
                 f"Previous response:\n{text[:1500]}\n\n"
                 "Return ONLY the corrected JSON. No prose, no fences."
             )
-        raw = _chain_text(system_full, user_msg, max_tokens)
+        raw = _chain_text(system_full, user_msg, max_tokens, tier)
         if raw is None:
             return {"_parse_error": "all backends exhausted (rate-limited or unavailable)",
                     "_raw": "", "_chain_tried": list(BACKEND_DEFAULTS)}
@@ -447,8 +460,11 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
             "_raw": _strip_fences(text)[:2000]}
 
 
-def call_text(system: str, user: str, max_tokens: int = 2000) -> str:
+def call_text(system: str, user: str, max_tokens: int = 2000,
+              tier: Optional[str] = None) -> str:
     backend, model = _backend_and_model()
+    from model.tiering import model_for
+    model = model_for(tier, backend, model)
     fn = _BACKENDS[backend]
     text, in_tok, out_tok = fn(system, user, max_tokens, model)
     usage.add(model, in_tok, out_tok)
