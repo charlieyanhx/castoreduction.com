@@ -79,6 +79,10 @@ class AgentResult:
     completed: bool = False
     stop_reason: str = ""
     compactions: int = 0
+    # W5-6: full text of every observation folded out of the prompt, by ref. The
+    # fold used to be terminal — this is what makes "what did step 3 return?"
+    # answerable after the loop has moved on.
+    compacted: dict = field(default_factory=dict)
 
     def to_evidence(self) -> Evidence:
         """Consolidate the run into a single Evidence envelope.
@@ -165,29 +169,18 @@ Rules:
 """
 
 
-def _obs_headline(obs: str, limit: int = 70) -> str:
-    """The action part of an observation line ('step 3: geo_competitors(...)'),
-    without the payload — enough for the model to recall WHAT happened."""
-    head = obs.split(" → ", 1)[0]
-    return head if len(head) <= limit else head[:limit] + "…"
-
-
 def _compact_observations(observations: list[str],
-                          keep_recent: int = OBS_KEEP_RECENT) -> list[str]:
-    """Fold all but the newest `keep_recent` observations into ONE summary line.
+                          keep_recent: int = OBS_KEEP_RECENT,
+                          store=None) -> list[str]:
+    """Fold all but the newest `keep_recent` observations into ONE pointer line.
 
-    Deterministic (no LLM): each folded entry is reduced to its action headline.
-    Returns a NEW list; the newest entries are kept verbatim so the planner keeps
-    full detail where it matters most.
+    W5-6: delegates to context.compaction. The fold is no longer terminal — pass a
+    CompactionStore and every folded observation stays retrievable by ref, so the
+    prompt shrinks without the evidence disappearing. Already-folded pointer lines
+    pass through instead of being re-summarised.
     """
-    if len(observations) <= keep_recent:
-        return observations
-    old, recent = observations[:-keep_recent], observations[-keep_recent:]
-    summary = "; ".join(_obs_headline(o) for o in old)
-    line = f"[compacted {len(old)} earlier observations] {summary}"
-    if len(line) > 1500:
-        line = line[:1500] + "…"
-    return [line, *recent]
+    from context.compaction import compact
+    return compact(observations, keep_recent=keep_recent, store=store)
 
 
 def _summarize_evidence(e: Evidence, limit: int = 240) -> str:
@@ -238,6 +231,8 @@ def run_agent(
     observations: list[str] = []
     if context:
         observations.append(f"CONTEXT: {context}")
+    from context.compaction import CompactionStore
+    obs_store = CompactionStore()
 
     for i in range(budget):
         # H13: compact the observation log when it outgrows the prompt budget.
@@ -246,8 +241,9 @@ def run_agent(
         if (sum(len(o) for o in observations) > OBS_LOG_BUDGET_CHARS
                 and result.compactions < MAX_COMPACTIONS
                 and len(observations) > OBS_KEEP_RECENT):
-            observations = _compact_observations(observations)
+            observations = _compact_observations(observations, store=obs_store)
             result.compactions += 1
+            result.compacted = obs_store.to_dict()
             log.info("[agent] observation log compacted (%d/%d)",
                      result.compactions, MAX_COMPACTIONS)
 
