@@ -2211,6 +2211,19 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     except Exception:
         pass
 
+    # W6: the research crew as an evidence stage — DEEP effort only. It has existed
+    # since cycle33 but was reachable only via POST /research/crew, so its evidence
+    # never reached a report. Returns None when the lever is off, which is distinct
+    # from an error: a reader must be able to tell "not bought" from "bought and failed".
+    try:
+        from orchestrator.steps.crew import run_crew_step
+        _brief = run_crew_step(result, description, geo, effort_levers=_levers)
+        if _brief is not None:
+            result["research_brief"] = _brief
+            _step_done(result, "research_crew")
+    except Exception as e:
+        log.warning("[plan] research crew stage failed: %s", e)
+
     # W6-1: run the 22 invariants on THIS report before it ships. gates.py has only
     # ever swept a corpus after the fact — a developer's view. This is the buyer's:
     # what would have gone out wrong. Advisory by default (it annotates the report);
