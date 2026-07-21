@@ -5,10 +5,32 @@ These wrap the low-level utilities in scrape/{search,structured,wayback,crawl}.p
 with the @tool decorator so they auto-register and return Evidence envelopes.
 """
 from __future__ import annotations
+from typing import Optional
+from pydantic import BaseModel, Field
 from .registry import tool, Evidence
 
 
-@tool(category="scrape", returns="list[{url, title, snippet, source}]")
+# ---------------------------------------------------------------------------
+# Arg models
+# ---------------------------------------------------------------------------
+
+class WebSearchArgs(BaseModel):
+    query: str = Field(min_length=1, description="Search query — must not be empty")
+    max_results: int = Field(default=10, gt=0, le=50)
+
+
+class FetchUrlArgs(BaseModel):
+    url: str = Field(min_length=1, description="URL to fetch — must not be empty")
+    timeout: float = Field(default=8.0, gt=0)
+
+
+class FetchPageArgs(BaseModel):
+    url: str = Field(min_length=1, description="URL to fetch — must not be empty")
+    max_chars: int = Field(default=200_000, gt=0)
+
+
+@tool(category="scrape", returns="list[{url, title, snippet, source}]",
+      tier="metered", cost_usd=0.01, args_model=WebSearchArgs)
 def web_search(query: str, max_results: int = 10) -> Evidence:
     """Multi-provider search cascade: Brave → SearXNG → DDG.
     Returns Evidence with normalized hit list.
@@ -71,7 +93,7 @@ def extract_prices(html: str) -> Evidence:
     )
 
 
-@tool(category="scrape", returns="str URL or None")
+@tool(category="scrape", returns="str URL or None", args_model=FetchUrlArgs)
 def wayback_snapshot_url(url: str, timeout: float = 8.0) -> Evidence:
     """Return the URL of the most recent Wayback Machine snapshot of a page
     (CDX lookup only — no page body is fetched); payload is None if never archived.
@@ -88,7 +110,7 @@ def wayback_snapshot_url(url: str, timeout: float = 8.0) -> Evidence:
     )
 
 
-@tool(category="scrape", returns="str HTML or None")
+@tool(category="scrape", returns="str HTML or None", args_model=FetchUrlArgs)
 def fetch_via_wayback(url: str, timeout: float = 10.0) -> Evidence:
     """Fetch a page through the Wayback Machine (live-blocked fallback).
 
@@ -106,7 +128,7 @@ def fetch_via_wayback(url: str, timeout: float = 10.0) -> Evidence:
     )
 
 
-@tool(category="scrape", returns="str HTML or None")
+@tool(category="scrape", returns="str HTML or None", args_model=FetchPageArgs)
 def fetch_page(url: str, max_chars: int = 200_000) -> Evidence:
     """Fetch and lightly clean a single page via the cached/throttled HTTP client.
 
