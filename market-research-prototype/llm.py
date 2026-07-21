@@ -382,7 +382,7 @@ def _parse_payload(text: str) -> tuple[Optional[object], Optional[str]]:
 
 def call_json(system: str, user: str, max_tokens: int = 2000,
               response_model: Optional[type] = None, max_retries: int = 2,
-              tier: Optional[str] = None) -> dict:
+              tier: Optional[str] = None, memory=None) -> dict:
     """
     Call the configured LLM backend with JSON mode, through the cross-provider chain.
 
@@ -401,6 +401,13 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
     # statistical sampling so each --samples N run gets fresh LLM responses
     # and we measure real variance instead of cache hits.
     bypass = os.environ.get("LLM_CACHE_BYPASS", "").strip() in ("1", "true", "yes")
+    # W5-4: standing context goes in FRONT of the system prompt, and therefore into
+    # the cache key — two runs with different established facts are different calls.
+    # Passed explicitly rather than read from a global: the pipeline runs several
+    # ventures concurrently in one process, and a shared global would leak one
+    # venture's established facts into another's prompts.
+    if memory is not None:
+        system = memory.apply(system)
     cache_key = _cache_key(system, user, response_model, tier)
     if not bypass:
         cached = cache_get(cache_key)
@@ -461,7 +468,9 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
 
 
 def call_text(system: str, user: str, max_tokens: int = 2000,
-              tier: Optional[str] = None) -> str:
+              tier: Optional[str] = None, memory=None) -> str:
+    if memory is not None:
+        system = memory.apply(system)
     backend, model = _backend_and_model()
     from model.tiering import model_for
     model = model_for(tier, backend, model)

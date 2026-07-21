@@ -269,6 +269,27 @@ def get_session(session_id: str) -> dict | None:
     return dict(s) if s else None
 
 
+def venture_memory(ex: dict):
+    """W5-4: turn the intake's extracted fields into a venture-scoped Memory.
+
+    These are facts the operator STATED. Downstream steps currently re-derive them
+    from the prose description on every LLM call — and sometimes derive them
+    differently (an operator who said "marketplace" gets subscription financials).
+    Carrying them as standing context makes the operator's own words the anchor.
+
+    Only fields the operator actually filled become facts; a None is not a fact.
+    """
+    from context.memory import Memory, Scope
+    m = Memory()
+    for field in ALL_FIELDS:
+        v = (ex or {}).get(field)
+        if isinstance(v, list):
+            v = ", ".join(str(x) for x in v if x)
+        if v:
+            m.remember(Scope.VENTURE, field, str(v))
+    return m
+
+
 def _synthesize_from_extracted(ex: dict) -> str:
     parts = []
     if ex.get("product"):

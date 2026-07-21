@@ -13,6 +13,7 @@ Output: Product / Price / Place / Promotion writeups + Viability score 0-100.
 from __future__ import annotations
 import json
 
+from context.reminders import Reminders, reminder
 from llm import call_json
 from logger import get
 
@@ -466,6 +467,48 @@ Output ALL FOUR fields. The narrative is the ONLY place the LLM judge will read 
 prose-quality scoring — make every sentence earn its place."""
 
 
+# --------------------------------------------------------------------------
+# W5-5: the four cross-section guardrails, registered once.
+#
+# Each exists because a section that never RECEIVES a fact invents one, and two
+# sections inventing independently contradict each other. Registering them means a
+# fifth guardrail is added in ONE place instead of at every prompt.
+# --------------------------------------------------------------------------
+@reminder("monetization_model", requires=("business_model_kind",), order=10)
+def _r_model(facts: dict) -> str:
+    return model_directive(facts.get("business_model_kind"), facts.get("economics"))
+
+
+@reminder("price_anchor", requires=("business_model_kind", "van_westendorp"), order=20)
+def _r_price(facts: dict) -> str:
+    return price_anchor_directive(facts.get("business_model_kind"),
+                                  facts.get("economics"), facts.get("van_westendorp"))
+
+
+@reminder("competitive_density", requires=("competitor_density",), order=30)
+def _r_density(facts: dict) -> str:
+    return competitive_density_directive(facts.get("competitor_density"),
+                                         facts.get("active_signal_density"))
+
+
+def section_reminders(business_model_kind=None, economics=None, van_westendorp=None,
+                      competitor_density=None, active_signal_density=None) -> str:
+    """The guardrail block every 4Ps section prompt carries."""
+    return Reminders.assemble({
+        "business_model_kind": business_model_kind,
+        "economics": economics,
+        "van_westendorp": van_westendorp,
+        "competitor_density": competitor_density,
+        "active_signal_density": active_signal_density,
+    })
+
+
+def build_section_prompts(bodies: dict, reminders: str) -> dict:
+    """Append the reminder block to every section prompt — uniformly, by construction."""
+    suffix = f"\n\n{reminders}" if reminders and reminders.strip() else ""
+    return {name: body + suffix for name, body in bodies.items()}
+
+
 def _audit_citations(plan: dict) -> dict:
     """Post-draft citation pass (W4-2): which factual claims are actually attributed?
 
@@ -708,23 +751,18 @@ def assemble_4ps_split(
         return out
 
     psm_ok = bool((van_westendorp or {}).get("optimal_price_point")) and not (van_westendorp or {}).get("error")
-    # M4: every section gets the monetization-model guardrail so none invents subscription/
-    # MRR/SaaS framing the numbers spine never computed.
-    _md = model_directive(business_model_kind, economics)
-    # C2/D21: every section ALSO gets the price anchor — Place/Product/Promotion have no
-    # pricing context in their own prompts, so without this they hallucinate a different
-    # average order/job/booking value than what Price actually uses.
-    _pa = price_anchor_directive(business_model_kind, economics, van_westendorp)
-    # D22 item 1: every section ALSO gets the competitor-density anchor — none of the
-    # 4Ps section prompts previously received a competitor count at all, only Viability
-    # did, so a 4Ps section could invent one that later contradicted it.
-    _cd = competitive_density_directive(competitor_density, active_signal_density)
-    tasks = {
-        "product": _product_prompt(profile_blob, features_blob, competitors_blob, audience_celebrated) + _md + _pa + _cd,
-        "price": _price_prompt(profile_blob, pricing_blob, benchmark_blob, economics_blob, psm_ok=psm_ok) + _md + _pa + _cd,
-        "place": _place_prompt(profile_blob, place_blob, audience_life_context) + _md + _pa + _cd,
-        "promotion": _promotion_prompt(profile_blob, audience_blob, reddit_themes_blob) + _md + _pa + _cd,
-    }
+    # W5-5: the guardrails now come from one registry instead of `+ _md + _pa + _cd`
+    # repeated per prompt. Adding a fifth used to mean editing four call sites and
+    # hoping none was missed — and a missed site is exactly the contradiction these
+    # exist to prevent. test_reminders pins that every section carries every one.
+    reminders = section_reminders(business_model_kind, economics, van_westendorp,
+                                  competitor_density, active_signal_density)
+    tasks = build_section_prompts({
+        "product": _product_prompt(profile_blob, features_blob, competitors_blob, audience_celebrated),
+        "price": _price_prompt(profile_blob, pricing_blob, benchmark_blob, economics_blob, psm_ok=psm_ok),
+        "place": _place_prompt(profile_blob, place_blob, audience_life_context),
+        "promotion": _promotion_prompt(profile_blob, audience_blob, reddit_themes_blob),
+    }, reminders)
 
     results: dict = {}
     with ThreadPoolExecutor(max_workers=4) as pool:
