@@ -158,6 +158,44 @@ class RunLedger:
             out[k] = out.get(k, 0) + 1
         return out
 
+    def cogs(self) -> dict:
+        """What this run cost to produce (W6-4).
+
+        llm.py already prices each call, but nothing accumulated it PER RUN, so
+        "what did this report cost?" was unanswerable — which makes pricing the
+        product a guess rather than a margin calculation.
+
+        Cached calls cost zero: a cache hit issued no request, and charging for it
+        would inflate every figure by exactly the pipeline's own cache rate. An
+        unpriced model is treated as free rather than raising — a new model id must
+        not be able to break a finished run's accounting.
+        """
+        from llm import DEFAULT_PRICING, PRICING
+        usd = 0.0
+        calls = cached_calls = in_tok = out_tok = 0
+        by_model: dict[str, dict] = {}
+        for e in self.events():
+            if e.get("layer") != "llm":
+                continue
+            calls += 1
+            if e.get("cached"):
+                cached_calls += 1
+                continue
+            i, o = int(e.get("in_tok") or 0), int(e.get("out_tok") or 0)
+            price = PRICING.get(e.get("model") or "", DEFAULT_PRICING)
+            cost = (i / 1_000_000) * price["input"] + (o / 1_000_000) * price["output"]
+            usd += cost
+            in_tok += i
+            out_tok += o
+            slot = by_model.setdefault(e.get("model") or "?",
+                                       {"calls": 0, "in_tok": 0, "out_tok": 0, "usd": 0.0})
+            slot["calls"] += 1
+            slot["in_tok"] += i
+            slot["out_tok"] += o
+            slot["usd"] = round(slot["usd"] + cost, 6)
+        return {"usd": round(usd, 6), "calls": calls, "cached_calls": cached_calls,
+                "in_tok": in_tok, "out_tok": out_tok, "by_model": by_model}
+
     def steps(self) -> list[str]:
         """Names of steps recorded COMPLETE, in order. resume.py trusts this to know
         what already finished, so 'start' events are deliberately excluded."""
@@ -212,3 +250,8 @@ def counts() -> dict[str, int]:
 
 def steps() -> list[str]:
     return LEDGER.steps()
+
+
+def cogs() -> dict:
+    """Cost of goods for the current run — see RunLedger.cogs()."""
+    return LEDGER.cogs()

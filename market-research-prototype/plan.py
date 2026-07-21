@@ -1339,7 +1339,7 @@ def refine_pipeline_result(result: dict, description: str, geo: str, profile: di
 
 def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progress=None,
              operator_weights: dict | None = None, refine: bool = False,
-             resume_from: dict | None = None) -> dict:
+             resume_from: dict | None = None, effort: str | None = None) -> dict:
     """
     Run the full market research pipeline on a raw description.
 
@@ -1353,11 +1353,21 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     skipped rather than recomputed — Wave 3 item 4.
     """
     t_start = time.time()
+    # W6-3: the effort dial. An unknown level resolves to STANDARD inside
+    # effort_config, never down to quick — a typo must not silently thin a report the
+    # operator paid extra for. `max_candidates` stays honoured when the caller passed
+    # a non-default value explicitly; effort only widens it.
+    from capabilities.effort import effort_config, resolve_effort
+    _effort = resolve_effort(effort)
+    _levers = effort_config(_effort)
+    max_candidates = max(max_candidates, _levers["max_candidates"]) if effort else max_candidates
+
     # Wave 3 item 4: seed from a prior killed run. Steps are skipped individually via
     # _skip_step (intact-evidence only), so a partial/corrupt seed degrades to a normal
     # full run rather than propagating holes.
     result: dict = dict(resume_from or {})
     result.setdefault("_steps_completed", [])
+    result["_effort"] = _effort
     if resume_from:
         log.info("[plan] resuming with %d completed step(s): %s",
                  len(result["_steps_completed"]), result["_steps_completed"])
@@ -2207,4 +2217,32 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             result["_trace"] = _trace.snapshot()
     except Exception:
         pass
+
+    # W6-1: run the 22 invariants on THIS report before it ships. gates.py has only
+    # ever swept a corpus after the fact — a developer's view. This is the buyer's:
+    # what would have gone out wrong. Advisory by default (it annotates the report);
+    # never allowed to fail the run, because a verifier that can crash a paid report
+    # is a worse trade than one that occasionally misses.
+    try:
+        from report.verifier import verify_report
+        vr = verify_report(result, None, use_llm=_levers["verify_with_llm"])
+        result["verification"] = {
+            "summary": vr.summary(),
+            "findings": [{"invariant": f.invariant, "severity": f.severity,
+                          "detail": f.detail, "audit_class": f.audit_class}
+                         for f in vr.findings],
+        }
+        if not vr.publishable:
+            log.warning("[plan] verification found %d blocking issue(s)",
+                        vr.summary().get("block", 0))
+    except Exception as e:
+        log.warning("[plan] verification pass failed: %s", e)
+
+    # W6-4: what this report cost to produce. Unanswerable before now, which made
+    # pricing the product a guess instead of a margin calculation.
+    try:
+        from persistence import ledger as _ledger
+        result["_cogs"] = _ledger.cogs()
+    except Exception as e:
+        log.debug("[plan] cogs unavailable: %s", e)
     return result

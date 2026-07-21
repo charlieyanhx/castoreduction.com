@@ -146,6 +146,10 @@ class PlanRequest(BaseModel):
     max_candidates: int = 20  # iter 36: bumped from 8 (spec step 3b says 50; we aim for 30 after filters)
     operator_weights: OperatorWeights = Field(default_factory=OperatorWeights)
     refine: bool = False  # cycle33: opt-in generator-evaluator-refine pass (adds LLM cost)
+    # W6-3: quick | standard | deep. An unrecognised value resolves to standard
+    # (capabilities/effort.py) rather than being rejected — a typo should not fail a
+    # submitted brief, and it must never resolve DOWN to quick.
+    effort: str = "standard"
 
 
 class CrewRequest(BaseModel):
@@ -294,6 +298,7 @@ def post_plan(req: PlanRequest):
             progress=progress,
             operator_weights=req.operator_weights.model_dump(),
             refine=req.refine,
+            effort=req.effort,
         )
         # Embed previous_job_id + computed deltas in the final result
         if previous_job_id and not result.get("error"):
@@ -734,6 +739,8 @@ def get_job_report_html(job_id: str):
         viability=viability,
         viability_color=viability_color,
         validation=validation,
+        # W6-1: what the pre-publication verifier found on THIS report.
+        verification=r.get("verification"),
         psm=psm,
         competitors=competitors,
         competitor_chart=competitor_chart,

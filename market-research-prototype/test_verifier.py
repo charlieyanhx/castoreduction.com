@@ -262,6 +262,56 @@ class TestRobustness(unittest.TestCase):
         self.assertIsNotNone(res)
 
 
+@unittest.skipIf(not _CORPUS, "no corpus on disk")
+class TestPipelineWiring(unittest.TestCase):
+    """The verifier only matters if the pipeline runs it and the report shows it."""
+
+    def test_run_plan_attaches_a_verification_block(self):
+        import inspect
+        import plan
+        src = inspect.getsource(plan.run_plan)
+        self.assertIn("verify_report", src)
+        self.assertIn('result["verification"]', src)
+
+    def test_verification_renders_into_the_report(self):
+        from jinja2 import Environment, FileSystemLoader
+        import api
+        env = Environment(loader=FileSystemLoader("templates"), autoescape=True,
+                          undefined=api.SafeUndefined)
+        src = env.loader.get_source(env, "report.html")[0]
+        start = src.index("{% if verification and verification.summary %}")
+        end = src.index("{% endif %}", src.index("{% endfor %}", start)) + len("{% endif %}")
+        end = src.index("{% endif %}", end) + len("{% endif %}")
+        tpl = env.from_string(src[start:end])
+        html = tpl.render(verification={
+            "summary": {"block": 1, "advisory": 2, "info": 0, "publishable": False},
+            "findings": [{"invariant": "D16", "severity": "block",
+                          "detail": "density=1 vs 9 ranked competitors"}]})
+        self.assertIn("D16", html)
+        self.assertIn("1 blocking", html)
+        self.assertIn("density=1", html)
+
+    def test_a_clean_verification_says_so(self):
+        from jinja2 import Environment, FileSystemLoader
+        import api
+        env = Environment(loader=FileSystemLoader("templates"), autoescape=True,
+                          undefined=api.SafeUndefined)
+        src = env.loader.get_source(env, "report.html")[0]
+        start = src.index("{% if verification and verification.summary %}")
+        end = src.index("{% endif %}", src.index("{% endfor %}", start)) + len("{% endif %}")
+        end = src.index("{% endif %}", end) + len("{% endif %}")
+        html = env.from_string(src[start:end]).render(verification={
+            "summary": {"block": 0, "advisory": 0, "info": 0, "publishable": True},
+            "findings": []})
+        self.assertIn("No blocking issue was found", html)
+
+    def test_api_passes_verification_to_the_template(self):
+        import inspect
+        import api
+        self.assertIn('verification=r.get("verification")',
+                      inspect.getsource(api.get_job_report_html))
+
+
 def _raises(r, html):
     raise RuntimeError("detector exploded")
 

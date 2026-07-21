@@ -1654,6 +1654,23 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   <p><strong>Delivery.</strong> HTML report (print-friendly for Cmd+P → PDF) and dedicated PDF endpoint via Playwright print-to-PDF. Investor one-pager rendered separately.</p>
 
   <p><strong>Honest limitations.</strong> All "simulated" metrics (Max-Diff, PSM, segment scoring) are LLM estimates, not real surveys. Data age varies by source (Trustpilot live, Wayback up to weeks stale, Wikidata irregular). Use as directional signal, not ground truth.</p>
+
+  {% if verification and verification.summary %}
+  <p><strong>Pre-publication verification.</strong> This report was checked against
+  {{ verification.summary.block + verification.summary.advisory + verification.summary.info }}
+  triggered invariant{{ '' if (verification.summary.block + verification.summary.advisory + verification.summary.info) == 1 else 's' }}
+  before delivery —
+  {% if verification.summary.block %}<span style="color:#b91c1c;font-weight:600">{{ verification.summary.block }} blocking</span>,{% endif %}
+  {{ verification.summary.advisory }} advisory.
+  {% if not verification.summary.block %}No blocking issue was found.{% endif %}</p>
+  {% if verification.findings %}
+  <ul style="font-size:10pt;color:#4b5563">
+    {% for f in verification.findings[:12] %}
+    <li><strong>{{ f.invariant }}</strong> ({{ f.severity }}) — {{ f.detail }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% endif %}
 </div>
 
 <!-- CITATIONS -->
