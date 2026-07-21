@@ -606,13 +606,16 @@ def get_job_onepager(job_id: str):
     return HTMLResponse(content=html)
 
 
-@app.get("/jobs/{job_id}/report.html", response_class=HTMLResponse)
 def display_title(profile: dict) -> str:
     """The venture name a human should see.
 
     The LLM often extracts name="Unknown" from a description-only brief. Printing that
     on a paid deliverable (or a PDF cover) is worse than naming what the report is
     ABOUT, so fall back to category, then to the first sentence of the summary.
+
+    NOT a route — keep it above the decorator below. Defining it BETWEEN the
+    @app.get and get_job_report_html registered THIS function as the report.html
+    handler, and every request 422'd asking for a `profile` body.
     """
     profile = profile or {}
     name = str(profile.get("name") or "").strip()
@@ -625,6 +628,7 @@ def display_title(profile: dict) -> str:
     return summ.split(".")[0][:60] if summ else "Market Research"
 
 
+@app.get("/jobs/{job_id}/report.html", response_class=HTMLResponse)
 def get_job_report_html(job_id: str):
     """Polished HTML report (print-friendly, Cmd+P → Save as PDF). For 'plan' jobs only."""
     j = jobs.get(job_id)

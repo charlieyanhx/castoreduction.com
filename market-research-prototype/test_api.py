@@ -148,6 +148,39 @@ class TestFullPipelineEndpoint(unittest.TestCase):
         self.assertIn("Bar", final["result"]["tastes"])
 
 
+class TestReportRoutesAreWiredToTheirHandlers(unittest.TestCase):
+    """A decorator must sit directly above the function it registers.
+
+    Inserting a helper BETWEEN @app.get("/jobs/{id}/report.html") and
+    get_job_report_html registered the HELPER as the route: every request 422'd
+    asking for a request body, and the whole suite stayed green because nothing
+    exercised the route itself. It shipped, and a corpus regen wrote 16 reports
+    whose HTML was an 82-byte validation error.
+    """
+
+    def test_report_html_route_maps_to_get_job_report_html(self):
+        import api
+        routes = {r.path: r for r in api.app.routes if hasattr(r, "endpoint")}
+        self.assertEqual(routes["/jobs/{job_id}/report.html"].endpoint.__name__,
+                         "get_job_report_html")
+
+    def test_report_html_takes_no_request_body(self):
+        """The failure signature: FastAPI asking for a body on a GET."""
+        import api
+        r = next(r for r in api.app.routes
+                 if getattr(r, "path", "") == "/jobs/{job_id}/report.html")
+        params = set(r.dependant.path_params and
+                     [p.name for p in r.dependant.path_params] or [])
+        self.assertEqual(params, {"job_id"})
+        self.assertEqual(r.dependant.body_params, [])
+
+    def test_report_pdf_route_maps_to_its_handler(self):
+        import api
+        routes = {r.path: r for r in api.app.routes if hasattr(r, "endpoint")}
+        self.assertEqual(routes["/jobs/{job_id}/report.pdf"].endpoint.__name__,
+                         "get_job_report_pdf")
+
+
 class TestReportEndpoint(unittest.TestCase):
     def test_report_for_discover(self):
         fake = {
