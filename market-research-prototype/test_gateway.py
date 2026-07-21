@@ -1,145 +1,321 @@
 """
-W5-2: capabilities/gateway.py — one door in front of every tool call.
+test_gateway.py — verifies capabilities/gateway.py permission + budget logic.
 
-Today a tool call goes straight to the function. Two consequences the pipeline has
-been living with:
+Four invariants the gateway must enforce:
+  1. free tools always run, never touch the budget
+  2. metered tools run when budget remains, spend is recorded
+  3. metered tools are refused cleanly when budget is exhausted (error Evidence, no exception)
+  4. spend accumulates correctly across multiple calls
 
-  * NO BUDGET. A run can make unbounded external calls. Nothing stops a retry loop
-    or a wide fan-out from burning a quota mid-report, and the failure surfaces as
-    thin data rather than "we hit the ceiling".
-  * NO ARG VALIDATION. `@tool` catches exceptions and returns error Evidence, so a
-    bad argument (an agent passing limit="20", a None where a domain belongs)
-    becomes a silent empty result that reads exactly like "nothing found".
-
-The gateway adds both, and — critically — a rejection is DISTINGUISHABLE from an
-empty result: `Evidence.error` is set and the reason names which check refused.
-
-Tiers gate side-effect scope: READ tools are freely callable, WRITE and EXTERNAL
-tools can be denied by policy without editing the tools themselves.
+All tests use fake tools — no network, no real money, no LLM.
+These tests are RED until capabilities/gateway.py exists (TDD: test first).
 """
 from __future__ import annotations
 
 import unittest
 
-from capabilities.gateway import Budget, Gateway, Tier
-from tools import Evidence
+from tools.registry import Evidence
 
 
-def _ok_tool(domain: str, limit: int = 10) -> Evidence:
-    return Evidence(source="t", category="c", count=limit, payload=[domain] * limit)
+def _ok_tool(**_kwargs) -> Evidence:
+    """Fake tool that succeeds and returns Evidence."""
+    return Evidence(source="ok_tool", category="test", count=1, payload={"ok": True})
 
 
-class TestArgValidation(unittest.TestCase):
+def _never_called(**_kwargs) -> Evidence:
+    """Fake tool that must never be called — raises if it is."""
+    raise AssertionError("This tool should not have been called")
+
+
+class TestGatewayFreeTier(unittest.TestCase):
+
+    def test_free_tool_runs_with_full_budget(self):
+        """Free tools always run regardless of budget."""
+        from capabilities.gateway import Gateway
+
+        gw = Gateway(budget_usd=1.00)
+        result = gw.call(fn=_ok_tool, tier="free", cost_usd=0.0, kwargs={})
+
+        self.assertIsNone(result.error, f"Free tool should not be refused: {result.error}")
+        self.assertEqual(result.source, "ok_tool")
+
+    def test_free_tool_runs_with_zero_budget(self):
+        """Free tools run even when the metered budget is exhausted."""
+        from capabilities.gateway import Gateway
+
+        gw = Gateway(budget_usd=0.00)
+        result = gw.call(fn=_ok_tool, tier="free", cost_usd=0.0, kwargs={})
+
+        self.assertIsNone(result.error, f"Free tool should not be refused: {result.error}")
+
+    def test_free_tool_does_not_reduce_budget(self):
+        """Calling a free tool never decrements the budget."""
+        from capabilities.gateway import Gateway
+
+        gw = Gateway(budget_usd=1.00)
+        gw.call(fn=_ok_tool, tier="free", cost_usd=0.0, kwargs={})
+
+        self.assertAlmostEqual(gw.remaining_usd, 1.00, places=6)
+
+    def test_free_tool_not_recorded_in_spend_log(self):
+        """Free tool calls do not appear in the spend log."""
+        from capabilities.gateway import Gateway
+
+        gw = Gateway(budget_usd=1.00)
+        gw.call(fn=_ok_tool, tier="free", cost_usd=0.0, kwargs={})
+
+        self.assertEqual(len(gw.spend_log), 0)
+
+
+class TestGatewayMeteredTier(unittest.TestCase):
+
+    def test_metered_tool_runs_when_budget_available(self):
+        """Metered tool executes when there is remaining budget."""
+        from capabilities.gateway import Gateway
+
+        gw = Gateway(budget_usd=1.00)
+        result = gw.call(fn=_ok_tool, tier="metered", cost_usd=0.10, kwargs={})
+
+        self.assertIsNone(result.error, f"Should have run: {result.error}")
+        self.assertEqual(result.source, "ok_tool")
+
+    def test_metered_tool_deducts_spend(self):
+        """Spend is deducted from the budget after a metered call."""
+        from capabilities.gateway import Gateway
+
+        gw = Gateway(budget_usd=1.00)
+        gw.call(fn=_ok_tool, tier="metered", cost_usd=0.10, kwargs={})
+
+        self.assertAlmostEqual(gw.remaining_usd, 0.90, places=6)
+
+    def test_metered_tool_refused_when_budget_zero(self):
+        """Metered tool is refused when budget is exactly zero."""
+        from capabilities.gateway import Gateway
+
+        gw = Gateway(budget_usd=0.00)
+        result = gw.call(fn=_never_called, tier="metered", cost_usd=0.10, kwargs={})
+
+        self.assertIsNotNone(result.error, "Should have been refused")
+        self.assertIn("budget", result.error.lower(), "Error message should mention budget")
+
+    def test_metered_tool_refused_when_budget_insufficient(self):
+        """Metered tool is refused when cost exceeds remaining budget."""
+        from capabilities.gateway import Gateway
+
+        gw = Gateway(budget_usd=0.05)
+        result = gw.call(fn=_never_called, tier="metered", cost_usd=0.10, kwargs={})
+
+        self.assertIsNotNone(result.error)
+        self.assertIn("budget", result.error.lower())
+
+    def test_refusal_does_not_change_budget(self):
+        """A refused call must not deduct anything from the budget."""
+        from capabilities.gateway import Gateway
+
+        gw = Gateway(budget_usd=0.05)
+        gw.call(fn=_never_called, tier="metered", cost_usd=0.10, kwargs={})
+
+        self.assertAlmostEqual(gw.remaining_usd, 0.05, places=6)
+
+    def test_refusal_returns_evidence_not_exception(self):
+        """A refused metered call returns Evidence, never raises."""
+        from capabilities.gateway import Gateway
+
+        gw = Gateway(budget_usd=0.00)
+        try:
+            result = gw.call(fn=_never_called, tier="metered", cost_usd=0.10, kwargs={})
+        except Exception as e:
+            self.fail(f"Gateway raised instead of returning error Evidence: {e}")
+
+        self.assertIsInstance(result, Evidence)
+
+    def test_refusal_evidence_has_tool_source(self):
+        """The refusal Evidence identifies which tool was refused."""
+        from capabilities.gateway import Gateway
+
+        gw = Gateway(budget_usd=0.00)
+        result = gw.call(fn=_never_called, tier="metered", cost_usd=0.10, kwargs={})
+
+        self.assertEqual(result.source, "_never_called")  # function's actual __name__
+
+
+class TestGatewaySpendLog(unittest.TestCase):
+
+    def test_spend_accumulates_across_calls(self):
+        """Three metered calls at $0.10 each leave $0.70 remaining."""
+        from capabilities.gateway import Gateway
+
+        gw = Gateway(budget_usd=1.00)
+        for _ in range(3):
+            gw.call(fn=_ok_tool, tier="metered", cost_usd=0.10, kwargs={})
+
+        self.assertAlmostEqual(gw.remaining_usd, 0.70, places=6)
+
+    def test_spend_log_records_each_call(self):
+        """Each metered call produces one entry in the spend log."""
+        from capabilities.gateway import Gateway
+
+        gw = Gateway(budget_usd=1.00)
+        for _ in range(3):
+            gw.call(fn=_ok_tool, tier="metered", cost_usd=0.10, kwargs={})
+
+        self.assertEqual(len(gw.spend_log), 3)
+
+    def test_spend_log_entry_shape(self):
+        """Each spend log entry records tool name, tier, cost, and whether it failed."""
+        from capabilities.gateway import Gateway
+
+        gw = Gateway(budget_usd=1.00)
+        gw.call(fn=_ok_tool, tier="metered", cost_usd=0.10, kwargs={})
+
+        entry = gw.spend_log[0]
+        self.assertIn("tool", entry)
+        self.assertIn("tier", entry)
+        self.assertIn("cost_usd", entry)
+        self.assertIn("failed", entry)
+        self.assertEqual(entry["tool"], "_ok_tool")
+        self.assertEqual(entry["tier"], "metered")
+        self.assertAlmostEqual(entry["cost_usd"], 0.10, places=6)
+        self.assertFalse(entry["failed"], "Successful call should have failed=False")
+
+    def test_budget_exhausted_after_enough_calls(self):
+        """Budget hits zero after enough metered calls, next one is refused."""
+        from capabilities.gateway import Gateway
+
+        gw = Gateway(budget_usd=0.30)
+        for _ in range(3):
+            gw.call(fn=_ok_tool, tier="metered", cost_usd=0.10, kwargs={})
+
+        # Budget should now be at (or very near) zero
+        self.assertAlmostEqual(gw.remaining_usd, 0.00, places=6)
+
+        # Next call must be refused
+        result = gw.call(fn=_never_called, tier="metered", cost_usd=0.10, kwargs={})
+        self.assertIsNotNone(result.error)
+
+
+class TestGatewayToolException(unittest.TestCase):
+
+    def test_tool_exception_returns_error_evidence(self):
+        """If a tool raises inside the gateway, it returns error Evidence, not an exception."""
+        from capabilities.gateway import Gateway
+
+        def exploding_tool(**_kwargs):
+            raise RuntimeError("API timeout")
+        exploding_tool.__name__ = "exploding_tool"
+
+        gw = Gateway(budget_usd=1.00)
+        try:
+            result = gw.call(fn=exploding_tool, tier="metered", cost_usd=0.10, kwargs={})
+        except Exception as e:
+            self.fail(f"Gateway propagated exception instead of returning error Evidence: {e}")
+
+        self.assertIsNotNone(result.error)
+        self.assertIn("RuntimeError", result.error)
+
+    def test_spend_recorded_even_if_tool_raises(self):
+        """If a metered tool raises, the cost is still recorded.
+
+        Rationale: the external API likely processed the request and will bill us
+        regardless of whether it returned a valid response. Our budget tracker must
+        be conservative — it should never underestimate actual spend.
+        The spend log entry carries failed=True so callers can distinguish it.
+        """
+        from capabilities.gateway import Gateway
+
+        def exploding_tool(**_kwargs):
+            raise RuntimeError("API timeout")
+        exploding_tool.__name__ = "exploding_tool"
+
+        gw = Gateway(budget_usd=1.00)
+        gw.call(fn=exploding_tool, tier="metered", cost_usd=0.10, kwargs={})
+
+        self.assertEqual(len(gw.spend_log), 1, "Failed call should still be logged")
+        self.assertAlmostEqual(gw.remaining_usd, 0.90, places=6)
+        self.assertTrue(gw.spend_log[0].get("failed"), "Log entry should mark the call as failed")
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# Merged in from the parallel W5-2 implementation. Pydantic arg models (above,
+# test_arg_models.py) cover geo/econ/scrape; these cover EVERY registered tool by
+# signature inspection, so a tool without an arg model is still guarded.
+# ---------------------------------------------------------------------------
+from capabilities.gateway import Gateway  # noqa: E402
+from tools import Evidence as _Ev  # noqa: E402
+
+
+def _typed_tool(domain: str, limit: int = 10) -> _Ev:
+    return _Ev(source="t", category="c", count=limit, payload=[domain] * limit)
+
+
+class TestSignatureValidation(unittest.TestCase):
+    """@tool catches exceptions and returns error Evidence, so a bad argument became
+    a silent empty result indistinguishable from 'nothing found'."""
+
     def setUp(self):
-        self.gw = Gateway()
+        self.gw = Gateway(budget_usd=1.0)
+
+    def _call(self, kwargs):
+        return self.gw.call(fn=_typed_tool, tier="free", cost_usd=0.0, kwargs=kwargs)
 
     def test_a_valid_call_passes_through_untouched(self):
-        ev = self.gw.call(_ok_tool, {"domain": "x.com", "limit": 2})
+        ev = self._call({"domain": "x.com", "limit": 2})
         self.assertIsNone(ev.error)
         self.assertEqual(ev.count, 2)
 
     def test_an_unknown_kwarg_is_refused_not_crashed(self):
-        ev = self.gw.call(_ok_tool, {"domain": "x.com", "bogus": 1})
+        ev = self._call({"domain": "x.com", "bogus": 1})
         self.assertIsNotNone(ev.error)
         self.assertIn("bogus", ev.error)
 
     def test_a_missing_required_arg_is_refused(self):
-        ev = self.gw.call(_ok_tool, {"limit": 2})
+        ev = self._call({"limit": 2})
         self.assertIsNotNone(ev.error)
         self.assertIn("domain", ev.error)
 
     def test_a_wrong_type_is_coerced_when_unambiguous(self):
         """An agent emitting JSON sends "20", not 20. Refusing that would be pedantry."""
-        ev = self.gw.call(_ok_tool, {"domain": "x.com", "limit": "3"})
+        ev = self._call({"domain": "x.com", "limit": "3"})
         self.assertIsNone(ev.error)
         self.assertEqual(ev.count, 3)
 
     def test_an_uncoercible_type_is_refused(self):
-        ev = self.gw.call(_ok_tool, {"domain": "x.com", "limit": "many"})
-        self.assertIsNotNone(ev.error)
+        self.assertIsNotNone(self._call({"domain": "x.com", "limit": "many"}).error)
 
     def test_a_refusal_is_distinguishable_from_an_empty_result(self):
         """The whole point: 'we refused' must not read as 'nothing found'."""
-        ev = self.gw.call(_ok_tool, {})
+        ev = self._call({})
         self.assertIsNotNone(ev.error)
         self.assertEqual(ev.count, 0)
         self.assertIn("gateway", (ev.source or "").lower())
 
 
-class TestBudget(unittest.TestCase):
-    def test_calls_are_counted(self):
-        gw = Gateway(budget=Budget(max_calls=10))
-        gw.call(_ok_tool, {"domain": "x.com"})
-        gw.call(_ok_tool, {"domain": "y.com"})
-        self.assertEqual(gw.budget.spent, 2)
+class TestRefusalsNeverSpendBudget(unittest.TestCase):
+    """A rejected call made no request. Charging for it would let a bad-arg retry
+    loop drain the run's real allowance — so validation runs BEFORE the deduction."""
 
-    def test_exhausting_the_budget_refuses_further_calls(self):
-        gw = Gateway(budget=Budget(max_calls=1))
-        self.assertIsNone(gw.call(_ok_tool, {"domain": "x.com"}).error)
-        ev = gw.call(_ok_tool, {"domain": "y.com"})
+    def test_a_bad_arg_on_a_metered_tool_costs_nothing(self):
+        gw = Gateway(budget_usd=1.0)
+        ev = gw.call(fn=_typed_tool, tier="metered", cost_usd=0.25,
+                     kwargs={"bogus": 1})
         self.assertIsNotNone(ev.error)
-        self.assertIn("budget", ev.error.lower())
+        self.assertEqual(gw.remaining_usd, 1.0)
+        self.assertEqual(gw.spend_log, [])
 
-    def test_a_refused_call_does_not_consume_budget(self):
-        """A rejected call never reached the outside world; charging for it would
-        let a bad-arg loop exhaust the run's real budget."""
-        gw = Gateway(budget=Budget(max_calls=2))
-        gw.call(_ok_tool, {"bogus": 1})
-        self.assertEqual(gw.budget.spent, 0)
-
-    def test_no_budget_means_unlimited(self):
-        gw = Gateway()
-        for i in range(50):
-            gw.call(_ok_tool, {"domain": f"{i}.com"})
-        self.assertIsNone(gw.call(_ok_tool, {"domain": "z.com"}).error)
-
-    def test_remaining_never_goes_negative(self):
-        gw = Gateway(budget=Budget(max_calls=1))
-        gw.call(_ok_tool, {"domain": "x.com"})
-        gw.call(_ok_tool, {"domain": "y.com"})
-        self.assertEqual(gw.budget.remaining, 0)
+    def test_a_valid_metered_call_still_spends(self):
+        gw = Gateway(budget_usd=1.0)
+        gw.call(fn=_typed_tool, tier="metered", cost_usd=0.25,
+                kwargs={"domain": "x.com"})
+        self.assertAlmostEqual(gw.remaining_usd, 0.75)
 
 
-class TestTiers(unittest.TestCase):
-    def test_read_tools_are_allowed_by_default(self):
-        gw = Gateway()
-        self.assertIsNone(gw.call(_ok_tool, {"domain": "x.com"}, tier=Tier.READ).error)
-
-    def test_a_denied_tier_refuses_with_a_named_reason(self):
-        gw = Gateway(allowed_tiers=(Tier.READ,))
-        ev = gw.call(_ok_tool, {"domain": "x.com"}, tier=Tier.WRITE)
-        self.assertIsNotNone(ev.error)
-        self.assertIn("write", ev.error.lower())
-
-    def test_an_unknown_tier_is_treated_as_the_most_restricted(self):
-        """Defaulting an unrecognised tier to READ would let a typo open a door."""
-        gw = Gateway(allowed_tiers=(Tier.READ,))
-        self.assertIsNotNone(gw.call(_ok_tool, {"domain": "x.com"}, tier="nonsense").error)
-
-
-class TestToolIntegration(unittest.TestCase):
-    def test_registered_tools_can_be_called_by_name(self):
-        from capabilities.gateway import Gateway as GW
-        gw = GW()
-        ev = gw.call_named("nonexistent_tool", {})
-        self.assertIsNotNone(ev.error)
-        self.assertIn("nonexistent_tool", ev.error)
-
-    def test_a_tool_that_raises_still_returns_evidence(self):
-        def boom(x: int) -> Evidence:
-            raise RuntimeError("kaboom")
-        ev = Gateway().call(boom, {"x": 1})
-        self.assertIsNotNone(ev.error)
-        self.assertIn("kaboom", ev.error)
-
-
-class TestBadArgSuiteAgainstTheRealRegistry(unittest.TestCase):
-    """Every registered tool, run against deliberately bad arguments.
-
-    These calls must be REFUSED before the function runs — no network, no budget
-    spent. Previously each would have entered the tool and come back as an empty
-    Evidence indistinguishable from "nothing found".
-    """
+class TestCallNamedOverTheRealRegistry(unittest.TestCase):
+    """Every registered tool against deliberately bad arguments — refused before the
+    function runs, so no network and no spend."""
 
     @classmethod
     def setUpClass(cls):
@@ -148,8 +324,13 @@ class TestBadArgSuiteAgainstTheRealRegistry(unittest.TestCase):
         cls.registry = dict(TOOL_REGISTRY)
         assert cls.registry, "no tools registered"
 
+    def test_an_unknown_tool_name_is_refused(self):
+        ev = Gateway(budget_usd=1.0).call_named("nonexistent_tool", {})
+        self.assertIsNotNone(ev.error)
+        self.assertIn("nonexistent_tool", ev.error)
+
     def test_every_tool_refuses_an_unknown_kwarg(self):
-        gw = Gateway()
+        gw = Gateway(budget_usd=1.0)
         for name in sorted(self.registry):
             ev = gw.call_named(name, {"__nope__": 1})
             self.assertIsNotNone(ev.error, name)
@@ -157,12 +338,11 @@ class TestBadArgSuiteAgainstTheRealRegistry(unittest.TestCase):
 
     def test_every_tool_refuses_a_missing_required_arg(self):
         import inspect as _i
-        gw = Gateway()
+        gw = Gateway(budget_usd=1.0)
         checked = 0
         for name, meta in sorted(self.registry.items()):
             target = getattr(meta.fn, "__wrapped_fn__", meta.fn)
-            params = _i.signature(target).parameters.values()
-            required = [p for p in params
+            required = [p for p in _i.signature(target).parameters.values()
                         if p.default is _i.Parameter.empty
                         and p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)]
             if not required:
@@ -173,12 +353,8 @@ class TestBadArgSuiteAgainstTheRealRegistry(unittest.TestCase):
             self.assertIn("requires", ev.error, name)
         self.assertGreater(checked, 20, "suite is not exercising the real registry")
 
-    def test_the_whole_bad_arg_suite_spends_no_budget(self):
-        gw = Gateway(budget=Budget(max_calls=5))
+    def test_the_whole_bad_arg_suite_spends_nothing(self):
+        gw = Gateway(budget_usd=1.0)
         for name in sorted(self.registry):
-            gw.call_named(name, {"__nope__": 1})
-        self.assertEqual(gw.budget.spent, 0)
-
-
-if __name__ == "__main__":
-    unittest.main()
+            gw.call_named(name, {"__nope__": 1}, tier="metered", cost_usd=0.10)
+        self.assertEqual(gw.remaining_usd, 1.0)
