@@ -44,3 +44,8 @@ groq>=0.9
 google-genai>=1.0
 tldextract>=5.3           # W2-3: registrable-root extraction (kills the .co.uk collapse); offline PSL snapshot
 rapidfuzz>=3.14           # W2-4: near-dupe competitor collapse (Calm/Calm.com/Calm Business -> 1)
+
+# W4-3: print-grade PDF export (report/pdf.py)
+weasyprint>=62            # only engine that resolves target-counter() -> real TOC page numbers
+                          # macOS also needs system libs: brew install pango
+pypdf>=5.0                # page-count assertions in test_report_pdf.py

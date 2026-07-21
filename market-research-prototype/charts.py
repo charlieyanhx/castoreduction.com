@@ -74,8 +74,14 @@ def competitor_map_svg(clustering: dict, whitespace: dict | None = None,
     # Background
     svg.append(f'<rect x="{margin}" y="{margin}" width="{plot_w}" height="{plot_h}" fill="#f9fafb"/>')
 
-    # Whitespace overlay
-    if whitespace and whitespace.get("whitespace_found"):
+    # Whitespace overlay.
+    # W4 item 4: a silhouette <= 0 means points sit closer to OTHER clusters than their
+    # own — the projection is noise, so a "gap" in it is an artifact, not an opportunity.
+    # Drawing a confident amber "whitespace" box on top of that is the chart asserting a
+    # finding the statistics do not support.
+    _sil = clustering.get("silhouette_score")
+    _clustering_is_meaningful = not isinstance(_sil, (int, float)) or _sil > 0
+    if whitespace and whitespace.get("whitespace_found") and _clustering_is_meaningful:
         gap = whitespace.get("largest_gap_location") or [0, 0]
         # Each grid cell is plot_w/4 wide
         cw = plot_w / 4
@@ -139,8 +145,12 @@ def competitor_map_svg(clustering: dict, whitespace: dict | None = None,
     svg.append(f'<text x="22" y="{height//2}" text-anchor="middle" fill="#475569" font-size="13" font-weight="600" transform="rotate(-90 22 {height//2})">{html_mod.escape(pc2_label)} →</text>')
 
     # Title
-    pct_var = clustering.get("pca_explained_variance", 0)
-    svg.append(f'<text x="{margin}" y="{margin - 24}" fill="#1f2937" font-size="14" font-weight="600">Competitive landscape — {clustering.get("k","?")} clusters · {int(pct_var*100)}% variance explained</text>')
+    # W4 item 4: UMAP has no explained-variance concept — clustering.py hardcodes 0.0 on
+    # that path, which rendered as a real-looking "0% variance explained". State the
+    # statistic only when it was actually computed (the PCA path).
+    pct_var = clustering.get("pca_explained_variance", 0) or 0
+    _var_claim = f' · {int(pct_var*100)}% variance explained' if pct_var > 0 else ''
+    svg.append(f'<text x="{margin}" y="{margin - 24}" fill="#1f2937" font-size="14" font-weight="600">Competitive landscape — {clustering.get("k","?")} clusters{_var_claim}</text>')
 
     # Plot points
     for brand, (x, y) in coords.items():

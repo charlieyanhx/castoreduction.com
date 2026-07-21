@@ -607,6 +607,24 @@ def get_job_onepager(job_id: str):
 
 
 @app.get("/jobs/{job_id}/report.html", response_class=HTMLResponse)
+def display_title(profile: dict) -> str:
+    """The venture name a human should see.
+
+    The LLM often extracts name="Unknown" from a description-only brief. Printing that
+    on a paid deliverable (or a PDF cover) is worse than naming what the report is
+    ABOUT, so fall back to category, then to the first sentence of the summary.
+    """
+    profile = profile or {}
+    name = str(profile.get("name") or "").strip()
+    if name.lower() not in ("", "unknown", "untitled", "n/a", "none", "null"):
+        return name
+    derived = (profile.get("category") or "").strip()
+    if derived:
+        return derived
+    summ = str(profile.get("summary") or "").strip()
+    return summ.split(".")[0][:60] if summ else "Market Research"
+
+
 def get_job_report_html(job_id: str):
     """Polished HTML report (print-friendly, Cmd+P → Save as PDF). For 'plan' jobs only."""
     j = jobs.get(job_id)
@@ -654,15 +672,7 @@ def get_job_report_html(job_id: str):
 
     r = j["result"] or {}
     profile = r.get("profile", {})
-    # Title fallback: the LLM often returns name="Unknown" for description-only input.
-    # Derive a real display title from category/summary so the report never reads "Unknown".
-    _nm = str(profile.get("name") or "").strip()
-    if _nm.lower() in ("", "unknown", "untitled", "n/a", "none", "null"):
-        derived = (profile.get("category") or "").strip()
-        if not derived:
-            summ = str(profile.get("summary") or "").strip()
-            derived = (summ.split(".")[0][:60] if summ else "Market Research")
-        profile = {**profile, "name": derived}
+    profile = {**profile, "name": display_title(profile)}
     four_ps = r.get("four_ps", {})
     viability = r.get("viability", {})
     validation = r.get("validation", {})
@@ -764,15 +774,14 @@ def get_job_report_html(job_id: str):
 @app.get("/jobs/{job_id}/report.pdf")
 def get_job_report_pdf(job_id: str):
     """
-    Iter 36: Real PDF export via Playwright print-to-PDF.
+    W4-3: print-grade PDF export via report/pdf.py.
 
-    Renders the HTML report, feeds it to a headless Chromium, returns application/pdf.
-    Requires playwright (already installed for Trustpilot). First call per process
-    pays a ~2s browser-launch cost; subsequent calls are ~1s.
+    Was a raw Chromium print() of the screen HTML — a printout of a web page, with the
+    product toolbar on page 3 and no cover, contents, or figure numbers. Now goes
+    through the print-document layer (WeasyPrint preferred: it is the only engine that
+    resolves target-counter(), i.e. real page numbers in the table of contents).
     """
     from fastapi.responses import Response
-    # Render the HTML first (same data as report.html)
-    import urllib.parse as _url
     j = jobs.get(job_id)
     if not j or j.get("state") != "complete":
         raise HTTPException(status_code=404, detail="Job not found or not complete")
@@ -781,22 +790,18 @@ def get_job_report_pdf(job_id: str):
     html_response = get_job_report_html(job_id)
     html_body = html_response.body.decode() if hasattr(html_response, "body") else str(html_response)
 
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        raise HTTPException(status_code=500, detail="playwright not installed")
+    from report.pdf import available_engine, render_pdf
+    if available_engine() is None:
+        raise HTTPException(status_code=500,
+                            detail="no PDF engine installed (weasyprint or playwright)")
 
+    profile = ((j.get("result") or {}).get("profile") or {})
     try:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.set_content(html_body, wait_until="networkidle")
-            pdf_bytes = page.pdf(
-                format="Letter",
-                print_background=True,
-                margin={"top": "0.5in", "bottom": "0.5in", "left": "0.5in", "right": "0.5in"},
-            )
-            browser.close()
+        pdf_bytes = render_pdf(html_body, {
+            "title": display_title(profile).title(),
+            "job_id": job_id,
+            "generated_at": str(j.get("created_at") or "")[:10],
+        })
     except Exception as e:
         log.exception("PDF generation failed")
         raise HTTPException(status_code=500, detail=f"PDF render failed: {e}")

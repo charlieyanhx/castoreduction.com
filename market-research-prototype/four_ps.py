@@ -406,6 +406,7 @@ def assemble_4ps(
     )
     if "_parse_error" in plan:
         return {"error": "4Ps synthesis returned malformed JSON", "_raw": plan.get("_raw", "")[:500]}
+    plan["citation_audit"] = _audit_citations(plan)
     return plan
 
 
@@ -463,6 +464,24 @@ if your output gets cut off, the structured fields above survive intact.
 
 Output ALL FOUR fields. The narrative is the ONLY place the LLM judge will read for
 prose-quality scoring — make every sentence earn its place."""
+
+
+def _audit_citations(plan: dict) -> dict:
+    """Post-draft citation pass (W4-2): which factual claims are actually attributed?
+
+    The prompts DEMAND a ¹ citation on every claim; nothing verified compliance, so a
+    dated or dollar claim with no marker — or a ⁷ pointing at a citation that was never
+    emitted — shipped looking exactly as sourced as a real one. Advisory metadata: it
+    annotates the report, it does not block it.
+    """
+    try:
+        from report.citation import audit_sections
+        sections = {p: plan.get(p) for p in ("product", "price", "place", "promotion")
+                    if isinstance(plan.get(p), dict)}
+        return audit_sections(sections, plan.get("citations") or [])
+    except Exception as e:  # never let an advisory counter break synthesis
+        log.warning("[4Ps] citation audit failed: %s", e)
+        return {}
 
 
 def _product_prompt(profile_blob, features_blob, competitors_blob, audience_celebrated):
@@ -740,7 +759,7 @@ def assemble_4ps_split(
                 exec_bullets.append(f"<strong>{sect.capitalize()}.</strong> {first}")
     executive_summary = " ".join(exec_bullets) if exec_bullets else "See individual sections below."
 
-    return {
+    plan = {
         "executive_summary": executive_summary,
         "product": results.get("product", {}),
         "price": results.get("price", {}),
@@ -749,6 +768,8 @@ def assemble_4ps_split(
         "citations": all_citations,
         "_mode": "split",  # for debugging / auditing
     }
+    plan["citation_audit"] = _audit_citations(plan)
+    return plan
 
 
 REGENERATE_SECTION_PROMPT = """You are revising ONE section of a paid-grade 4Ps marketing plan. The operator was unhappy with the existing section and asked for a regeneration.

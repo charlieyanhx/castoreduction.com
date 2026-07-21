@@ -90,3 +90,49 @@ class TestGateWithholdsNumbers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestChartHonesty(unittest.TestCase):
+    """W4 item 4: the competitor map must not assert statistics it doesn't have.
+
+    (a) UMAP has no explained-variance concept — clustering.py hardcodes
+        explained_var=0.0 on the umap path, which the title rendered verbatim as
+        "0% variance explained": a real-looking statistic that is actually 'we did
+        not compute this'.
+    (b) A silhouette <= 0 means points sit closer to OTHER clusters than their own —
+        the clustering is noise, so a "whitespace" gap drawn on that projection is an
+        artifact, not an opportunity. Don't draw it.
+    """
+
+    def _clustering(self, method="bge + hdbscan + umap", var=0.0, sil=0.42):
+        return {"k": 3, "method": method, "pca_explained_variance": var,
+                "silhouette_score": sil,
+                "coordinates": {"A": [0.1, 0.2], "B": [0.8, 0.7], "C": [0.5, 0.4]},
+                "clusters": [{"id": 0, "members": ["A"], "size": 1},
+                             {"id": 1, "members": ["B"], "size": 1},
+                             {"id": 2, "members": ["C"], "size": 1}],
+                "axis_labels": {}}
+
+    def test_umap_projection_omits_the_bogus_variance_claim(self):
+        from charts import competitor_map_svg
+        svg = competitor_map_svg(self._clustering())
+        self.assertNotIn("0% variance", svg)
+        self.assertNotIn("variance explained", svg)
+
+    def test_pca_projection_keeps_a_real_variance_claim(self):
+        from charts import competitor_map_svg
+        svg = competitor_map_svg(self._clustering(method="tfidf + kmeans + pca", var=0.63))
+        self.assertIn("63% variance explained", svg)
+
+    def test_whitespace_suppressed_when_silhouette_is_not_positive(self):
+        from charts import competitor_map_svg
+        ws = {"whitespace_found": True, "largest_gap_location": [1, 2]}
+        for bad in (0.0, -0.13):
+            svg = competitor_map_svg(self._clustering(sil=bad), whitespace=ws)
+            self.assertNotIn("whitespace", svg, f"silhouette={bad} must suppress callout")
+
+    def test_whitespace_shown_when_clustering_is_meaningful(self):
+        from charts import competitor_map_svg
+        ws = {"whitespace_found": True, "largest_gap_location": [1, 2]}
+        svg = competitor_map_svg(self._clustering(sil=0.42), whitespace=ws)
+        self.assertIn("whitespace", svg)

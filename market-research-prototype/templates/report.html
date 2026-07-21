@@ -1665,6 +1665,17 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     <li id="cite-{{ loop.index }}"><span class="source">{{ c.source }}</span>{% if c._section %} <span style="font-size:8pt;color:#9ca3af">({{ c._section }})</span>{% endif %}{% if c.claim %} — {{ c.claim }}{% endif %}</li>
     {% endfor %}
   </ol>
+  {% if four_ps.citation_audit and four_ps.citation_audit._totals %}
+  {% set _ca = four_ps.citation_audit._totals %}
+  <p style="margin-top:12px;font-size:9pt;color:#6b7280">
+    <strong>Fact density.</strong> {{ _ca.n_claims }} checkable claims (a year, $ figure, or %)
+    across the four sections; {{ _ca.n_cited }} carry a resolving citation
+    ({{ _ca.cited_pct }}%).
+    {%- if _ca.n_uncited %} {{ _ca.n_uncited }} claim{{ 's' if _ca.n_uncited != 1 else '' }}
+    {{ 'are' if _ca.n_uncited != 1 else 'is' }} unattributed — treat as the author's
+    inference, not sourced evidence.{% endif %}
+  </p>
+  {% endif %}
 </div>
 {% endif %}
 
