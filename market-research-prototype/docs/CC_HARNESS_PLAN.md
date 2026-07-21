@@ -920,3 +920,53 @@ All Wave 5 (D16–22) and Wave 6 (D23–27) items are landed. Deviations and fin
   which is not in the repo. Everything else in §5b through Wave 6 is landed.
 
   Suite at close: **1296 passed, 5 skipped.**
+
+### M7 — MEASURED, AND NOT MET
+
+Full R4 panel on the fresh 16-venture corpus. 174 agents, 14.3M tokens, 89 minutes,
+`valid: true`, **0 verification gaps** — this is a sound reading, not a truncated one.
+
+  | | entry | exit | target (M7) |
+  |---|---|---|---|
+  | pass | 13.0% | **13.5%** | ≥90% |
+  | confirmed criticals | 61 | **53** | 0 |
+
+**Flat.** 26/192 cells pass, 100 fail. And 99 of 107 flagged findings SURVIVED an
+adversarial refutation pass whose default was `refuted=true` — these are not
+scorer noise.
+
+Per-row (pre-verification scoring), the shape is the finding:
+
+  | row | PASS | FAIL | CRIT |
+  |---|---|---|---|
+  | R1 market-scale routing | 12 | 2 | 1 |
+  | R4 business-model routing | 13 | 1 | 1 |
+  | R2 TAM | 2 | 12 | 7 |
+  | R6 unit economics | 0 | 14 | 9 |
+  | R9 consumer/WTP | 1 | 11 | 8 |
+  | R11 viability | 0 | 10 | 6 |
+  | R12 integrity | **0** | **16** | **14** |
+
+The only two rows that pass are R1 and R4 — exactly the two this program spent waves
+fixing. Every row downstream of them fails. R12 fails on every single venture.
+
+**THE GATES AND THE PANEL DISAGREE COMPLETELY: 219/219 vs 13.5%.** Worked example,
+reproducible on `out/wave4_corpus/174ae091`:
+
+  * `market_sizing.validation.passed = False`, `publishable = False`
+  * the report renders `⚠ Failed validation — figures withheld`
+  * …and, in the same document, "a massive **$1.22B** TAM", with a 65/100
+    market-opportunity score built on it
+  * `gates.d09_publishable_gated` returns **ok — "gated correctly"**
+
+D09 checks that `publishable` is False and that a withhold banner EXISTS. It never
+checks that the withheld number stays OUT of the prose. **The gate verifies a
+disclosure was printed, not that the report obeys it.** That is the shape of most of
+the 22: they read STRUCTURE (does a field exist, do two fields agree), while what
+remains broken is SEMANTIC (does the narrative honour what the structure says).
+
+So 219/219 is not evidence of quality, and adding more invariants of the same shape
+should not be expected to move 13.5%. That is a conclusion about METHOD, and it needs
+a decision before more building — recorded here rather than papered over.
+
+Scorecard: `docs/baselines/wave6_exit_r4.json`.

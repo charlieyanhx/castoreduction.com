@@ -1,0 +1,113 @@
+{
+  "ring": "R4",
+  "wave": "wave6-exit",
+  "valid": true,
+  "verification_gaps": 0,
+  "corpus": "out/wave4_corpus",
+  "n_ventures": 16,
+  "result": {
+    "pass_pct": 13.5,
+    "cells": {
+      "pass": 26,
+      "warn": 66,
+      "fail": 100,
+      "total": 192
+    },
+    "criticals_confirmed": 53,
+    "highs_confirmed": 46
+  },
+  "vs_baseline": {
+    "entry_pass_pct": 13.0,
+    "entry_criticals": 61,
+    "delta_pass_pp": 0.5,
+    "delta_criticals": -8,
+    "verdict": "FLAT \u2014 M7 (>=90% pass / 0 critical) NOT met"
+  },
+  "adversarial": {
+    "findings_verified": 107,
+    "refuted": 8,
+    "note": "92% of flagged findings SURVIVED an adversarial refutation attempt whose default was refuted=true. These are real."
+  },
+  "per_row_prescoring": {
+    "R1": {
+      "pass": 12,
+      "warn": 3,
+      "fail": 2,
+      "critical": 1
+    },
+    "R2": {
+      "pass": 2,
+      "warn": 3,
+      "fail": 12,
+      "critical": 7
+    },
+    "R3": {
+      "pass": 0,
+      "warn": 7,
+      "fail": 10,
+      "critical": 3
+    },
+    "R4": {
+      "pass": 13,
+      "warn": 3,
+      "fail": 1,
+      "critical": 1
+    },
+    "R5": {
+      "pass": 0,
+      "warn": 11,
+      "fail": 6,
+      "critical": 2
+    },
+    "R6": {
+      "pass": 0,
+      "warn": 3,
+      "fail": 14,
+      "critical": 9
+    },
+    "R7": {
+      "pass": 0,
+      "warn": 9,
+      "fail": 8,
+      "critical": 4
+    },
+    "R8": {
+      "pass": 0,
+      "warn": 3,
+      "fail": 13,
+      "critical": 2
+    },
+    "R9": {
+      "pass": 1,
+      "warn": 4,
+      "fail": 11,
+      "critical": 8
+    },
+    "R10": {
+      "pass": 0,
+      "warn": 8,
+      "fail": 8,
+      "critical": 0
+    },
+    "R11": {
+      "pass": 0,
+      "warn": 6,
+      "fail": 10,
+      "critical": 6
+    },
+    "R12": {
+      "pass": 0,
+      "warn": 0,
+      "fail": 16,
+      "critical": 14
+    }
+  },
+  "headline_finding": "The deterministic gates and the panel disagree completely: 219/219 (100%) vs 13.5%. The two rubric rows that PASS (R1 scale routing 12/17, R4 model routing 13/17) are exactly the two this program spent waves fixing. Every row DOWNSTREAM of them fails. R12 (integrity) is 0 PASS / 16 FAIL / 14 CRITICAL \u2014 every venture.",
+  "worked_example": {
+    "venture": "174ae091",
+    "defect": "market_sizing.validation.passed=False and publishable=False; the report renders the banner 'Failed validation - figures withheld' AND, in the same document, 'a massive $1.22B TAM' with a 65/100 market-opportunity score built on it.",
+    "gate_says": "D09 = ok ('gated correctly')",
+    "why_the_gate_misses_it": "D09 checks that publishable is False and that a withhold banner EXISTS in the html. It never checks that the withheld number stays OUT of the prose. The gate verifies a disclosure was printed, not that the report obeys it."
+  },
+  "what_this_means": "219/219 is not evidence of quality. The invariants read structure (does a field exist, do two fields agree); the defects that remain are semantic (does the prose honour what the structure says). Continuing to add invariants of the same shape should not be expected to move this number."
+}
