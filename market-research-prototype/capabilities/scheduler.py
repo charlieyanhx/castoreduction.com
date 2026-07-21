@@ -34,6 +34,20 @@ log = get("scheduler")
 # these tasks are almost entirely network waits.
 DEFAULT_MAX_PARALLEL = int(os.environ.get("CASTOR_MAX_PARALLEL", "8"))
 
+# NO process-wide semaphore here — it was tried, and it DEADLOCKS.
+#
+# Per-scheduler widths genuinely do not fix nesting: customer-voice fans out inside
+# signal-gathering, so two 8-wide schedulers put 64 requests in flight. The obvious
+# fix is a shared BoundedSemaphore every worker holds. It wedges immediately: an OUTER
+# task holds a slot for its whole duration while its INNER tasks queue for slots that
+# only free when the outer task finishes. test_nesting_does_not_deadlock caught it on
+# the first run (the suite hung).
+#
+# A slot must be held by work that WAITS ON A HOST, not by work that waits on other
+# work — so the global ceiling belongs at the tool boundary (capabilities/gateway.py,
+# through which every external call already passes), not here. Left undone rather than
+# left deadlocking; the per-batch cap still bounds each individual fan-out.
+
 
 @dataclass
 class Task:

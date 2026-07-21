@@ -787,3 +787,93 @@ audit trail IS the project log — no separate status reports.
     run_plan is a ~900-line linear function whose locals feed forward, so adding 20+ skip
     guards before the split would be the kind of big-bang §1 forbids. M2/M3 gate runs are
     deferred to the item-3/item-5 close-out rather than claimed early.
+
+### Wave 4–6 (this session) — deviations & findings
+
+- **W4 item order.** Built 4 → 2 → 3 (charts, citation, PDF) rather than 1–4. Item 1
+  (`report/forecast.py`) had landed earlier in the program; item 4 was the smallest
+  self-contained piece and made a good warm-up against the render layer.
+
+- **W4-2 measured, not asserted.** The fact-density counter is not a claim, it is a
+  number: on the stored 16-venture corpus, **224/330 = 67.9%** of checkable claims
+  (a year, a $ figure, or a %) carry a resolving citation — range 55%–85%, zero
+  dangling markers. That is the baseline the number exists to move.
+
+- **W4-3 deviates from "WeasyPrint print PDF" only in fallback.** WeasyPrint is
+  preferred because it is the only engine that resolves `target-counter()`, i.e. that
+  can print real page numbers next to TOC entries; Chromium is the fallback and its
+  TOC omits them (a wrong page number is worse than none). On macOS WeasyPrint needs
+  `brew install pango`, and `report/pdf.py` sets `DYLD_FALLBACK_LIBRARY_PATH` before
+  the import — it loads those libs through ctypes at import time, so setting it after
+  is too late.
+
+- **W5-1 scheduler is NOT yet wired into plan.py.** The module, its policy, and its
+  tests are complete, but the fan-out call sites still use their own
+  ThreadPoolExecutors. A corpus regen was in flight against those fan-outs, and the
+  Wave 4 baseline has to describe the code it was generated from. Migration is the
+  Wave 5 close-out.
+
+- **W5-3 tiering policy is deliberately conservative.** The mechanism routes three
+  tiers; the POLICY downgrades exactly one call (discovery query planning, where the
+  fan-out unions many strategies so no single query is load-bearing). Competitor
+  extraction looks equally mechanical and is explicitly NOT downgraded — it decides
+  who counts as a competitor, and that lands in the report. A test pins that, so a
+  later tidy-up has to argue with it.
+
+- **A ROUTE I BROKE, AND WHY THE SUITE MISSED IT.** Extracting `display_title()` in
+  api.py, I placed it BETWEEN `@app.get("/jobs/{job_id}/report.html")` and
+  `get_job_report_html`. FastAPI registered the helper as the handler; every request
+  422'd asking for a `profile` body. 1189 tests stayed green because none exercised
+  the route, and the corpus regen wrote 16 "reports" that were each an 82-byte
+  validation error — caught only because the seeded verifier suite started reading
+  those files. Fixed, plus: test_api now asserts each report route maps to its own
+  endpoint, and the regen script raises on a non-200 render instead of writing it.
+
+- **THE SEEDED SUITE'S FIRST DRAFT PROVED NOTHING.** test_verifier.py originally
+  hand-built a "clean" report dict. It used `market_sizing.tam_usd` where the pipeline
+  emits `market_sizing.tam.mid`, top-level `competitor_density` where it lives under
+  `discover`, and so on — seven detectors found nothing to check, returned N/A, and
+  the suite passed proving only that the fixture matched itself. Rewritten to seed ONE
+  defect into a REAL corpus report and assert the DELTA (absent before, present
+  after). Schema-faithful by construction, and unsatisfiable by a detector that fires
+  on everything.
+
+- **The scheduler's per-task timeout was doing nothing.** The solo executor sat in a
+  `with` block, which joins on exit — so a timed-out task still blocked the batch for
+  its full duration. `shutdown(wait=False)` fixed it; the test file went 5.4s → 0.45s,
+  which is how it was noticed.
+
+- **A GLOBAL CONCURRENCY CEILING WAS TRIED AND REVERTED.** Per-scheduler widths do
+  not fix nesting (customer-voice fans out inside signal-gathering, so two 8-wide
+  pools are 64 in flight). The obvious fix — every worker holding one shared
+  `BoundedSemaphore` — deadlocks on the first run: an OUTER task holds a slot for its
+  whole duration while its INNER tasks queue for slots that only free when the outer
+  finishes. `test_nesting_does_not_deadlock`, written to catch exactly that, hung the
+  suite. A slot must be held by work waiting on a HOST, not on other work, so the
+  ceiling belongs at the tool boundary (`capabilities/gateway.py`, through which every
+  external call already passes). Left UNDONE rather than left deadlocking, with the
+  reasoning in the module and a test asserting no global pool is declared.
+
+### Wave 4 close-out — measured, on a fresh 16-venture corpus
+
+  | metric | value |
+  |---|---|
+  | deterministic gates (D01–D22) | **219/219 = 100.0%**, 0 blocking |
+  | fact density (claims attributed) | **208/300 = 69.3%** |
+  | pre-publication verifier | **0 blocking**, 92 advisory across 16 reports |
+  | test suite | 1233 passed, 5 skipped |
+
+  Scorecards: `docs/baselines/wave4.json` (gate table) and
+  `docs/baselines/wave4_quality.json` (fact density + verifier, per venture).
+
+  **Comparability caveat, stated plainly.** The corpus was generated by a process that
+  imported plan.py at commit a52b225, so it reflects Wave 4–5 output and does NOT
+  include the Wave 6 verifier/effort/COGS additions. Those are additive metadata on
+  the result, not changes to any number the gates read — but the corpus is not
+  evidence about them either way.
+
+  **What this does NOT claim.** M7 (R4 ≥90% / 0 critical) is a QUALITATIVE panel
+  result and is not established by any of the above. The 22 invariants read structure;
+  the R4 panel reads judgement, and it has repeatedly found defects the gates
+  structurally cannot see. 219/219 means the report is internally coherent, not that
+  it is good.

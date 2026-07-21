@@ -108,6 +108,32 @@ class TestParallelism(unittest.TestCase):
         self.assertEqual([r.value for r in out], [0, 1, 2])
 
 
+class TestNestingIsNotSilentlyCapped(unittest.TestCase):
+    """A process-wide semaphore was tried here and DEADLOCKED — recorded, not hidden.
+
+    Nesting is real: customer-voice fans out inside signal-gathering, so two 8-wide
+    schedulers put 64 requests in flight. The obvious fix — every worker holds a
+    shared BoundedSemaphore — wedges on the first run: an OUTER task holds a slot for
+    its whole duration while its INNER tasks queue for slots that only free when the
+    outer finishes. A slot must be held by work waiting on a HOST, not on other work,
+    so the global ceiling belongs at the tool boundary instead.
+
+    What this test pins is that nesting still COMPLETES. It does not claim a global cap.
+    """
+
+    def test_nested_fan_outs_complete(self):
+        def branch(i):
+            return Scheduler(max_parallel=2).run([Task(lambda: 1) for _ in range(2)])
+        out = Scheduler(max_parallel=2).run([Task(branch, (i,), timeout=10)
+                                             for i in range(3)])
+        self.assertTrue(all(not r.failed for r in out), [r.error for r in out])
+
+    def test_the_scheduler_declares_no_global_semaphore(self):
+        import capabilities.scheduler as sched
+        self.assertFalse(hasattr(sched, "_GLOBAL_SLOTS"),
+                         "a global slot pool here deadlocks on nested fan-outs")
+
+
 class TestFailureIsolation(unittest.TestCase):
     def test_one_raising_task_does_not_sink_the_batch(self):
         def boom(i):
