@@ -26,10 +26,10 @@
     "D22"
   ],
   "cells_applicable": 219,
-  "cells_passed": 219,
-  "pct_pass": 100.0,
-  "blocking_failures": 0,
-  "verdict": "PASS",
+  "cells_passed": 215,
+  "pct_pass": 98.2,
+  "blocking_failures": 4,
+  "verdict": "FAIL",
   "per_report": {
     "174ae091": {
       "D01": {
@@ -73,8 +73,8 @@
         "severity": "fail"
       },
       "D09": {
-        "ok": true,
-        "detail": "gated correctly",
+        "ok": false,
+        "detail": "withheld figures restated as fact in narrative prose: TAM $1.22B",
         "severity": "fail"
       },
       "D10": {
@@ -297,8 +297,8 @@
         "severity": "fail"
       },
       "D09": {
-        "ok": true,
-        "detail": "gated correctly",
+        "ok": false,
+        "detail": "withheld figures restated as fact in narrative prose: TAM $180M",
         "severity": "fail"
       },
       "D10": {
@@ -521,8 +521,8 @@
         "severity": "fail"
       },
       "D09": {
-        "ok": true,
-        "detail": "gated correctly",
+        "ok": false,
+        "detail": "withheld figures restated as fact in narrative prose: TAM $189M",
         "severity": "fail"
       },
       "D10": {
@@ -1529,8 +1529,8 @@
         "severity": "fail"
       },
       "D09": {
-        "ok": true,
-        "detail": "gated correctly",
+        "ok": false,
+        "detail": "withheld figures restated as fact in narrative prose: TAM $420M",
         "severity": "fail"
       },
       "D10": {
@@ -1823,5 +1823,6 @@
         "severity": "fail"
       }
     }
-  }
+  },
+  "note": "REVISED after the M7 panel. The original 219/219 was recorded with a D09 that checked only that a withhold BANNER existed. It now also checks the withheld figures stay out of narrative prose, which fails 4 ventures that restated the withheld TAM as fact. The corpus did not change; the gate got honest. 100.0% -> 98.2%."
 }
