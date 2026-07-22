@@ -69,6 +69,26 @@ def _share_pct(y3_rev: float, som_mid: float) -> float:
     return round(y3_rev / som_mid * 100, 1) if som_mid else 0.0
 
 
+def _ceiling_label(tag: str) -> str:
+    """What a scenario's Y3 ceiling IS, in words a buyer can act on (R4 rank 3).
+
+    The old rendered label divided the ceiling by som_mid and printed the ratio as
+    "% of SOM by Y3" — but since W4-1 the ceilings ARE the SOM band, so base always
+    read "100.0% of SOM" (a tautology sold as a capture claim) and aggressive read
+    120-200%: MORE than the obtainable market, by definition impossible, on 16/16
+    corpus reports. The ceiling is not a share being captured; it is which end of
+    the sizing model's own uncertainty band the scenario tops out at — so say that.
+    """
+    return {
+        "som_low": "Y3 ceiling = SOM low end",
+        "som_mid": "Y3 ceiling = SOM mid (the headline SOM)",
+        "som_high": "Y3 ceiling = SOM high end",
+        "capture_5pct": "Y3 ceiling = 5% of SOM",
+        "capture_20pct": "Y3 ceiling = 20% of SOM",
+        "capture_60pct": "Y3 ceiling = 60% of SOM",
+    }.get(tag, f"Y3 ceiling basis: {tag}")
+
+
 def project_three_year_transactional(
     som_mid: float,
     price_per_unit: float,
@@ -114,6 +134,7 @@ def project_three_year_transactional(
         scenarios[label] = {
             "year3_market_share_pct": _share_pct(y3_rev, som_mid),
             "y3_basis": tag,
+            "y3_ceiling_label": _ceiling_label(tag),
             **years,
             "break_even_year": be_year,
         }
@@ -147,6 +168,7 @@ def _project_revenue_only(som_mid: float, som_low, som_high, model: str,
         scenarios[label] = {
             "year3_market_share_pct": _share_pct(y3_rev, som_mid),
             "y3_basis": tag,
+            "y3_ceiling_label": _ceiling_label(tag),
             "year_1": {"revenue_usd": round(y3_rev * _S_CURVE[1])},
             "year_2": {"revenue_usd": round(y3_rev * _S_CURVE[2])},
             "year_3": {"revenue_usd": round(y3_rev)},
@@ -246,6 +268,7 @@ def project_three_year(
         scenarios[label] = {
             "year3_market_share_pct": _share_pct(y3_rev, som_mid),
             "y3_basis": tag,
+            "y3_ceiling_label": _ceiling_label(tag),
             **years,
             "break_even_year": be_year,
         }

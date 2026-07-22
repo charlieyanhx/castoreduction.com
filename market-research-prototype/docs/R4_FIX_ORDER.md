@@ -6,6 +6,19 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
 
 - **at_som_volume computed at som.high but labelled 100% of SOM** — fixed in `5a840f8` (plan.py `_enrich_economics_at_som` now pins to the base Y3 ceiling), gate `d23_at_som_matches_its_label` live. Residue folded into rank 3 below: the template's `< 100` caveat gate at report.html:1302 is now a dead branch.
 - **Withheld profit rendered as a fabricated $0/mo in alarm red** — fixed in `2c6a2c9`, gate `d24_withheld_profit_not_fabricated` live.
+- **"% of SOM" label (rank 3)** — FIXED. The label divided each scenario's Y3
+  ceiling by som_mid and printed the ratio as a capture claim — but the ceilings ARE
+  the SOM band, so base always read "100.0% of SOM" and aggressive read 120-200%,
+  an impossible number on 16/16 stored reports. The three scenario tables now name
+  what the ceiling IS ("Y3 ceiling = SOM high end", ladder rungs as "N% of SOM"),
+  all three assumptions blocks render `scenario_basis` (previously JSON-only), and
+  the at-SOM caveat no longer attributes the base ceiling to "the aggressive
+  scenario" (a mislabel D23's fix had exposed on the ladder path). Old stored JSON
+  degrades to the basis tag, never back to the percent claim. Gate
+  `d27_som_share_claims_possible`: >100% share fails; an unrendered scenario_basis
+  fails; comparison is against UNESCAPED html — Jinja's &#39; for the apostrophe made
+  the first draft report a rendered sentence as missing. Stored corpus: 16/16 FAIL;
+  re-render passes.
 - **P&L cost side (rank 2)** — FIXED, in four parts.
   (a) `business_model.multi_site_withhold_reason()` is now the ONE predicate for
   "SOM spans more sites than the fixed cost covers" — regional AND national_physical

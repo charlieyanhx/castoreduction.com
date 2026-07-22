@@ -328,6 +328,38 @@ def d26_pnl_cost_side_honest(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, "cost side consistent with its own claims")
 
 
+_SOM_SHARE_RE = re.compile(r"(\d{2,4}(?:\.\d+)?)\s*% of SOM")
+
+
+def d27_som_share_claims_possible(r: dict, html: Optional[str]) -> Finding:
+    """No rendered share of SOM may exceed 100%, and the scenario construction must
+    reach the reader (R4 rank 3, 16/16).
+
+    The old label divided each scenario's Y3 ceiling by som_mid and printed the
+    ratio as "% of SOM by Y3" — but the ceilings ARE the SOM band, so aggressive
+    printed 120-200% of SOM: more than the obtainable market, by definition
+    impossible. And `assumptions.scenario_basis`, the one sentence explaining the
+    construction, was emitted in JSON and rendered nowhere."""
+    fin = r.get("financials") or {}
+    if not fin.get("scenarios") or html is None:
+        return Finding(None, "no financials or no HTML")
+    impossible = sorted({m for m in _SOM_SHARE_RE.findall(html) if float(m) > 100})
+    if impossible:
+        return Finding(False, "impossible share of SOM rendered: "
+                              + ", ".join(f"{v}%" for v in impossible[:4]))
+    basis = str((fin.get("assumptions") or {}).get("scenario_basis") or "")
+    if basis:
+        # Compare against UNESCAPED html: Jinja autoescape turns the basis text's
+        # apostrophe into &#39;, and a raw substring check reported a rendered
+        # sentence as missing (caught live on the first re-render).
+        import html as _html_mod
+        first_clause = basis.split(":")[0].strip()
+        if first_clause and first_clause not in _html_mod.unescape(html):
+            return Finding(False, "scenario_basis is in the JSON but its first "
+                                  "clause is rendered nowhere")
+    return Finding(True, "share claims possible; scenario basis rendered")
+
+
 def d09_publishable_gated(r: dict, html: Optional[str]) -> Finding:
     """Failed validation must WITHHELD the numbers — not merely disclaim them.
 
@@ -737,6 +769,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D24", "withheld profit never rendered as a number", "R12: a suppressed verdict published as a fabricated $0", "fail", d24_withheld_profit_not_fabricated),
     Invariant("D25", "provenance chip never claims sourcing it lacks", "R4 rank 1: model-asserted citations sold as fetched data", "fail", d25_provenance_chip_not_fabricated),
     Invariant("D26", "P&L cost side honest (withhold holds; CAC-feasible break-even; margin bound)", "R4 rank 2: single-site scalar + ignored CAC", "fail", d26_pnl_cost_side_honest),
+    Invariant("D27", "no impossible share-of-SOM claim; scenario basis rendered", "R4 rank 3: ceilings ARE the band, ratio sold as capture", "fail", d27_som_share_claims_possible),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

@@ -710,7 +710,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     {% set s = financials.scenarios[label] %}
     {% set color = '#ef4444' if label == 'conservative' else ('#3b82f6' if label == 'base' else '#10b981') %}
     <tr style="border-bottom:1px solid #e5e7eb">
-      <td style="padding:10px"><strong style="color:{{ color }};text-transform:capitalize">{{ label }}</strong><br><span style="font-size:9pt;color:#6b7280">{{ s.year3_market_share_pct }}% of SOM by Y3</span></td>
+      <td style="padding:10px"><strong style="color:{{ color }};text-transform:capitalize">{{ label }}</strong><br><span style="font-size:9pt;color:#6b7280">{{ s.y3_ceiling_label or ('ceiling: ' + s.y3_basis|string) }}</span></td>
       {% for yk in ['year_1','year_2','year_3'] %}{% set y = s[yk] %}
       <td style="text-align:right;padding:10px">{{ format_currency(y.revenue_usd) }}<br>
         <span style="font-size:9pt;color:#6b7280">{{ '{:,}'.format(y.units) }} {{ financials.assumptions.unit }}s · {{ y.units_per_day }}/day</span><br>
@@ -739,7 +739,8 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <div style="background:#f9fafb;padding:10px 14px;border-radius:6px;font-size:9.5pt;color:#4b5563">
   <strong>Assumptions:</strong>
   ${{ financials.assumptions.price_per_unit }}/{{ financials.assumptions.unit }} · {{ financials.assumptions.contribution_margin_pct }}% contribution margin · ${{ '{:,.0f}'.format(financials.assumptions.monthly_fixed_cost) }}/mo fixed cost.
-  {{ financials.assumptions.growth_curve }}.<br>
+  {{ financials.assumptions.growth_curve }}.
+  {% if financials.assumptions.scenario_basis %}<br>{{ financials.assumptions.scenario_basis }}{% endif %}<br>
   <span style="color:#9ca3af">{{ financials.assumptions.break_even_note }} Cost structure is a model estimate — operator should validate.</span>
 </div>
 {% elif is_marketplace_financials %}
@@ -758,7 +759,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     {% set s = financials.scenarios[label] %}
     {% set color = '#ef4444' if label == 'conservative' else ('#3b82f6' if label == 'base' else '#10b981') %}
     <tr style="border-bottom:1px solid #e5e7eb">
-      <td style="padding:10px"><strong style="color:{{ color }};text-transform:capitalize">{{ label }}</strong><br><span style="font-size:9pt;color:#6b7280">{{ s.year3_market_share_pct }}% of SOM by Y3</span></td>
+      <td style="padding:10px"><strong style="color:{{ color }};text-transform:capitalize">{{ label }}</strong><br><span style="font-size:9pt;color:#6b7280">{{ s.y3_ceiling_label or ('ceiling: ' + s.y3_basis|string) }}</span></td>
       <td style="text-align:right;padding:10px">{{ format_currency(s.year_1.revenue_usd) }}</td>
       <td style="text-align:right;padding:10px">{{ format_currency(s.year_2.revenue_usd) }}</td>
       <td style="text-align:right;padding:10px"><strong>{{ format_currency(s.year_3.revenue_usd) }}</strong></td>
@@ -769,6 +770,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <div style="background:#f9fafb;padding:10px 14px;border-radius:6px;font-size:9.5pt;color:#4b5563">
   <strong>Assumptions:</strong> {{ financials.assumptions.revenue_basis }}
   {{ financials.assumptions.growth_curve }}.
+  {% if financials.assumptions.scenario_basis %}<br>{{ financials.assumptions.scenario_basis }}{% endif %}
 </div>
 {% else %}
 <p style="font-size:11pt;color:#4b5563">Three scenarios derived deterministically from SOM and PSM optimal price. Choose your scenario based on execution confidence.</p>
@@ -787,7 +789,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     {% set s = financials.scenarios[label] %}
     {% set color = '#ef4444' if label == 'conservative' else ('#3b82f6' if label == 'base' else '#10b981') %}
     <tr style="border-bottom:1px solid #e5e7eb">
-      <td style="padding:10px"><strong style="color:{{ color }};text-transform:capitalize">{{ label }}</strong><br><span style="font-size:9pt;color:#6b7280">{{ s.year3_market_share_pct }}% of SOM by Y3</span></td>
+      <td style="padding:10px"><strong style="color:{{ color }};text-transform:capitalize">{{ label }}</strong><br><span style="font-size:9pt;color:#6b7280">{{ s.y3_ceiling_label or ('ceiling: ' + s.y3_basis|string) }}</span></td>
       <td style="text-align:right;padding:10px">{{ format_currency(s.year_1.revenue_usd) }}<br><span style="font-size:9pt;color:#6b7280">{{ s.year_1.customers }} cust</span></td>
       <td style="text-align:right;padding:10px">{{ format_currency(s.year_2.revenue_usd) }}<br><span style="font-size:9pt;color:#6b7280">{{ s.year_2.customers }} cust</span></td>
       <td style="text-align:right;padding:10px"><strong>{{ format_currency(s.year_3.revenue_usd) }}</strong><br><span style="font-size:9pt;color:#6b7280">{{ s.year_3.customers }} cust</span></td>
@@ -802,6 +804,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   <strong>Assumptions:</strong>
   Annual price per customer: ${{ financials.assumptions.annual_price_per_customer }} ({{ financials.assumptions.monthly_churn_pct }}%/mo churn assumed).
   S-curve adoption: Y1=8%, Y2=35%, Y3=100% of year-3 ceiling.
+  {% if financials.assumptions.scenario_basis %}<br>{{ financials.assumptions.scenario_basis }}{% endif %}
   {% if financials.assumptions.break_even_monthly_fixed_cost %}<br><strong>Break-even basis:</strong>
   assumes ${{ '{:,.0f}'.format(financials.assumptions.break_even_monthly_fixed_cost) }}/mo fixed cost and ${{ financials.assumptions.break_even_variable_cost_per_customer }}/customer variable cost
   <span style="color:#9ca3af">({{ financials.assumptions.break_even_cost_source }})</span>. The break-even column is illustrative until the operator sets a real cost structure.{% endif %}
@@ -1336,7 +1339,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 {% if economics.at_som_volume.profit_withheld_reason %}
 <p style="font-size:10pt;color:#4b5563">At the obtainable SOM volume (~{{ economics.at_som_volume.monthly_units_per_day }} {{ economics.unit }}s/day): {{ format_currency(economics.at_som_volume.monthly_revenue_usd) }}/mo revenue. <strong>Operating profit is withheld</strong> — {{ economics.at_som_volume.profit_withheld_reason }}</p>
 {% else %}
-<p style="font-size:10pt;color:#4b5563">At the obtainable SOM volume (~{{ economics.at_som_volume.monthly_units_per_day }} {{ economics.unit }}s/day{% if economics.at_som_volume.som_capture_pct and economics.at_som_volume.som_capture_pct < 100 %}, the aggressive-scenario ceiling of {{ economics.at_som_volume.som_capture_pct | round | int }}% of SOM{% endif %}): <strong style="color:{% if economics.at_som_volume.profitable_at_som %}#059669{% else %}#dc2626{% endif %}">{{ format_currency(economics.at_som_volume.monthly_operating_profit_usd) }}/mo operating profit</strong> on {{ format_currency(economics.at_som_volume.monthly_revenue_usd) }}/mo revenue.</p>
+<p style="font-size:10pt;color:#4b5563">At the obtainable SOM volume (~{{ economics.at_som_volume.monthly_units_per_day }} {{ economics.unit }}s/day{% if economics.at_som_volume.som_capture_pct and economics.at_som_volume.som_capture_pct < 100 %}, the base-scenario ceiling ({{ economics.at_som_volume.som_capture_pct | round | int }}% of SOM){% endif %}): <strong style="color:{% if economics.at_som_volume.profitable_at_som %}#059669{% else %}#dc2626{% endif %}">{{ format_currency(economics.at_som_volume.monthly_operating_profit_usd) }}/mo operating profit</strong> on {{ format_currency(economics.at_som_volume.monthly_revenue_usd) }}/mo revenue.</p>
 {% endif %}
 {% endif %}
 <p style="font-size:9pt;color:#9ca3af">No churn/CLV: a per-{{ economics.unit }} retail business is sized on volume × margin, not subscription retention.</p>
