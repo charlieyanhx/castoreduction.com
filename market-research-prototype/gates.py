@@ -360,6 +360,43 @@ def d27_som_share_claims_possible(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, "share claims possible; scenario basis rendered")
 
 
+def d28_domain_identity_verified(r: dict, html: Optional[str]) -> Finding:
+    """Competitor domains must be IDENTITIES, not lookalikes; the relevance gate must
+    actually fire (R4 rank 4, 15/16).
+
+    Two checks:
+      1. Any ranked record whose domain came from pattern_probe at "medium" must have
+         a registrable label that plausibly IS the brand name — purpleair.shop's
+         squatter prices became the category anchor through exactly this hole.
+      2. Calibration canary: off_category firing on ZERO of >=50 relevance-scored
+         records is the audit's 9-of-263 shape — a gate that never fires is
+         decoration, and decoration reads as verification.
+    """
+    ops = (((r.get("discover") or {}).get("synthesis") or {})
+           .get("ranked_opportunities") or [])
+    if not ops:
+        return Finding(None, "no ranked competitors")
+    from sources import brand_names_match
+    bad = []
+    for op in ops:
+        if not isinstance(op, dict):
+            continue
+        if (op.get("domain_source") == "pattern_probe"
+                and op.get("domain_confidence") == "medium"):
+            label = str(op.get("domain") or "").split(".")[0]
+            if label and not brand_names_match(str(op.get("brand") or ""), label):
+                bad.append(f"{op.get('brand')} -> {op.get('domain')}")
+    if bad:
+        return Finding(False, "pattern-probed domain fails the brand-identity match: "
+                              + "; ".join(bad[:3]))
+    scored = [op for op in ops if isinstance(op, dict)
+              and isinstance(op.get("relevance_score"), (int, float))]
+    if len(scored) >= 50 and not any(op.get("off_category") for op in scored):
+        return Finding(False, f"relevance gate mis-calibrated: 0 of {len(scored)} "
+                              "scored records flagged off-category")
+    return Finding(True, "domain identities verified; relevance gate live")
+
+
 def d09_publishable_gated(r: dict, html: Optional[str]) -> Finding:
     """Failed validation must WITHHELD the numbers — not merely disclaim them.
 
@@ -770,6 +807,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D25", "provenance chip never claims sourcing it lacks", "R4 rank 1: model-asserted citations sold as fetched data", "fail", d25_provenance_chip_not_fabricated),
     Invariant("D26", "P&L cost side honest (withhold holds; CAC-feasible break-even; margin bound)", "R4 rank 2: single-site scalar + ignored CAC", "fail", d26_pnl_cost_side_honest),
     Invariant("D27", "no impossible share-of-SOM claim; scenario basis rendered", "R4 rank 3: ceilings ARE the band, ratio sold as capture", "fail", d27_som_share_claims_possible),
+    Invariant("D28", "competitor domains are identities, not lookalikes", "R4 rank 4: pattern-probed squatter poisoned prices", "fail", d28_domain_identity_verified),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

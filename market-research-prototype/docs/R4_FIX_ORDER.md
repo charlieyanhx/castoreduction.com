@@ -6,6 +6,26 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
 
 - **at_som_volume computed at som.high but labelled 100% of SOM** — fixed in `5a840f8` (plan.py `_enrich_economics_at_som` now pins to the base Y3 ceiling), gate `d23_at_som_matches_its_label` live. Residue folded into rank 3 below: the template's `< 100` caveat gate at report.html:1302 is now a dead branch.
 - **Withheld profit rendered as a fabricated $0/mo in alarm red** — fixed in `2c6a2c9`, gate `d24_withheld_profit_not_fabricated` live.
+- **Identity-blind competitor discovery (rank 4)** — FIXED, four rules.
+  (a) probe_domain_patterns now splits IDENTITY patterns ({slug}.com/.co — the
+  brand's own name) from AFFIX lookalikes (eat/try/get/the{core}.com, {core}foods,
+  {slug}.shop): affix hits are capped at "low", which the consumer already refuses —
+  a live page at a manufactured host is a lead, never an identity. That closes the
+  purpleair.shop hole (a squatter storefront whose prices became the category anchor).
+  (b) A redirect landing on a DIFFERENT ROOT is a different company: the candidate
+  yields nothing (kona.com -> deltek.com no longer makes deltek "Kona's domain").
+  (c) "medium" additionally requires brand_names_match(brand, host label) — a shared
+  stem (Kona vs konafoods) is not an identity.
+  (d) PARKING_PATTERNS learned the observed domain-marketplace strings (afternic,
+  dan.com, sedo, "parked free", "purchase this domain");
+  RELEVANCE_THRESHOLD 0.45 -> 0.50 (0.45 sat at the 4th percentile of its own score
+  distribution; 0.50 fires on the bottom tail while keeping the known-real 0.52 case
+  — the grey zone above that is the identity rules' job, not the threshold's).
+  Plus: _merge_enrichment_provenance carries domain_source/domain_confidence through
+  the synthesis (251/251 stored records had neither, so no gate could ever see how a
+  domain was adopted). Gate d28: pattern-probed "medium" domains must pass the
+  brand-identity match, and off_category firing on 0 of >=50 scored records is
+  itself a FAIL (a gate that never fires is decoration).
 - **"% of SOM" label (rank 3)** — FIXED. The label divided each scenario's Y3
   ceiling by som_mid and printed the ratio as a capture claim — but the ceilings ARE
   the SOM band, so base always read "100.0% of SOM" and aggressive read 120-200%,
