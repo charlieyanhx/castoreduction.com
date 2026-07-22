@@ -6,6 +6,27 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
 
 - **at_som_volume computed at som.high but labelled 100% of SOM** — fixed in `5a840f8` (plan.py `_enrich_economics_at_som` now pins to the base Y3 ceiling), gate `d23_at_som_matches_its_label` live. Residue folded into rank 3 below: the template's `< 100` caveat gate at report.html:1302 is now a dead branch.
 - **Withheld profit rendered as a fabricated $0/mo in alarm red** — fixed in `2c6a2c9`, gate `d24_withheld_profit_not_fabricated` live.
+- **P&L cost side (rank 2)** — FIXED, in four parts.
+  (a) `business_model.multi_site_withhold_reason()` is now the ONE predicate for
+  "SOM spans more sites than the fixed cost covers" — regional AND national_physical
+  — consulted by both the at-SOM block and `project_three_year_transactional`, so the
+  scenario table withholds profit/break-even with the SAME sentence economics uses
+  (revenue and unit volumes stay; they are sound).
+  (b) The subscription break-even is CAC-feasibility-checked against the venture's
+  own `unit_economics.typical_cac_usd`: a break-even year whose acquisition spend
+  meets or exceeds that year's revenue is reported as no-break-even, with the caveat
+  naming the arithmetic; the no-CAC case now DISCLOSES that acquisition is excluded.
+  (c) `estimate_cost_structure` is scale-aware — digital/global ventures are costed
+  as early-stage company overhead (team+infra+tooling), not a storefront, and every
+  result carries a `basis` naming which cost model produced it.
+  (d) report.html's scenario profit cell is guarded — a withheld profit renders
+  "profit withheld" + an amber banner with the reason, not a SafeUndefined "$0/mo
+  profit" in red (the D24 class, one table up).
+  Gate `d26_pnl_cost_side_honest`: withhold binds BOTH surfaces (the stored de34e328
+  cross-surface contradiction now fails); CAC-infeasible break-evens fail (stored
+  4a755faa fails on all three scenarios: base = 952 x $4,500 = $4.28M spend vs $160K
+  revenue, claimed break-even Y1); implied op margin may never exceed the disclosed
+  contribution margin.
 - **Fabricated provenance chip (rank 1)** — FIXED. `n_sourced` split into `n_cited`
   (citation strings the model wrote) vs `n_grounded` (data_origin records a real
   fetch); the chip is green only for the second, amber "Citations: model-asserted —

@@ -1857,7 +1857,10 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         except (TypeError, ValueError):
             _opt = None
         from pricing import estimate_cost_structure
-        _cost = estimate_cost_structure(profile.get("category", ""), _opt) if _opt else None
+        _cost = estimate_cost_structure(
+            profile.get("category", ""), _opt,
+            market_scale=(result.get("market_scale") or {}).get("scale"),
+        ) if _opt else None
         # Transactional retail prices per real unit (e.g. $6/drink), not the PSM monthly point.
         # Prefer an explicit per-unit stated price ("$6 per drink"), then a one-time
         # device/hardware price ("$199 device" — B2/D17: a hybrid hardware+subscription
@@ -2157,6 +2160,11 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     _needs_price = _fin_model not in ("marketplace", "ad_supported")
     if som_mid and (optimal_price or not _needs_price):
         log.info("[plan] Step 10b: 3-year financial projections")
+        # R4 rank 2: the venture's own published CAC feeds the break-even
+        # feasibility check — a break-even year whose acquisition spend exceeds
+        # that year's revenue is not claimable.
+        _cac = (((result.get("economics") or {}).get("unit_economics") or {})
+                .get("typical_cac_usd"))
         proj = project_three_year(
             som_mid=float(som_mid),
             optimal_price=float(optimal_price) if optimal_price else None,
@@ -2166,6 +2174,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             economics=result.get("economics"),
             som_low=som_low, som_high=som_high,
             market_scale=_mkt_scale,
+            cac_usd=float(_cac) if isinstance(_cac, (int, float)) and _cac > 0 else None,
         )
         if not proj.get("error"):
             result["financials"] = proj

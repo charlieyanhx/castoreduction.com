@@ -187,6 +187,25 @@ def benchmark_validation_note(unit: str, category: str = "", business_model: str
     )
 
 
+def multi_site_withhold_reason(market_scale: str | None) -> str | None:
+    """The ONE predicate for "SOM spans more sites than the fixed cost covers".
+
+    Both the at-SOM economics block and the financials scenario table must make this
+    judgement, and they must make it IDENTICALLY — two inline checks of the same
+    condition is exactly how the at-SOM numbers drifted from the scenario table
+    (fixed as D23). Regional and national_physical scales imply multiple sites;
+    the cost model is one site's rent+staff+utilities, so a profit claim at those
+    volumes would understate costs. Digital scales are excluded: their fixed cost is
+    not site-bound (it is wrong for a different reason — the storefront cost prompt —
+    which is rank 2's other half, not this predicate's job).
+    """
+    scale = (market_scale or "").lower()
+    if "regional" in scale or "national_physical" in scale:
+        return ("SOM spans multiple locations but fixed cost is single-site — a "
+                "profit claim at this volume would understate costs.")
+    return None
+
+
 def retail_unit_economics(
     price_per_unit: float,
     variable_cost_per_unit: float,
@@ -252,13 +271,11 @@ def retail_unit_economics(
             "som_capture_pct": round(som_capture_frac * 100, 1),
             "fixed_cost_basis": "single-site rent + staff + utilities",
         }
-        if "regional" in (market_scale or "").lower():
-            # A regional/multi-location SOM implies several sites' fixed costs; scaling
-            # revenue to that ceiling against ONE site's rent fabricates profit. Show
-            # the volume, withhold the profit verdict, say why.
-            asv["profit_withheld_reason"] = (
-                "SOM spans multiple locations but fixed cost is single-site — a "
-                "profit claim at this volume would understate costs.")
+        _withhold = multi_site_withhold_reason(market_scale)
+        if _withhold:
+            # Show the volume, withhold the profit verdict, say why — with the SAME
+            # sentence financials uses, from the same predicate.
+            asv["profit_withheld_reason"] = _withhold
         else:
             asv["monthly_operating_profit_usd"] = monthly_profit
             asv["profitable_at_som"] = monthly_profit > 0
