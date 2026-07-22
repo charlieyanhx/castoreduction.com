@@ -692,6 +692,17 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 {% if financials and not financials.error %}
 <!-- 3-YEAR FINANCIAL PROJECTIONS -->
 <h2>3-Year Revenue Scenarios</h2>
+<!-- SCENARIOS WITHHOLD BANNER -->
+{% if financials.derived_from_withheld_sizing %}
+{# R4 rank 5: the sizing withhold used to end one endif above this heading — a red
+   "do not rely" banner followed immediately by an unflagged revenue table built from
+   the same withheld funnel. The stamp travels on the financials dict (the data-layer
+   decision); this banner is its rendering. #}
+<div style="background:#fef2f2;border:1px solid #fca5a5;padding:12px 16px;border-radius:8px;font-size:10pt;color:#991b1b;margin:10px 0">
+  <strong>⚠ {{ financials.withhold_note or 'Derived from figures that failed the integrity gate — do not rely on these projections.' }}</strong>
+</div>
+{% endif %}
+<!-- END SCENARIOS WITHHOLD BANNER -->
 {% if is_transactional %}
 <p style="font-size:11pt;color:#4b5563">Three scenarios derived deterministically from the obtainable SOM. Volume is shown as annual {{ financials.assumptions.unit }}s sold; profit is monthly operating profit (revenue × contribution margin − fixed cost).</p>
 <!-- TRANSACTIONAL SCENARIOS -->

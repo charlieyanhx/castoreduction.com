@@ -298,3 +298,23 @@ def project_three_year(
             "break_even_cost_source": (break_even_costs or {}).get("cost_source"),
         },
     }
+
+
+def mark_derived_from_withheld(proj: dict, market_sizing: dict | None) -> dict:
+    """Stamp a projection whose inputs failed the sizing integrity gate (R4 rank 5).
+
+    The scenarios are pure arithmetic on the SOM — when the SOM is withheld, the
+    table built from it is withheld-by-derivation, and 3219f4db showed what happens
+    otherwise: a red "do not rely" banner followed immediately by an unflagged
+    $96K/$420K/$1.2M revenue table from the same funnel. The stamp is the DATA-LAYER
+    decision; the template banner is only its rendering, so JSON consumers (PDF, API,
+    any future UI) see it too. Mutates and returns proj; a clean sizing is a no-op.
+    """
+    if not isinstance(proj, dict) or not proj:
+        return proj
+    if (market_sizing or {}).get("publishable") is False:
+        proj["derived_from_withheld_sizing"] = True
+        proj["withhold_note"] = (
+            "Derived from figures that failed the integrity gate — the market-sizing "
+            "numbers beneath this table were withheld; do not rely on these projections.")
+    return proj

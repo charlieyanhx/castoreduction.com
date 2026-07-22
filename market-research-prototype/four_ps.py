@@ -986,7 +986,19 @@ def score_viability(
     # venture's real TAM/SOM and scale — not the LLM's guess of the national category size
     # (which made a single cafe score against "$1B-$10B" national buckets).
     ms = market_sizing or {}
-    if ms.get("tam") or ms.get("method"):
+    if ms.get("publishable") is False:
+        # R4 rank 5: the sizing failed its own integrity gate. Feeding the withheld
+        # TAM here labelled "authoritative" is how all four blocked corpus reports
+        # scored Market Opportunity (22% of the composite) on a number the same page
+        # says "do not rely on" — one wrote "a massive $1.22B TAM" into its summary.
+        # The model cannot restate a number it never receives.
+        real_metrics.append(
+            "- MARKET SIZING: FAILED ITS INTEGRITY GATE — the TAM/SAM/SOM figures are "
+            "withheld and MUST NOT appear anywhere in your reasoning or summary. "
+            "Score market_opportunity as UNKNOWN: use a neutral 50 and state plainly "
+            "that the sizing failed validation, so the score reflects uncertainty, "
+            "not opportunity.")
+    elif ms.get("tam") or ms.get("method"):
         _t = (ms.get("tam") or {}).get("mid")
         _s = (ms.get("som") or {}).get("mid")
         _method = ms.get("method") or "national/digital"

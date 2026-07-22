@@ -6,6 +6,20 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
 
 - **at_som_volume computed at som.high but labelled 100% of SOM** — fixed in `5a840f8` (plan.py `_enrich_economics_at_som` now pins to the base Y3 ceiling), gate `d23_at_som_matches_its_label` live. Residue folded into rank 3 below: the template's `< 100` caveat gate at report.html:1302 is now a dead branch.
 - **Withheld profit rendered as a fabricated $0/mo in alarm red** — fixed in `2c6a2c9`, gate `d24_withheld_profit_not_fabricated` live.
+- **Withhold stops at one Jinja block (rank 5)** — FIXED, data-layer. The sizing
+  withhold ended at report.html's endif; the 3-Year Revenue table (computed from the
+  withheld SOM) rendered unflagged directly below the "do not rely" banner, and
+  score_viability was fed the raw sizing dict labelled "authoritative" — all four
+  blocked reports scored Market Opportunity (22% of the composite) on the number the
+  same page withheld. Now: (a) viability never RECEIVES withheld numbers — it gets
+  an explicit "failed its integrity gate; score market_opportunity as UNKNOWN,
+  neutral 50, say why" (the model cannot restate a number it never sees);
+  (b) `financials.mark_derived_from_withheld` stamps the projection
+  (`derived_from_withheld_sizing` + note) — the data-layer decision JSON consumers
+  read — and the template renders the scenarios section under a matching red banner.
+  Gate d29: unstamped financials on a blocked sizing fails; a scenarios REGION
+  (heading to next h2) with no withhold language fails. Stored corpus: 4/4 blocked
+  reports fail; the re-render with the stamp passes.
 - **Identity-blind competitor discovery (rank 4)** — FIXED, four rules.
   (a) probe_domain_patterns now splits IDENTITY patterns ({slug}.com/.co — the
   brand's own name) from AFFIX lookalikes (eat/try/get/the{core}.com, {core}foods,
