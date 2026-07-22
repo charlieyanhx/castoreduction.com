@@ -397,6 +397,35 @@ def d28_domain_identity_verified(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, "domain identities verified; relevance gate live")
 
 
+def d29_withhold_propagates(r: dict, html: Optional[str]) -> Finding:
+    """A withheld sizing binds everything DERIVED from it (R4 rank 5, 4/4 blocked).
+
+    The withhold used to end at one Jinja block: 3219f4db rendered "do not rely on
+    these figures" and, immediately below it, an unflagged $96K/$420K/$1.2M revenue
+    table computed from the same withheld funnel. Two checks when validation failed:
+      1. financials must carry the derived_from_withheld_sizing stamp — the
+         DATA-layer decision JSON consumers (PDF, API) read;
+      2. the html's scenarios REGION (heading to next h2) must carry the withhold
+         language. A missing scenarios section passes — absence cannot mislead."""
+    ms = r.get("market_sizing") or {}
+    if ms.get("publishable") is not False:
+        return Finding(None, "sizing publishable or absent")
+    fin = r.get("financials") or {}
+    if fin.get("scenarios") and not fin.get("derived_from_withheld_sizing"):
+        return Finding(False, "sizing withheld but financials carries no "
+                              "derived_from_withheld_sizing stamp")
+    if html is not None:
+        m = re.search(r"3-Year Revenue Scenarios", html)
+        if m:
+            nxt = re.search(r"<h2[\s>]", html[m.end():])
+            region = html[m.end(): m.end() + (nxt.start() if nxt else len(html))]
+            low = region.lower()
+            if "integrity gate" not in low and "do not rely" not in low:
+                return Finding(False, "withheld sizing but the revenue-scenarios "
+                                      "section renders with no withhold language")
+    return Finding(True, "withhold propagates to derived surfaces")
+
+
 def d09_publishable_gated(r: dict, html: Optional[str]) -> Finding:
     """Failed validation must WITHHELD the numbers — not merely disclaim them.
 
@@ -808,6 +837,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D26", "P&L cost side honest (withhold holds; CAC-feasible break-even; margin bound)", "R4 rank 2: single-site scalar + ignored CAC", "fail", d26_pnl_cost_side_honest),
     Invariant("D27", "no impossible share-of-SOM claim; scenario basis rendered", "R4 rank 3: ceilings ARE the band, ratio sold as capture", "fail", d27_som_share_claims_possible),
     Invariant("D28", "competitor domains are identities, not lookalikes", "R4 rank 4: pattern-probed squatter poisoned prices", "fail", d28_domain_identity_verified),
+    Invariant("D29", "withheld sizing binds derived surfaces (scenarios, viability)", "R4 rank 5: unflagged revenue table below a do-not-rely banner", "fail", d29_withhold_propagates),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

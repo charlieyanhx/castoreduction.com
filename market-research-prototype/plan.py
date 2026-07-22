@@ -2177,7 +2177,11 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             cac_usd=float(_cac) if isinstance(_cac, (int, float)) and _cac > 0 else None,
         )
         if not proj.get("error"):
-            result["financials"] = proj
+            # R4 rank 5: a projection computed from a withheld SOM carries the
+            # withhold with it — the data-layer decision the template banner renders.
+            from financials import mark_derived_from_withheld
+            result["financials"] = mark_derived_from_withheld(
+                proj, result.get("market_sizing"))
             _step_done(result, "financials")
             checkpoint()
 
