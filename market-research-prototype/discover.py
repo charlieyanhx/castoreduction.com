@@ -450,6 +450,28 @@ def _verify_competitor_completeness(candidates: list[dict], category: str, geo: 
     return candidates
 
 
+def _merge_enrichment_provenance(ranked_ops: list, enriched: list) -> None:
+    """Copy per-record provenance from the enriched candidates into the LLM-ranked
+    records, matched by domain then brand (R4 rank 4).
+
+    The synthesis LLM rebuilds each record, so everything the enrichment learned —
+    HOW the domain was adopted (domain_source/domain_confidence) and the relevance
+    verdict — was dropped on the floor: 251/251 stored ranked records carried none of
+    it, which meant no gate could ever police identity-blind adoption. Mutates
+    ranked_ops in place; records with no enriched counterpart are left alone.
+    """
+    by_domain = {e.get("domain"): e for e in enriched if e.get("domain")}
+    by_brand = {e.get("brand"): e for e in enriched if e.get("brand")}
+    for op in ranked_ops or []:
+        src = by_domain.get(op.get("domain")) or by_brand.get(op.get("brand"))
+        if not src:
+            continue
+        for key in ("off_category", "relevance_score", "domain_source",
+                    "domain_confidence"):
+            if key in src:
+                op[key] = src[key]
+
+
 def _apply_relevance_to_ranking(entries: list[dict]) -> list[dict]:
     """B4/D19: an off-category domain (content relevance below the W2-5 threshold)
     must never present as a "direct" competitor, and never outrank on-category
@@ -733,13 +755,8 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
         # merge the W2-5 verdict back in by domain (fallback: brand name) so an
         # off-category domain can never present as "direct" or outrank on-category
         # entries by raw score.
-        by_domain = {e.get("domain"): e for e in enriched_sorted if e.get("domain")}
-        by_brand = {e.get("brand"): e for e in enriched_sorted if e.get("brand")}
-        for op in synthesis.get("ranked_opportunities") or []:
-            src = by_domain.get(op.get("domain")) or by_brand.get(op.get("brand"))
-            if src and "off_category" in src:
-                op["off_category"] = src["off_category"]
-                op["relevance_score"] = src.get("relevance_score")
+        _merge_enrichment_provenance(synthesis.get("ranked_opportunities") or [],
+                                     enriched_sorted)
         synthesis["ranked_opportunities"] = _apply_relevance_to_ranking(
             synthesis["ranked_opportunities"])
         result["synthesis"] = synthesis
