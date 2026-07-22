@@ -234,6 +234,35 @@ def d24_withheld_profit_not_fabricated(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, "withheld profit disclosed with its reason")
 
 
+def d25_provenance_chip_not_fabricated(r: dict, html: Optional[str]) -> Finding:
+    """The report may not claim SOURCING it does not have (R4 rank 1, 16/16).
+
+    The integrity chip rendered green "Sourced: 3/3 — headline methods with a cited
+    source" from the LLM-authored `source` strings, on reports whose every
+    triangulation path was origin='llm' — model-recalled citations sold as fetched
+    data, 7 of them naming Census/BLS for numbers no fetch produced. FAILS when no
+    method is genuinely grounded (data_origin) but the html carries the fetched-data
+    claim without the model-asserted disclosure."""
+    ms = r.get("market_sizing") or {}
+    tam = ms.get("tam") or {}
+    methods = [tam.get(k) or {} for k in ("method_top_down", "method_bottom_up", "method_analog")]
+    methods = [m for m in methods if isinstance(m.get("value_usd"), (int, float))]
+    if not methods or html is None:
+        return Finding(None, "no headline methods or no HTML")
+    n_grounded = sum(1 for m in methods
+                     if str(m.get("data_origin") or "").strip().lower() not in ("", "llm"))
+    if n_grounded > 0:
+        return Finding(True, f"{n_grounded}/{len(methods)} methods genuinely grounded")
+    # All model-asserted: the old green claim must be gone and the disclosure present.
+    if "with a cited source" in html:
+        return Finding(False, "all origins are llm but the chip still claims "
+                              "'headline methods with a cited source'")
+    if "model-asserted" not in html:
+        return Finding(False, "all origins are llm and the model-asserted disclosure "
+                              "is rendered nowhere")
+    return Finding(True, "model-asserted citations disclosed as such")
+
+
 def d09_publishable_gated(r: dict, html: Optional[str]) -> Finding:
     """Failed validation must WITHHELD the numbers — not merely disclaim them.
 
@@ -641,6 +670,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D22", "viability reasoning coherent with real competitor density", "invented competitor-count claim (audit item 3)", "fail", d22_viability_reasoning_density_coherent),
     Invariant("D23", "at-SOM claim matches its own label", "R12: aggressive ceiling sold as the obtainable volume", "fail", d23_at_som_matches_its_label),
     Invariant("D24", "withheld profit never rendered as a number", "R12: a suppressed verdict published as a fabricated $0", "fail", d24_withheld_profit_not_fabricated),
+    Invariant("D25", "provenance chip never claims sourcing it lacks", "R4 rank 1: model-asserted citations sold as fetched data", "fail", d25_provenance_chip_not_fabricated),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

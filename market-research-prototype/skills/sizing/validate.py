@@ -197,13 +197,22 @@ def _check(sizing: dict, max_share: float) -> tuple[list[dict], list[dict]]:
     # figure for TAM. Unlike the formula/segmentation checks (which compare LLM output
     # to itself and pass by construction), this can genuinely FAIL: real data and the
     # model disagreeing is signal, not noise.
-    _grounded_src = ("census", "cbp", "bls", "acs")
+    # Grounding is a PROVENANCE fact, read from the origin field a fetch path wrote —
+    # never inferred from substrings of the LLM-authored `source` prose. The substring
+    # version classified a model-recalled figure captioned "US Census Bureau SUSB" as
+    # grounded and then "externally" cross-checked one model number against another.
+    # A figure with no origin field is MODELED: absence of provenance is not evidence
+    # of a fetch. And anything self-labelled UNSOURCED can never be grounded, whatever
+    # its origin field claims — belt and braces against mislabelled plumbing.
+    _grounded_origins = ("census", "cbp", "bls", "acs")
     grounded, modeled = [], []
     for fig in (sizing.get("figures") or []):
         if not isinstance(fig, dict) or not _num(fig.get("value_usd")) or fig["value_usd"] <= 0:
             continue
-        src = str(fig.get("source") or "").lower()
-        (grounded if any(t in src for t in _grounded_src) else modeled).append(float(fig["value_usd"]))
+        origin = str(fig.get("origin") or fig.get("data_origin") or "").strip().lower()
+        is_grounded = (origin in _grounded_origins
+                       and "unsourced" not in str(fig.get("source") or "").lower())
+        (grounded if is_grounded else modeled).append(float(fig["value_usd"]))
     if grounded and modeled:
         def _med(xs):
             s = sorted(xs)

@@ -206,6 +206,10 @@ def gate_and_annotate_sizing(sizing: dict, scale_decision: dict | None) -> dict:
                     "value_usd": float(blk["value_usd"]), "label": f"TAM_{key}",
                     "source": blk.get("source") or "estimate_market_size",
                     "formula": blk.get("calculation") or "",
+                    # Real provenance travels WITH the figure, or the F6 external
+                    # cross-check can never see it — validate classifies grounded
+                    # strictly by origin now, never by substrings of source prose.
+                    "origin": blk.get("data_origin") or "llm",
                 })
         adapted = {
             "tam_usd": tam_block.get("mid"),
@@ -1062,10 +1066,18 @@ def build_integrity_summary(result: dict) -> dict:
     val = ms.get("validation") or {}
     tri = tam.get("triangulation") or {}
 
-    # Provenance: how many headline TAM methods carry a real source string.
+    # Provenance — two DIFFERENT claims, which the old chip conflated (R4 rank 1):
+    #   n_cited    = methods whose LLM-authored `source` string is non-empty. That is
+    #                a citation the model WROTE ("US Census Bureau SUSB"), not a fetch.
+    #   n_grounded = methods whose data_origin records a real fetch (census/bls/...).
+    # The old chip counted the first and rendered it as "Sourced: 3/3" in green — on
+    # 10/16 corpus reports whose every triangulation path was origin='llm', 7 of them
+    # naming Census/BLS for numbers no fetch produced.
     methods = [tam.get(k) or {} for k in ("method_top_down", "method_bottom_up", "method_analog")]
     methods = [m for m in methods if isinstance(m.get("value_usd"), (int, float))]
-    n_sourced = sum(1 for m in methods if str(m.get("source") or "").strip())
+    n_cited = sum(1 for m in methods if str(m.get("source") or "").strip())
+    n_grounded = sum(1 for m in methods
+                     if str(m.get("data_origin") or "").strip().lower() not in ("", "llm"))
 
     # Distinct data origins that actually fired (census/bls/llm…).
     origins = sorted({str(m.get("data_origin") or "llm") for m in methods}) if methods else []
@@ -1083,7 +1095,8 @@ def build_integrity_summary(result: dict) -> dict:
             "confidence": tri.get("confidence"),
             "n_independent": tri.get("n_independent"),
         } if tri else None,
-        "provenance": {"n_sourced": n_sourced, "n_total": len(methods)},
+        "provenance": {"n_grounded": n_grounded, "n_cited": n_cited,
+                       "n_total": len(methods)},
         "data_origins": origins,
         "grounded": any(o in ("census", "bls", "acs") for o in origins),
     }

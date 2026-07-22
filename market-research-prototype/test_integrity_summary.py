@@ -23,7 +23,11 @@ class TestIntegritySummary(unittest.TestCase):
         self.assertTrue(s["validation"]["passed"])
         self.assertEqual(s["validation"]["n_warns"], 1)
         self.assertEqual(s["triangulation"]["n_independent"], 2)
-        self.assertEqual(s["provenance"], {"n_sourced": 2, "n_total": 2})
+        # UPDATED (R4 rank 1): "sourced" split into two claims. Both methods carry a
+        # citation STRING (n_cited=2); only the census one records a FETCH
+        # (n_grounded=1). The old single number sold the first as the second.
+        self.assertEqual(s["provenance"],
+                         {"n_grounded": 1, "n_cited": 2, "n_total": 2})
         self.assertEqual(s["data_origins"], ["census", "llm"])
         self.assertTrue(s["grounded"])
 
@@ -43,7 +47,8 @@ class TestIntegritySummary(unittest.TestCase):
         self.assertTrue(s["reproducible"])
         self.assertFalse(s["validation"]["ran"])
         self.assertIsNone(s["triangulation"])
-        self.assertEqual(s["provenance"], {"n_sourced": 0, "n_total": 0})
+        self.assertEqual(s["provenance"],
+                         {"n_grounded": 0, "n_cited": 0, "n_total": 0})
 
 
 if __name__ == "__main__":

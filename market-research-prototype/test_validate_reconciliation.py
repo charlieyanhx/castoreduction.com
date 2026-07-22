@@ -104,8 +104,13 @@ class TestExternalGroundingCheck(unittest.TestCase):
     disagreement, not LLM-vs-LLM circularity."""
 
     def test_grounded_vs_modeled_divergence_warns(self):
+        # UPDATED (R4 rank 1): grounding is read from the ORIGIN field a fetch path
+        # wrote, never from substrings of the LLM-authored source prose. The old
+        # fixture had no origin field and relied on "census" appearing in the string —
+        # which is precisely how a model-recalled figure got classed as external data.
         sizing = {"figures": [
-            {"value_usd": 500_000_000, "label": "TAM_bottom_up", "source": "US Census CBP 2022"},
+            {"value_usd": 500_000_000, "label": "TAM_bottom_up",
+             "source": "US Census CBP 2022", "origin": "census"},
             {"value_usd": 5_000_000_000, "label": "TAM_top_down", "source": "Gartner (LLM)"},
         ]}
         _, warns = _check(sizing, 0.4)
@@ -113,9 +118,23 @@ class TestExternalGroundingCheck(unittest.TestCase):
         self.assertTrue(ext, "10x grounded-vs-modeled gap should raise an external warn")
         self.assertEqual(ext[0]["kind"], "external")
 
-    def test_grounded_and_modeled_agree_no_warn(self):
+    def test_a_census_shaped_source_string_alone_is_not_grounded(self):
+        """The fabrication the origin rule exists to stop: same figures, no origin
+        field — no external warn, because there is no external data here."""
         sizing = {"figures": [
-            {"value_usd": 1_000_000_000, "label": "bu", "source": "US Census CBP"},
+            {"value_usd": 500_000_000, "label": "TAM_bottom_up", "source": "US Census CBP 2022"},
+            {"value_usd": 5_000_000_000, "label": "TAM_top_down", "source": "Gartner (LLM)"},
+        ]}
+        _, warns = _check(sizing, 0.4)
+        self.assertEqual([w for w in warns
+                          if w["check"] == "external_grounding_divergence"], [])
+
+    def test_grounded_and_modeled_agree_no_warn(self):
+        # origin field added with the R4 rank-1 fix — without it both figures are
+        # modeled and this case passes VACUOUSLY (no grounded bucket to compare).
+        sizing = {"figures": [
+            {"value_usd": 1_000_000_000, "label": "bu", "source": "US Census CBP",
+             "origin": "census"},
             {"value_usd": 1_200_000_000, "label": "td", "source": "Gartner"},
         ]}
         _, warns = _check(sizing, 0.4)
