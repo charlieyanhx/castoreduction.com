@@ -1299,7 +1299,18 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   </div>
 </div>
 {% if economics.at_som_volume %}
+{# A WITHHELD profit must never be formatted as a number. business_model.py omits
+   monthly_operating_profit_usd on purpose when SOM spans several sites but the cost
+   stack is one site, and api.SafeUndefined (which exists so one missing field cannot
+   blank the report) turned that absence into "$0/mo operating profit" — a figure
+   nobody computed, next to $1.5M/mo revenue, while the scenario table showed $999K/mo
+   at the identical volume. Withholding that renders as a hard zero is worse than
+   either publishing or withholding honestly. #}
+{% if economics.at_som_volume.profit_withheld_reason %}
+<p style="font-size:10pt;color:#4b5563">At the obtainable SOM volume (~{{ economics.at_som_volume.monthly_units_per_day }} {{ economics.unit }}s/day): {{ format_currency(economics.at_som_volume.monthly_revenue_usd) }}/mo revenue. <strong>Operating profit is withheld</strong> — {{ economics.at_som_volume.profit_withheld_reason }}</p>
+{% else %}
 <p style="font-size:10pt;color:#4b5563">At the obtainable SOM volume (~{{ economics.at_som_volume.monthly_units_per_day }} {{ economics.unit }}s/day{% if economics.at_som_volume.som_capture_pct and economics.at_som_volume.som_capture_pct < 100 %}, the aggressive-scenario ceiling of {{ economics.at_som_volume.som_capture_pct | round | int }}% of SOM{% endif %}): <strong style="color:{% if economics.at_som_volume.profitable_at_som %}#059669{% else %}#dc2626{% endif %}">{{ format_currency(economics.at_som_volume.monthly_operating_profit_usd) }}/mo operating profit</strong> on {{ format_currency(economics.at_som_volume.monthly_revenue_usd) }}/mo revenue.</p>
+{% endif %}
 {% endif %}
 <p style="font-size:9pt;color:#9ca3af">No churn/CLV: a per-{{ economics.unit }} retail business is sized on volume × margin, not subscription retention.</p>
 {% else %}
