@@ -86,6 +86,14 @@ def project_three_year_transactional(
     monthly_fixed = monthly_fixed_cost or 0
     ceilings, basis = _y3_ceilings(som_mid, som_low, som_high)
     ramp, curve_note = _ramp_for(market_scale, "transactional")
+    # R4 rank 2: the SAME multi-site judgement the at-SOM economics block makes,
+    # from the SAME predicate. This table used to hold one site's fixed cost flat
+    # while revenue scaled to a multi-site SOM — de34e328 printed "$827.8K/mo
+    # profit" at 15-store volume against one store's $28,500 rent, on the same page
+    # where economics WITHHELD its profit verdict for exactly that reason. Revenue
+    # and unit volumes stay (they are sound); only the profit claim is withheld.
+    from business_model import multi_site_withhold_reason
+    withhold = multi_site_withhold_reason(market_scale)
     scenarios = {}
     for label, (y3_rev, tag) in ceilings.items():
         years = {}
@@ -93,15 +101,16 @@ def project_three_year_transactional(
         for yr in (1, 2, 3):
             annual_rev = round(y3_rev * ramp[yr])
             units = round(annual_rev / price_per_unit) if price_per_unit else 0
-            monthly_profit = round(annual_rev / 12.0 * margin_frac - monthly_fixed)
             years[f"year_{yr}"] = {
                 "revenue_usd": annual_rev,
                 "units": units,
                 "units_per_day": round(units / 360.0, 1),
-                "monthly_operating_profit_usd": monthly_profit,
             }
-            if be_year is None and monthly_profit > 0:
-                be_year = yr
+            if withhold is None:
+                monthly_profit = round(annual_rev / 12.0 * margin_frac - monthly_fixed)
+                years[f"year_{yr}"]["monthly_operating_profit_usd"] = monthly_profit
+                if be_year is None and monthly_profit > 0:
+                    be_year = yr
         scenarios[label] = {
             "year3_market_share_pct": _share_pct(y3_rev, som_mid),
             "y3_basis": tag,
@@ -122,6 +131,7 @@ def project_three_year_transactional(
             "growth_curve": curve_note,
             "break_even_note": "Break-even year = first year monthly operating profit "
                                "(revenue×margin − fixed cost) turns positive.",
+            **({"profit_withheld_reason": withhold} if withhold else {}),
         },
     }
 
@@ -174,6 +184,7 @@ def project_three_year(
     som_low: float | None = None,
     som_high: float | None = None,
     market_scale: str | None = None,
+    cac_usd: float | None = None,
 ) -> dict:
     """Route to the model-appropriate projection. Revenue-only models (marketplace,
     ad_supported) need no per-customer price — gating them on one starved a sized
@@ -222,6 +233,16 @@ def project_three_year(
                 if years[f"year_{yr}"]["customers"] >= break_even_customers:
                     be_year = yr
                     break
+        # R4 rank 2: the customer-count threshold above ignores ACQUISITION cost
+        # entirely. 4a755faa published typical_cac_usd=$4,500 and claimed break-even
+        # YEAR 1 — its 952 Y1 customers imply ~$4.28M acquisition spend against
+        # $160K Y1 revenue. When the venture's own CAC makes a break-even year's
+        # acquisition spend exceed that year's revenue, the claim is impossible and
+        # must not ship; the caveat below says why.
+        if cac_usd and cac_usd > 0 and be_year:
+            _y = years[f"year_{be_year}"]
+            if _y["customers"] * cac_usd >= _y["revenue_usd"]:
+                be_year = None
         scenarios[label] = {
             "year3_market_share_pct": _share_pct(y3_rev, som_mid),
             "y3_basis": tag,
@@ -233,6 +254,17 @@ def project_three_year(
         "scenarios": scenarios,
         "assumptions": {
             "model": "subscription",
+            **({"cac_usd_used": round(float(cac_usd), 2),
+                "break_even_caveat": (
+                    "Break-even feasibility checked against the published CAC: a "
+                    "break-even year whose acquisition spend (new customers × "
+                    f"${cac_usd:,.0f} CAC) exceeds that year's revenue is not "
+                    "claimable and is reported as no break-even by Y3.")}
+               if cac_usd and cac_usd > 0 else
+               {"break_even_caveat": (
+                    "No CAC available — the break-even threshold counts customers "
+                    "against fixed cost only and EXCLUDES acquisition spend. Treat "
+                    "the break-even year as optimistic until a CAC is supplied.")}),
             "annual_price_per_customer": round(annual_price_per_customer, 2),
             "monthly_churn_pct": monthly_churn_pct,
             "som_mid_used": round(som_mid, 0),

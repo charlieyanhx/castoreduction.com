@@ -263,6 +263,71 @@ def d25_provenance_chip_not_fabricated(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, "model-asserted citations disclosed as such")
 
 
+def d26_pnl_cost_side_honest(r: dict, html: Optional[str]) -> Finding:
+    """The P&L may not claim profits its own cost side cannot support (R4 rank 2).
+
+    Three checks over financials + economics:
+      1. A withheld profit stays withheld: when assumptions.profit_withheld_reason is
+         set, no scenario row may carry monthly_operating_profit_usd.
+      2. Break-even feasibility vs the venture's OWN published CAC: a break-even year
+         whose acquisition spend (that year's customers x typical_cac_usd) meets or
+         exceeds that year's revenue is impossible — 4a755faa claimed break-even
+         YEAR 1 beside a $4,500 CAC implying ~$4.3M spend against $160K revenue.
+      3. Implied operating margin never exceeds the disclosed contribution margin —
+         profit = revenue x margin - fixed can't beat the margin, so a row that does
+         was not built from the formula.
+    """
+    fin = r.get("financials") or {}
+    scen = fin.get("scenarios") or {}
+    if not scen:
+        return Finding(None, "no financials")
+    assumptions = fin.get("assumptions") or {}
+    problems: list[str] = []
+
+    # The withhold decision may live on EITHER surface — financials' own assumptions,
+    # or the economics at-SOM block. The stored de34e328 is exactly the cross-surface
+    # case: economics withheld its verdict, and the scenario table on the same page
+    # published $827.8K/mo at the identical multi-site volume anyway.
+    _econ_reason = ((r.get("economics") or {}).get("at_som_volume") or {}).get("profit_withheld_reason")
+    if assumptions.get("profit_withheld_reason") or _econ_reason:
+        for label, sc in scen.items():
+            if not isinstance(sc, dict):
+                continue
+            for yk in ("year_1", "year_2", "year_3"):
+                if "monthly_operating_profit_usd" in (sc.get(yk) or {}):
+                    problems.append(f"{label}.{yk} carries a profit despite the withhold")
+
+    cac = _num(((r.get("economics") or {}).get("unit_economics") or {}).get("typical_cac_usd"))
+    if cac and cac > 0:
+        for label, sc in scen.items():
+            if not isinstance(sc, dict):
+                continue
+            be = sc.get("break_even_year")
+            yr = sc.get(f"year_{be}") if be else None
+            n = _num((yr or {}).get("customers"))
+            rev = _num((yr or {}).get("revenue_usd"))
+            if be and n and rev and n * cac >= rev:
+                problems.append(
+                    f"{label}: break-even Y{be} but acquisition spend "
+                    f"({n:,.0f} x ${cac:,.0f} = ${n * cac:,.0f}) >= Y{be} revenue ${rev:,.0f}")
+
+    margin = _num(assumptions.get("contribution_margin_pct"))
+    if margin:
+        for label, sc in scen.items():
+            if not isinstance(sc, dict):
+                continue
+            for yk in ("year_1", "year_2", "year_3"):
+                y = sc.get(yk) or {}
+                p_, rev = _num(y.get("monthly_operating_profit_usd")), _num(y.get("revenue_usd"))
+                if p_ and rev and rev > 0 and (p_ * 12) / rev > margin / 100 + 0.001:
+                    problems.append(f"{label}.{yk}: implied op margin exceeds the "
+                                    f"disclosed {margin}% contribution margin")
+
+    if problems:
+        return Finding(False, "; ".join(problems[:3]))
+    return Finding(True, "cost side consistent with its own claims")
+
+
 def d09_publishable_gated(r: dict, html: Optional[str]) -> Finding:
     """Failed validation must WITHHELD the numbers — not merely disclaim them.
 
@@ -671,6 +736,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D23", "at-SOM claim matches its own label", "R12: aggressive ceiling sold as the obtainable volume", "fail", d23_at_som_matches_its_label),
     Invariant("D24", "withheld profit never rendered as a number", "R12: a suppressed verdict published as a fabricated $0", "fail", d24_withheld_profit_not_fabricated),
     Invariant("D25", "provenance chip never claims sourcing it lacks", "R4 rank 1: model-asserted citations sold as fetched data", "fail", d25_provenance_chip_not_fabricated),
+    Invariant("D26", "P&L cost side honest (withhold holds; CAC-feasible break-even; margin bound)", "R4 rank 2: single-site scalar + ignored CAC", "fail", d26_pnl_cost_side_honest),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

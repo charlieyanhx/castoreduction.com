@@ -694,6 +694,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <h2>3-Year Revenue Scenarios</h2>
 {% if is_transactional %}
 <p style="font-size:11pt;color:#4b5563">Three scenarios derived deterministically from the obtainable SOM. Volume is shown as annual {{ financials.assumptions.unit }}s sold; profit is monthly operating profit (revenue × contribution margin − fixed cost).</p>
+<!-- TRANSACTIONAL SCENARIOS -->
 <table style="width:100%;border-collapse:collapse;margin:14px 0;font-size:11pt">
   <thead>
     <tr style="background:#f3f4f6">
@@ -713,7 +714,14 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
       {% for yk in ['year_1','year_2','year_3'] %}{% set y = s[yk] %}
       <td style="text-align:right;padding:10px">{{ format_currency(y.revenue_usd) }}<br>
         <span style="font-size:9pt;color:#6b7280">{{ '{:,}'.format(y.units) }} {{ financials.assumptions.unit }}s · {{ y.units_per_day }}/day</span><br>
-        <span style="font-size:9pt;color:{{ '#059669' if y.monthly_operating_profit_usd > 0 else '#dc2626' }}">{{ format_currency(y.monthly_operating_profit_usd) }}/mo profit</span></td>
+        {# A withheld profit must not be formatted — SafeUndefined turns the absent
+           key into "$0/mo profit" in red, a figure nobody computed (the D24 class,
+           one table up from where it was first fixed). #}
+        {% if 'monthly_operating_profit_usd' in y %}
+        <span style="font-size:9pt;color:{{ '#059669' if y.monthly_operating_profit_usd > 0 else '#dc2626' }}">{{ format_currency(y.monthly_operating_profit_usd) }}/mo profit</span>
+        {% else %}
+        <span style="font-size:9pt;color:#6b7280">profit withheld</span>
+        {% endif %}</td>
       {% endfor %}
       <td style="text-align:right;padding:10px;color:{{ '#10b981' if s.break_even_year else '#ef4444' }}">
         {% if s.break_even_year %}Y{{ s.break_even_year }}{% else %}Not by Y3{% endif %}
@@ -722,6 +730,12 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     {% endfor %}
   </tbody>
 </table>
+{% if financials.assumptions.profit_withheld_reason %}
+<div style="background:#fef3c7;border:1px solid #fbbf24;padding:10px 14px;border-radius:6px;font-size:9.5pt;color:#78350f;margin:10px 0">
+  <strong>Operating profit withheld across all scenarios.</strong> {{ financials.assumptions.profit_withheld_reason }}
+</div>
+{% endif %}
+<!-- END TRANSACTIONAL SCENARIOS -->
 <div style="background:#f9fafb;padding:10px 14px;border-radius:6px;font-size:9.5pt;color:#4b5563">
   <strong>Assumptions:</strong>
   ${{ financials.assumptions.price_per_unit }}/{{ financials.assumptions.unit }} · {{ financials.assumptions.contribution_margin_pct }}% contribution margin · ${{ '{:,.0f}'.format(financials.assumptions.monthly_fixed_cost) }}/mo fixed cost.

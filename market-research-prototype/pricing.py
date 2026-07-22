@@ -326,22 +326,43 @@ def build_benchmark_table(
     }
 
 
-def estimate_cost_structure(category: str, monthly_price: float | None = None) -> dict:
-    """Per-category estimate of a single-unit MONTHLY fixed cost (rent/staff/utilities) and
-    per-customer VARIABLE cost, in USD. cycle36 (audit): the old break-even used a universal
-    hardcoded $5000/mo + $2/customer for EVERY venture — a cafe is not a SaaS app. This
-    estimates them for the actual category (LLM, labeled UNSOURCED) so the break-even rests
-    on category-appropriate, disclosed inputs. Safe fallback to the generic placeholder on
-    failure. Returns {monthly_fixed_cost, variable_cost_per_customer, sourced, source}."""
+def estimate_cost_structure(category: str, monthly_price: float | None = None,
+                            market_scale: str | None = None) -> dict:
+    """Per-category estimate of the MONTHLY fixed cost and per-customer VARIABLE cost.
+
+    cycle36 (audit): the old break-even used a universal hardcoded $5000/mo +
+    $2/customer for EVERY venture. R4 rank 2 found the replacement's own blind spot:
+    the prompt asked for "a SINGLE early-stage location" UNCONDITIONALLY, so a
+    global-digital superconducting-tape company and a national ecommerce brand were
+    costed as a storefront — rent + staff + utilities as their entire cost side.
+
+    The COST MODEL now follows the venture's scale: digital/global ventures are asked
+    for early-stage company overhead (team, infrastructure, tooling); physical ones
+    keep the single-site model. `basis` names which model produced the number, and it
+    flows into economics so downstream withholding logic and the reader both know
+    what the fixed cost actually covers.
+
+    Returns {monthly_fixed_cost, variable_cost_per_customer, sourced, source, basis}."""
+    _digital = any(t in (market_scale or "").lower() for t in ("digital", "global"))
+    if _digital:
+        system = ("Estimate, for an EARLY-STAGE COMPANY (not a physical location) in the "
+                  "given business category, the typical MONTHLY fixed operating cost — "
+                  "core team payroll, infrastructure/hosting, and tooling, USD — and the "
+                  "VARIABLE cost per customer/transaction (USD). Reply ONLY JSON: "
+                  "{\"monthly_fixed_cost\": <number>, \"variable_cost_per_customer\": <number>}.")
+        basis = "early-stage company overhead (team + infrastructure + tooling)"
+    else:
+        system = ("Estimate, for a SINGLE early-stage location/unit in the given "
+                  "business category, the typical MONTHLY fixed operating cost (rent + "
+                  "staff + utilities, USD) and the VARIABLE cost per customer/transaction "
+                  "(USD). Reply ONLY JSON: {\"monthly_fixed_cost\": <number>, "
+                  "\"variable_cost_per_customer\": <number>}.")
+        basis = "single-site rent + staff + utilities"
     if category:
         try:
             from llm import call_json
             raw = call_json(
-                system=("Estimate, for a SINGLE early-stage location/unit in the given "
-                        "business category, the typical MONTHLY fixed operating cost (rent + "
-                        "staff + utilities, USD) and the VARIABLE cost per customer/transaction "
-                        "(USD). Reply ONLY JSON: {\"monthly_fixed_cost\": <number>, "
-                        "\"variable_cost_per_customer\": <number>}."),
+                system=system,
                 user=f"Category: {category}" + (f"\nUnit price: ${monthly_price}" if monthly_price else ""),
                 max_tokens=80,
             ) or {}
@@ -349,11 +370,12 @@ def estimate_cost_structure(category: str, monthly_price: float | None = None) -
             if (isinstance(f, (int, float)) and not isinstance(f, bool) and f > 0
                     and isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0):
                 return {"monthly_fixed_cost": float(f), "variable_cost_per_customer": float(v),
-                        "sourced": False,
+                        "sourced": False, "basis": basis,
                         "source": "LLM estimate (UNSOURCED — operator should validate)"}
         except Exception:
             pass
     return {"monthly_fixed_cost": 5000.0, "variable_cost_per_customer": 2.0, "sourced": False,
+            "basis": basis,
             "source": "generic placeholder — operator should set real cost structure"}
 
 
