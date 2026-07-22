@@ -209,6 +209,31 @@ def d23_at_som_matches_its_label(r: dict, html: Optional[str]) -> Finding:
                        f"at-SOM volume matches its {stated:.0f}% label")
 
 
+def d24_withheld_profit_not_fabricated(r: dict, html: Optional[str]) -> Finding:
+    """A WITHHELD profit must not be rendered as a number.
+
+    business_model.py omits monthly_operating_profit_usd on purpose when SOM spans
+    several sites but the cost stack is one site, recording why in
+    profit_withheld_reason. The template formatted the absent value through
+    SafeUndefined and printed "$0/mo operating profit" — a figure nobody computed,
+    beside $1.5M/mo revenue, while the scenario table showed $999K/mo at the identical
+    volume, and the reason appeared nowhere. Same class as D09: the code withholds,
+    the renderer publishes anyway."""
+    asv = ((r.get("economics") or {}).get("at_som_volume") or {})
+    reason = str(asv.get("profit_withheld_reason") or "").strip()
+    if not reason:
+        return Finding(None, "nothing withheld")
+    if html is None:
+        return Finding(None, "no HTML in corpus")
+    if "$0/mo operating profit" in html:
+        return Finding(False, "profit was withheld but the report renders "
+                              "'$0/mo operating profit' — a fabricated figure")
+    # The reason must actually reach the reader; silence just looks incomplete.
+    if reason[:30] not in html:
+        return Finding(False, "profit withheld but the reason is rendered nowhere")
+    return Finding(True, "withheld profit disclosed with its reason")
+
+
 def d09_publishable_gated(r: dict, html: Optional[str]) -> Finding:
     """Failed validation must WITHHELD the numbers — not merely disclaim them.
 
@@ -615,6 +640,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D21", "ARPU coherent across 4Ps sections", "invented order/job/booking value", "fail", d21_arpu_coherent_across_sections),
     Invariant("D22", "viability reasoning coherent with real competitor density", "invented competitor-count claim (audit item 3)", "fail", d22_viability_reasoning_density_coherent),
     Invariant("D23", "at-SOM claim matches its own label", "R12: aggressive ceiling sold as the obtainable volume", "fail", d23_at_som_matches_its_label),
+    Invariant("D24", "withheld profit never rendered as a number", "R12: a suppressed verdict published as a fabricated $0", "fail", d24_withheld_profit_not_fabricated),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
