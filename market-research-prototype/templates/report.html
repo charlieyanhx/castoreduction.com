@@ -314,9 +314,22 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
               'Triangulation: ' + (integrity.triangulation.confidence or '?')|replace('_',' '),
               (integrity.triangulation.n_independent|string) + ' independent source' + ('s' if integrity.triangulation.n_independent != 1 else '')) }}
     {% endif %}
-    {{ chip(ok if (integrity.provenance.n_total and integrity.provenance.n_sourced == integrity.provenance.n_total) else warn,
-            'Sourced: ' + integrity.provenance.n_sourced|string + '/' + integrity.provenance.n_total|string,
-            'headline methods with a cited source') }}
+    <!-- PROVENANCE CHIP -->
+    {# A citation the model WROTE and data the pipeline FETCHED are different claims.
+       Green is reserved for the second; the first renders amber and says what it is. #}
+    {% if integrity.provenance.n_total and integrity.provenance.n_grounded == integrity.provenance.n_total %}
+    {{ chip(ok, 'Sourced: ' + integrity.provenance.n_grounded|string + '/' + integrity.provenance.n_total|string,
+            'methods grounded in fetched data') }}
+    {% elif integrity.provenance.n_grounded %}
+    {{ chip(warn, 'Sourced: ' + integrity.provenance.n_grounded|string + '/' + integrity.provenance.n_total|string,
+            'methods grounded in fetched data; the rest are model-asserted') }}
+    {% elif integrity.provenance.n_cited %}
+    {{ chip(warn, 'Citations: model-asserted',
+            integrity.provenance.n_cited|string + ' citation strings, not retrieved — treat as the model\'s recall, not fetched data') }}
+    {% else %}
+    {{ chip(warn, 'Sourced: 0/' + integrity.provenance.n_total|string, 'no sources at all') }}
+    {% endif %}
+    <!-- END PROVENANCE CHIP -->
     {{ chip(ok if integrity.grounded else warn,
             'Census/BLS-grounded' if integrity.grounded else 'Model-estimated',
             'origins: ' + (integrity.data_origins|join(', ') or 'llm')) }}

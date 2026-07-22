@@ -6,6 +6,16 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
 
 - **at_som_volume computed at som.high but labelled 100% of SOM** — fixed in `5a840f8` (plan.py `_enrich_economics_at_som` now pins to the base Y3 ceiling), gate `d23_at_som_matches_its_label` live. Residue folded into rank 3 below: the template's `< 100` caveat gate at report.html:1302 is now a dead branch.
 - **Withheld profit rendered as a fabricated $0/mo in alarm red** — fixed in `2c6a2c9`, gate `d24_withheld_profit_not_fabricated` live.
+- **Fabricated provenance chip (rank 1)** — FIXED. `n_sourced` split into `n_cited`
+  (citation strings the model wrote) vs `n_grounded` (data_origin records a real
+  fetch); the chip is green only for the second, amber "Citations: model-asserted —
+  not retrieved" for the first; validate.py's F6 classifies grounded strictly by
+  origin field (never substrings of source prose, never anything self-labelled
+  UNSOURCED), and plan.py's figure builder now carries `origin` so F6 can fire when
+  the census path genuinely runs. Gate `d25_provenance_chip_not_fabricated` fails all
+  10 stored national reports and passes their re-render. Two stale tests updated —
+  both had encoded the substring behaviour, and one sibling ("agree -> no warn")
+  was passing vacuously with no grounded bucket at all.
 - **Withheld TAM restated in narrative prose (D09 checked disclosure, not obedience)** — fixed in `f5758b1`. What that fix does NOT cover is ranked at #5: the SOM-derived revenue *table* and the raw sizing dict fed to viability sit outside both the template guard and D09's prose scan.
 
 ## 1. Dedupe: 46 clusters → 24 causes
