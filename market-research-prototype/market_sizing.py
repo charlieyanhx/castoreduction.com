@@ -676,6 +676,25 @@ def _enforce_sizing_ordering(result: dict) -> dict:
     if som is not None and sam is not None and som > sam:
         _clamp("som", som, sam, "SAM")
 
+    # R4 rank 17: the mid clamp scales high by ratio=ceiling/value but only the mid gets
+    # the 0.9 factor, so a SAM band wider than TAM's yields SAM.high > TAM.high despite
+    # ordered mids (3/16 corpus: 174ae091 SAM.high 1,625M > TAM.high 1,402M). Cap every
+    # EDGE down the funnel, not just the mid — process SAM<=TAM before SOM<=SAM.
+    def _num_edge(v):
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+    for child, parent, pname in (("sam", "tam", "TAM"), ("som", "sam", "SAM")):
+        cb, pb = result.get(child) or {}, result.get(parent) or {}
+        if not (cb and pb):
+            continue
+        changed = dict(cb)
+        for edge in ("low", "mid", "high"):
+            cv, pv = _num_edge(changed.get(edge)), _num_edge(pb.get(edge))
+            if cv is not None and pv is not None and cv > pv:
+                changed[edge] = round(pv)
+                corrections.append(f"{child.upper()}.{edge} {cv:,.0f} exceeded "
+                                   f"{pname}.{edge} {pv:,.0f} → capped to {pv:,.0f}")
+        result[child] = changed
+
     if corrections:
         log.warning("[market_sizing] ordering corrections: %s", corrections)
         result["_ordering_corrections"] = corrections

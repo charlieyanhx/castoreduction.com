@@ -259,6 +259,14 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   corpus: 1/16 FAIL (the path only fires when a price was stated; the price-of-record
   provenance is a new field). full suite: 1569 passed, 5 skipped.
 
+- **Funnel ordering on mids only (rank 17)** — FIXED, edge-aware. `_enforce_sizing_ordering`
+  clamped SAM.mid to 0.9×TAM.mid and scaled low/high by ratio=TAM.mid/SAM.mid_raw —
+  but only the mid got the 0.9 factor, so a SAM band wider than TAM's yielded SAM.high
+  > TAM.high despite ordered mids (3/16: 174ae091 SAM.high 1,625M > TAM.high 1,402M).
+  Now every EDGE (low/mid/high) is capped down the funnel (SAM≤TAM before SOM≤SAM),
+  each cap disclosed in _ordering_corrections/weakest_assumptions, and gate d04 checks
+  all three edges, not just the mid. Stored corpus: 3/16 FAIL. full suite: 1576 passed.
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:
