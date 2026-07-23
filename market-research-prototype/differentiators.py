@@ -17,6 +17,7 @@ the model can reason "these 5 clusters all lack X; our product HAS X".
 """
 from __future__ import annotations
 import json
+import re
 
 from llm import call_json
 from logger import get
@@ -130,31 +131,33 @@ COMPETITOR CLUSTERS (groups of similar competitors):
 COMPETITORS OVERVIEW:
 {competitors}
 
+EVIDENCE GATHERED BY THE PIPELINE (prices, review themes, channels — cite these):
+{evidence}
+
 DIMENSION TO EVALUATE: **{dimension_label}**
 
 {dimension_brief}
 
-GUIDANCE — REQUIRED OUTPUT:
-- You MUST return at least 1 differentiator on this dimension. Founders need
-  ammo. Even "stronger emphasis than competitors on X" counts — list it.
-- Look at the SPECIFIC details of OUR product vs the EXACT details of
-  competitor offerings: protocols, channels, credentials, pricing model,
-  delivery format, integrations. Almost every product has SOMETHING distinct
-  on every dimension — your job is to FIND it, not validate it.
-- Returning an empty list is reserved for the rare case where our product is
-  a true commodity copycat with literally zero distinct angle. If you're
-  tempted to return [], FIRST broaden to "approach to {dimension_key}" or
-  "stronger emphasis than X cluster" — then list THAT.
+GUIDANCE — EVIDENCE FIRST:
+- A differentiator is a claim about the MARKET, and it must stand on the evidence
+  above. Every entry MUST carry an `evidence_ref` quoting the specific line it
+  stands on (e.g. "pricing: Souvla $40 per bowl", "reviews: 'no organic option'").
+- Returning an empty list is a CORRECT answer when the evidence says nothing about
+  this dimension. An empty dimension renders honestly in the report; an invented
+  entry becomes an unhedged fact a buyer acts on.
+- Do NOT assert competitor pricing, booking behaviour, or feature specifics that do
+  not appear in the inputs above.
 
 Return JSON:
 {{
   "dimension": "{dimension_key}",
   "differentiators": [
-    {{"feature": "short concrete phrase", "why_unique": "which clusters lack this and why"}}
+    {{"feature": "short concrete phrase", "why_unique": "which clusters lack this and why",
+      "evidence_ref": "the evidence line this stands on"}}
   ]
 }}
 
-Return 1-2 entries (1 minimum, 2 maximum). Quality over quantity but never zero."""
+Return 0-2 entries. Zero is legitimate; an entry without evidence is not."""
 
 
 GAPS_AND_POSITIONING_PROMPT = """Given the competitive landscape and our differentiators per dimension below,
@@ -169,6 +172,9 @@ COMPETITORS:
 DIFFERENTIATORS WE FOUND (across 5 dimensions):
 {differentiators_summary}
 
+EVIDENCE GATHERED BY THE PIPELINE (ground the gaps and positioning in these):
+{evidence}
+
 Return JSON:
 {{
   "gaps": [
@@ -179,11 +185,103 @@ Return JSON:
 }}"""
 
 
+_PRICE_LANG = re.compile(r"\$\s?\d|\d+(?:\.\d+)?%\s*(?:cheaper|below|above|less|lower|premium)|price[ds]? at \d", re.I)
+
+
+def _dedupe_by_jaccard(entries: list[dict], threshold: float = 0.5) -> list[dict]:
+    """Collapse near-duplicate differentiators by token-Jaccard on `feature`.
+
+    The five dimension prompts routinely restate one idea five ways ("certified
+    organic single-origin beans" / "single-origin certified organic beans"), and
+    strength was a function of the COUNT — so restating inflated the score. First
+    occurrence wins; empty features are dropped."""
+    kept: list[dict] = []
+    kept_tokens: list[set] = []
+    for e in entries or []:
+        feat = str((e or {}).get("feature") or "").strip()
+        if not feat:
+            continue
+        toks = set(re.findall(r"[a-z0-9]+", feat.lower()))
+        if not toks:
+            continue
+        dup = any(len(toks & t) / len(toks | t) >= threshold for t in kept_tokens)
+        if dup:
+            continue
+        kept.append(e)
+        kept_tokens.append(toks)
+    return kept
+
+
+def _strength_from(entries: list[dict]) -> tuple[str, str]:
+    """(strength, reasoning) from DISTINCT, EVIDENCE-BACKED entries.
+
+    The old rating was a pure function of entry count, and the prompt mandate pinned
+    the count at 8-10 — so differentiation_strength was "high" on 16/16 corpus
+    ventures and viability anchored to it. An entry that cites nothing counts for
+    nothing here: it is still listed (a hypothesis is useful), but it cannot move
+    the number a scorer anchors to."""
+    entries = entries or []
+    backed = [e for e in entries if str(e.get("evidence_ref") or "").strip()]
+    n = len(backed)
+    n_dims = len({e.get("dimension") for e in backed if e.get("dimension")})
+    if n >= 4 and n_dims >= 3:
+        strength = "high"
+    elif n >= 2 and n_dims >= 2:
+        strength = "moderate"
+    elif n >= 1:
+        strength = "moderate-low"
+    else:
+        strength = "low"
+    reasoning = (f"{n} evidence-backed differentiators across {n_dims}/5 dimensions "
+                 f"({len(entries)} listed)")
+    return strength, reasoning
+
+
+def _strip_unevidenced_price_claims(entries: list[dict], has_pricing_evidence: bool) -> list[dict]:
+    """Drop entries asserting price comparisons no pricing evidence supports.
+
+    The 16/16 panel finding: pricing-dimension prose asserting specific competitor
+    dollar figures on ventures where competitor_pricing never ran. A price claim
+    with nothing under it is not a differentiator, it is fiction with a $ sign."""
+    if has_pricing_evidence:
+        return entries
+    out = []
+    for e in entries or []:
+        text = f"{e.get('feature') or ''} {e.get('why_unique') or ''}"
+        if _PRICE_LANG.search(text):
+            log.info("[differentiators] dropped unevidenced price claim: %s",
+                     str(e.get("feature"))[:80])
+            continue
+        out.append(e)
+    return out
+
+
+def _build_evidence_blob(evidence: dict | None) -> tuple[str, bool]:
+    """(prompt block, has_pricing) from the evidence the pipeline actually gathered."""
+    ev = evidence or {}
+    lines: list[str] = []
+    pricing = ev.get("competitor_pricing") or {}
+    for brand, d in list(pricing.items())[:8]:
+        if isinstance(d, dict) and d.get("price") is not None:
+            unit = d.get("unit") or "unit"
+            lines.append(f"  - pricing: {brand} ${d['price']} per {unit}")
+    for theme in (ev.get("review_themes") or [])[:6]:
+        lines.append(f"  - reviews: {str(theme)[:140]}")
+    for ch in (ev.get("channels") or [])[:4]:
+        lines.append(f"  - channels: {str(ch)[:140]}")
+    has_pricing = any(l.startswith("  - pricing:") for l in lines)
+    if not lines:
+        return ("  (no evidence available — return [] for any dimension you cannot "
+                "ground in the inputs above)", False)
+    return "\n".join(lines), has_pricing
+
+
 def extract_differentiators(
     profile: dict,
     our_features: list[str],
     clustering: dict,
     competitors: list[dict],
+    evidence: dict | None = None,
 ) -> dict:
     """
     Spec step 3d. Returns structured differentiators + gaps + positioning summary.
@@ -210,6 +308,12 @@ def extract_differentiators(
         for c in (competitors or [])[:8]
     )[:1500]
 
+    # R4 rank 6: the evidence the pipeline gathered, injected into every dimension
+    # prompt. This step used to run BEFORE any of it existed — name + 120-char blobs
+    # in, ten "differentiators" out, asserting competitor pricing and booking
+    # behaviour as unhedged fact for products that do not exist yet.
+    evidence_blob, _has_pricing_evidence = _build_evidence_blob(evidence)
+
     # Iter 40: split into 5 dimension-specific sub-prompts run in parallel.
     # Each returns 0-2 differentiators ON ITS DIMENSION. Total expected: 3-7
     # entries instead of the LLM's "be conservative" 1-entry shrug.
@@ -225,6 +329,7 @@ def extract_differentiators(
                     our_features=our_features_blob,
                     clusters=clusters_blob,
                     competitors=competitors_blob,
+                    evidence=evidence_blob,
                     dimension_label=key.upper().replace("_", "/"),
                     dimension_key=key,
                     dimension_brief=brief,
@@ -266,58 +371,20 @@ def extract_differentiators(
             per_dim[key] = entries
             all_diffs.extend(entries)
 
-    # cycle31 (OOS findings): if LLM refused on ALL 5 dimensions, backstop with
-    # synthesized differentiators from `our_features` so we never ship 0 diffs.
-    # The LLM stochastically returns empty across all dims maybe 30% of the time;
-    # without this backstop the report shows "no differentiators" + scores hr_smb/
-    # cyber_soc at 0/100 on the differentiators dimension.
-    if not all_diffs and (our_features or []):
-        log.warning("[differentiators] LLM returned 0 across ALL 5 dimensions — backstop synthesizing from our_features")
-        # Try one more focused LLM call: "given OUR features, just pick 2 that LIKELY differentiate"
-        try:
-            backstop = call_json(
-                system="You extract differentiators. Return only JSON.",
-                user=(
-                    f"OUR PRODUCT:\n{profile_blob}\n\n"
-                    f"OUR FEATURES:\n{our_features_blob}\n\n"
-                    f"COMPETITORS:\n{competitors_blob}\n\n"
-                    "Return 2 features that ARE LIKELY differentiated against the competitors above. "
-                    "Even partial differentiators count (e.g. 'stronger emphasis on X'). "
-                    "These are best-effort; the operator should validate with interviews.\n\n"
-                    "JSON:\n{{\n"
-                    '  "differentiators": [\n'
-                    '    {{"feature": "short phrase", "why_unique": "1 sentence"}},\n'
-                    '    {{"feature": "short phrase", "why_unique": "1 sentence"}}\n'
-                    "  ]\n}}"
-                ),
-                max_tokens=1200,  # cycle31: 400→1200 — same truncation issue as per-dim calls
-            )
-            if isinstance(backstop, dict) and "_parse_error" not in backstop:
-                for e in (backstop.get("differentiators") or [])[:2]:
-                    if isinstance(e, dict) and e.get("feature"):
-                        e["dimension"] = "feature"
-                        e["_backstopped"] = True
-                        all_diffs.append(e)
-                        per_dim["feature"] = per_dim.get("feature") or []
-                        per_dim["feature"].append(e)
-                if all_diffs:
-                    log.info("[differentiators] backstop synthesized %d entries", len(all_diffs))
-        except Exception as e:
-            log.warning("[differentiators] backstop call failed: %s", e)
-
-    # cycle31: if STILL empty, derive lightweight placeholders from features list
-    # (last resort — clearly marked so the operator knows it's a guess)
-    if not all_diffs and (our_features or []):
-        for f in (our_features or [])[:2]:
-            all_diffs.append({
-                "feature": f,
-                "why_unique": "[Heuristic placeholder — LLM declined to score; validate against competitors manually]",
-                "dimension": "feature",
-                "_backstopped": True,
-                "_placeholder": True,
-            })
-            per_dim["feature"] = per_dim.get("feature") or []
-            per_dim["feature"].append(all_diffs[-1])
+    # R4 rank 6: the backstop and the heuristic-placeholder fallback are GONE.
+    # Both existed to enforce "never ship 0 diffs" — synthesizing entries when all
+    # five dimensions honestly returned nothing. Under the inverted prompt an empty
+    # dimension is a CORRECT answer, and the report's empty case renders honestly.
+    # A fabricated hypothesis dressed as a market finding is strictly worse than a
+    # visible gap.
+    all_diffs = _strip_unevidenced_price_claims(all_diffs, _has_pricing_evidence)
+    all_diffs = _dedupe_by_jaccard(all_diffs)
+    # Rebuild per_dim from the SURVIVING entries, keeping every dimension key —
+    # an empty dimension is a finding ("the evidence says nothing here") and the
+    # template renders it as such; dropping the key entirely would hide it.
+    per_dim = {k: [] for k in DIMENSION_PROMPTS}
+    for e in all_diffs:
+        per_dim.setdefault(e.get("dimension") or "feature", []).append(e)
 
     # Now one focused LLM call for gaps + positioning, given the diff list
     diffs_summary = "\n".join(
@@ -330,6 +397,7 @@ def extract_differentiators(
                 profile=profile_blob,
                 competitors=competitors_blob,
                 differentiators_summary=diffs_summary,
+                evidence=evidence_blob,
             ),
             max_tokens=600,
         )
@@ -338,14 +406,10 @@ def extract_differentiators(
     except Exception:
         gp = {}
 
-    # Strength rating derived from total count + dimension coverage
-    n = len(all_diffs)
-    n_dims = sum(1 for v in per_dim.values() if v)
-    # Iter 43: recalibrated thresholds — "low" for 0 was hiding genuine 1-diff cases
-    if n >= 4 and n_dims >= 3:    strength = "high"
-    elif n >= 2 and n_dims >= 2:  strength = "moderate"
-    elif n >= 1:                  strength = "moderate-low"  # at least one real differentiator
-    else:                         strength = "low"
+    # R4 rank 6: strength derives from DISTINCT, EVIDENCE-BACKED entries — not a
+    # count the prompt structure used to pin at 8-10 ("high" on 16/16 ventures,
+    # anchoring the viability score).
+    strength, strength_reasoning = _strength_from(all_diffs)
 
     result = {
         "differentiators": all_diffs,
@@ -353,7 +417,7 @@ def extract_differentiators(
         "gaps": gp.get("gaps") or [],
         "positioning_summary": gp.get("positioning_summary") or "",
         "differentiation_strength": strength,
-        "strength_reasoning": f"{n} total differentiators across {n_dims}/5 dimensions",
+        "strength_reasoning": strength_reasoning,
     }
 
     # Normalize list-of-strings inputs from LLMs that deviate from the schema

@@ -821,12 +821,15 @@ class TestDifferentiators(unittest.TestCase):
     def test_5_dimension_split_aggregates_results(self):
         """Each dimension call returns up to 2 entries; merge gives 3-7 total."""
         from unittest.mock import patch
+        # UPDATED (R4 rank 6): entries carry evidence_ref — strength now derives
+        # from evidence-backed entries, not the bare count the old prompt mandate
+        # pinned at "high" on 16/16 corpus ventures.
         responses = {
-            "feature": {"differentiators": [{"feature": "Shopify webhooks", "why_unique": "CSV-only competitors"}]},
-            "pricing": {"differentiators": [{"feature": "Per active employee not per seat", "why_unique": "Competitors charge flat"}]},
+            "feature": {"differentiators": [{"feature": "Shopify webhooks", "why_unique": "CSV-only competitors", "evidence_ref": "channels: Shopify checkout"}]},
+            "pricing": {"differentiators": [{"feature": "Per active employee not per seat", "why_unique": "Competitors charge flat", "evidence_ref": "pricing: BetterUp $89 per seat"}]},
             "channel": {"differentiators": []},
-            "delivery": {"differentiators": [{"feature": "Async coaching protocol", "why_unique": "Competitors use live calls"}]},
-            "ip_credentials": {"differentiators": [{"feature": "Stanford-affiliated protocol", "why_unique": "Competitors use generic content"}]},
+            "delivery": {"differentiators": [{"feature": "Async coaching protocol", "why_unique": "Competitors use live calls", "evidence_ref": "reviews: 'calls hard to schedule'"}]},
+            "ip_credentials": {"differentiators": [{"feature": "Stanford-affiliated protocol", "why_unique": "Competitors use generic content", "evidence_ref": "reviews: 'generic content'"}]},
         }
         gaps_response = {
             "gaps": [{"need": "Mid-market HR teams", "why_unmet": "Sub-1000 employees ignored"}],
@@ -855,7 +858,7 @@ class TestDifferentiators(unittest.TestCase):
             self.assertEqual(len(out["differentiators"]), 4)  # 4 dims contributed
             self.assertIn("differentiators_per_dimension", out)
             self.assertEqual(len(out["differentiators_per_dimension"]["channel"]), 0)
-            self.assertEqual(out["differentiation_strength"], "high")  # 4 diffs, 4 dims
+            self.assertEqual(out["differentiation_strength"], "high")  # 4 evidence-backed, 4 dims
             self.assertEqual(len(out["gaps"]), 1)
             self.assertIn("clinical credibility", out["positioning_summary"])
 
@@ -871,9 +874,11 @@ class TestDifferentiators(unittest.TestCase):
         from unittest.mock import patch
         def fake_call(system, user, max_tokens):
             if "FEATURE-LEVEL" in user:
-                return {"differentiators": [{"feature": "F1", "why_unique": "x"}]}
+                return {"differentiators": [{"feature": "F1", "why_unique": "x",
+                                             "evidence_ref": "reviews: F1 absent elsewhere"}]}
             if "DELIVERY/EXPERIENCE" in user:
-                return {"differentiators": [{"feature": "D1", "why_unique": "x"}]}
+                return {"differentiators": [{"feature": "D1", "why_unique": "x",
+                                             "evidence_ref": "channels: D1 unique"}]}
             return {"differentiators": []}
         with patch("differentiators.call_json", side_effect=fake_call):
             from differentiators import extract_differentiators

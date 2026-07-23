@@ -426,6 +426,60 @@ def d29_withhold_propagates(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, "withhold propagates to derived surfaces")
 
 
+_DIFF_PRICE_LANG = re.compile(
+    r"\$\s?\d|\d+(?:\.\d+)?%\s*(?:cheaper|below|above|less|lower|premium)", re.I)
+
+
+def d30_differentiators_evidence_backed(r: dict, html: Optional[str]) -> Finding:
+    """Differentiators must stand on evidence, not on a prompt mandate (R4 rank 6).
+
+    Step 3d ran before any evidence existed, under "you MUST return at least 1 ...
+    never zero", and strength was a pure function of the count that structure pinned
+    at 8-10 — "high" on 16/16 ventures, anchoring the viability score. Reports
+    asserted specific competitor pricing as unhedged fact for products that do not
+    exist yet. Three checks:
+      1. price-comparison language with NO competitor_pricing evidence in the run;
+      2. near-duplicate entries (token-Jaccard >= 0.5) — one idea restated to
+         inflate the count;
+      3. strength "high" while no entry cites any evidence_ref at all."""
+    diffs_blk = r.get("differentiators") or {}
+    entries = [e for e in (diffs_blk.get("differentiators") or []) if isinstance(e, dict)]
+    if not entries:
+        return Finding(None, "no differentiators")
+    problems: list[str] = []
+
+    has_pricing = bool(((r.get("competitor_pricing") or {}).get("per_domain"))
+                       or ((r.get("competitor_pricing") or {}).get("competitors")))
+    if not has_pricing:
+        for e in entries:
+            text = f"{e.get('feature') or ''} {e.get('why_unique') or ''}"
+            if _DIFF_PRICE_LANG.search(text):
+                problems.append("price-comparison claim with no competitor_pricing "
+                                f"evidence in the run: {str(e.get('feature'))[:60]!r}")
+                break
+
+    toks = []
+    for e in entries:
+        t = set(re.findall(r"[a-z0-9]+", str(e.get("feature") or "").lower()))
+        for prev in toks:
+            if t and prev and len(t & prev) / len(t | prev) >= 0.5:
+                problems.append("near-duplicate entries inflate the count "
+                                f"({str(e.get('feature'))[:50]!r})")
+                break
+        else:
+            toks.append(t)
+            continue
+        break
+
+    if (diffs_blk.get("differentiation_strength") == "high"
+            and not any(str(e.get("evidence_ref") or "").strip() for e in entries)):
+        problems.append('strength "high" while no entry cites any evidence')
+
+    if problems:
+        return Finding(False, "; ".join(problems[:3]))
+    return Finding(True, "differentiators evidence-backed, distinct, honestly rated")
+
+
 def d09_publishable_gated(r: dict, html: Optional[str]) -> Finding:
     """Failed validation must WITHHELD the numbers — not merely disclaim them.
 
@@ -838,6 +892,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D27", "no impossible share-of-SOM claim; scenario basis rendered", "R4 rank 3: ceilings ARE the band, ratio sold as capture", "fail", d27_som_share_claims_possible),
     Invariant("D28", "competitor domains are identities, not lookalikes", "R4 rank 4: pattern-probed squatter poisoned prices", "fail", d28_domain_identity_verified),
     Invariant("D29", "withheld sizing binds derived surfaces (scenarios, viability)", "R4 rank 5: unflagged revenue table below a do-not-rely banner", "fail", d29_withhold_propagates),
+    Invariant("D30", "differentiators evidence-backed, distinct, honestly rated", "R4 rank 6: fabricated before evidence, strength pinned high", "fail", d30_differentiators_evidence_backed),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

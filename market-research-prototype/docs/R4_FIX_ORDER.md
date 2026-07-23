@@ -6,6 +6,28 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
 
 - **at_som_volume computed at som.high but labelled 100% of SOM** — fixed in `5a840f8` (plan.py `_enrich_economics_at_som` now pins to the base Y3 ceiling), gate `d23_at_som_matches_its_label` live. Residue folded into rank 3 below: the template's `< 100` caveat gate at report.html:1302 is now a dead branch.
 - **Withheld profit rendered as a fabricated $0/mo in alarm red** — fixed in `2c6a2c9`, gate `d24_withheld_profit_not_fabricated` live.
+- **Differentiators fabricated before evidence (rank 6)** — FIXED, evidence in,
+  mandate out. Step 3d ran right after clustering — before competitor pricing,
+  review themes or any scrape existed — under "you MUST return at least 1 ... your
+  job is to FIND it, not validate it ... never zero", and strength was a pure
+  function of the count that structure pinned at 8-10: "high" on 16/16, anchoring
+  the viability score. Now: (a) step 3d MOVED after the evidence join and receives
+  what the phase produced (per-domain price medians, review themes, channels) —
+  injected into every dimension prompt AND the gaps/positioning prompt;
+  (b) the mandate is inverted — every entry carries `evidence_ref`, and returning []
+  on a dimension the evidence says nothing about is declared the CORRECT answer;
+  the "never ship 0 diffs" backstop and the heuristic-placeholder fallback (the
+  mandate's enforcement arms) are deleted; (c) unevidenced price-comparison claims
+  are stripped at the source; (d) entries dedupe by token-Jaccard (>=0.5) and
+  strength derives from DISTINCT, EVIDENCE-BACKED entries — unbacked entries are
+  still listed as hypotheses but cannot move the number a scorer anchors to;
+  (e) customer_universe no longer waits on differentiators (fabricated hints were
+  its search input). Gate d30: price language with no pricing evidence, near-dupe
+  entries, and "high" with zero evidence_refs all fail — fires on 16/16 stored
+  reports, the panel's exact count. Two legacy tests updated: both encoded the
+  count-based rating (the mechanism under repair), now pin the same aggregation
+  and thresholds on evidence-backed entries; per_dim keeps empty dimensions
+  because "the evidence says nothing here" is itself a finding the template renders.
 - **Withhold stops at one Jinja block (rank 5)** — FIXED, data-layer. The sizing
   withhold ended at report.html's endif; the 3-Year Revenue table (computed from the
   withheld SOM) rendered unflagged directly below the "do not rely" banner, and
