@@ -879,6 +879,20 @@ def d40_hyperlocal_som_basis_honest(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, "hyperlocal SOM basis described honestly")
 
 
+def d41_no_empty_price_per_customer(r: dict, html: Optional[str]) -> Finding:
+    """R4 rank 20: a non-priced model (ad-supported / marketplace) or
+    a $0 PSM price fell through the subscription assumptions block and rendered an empty
+    "Annual price per customer: $ (%/mo churn assumed)". FAIL when the HTML shows a
+    price-per-customer line with no number."""
+    if html is None:
+        return Finding(None, "no html to check")
+    import re
+    if re.search(r"price per customer:\s*\$\s*\(", html):
+        return Finding(False, "empty 'Annual price per customer: $ (%/mo churn)' — a "
+                              "non-priced model fell through the subscription block")
+    return Finding(True, "no empty per-customer price rendered")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1176,6 +1190,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D38", "SAM serviceable slice is authoritative (sam/tam), rendered", "R4 rank 15: slice back-formed, key_assumption contradicts it", "fail", d38_sam_slice_authoritative),
     Invariant("D39", "price reconciliation priced in the venture's unit", "R4 rank 16: hardcoded /mo on a per-unit venture", "fail", d39_price_reconcile_unit_honest),
     Invariant("D40", "hyperlocal SOM basis honest (capacity vs unsourced estimate)", "R4 rank 18: 'capacity-based' claimed over an LLM guess", "fail", d40_hyperlocal_som_basis_honest),
+    Invariant("D41", "no empty per-customer price (non-priced fall-through)", "R4 rank 20: ad_supported hits the subscription else-branch", "fail", d41_no_empty_price_per_customer),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
