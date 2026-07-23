@@ -829,6 +829,26 @@ def d38_sam_slice_authoritative(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, f"serviceable slice {slice_pct}% matches sam.mid/tam.mid")
 
 
+def d39_price_reconcile_unit_honest(r: dict, html: Optional[str]) -> Finding:
+    """R4 rank 16: a per-unit venture's price reconciliation must render in the
+    venture's OWN unit, not a hardcoded '/mo' — an $18,500-per-project consultancy
+    read '$18,500/mo'. FAIL when a per-unit venture's price_reconciliation note carries
+    '/mo'. N/A for subscriptions (where /mo is correct) or no reconciliation."""
+    from business_model import is_per_unit
+    recon = r.get("price_reconciliation") or {}
+    note = recon.get("note")
+    if not note:
+        return Finding(None, "no price reconciliation")
+    econ = r.get("economics") or {}
+    kind = econ.get("model") or r.get("business_model_kind")
+    if not is_per_unit(kind):
+        return Finding(None, "not a per-unit venture (/mo is correct)")
+    if "/mo" in note:
+        return Finding(False, "per-unit venture's price reconciliation is priced '/mo' "
+                              "instead of the venture's unit")
+    return Finding(True, "price reconciliation uses the venture's unit")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1124,6 +1144,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D36", "validation warns surfaced (not under a green chip)", "R4 rank 13: advisory warns computed, rendered nowhere", "fail", d36_validation_warns_surfaced),
     Invariant("D37", "viability anchored to the real per-unit margin", "R4 rank 14: unit-econ anchor gated on transactional only", "fail", d37_viability_anchored_to_real_margin),
     Invariant("D38", "SAM serviceable slice is authoritative (sam/tam), rendered", "R4 rank 15: slice back-formed, key_assumption contradicts it", "fail", d38_sam_slice_authoritative),
+    Invariant("D39", "price reconciliation priced in the venture's unit", "R4 rank 16: hardcoded /mo on a per-unit venture", "fail", d39_price_reconcile_unit_honest),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

@@ -247,6 +247,18 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   field). The flat 0.35 hyperlocal serviceable_fraction default remains a residual.
   full suite: 1556 passed, 5 skipped.
 
+- **Two prices of record (rank 16)** — FIXED, unit + provenance. `reconcile_pricing`
+  printed every note as "$X/mo" regardless of unit (an $18,500-per-project consultancy
+  read "$18,500/mo"), and the price fed to economics/financials was a bare fallback
+  chain (unit_price or device_price or stated or opt) that could differ from the
+  PSM-recommended optimal shown elsewhere, unreconciled. Now reconcile_pricing takes a
+  `unit_label` threaded from the venture's model (/mo only for subscriptions, /{noun}
+  for per-unit), and `price_of_record` records ONE disclosed price with its provenance
+  (which source won, the PSM optimal, and whether they materially >15% differ). Gate
+  d39: a per-unit venture whose reconciliation note is priced '/mo' fails. Stored
+  corpus: 1/16 FAIL (the path only fires when a price was stated; the price-of-record
+  provenance is a new field). full suite: 1569 passed, 5 skipped.
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:
