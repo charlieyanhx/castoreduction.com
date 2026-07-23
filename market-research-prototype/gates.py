@@ -78,11 +78,22 @@ def d03_single_som(r: dict, html: Optional[str]) -> Finding:
 
 
 def d04_funnel_order(r: dict, html: Optional[str]) -> Finding:
+    # R4 rank 17: check every EDGE (low/mid/high), not just the mid — the mid clamp
+    # scaled high independently and let SAM.high exceed TAM.high on ordered mids (3/16).
     ms = r.get("market_sizing") or {}
-    tam, sam, som = (_num((ms.get(k) or {}).get("mid")) for k in ("tam", "sam", "som"))
-    if tam is None or sam is None or som is None:
+    blocks = {k: {e: _num((ms.get(k) or {}).get(e)) for e in ("low", "mid", "high")}
+              for k in ("tam", "sam", "som")}
+    tam, sam, som = blocks["tam"], blocks["sam"], blocks["som"]
+    if tam["mid"] is None or sam["mid"] is None or som["mid"] is None:
         return Finding(None, "funnel incomplete")
-    return Finding(som <= sam <= tam, f"SOM {som:,.0f} <= SAM {sam:,.0f} <= TAM {tam:,.0f}")
+    for edge in ("low", "mid", "high"):
+        t, s, o = tam[edge], sam[edge], som[edge]
+        if s is not None and t is not None and s > t:
+            return Finding(False, f"SAM.{edge} {s:,.0f} > TAM.{edge} {t:,.0f}")
+        if o is not None and s is not None and o > s:
+            return Finding(False, f"SOM.{edge} {o:,.0f} > SAM.{edge} {s:,.0f}")
+    return Finding(True, f"funnel ordered on all edges (mids {som['mid']:,.0f} <= "
+                         f"{sam['mid']:,.0f} <= {tam['mid']:,.0f})")
 
 
 def d05_unit_no_monthly(r: dict, html: Optional[str]) -> Finding:
