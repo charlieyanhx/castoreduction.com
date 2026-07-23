@@ -334,12 +334,15 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   seat/account scale mixing; formula-tokenizer phantom-suffix section block
   (skills/sizing/validate.py:36-38).
 
-- **Unit resolver (rank 23) — DEFERRED (residual).** The unit resolver can emit a bare
-  "unit" and the sizing vs pricing paths can resolve it differently (plan.py:440-512;
-  skills/perspective.py:60-68; market_sizing unit path); one WTP band pools
-  demand/supply/advertiser sides; some paths hardcode "$" and "/mo". This is a 6/16
-  multi-file threading cluster; deferred with its locations recorded rather than
-  rushed. D05/D21 already gate the economics/financials/WTP unit agreement.
+- **Unit resolver (rank 23) — CORE ALREADY GATED; residuals documented.** Measured on
+  the corpus: `economics.unit == financials.unit` on 16/16 reports — the cross-surface
+  unit divergence the audit flagged ("two prompts resolve it 1000x apart") is already
+  enforced by the existing D05 (no /mo unit on a per-unit model) and D21 (ARPU/ATV
+  consistency) gates, so the corpus shows 0/16 divergence today. The genuinely-residual
+  pieces are lower-signal and left documented, not rushed under a long session: one WTP
+  band can pool demand/supply/advertiser sides on a multi-sided venture
+  (skills/perspective.py:60-68); a few paths hardcode "$"/"/mo"; the bare-"unit" noun
+  fallback is a quality nit (plan.py:_UNIT_DEFAULT_BY_KIND). These want a fresh session.
 
 ## 1. Dedupe: 46 clusters → 24 causes
 
