@@ -1463,11 +1463,13 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     # --- Step 3c: Cluster competitors + detect whitespace (sklearn) ---
     if len(opps) >= 4:
         log.info("[plan] Step 3c: clustering competitors + PCA whitespace detection")
-        signals = (disc.get("steps", {}) or {}).get("signals", [])
-        # Prefer richer signal data for clustering — BUT when competitors were geo-promoted
-        # (M1), the scraped `signals` belong to the discarded national brands, so cluster the
-        # real local set instead of the stale national signals.
-        cluster_input = opps if disc.get("geo_sourced") else (signals if len(signals) >= 4 else opps)
+        # R4 rank 9: cluster the CANONICAL roster (the competitors the report displays),
+        # never the larger `signals` pool. Clustering national ventures on `signals`
+        # plotted ~20 dots for a roster of 9 — a third competitor count on a third
+        # surface. The roster entries carry the same scraped descriptions, so the map
+        # now positions exactly the competitors the report lists, and clustering's
+        # n_input == len(roster) == competitor_density.
+        cluster_input = opps
         clustering = cluster_competitors(cluster_input)
         if not clustering.get("error"):
             whitespace = find_whitespace(clustering, profile)

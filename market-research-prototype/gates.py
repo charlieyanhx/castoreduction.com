@@ -678,6 +678,41 @@ def d16_density_matches_ranked(r: dict, html: Optional[str]) -> Finding:
                    if not ok else f"density={density} plausible for {len(ops)} ranked")
 
 
+def d33_competitor_counts_reconcile(r: dict, html: Optional[str]) -> Finding:
+    """R4 rank 9: ONE canonical competitor roster. The displayed roster
+    (ranked_opportunities) is the count a report stands behind; competitor_density and
+    the clustering map must both be counts of THAT set. Four surfaces disagreed on the
+    corpus (15/16): density counted the discovered pool (~20) while the report listed a
+    curated 7-9, and clustering ran on a third `signals` set or silently dropped
+    thin-text venues. FAIL when density != roster length, when clustering did not
+    receive the roster, or when clustering lost competitors without disclosing them."""
+    disc = r.get("discover") or {}
+    roster = ((disc.get("synthesis") or {}).get("ranked_opportunities")
+              or disc.get("ranked_opportunities") or [])
+    if not roster:
+        return Finding(None, "no competitor roster")
+    n_roster = len(roster)
+
+    density = disc.get("competitor_density")
+    if density is not None and density != n_roster:
+        return Finding(False, f"competitor_density {density} != {n_roster} displayed "
+                              "competitors (density counts a set the report doesn't show)")
+
+    clust = r.get("clustering") or {}
+    if clust and not clust.get("error"):
+        n_input = clust.get("n_input")
+        if n_input is not None:
+            if n_input != n_roster:
+                return Finding(False, f"clustering saw {n_input} competitors but the "
+                                      f"roster has {n_roster} — the map is a different set")
+            n_mapped, n_drop = clust.get("n_competitors"), clust.get("n_dropped")
+            if (n_mapped is not None and n_drop is not None
+                    and n_mapped + n_drop != n_input):
+                return Finding(False, f"clustering lost competitors silently: "
+                                      f"{n_mapped} mapped + {n_drop} dropped != {n_input}")
+    return Finding(True, f"{n_roster} competitors coherent across density/roster/map")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -964,6 +999,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D30", "differentiators evidence-backed, distinct, honestly rated", "R4 rank 6: fabricated before evidence, strength pinned high", "fail", d30_differentiators_evidence_backed),
     Invariant("D31", "benchmark prices coherent (same-unit, >=3 domains)", "R4 rank 7: mixed-SKU median fabricated as a category price", "fail", d31_benchmark_prices_coherent),
     Invariant("D32", "WTP aggregation honest (real median, no $0 payer, n>=3 band)", "R4 rank 8: upper-middle order statistic, $0 payer, 2-answer median", "fail", d32_wtp_aggregation_honest),
+    Invariant("D33", "competitor counts reconcile (density==roster==map input)", "R4 rank 9: 4 competitor counts on 4 surfaces, none canonical", "fail", d33_competitor_counts_reconcile),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
