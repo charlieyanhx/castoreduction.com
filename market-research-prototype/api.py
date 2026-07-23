@@ -655,8 +655,12 @@ def display_title(profile: dict) -> str:
 
 
 @app.get("/jobs/{job_id}/report.html", response_class=HTMLResponse)
-def get_job_report_html(job_id: str):
-    """Polished HTML report (print-friendly, Cmd+P → Save as PDF). For 'plan' jobs only."""
+def get_job_report_html(job_id: str, debug: int = 0):
+    """Polished HTML report (print-friendly, Cmd+P → Save as PDF). For 'plan' jobs only.
+
+    `?debug=1` renders the section→script provenance overlay (which module produced each
+    section, the evidence it consumed, and its data character) so a wrong sentence points
+    straight at the script that owns it."""
     j = jobs.get(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
@@ -721,6 +725,7 @@ def get_job_report_html(job_id: str):
     # Render competitor map SVG if clustering data exists
     from charts import competitor_map_svg
     import charts
+    from report.section_provenance import build_section_provenance
     clustering = r.get("clustering")
     whitespace = r.get("whitespace")
     competitor_chart = competitor_map_svg(clustering, whitespace) if clustering else ""
@@ -769,6 +774,9 @@ def get_job_report_html(job_id: str):
         # R4 rank 10: reference/off-category entries partitioned out of the competitor
         # roster — shown separately so they don't count as competitors.
         reference_cases=(r.get("discover", {}).get("synthesis", {}) or {}).get("reference_cases", []),
+        # Debuggable report: section→script provenance + the ?debug=1 toggle.
+        section_provenance=build_section_provenance(r),
+        debug=bool(debug),
         competitor_chart=competitor_chart,
         clustering=clustering,
         whitespace=whitespace,

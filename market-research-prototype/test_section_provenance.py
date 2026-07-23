@@ -91,6 +91,34 @@ class TestBuilder(unittest.TestCase):
         self.assertIsNone(producer_for("nope"))
 
 
+class TestOverlayRender(unittest.TestCase):
+    def _render(self, **ctx):
+        import re
+        from jinja2 import Environment, FileSystemLoader
+        import api
+        env = Environment(loader=FileSystemLoader("templates"), autoescape=True,
+                          undefined=api.SafeUndefined)
+        src = env.loader.get_source(env, "report.html")[0]
+        start = src.index("<!-- DEBUG PROVENANCE OVERLAY -->")
+        end = src.index("<!-- END DEBUG PROVENANCE OVERLAY -->")
+        html = env.from_string(src[start:end]).render(**ctx)
+        return html
+
+    def test_overlay_renders_when_debug(self):
+        prov = build_section_provenance({"viability": {"viability_score": 60},
+                                         "market_sizing": {"tam": {"mid": 1e9}}})
+        html = self._render(debug=True, section_provenance=prov)
+        self.assertIn("section → script", html)
+        self.assertIn("four_ps", html)          # viability's module
+        self.assertIn("Viability", html)
+
+    def test_overlay_absent_without_debug(self):
+        prov = build_section_provenance({"viability": {"viability_score": 60}})
+        html = self._render(debug=False, section_provenance=prov)
+        self.assertNotIn("section → script", html)   # panel body not rendered
+        self.assertNotIn("prov-legend", html)
+
+
 @unittest.skipIf(not _CORPUS, "no corpus on disk")
 class TestOnTheRealCorpus(unittest.TestCase):
     def test_a_real_report_gets_many_attributed_sections(self):
