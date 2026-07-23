@@ -21,6 +21,7 @@ import json
 import os
 import re
 import sqlite3
+import statistics
 import sys
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -554,6 +555,43 @@ def d10_wtp_band_sane(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, f"band {lo}/{md}/{hi}")
 
 
+def d32_wtp_aggregation_honest(r: dict, html: Optional[str]) -> Finding:
+    """R4 rank 8: the WTP band must be honest arithmetic over the interviews.
+
+    Three defects the corpus carried: the 'median' was the UPPER-middle order
+    statistic (overstated for even n); a $0 'would not buy' counted as a payer,
+    inflating n_would_pay; and a low/median/high band was minted from as few as 2
+    answers. FAIL when the reported median disagrees with statistics.median of the
+    strictly-positive interview WTPs, when n_would_pay counts a non-positive answer,
+    or when a median band rests on fewer than 3 named prices."""
+    cr = r.get("consumer_research") or {}
+    syn = cr.get("synthesis") or {}
+    wtp = syn.get("willingness_to_pay") or {}
+    if not wtp:
+        return Finding(None, "no WTP band")
+    interviews = cr.get("interviews") or []
+    pos = [float(w) for iv in interviews
+           if isinstance((w := iv.get("willingness_to_pay_usd")), (int, float))
+           and not isinstance(w, bool) and w > 0]
+
+    n = wtp.get("n_would_pay")
+    if interviews and n is not None and n != len(pos):
+        return Finding(False, f"n_would_pay={n} but {len(pos)} strictly-positive WTPs "
+                              "(a $0/non-buyer counted as a payer)")
+
+    md = wtp.get("median")
+    if md is not None and not wtp.get("single_point"):
+        if (wtp.get("n_would_pay") or 0) < 3:
+            return Finding(False, f"median band from only {wtp.get('n_would_pay')} "
+                                  "named prices — a median needs >= 3")
+        if pos:
+            true_med = statistics.median(pos)
+            if abs(float(md) - true_med) > 0.01:
+                return Finding(False, f"reported median {md} != statistics.median "
+                                      f"{true_med} of the interview WTPs")
+    return Finding(True, "WTP aggregation honest")
+
+
 def d11_currency_sources(r: dict, html: Optional[str]) -> Finding:
     geo = str((r.get("profile") or {}).get("geography") or "").lower()
     desc = str((r.get("profile") or {}).get("summary") or "").lower()
@@ -925,6 +963,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D29", "withheld sizing binds derived surfaces (scenarios, viability)", "R4 rank 5: unflagged revenue table below a do-not-rely banner", "fail", d29_withhold_propagates),
     Invariant("D30", "differentiators evidence-backed, distinct, honestly rated", "R4 rank 6: fabricated before evidence, strength pinned high", "fail", d30_differentiators_evidence_backed),
     Invariant("D31", "benchmark prices coherent (same-unit, >=3 domains)", "R4 rank 7: mixed-SKU median fabricated as a category price", "fail", d31_benchmark_prices_coherent),
+    Invariant("D32", "WTP aggregation honest (real median, no $0 payer, n>=3 band)", "R4 rank 8: upper-middle order statistic, $0 payer, 2-answer median", "fail", d32_wtp_aggregation_honest),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

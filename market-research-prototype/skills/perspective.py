@@ -20,6 +20,7 @@ aggregation over structured outputs (grounded, testable, no hallucinated rollups
 """
 from __future__ import annotations
 
+import statistics
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
@@ -96,26 +97,36 @@ def _aggregate(interviews: list[dict], wtp_unit: str = "/mo") -> dict:
     need_counts = Counter(n.strip().lower() for iv in interviews for n in iv["needs"] if n.strip())
     obj_counts = Counter(o.strip().lower() for iv in interviews for o in iv["objections"] if o.strip())
 
-    wtps = [iv["willingness_to_pay_usd"] for iv in interviews
-            if isinstance(iv["willingness_to_pay_usd"], (int, float))
-            and not isinstance(iv["willingness_to_pay_usd"], bool)]
-    wtps_sorted = sorted(wtps)
+    # R4 rank 8: only STRICTLY-POSITIVE answers are payers. A $0 "would not buy" is a
+    # refusal, not a price — counting it inflated n_would_pay and dragged the band down.
+    wtps_sorted = sorted(
+        w for iv in interviews
+        if isinstance((w := iv["willingness_to_pay_usd"]), (int, float))
+        and not isinstance(w, bool) and w > 0)
+    n_pay, n_total = len(wtps_sorted), len(interviews)
     wtp_band = None
-    if len(wtps_sorted) >= 2 and wtps_sorted[0] != wtps_sorted[-1]:
-        mid = wtps_sorted[len(wtps_sorted) // 2]
-        wtp_band = {"low": wtps_sorted[0], "median": mid, "high": wtps_sorted[-1],
-                    "single_point": False,
-                    "n_would_pay": len(wtps_sorted), "n_total": len(interviews)}
-    elif len(wtps_sorted) >= 2:
+    if n_pay >= 3 and wtps_sorted[0] != wtps_sorted[-1]:
+        # A real median: statistics.median averages the two middle values for even n.
+        # The old code took wtps_sorted[len//2] — the UPPER middle — which overstates.
+        wtp_band = {"low": wtps_sorted[0], "median": statistics.median(wtps_sorted),
+                    "high": wtps_sorted[-1], "single_point": False, "thin": False,
+                    "n_would_pay": n_pay, "n_total": n_total}
+    elif n_pay == 2 and wtps_sorted[0] != wtps_sorted[-1]:
+        # Two distinct answers are a two-point RANGE, never a median. Disclose it as
+        # thin so the renderer shows low–high with no fabricated middle.
+        wtp_band = {"low": wtps_sorted[0], "high": wtps_sorted[-1],
+                    "single_point": False, "thin": True,
+                    "n_would_pay": n_pay, "n_total": n_total}
+    elif n_pay >= 2:
         # W2 close-out gate catch (D10): every committed segment named the SAME price.
         # Unanimity is a consensus POINT — informative (stronger than 1-of-N), but it
         # must be disclosed as a point, never typeset as a fake low/median/high range.
         wtp_band = {"point": wtps_sorted[0], "single_point": True, "consensus": True,
-                    "n_would_pay": len(wtps_sorted), "n_total": len(interviews)}
-    elif len(wtps_sorted) == 1:
+                    "n_would_pay": n_pay, "n_total": n_total}
+    elif n_pay == 1:
         # Only one segment committed to a price — NOT a band. Don't fake low/high.
         wtp_band = {"point": wtps_sorted[0], "single_point": True,
-                    "n_would_pay": 1, "n_total": len(interviews)}
+                    "n_would_pay": 1, "n_total": n_total}
 
     if wtp_band is not None:
         wtp_band["unit"] = wtp_unit  # so the renderer never hardcodes "/mo"

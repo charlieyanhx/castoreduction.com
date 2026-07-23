@@ -129,6 +129,24 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   pages through and extracts prices; JS-render fallback fires; relevance EXCLUSION of
   off-category domains) with enough coherent domains to clear the floor.
 
+- **WTP aggregation arithmetic (rank 8)** — FIXED, honest statistics. `_aggregate`
+  (skills/perspective.py) took `wtps_sorted[len//2]` — the UPPER-middle order
+  statistic, not a median (overstated for even n: [10,20,30,40] read 30 not 25;
+  4a755faa's "$4,500 median" came from [15, 4500]); minted a low/median/high band
+  from as few as 2 answers; counted a $0 "would not buy" as a payer; and reported
+  everyone who named any number as "would pay". Now: (a) only STRICTLY-POSITIVE WTPs
+  are payers — a $0 refusal is dropped, so n_would_pay and the band no longer include
+  non-buyers; (b) the median is `statistics.median()` (averages the two middle values
+  for even n); (c) a band needs n>=3 named prices — n==2 distinct becomes a `thin`
+  two-point range (low–high, NO median) the template renders as "an indicative
+  two-point range, not a median". Gate d32: reported median must equal
+  statistics.median of the strictly-positive interview WTPs; n_would_pay must equal
+  the count of strictly-positive namers ($0 payer fails); a median band from <3 named
+  prices fails. Stored corpus: 10/16 WTP-bearing reports FAIL — the panel's exact
+  "wrong in 10/16" count (6 wrong medians, 2 two-answer bands, 1 $0-payer, plus the
+  n<3 catches). The at-or-above-recommended-price recount is rank 11's job (it needs
+  the PSM price, computed downstream of consumer research).
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:
