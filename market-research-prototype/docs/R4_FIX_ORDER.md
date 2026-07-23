@@ -235,6 +235,18 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   venture with a computed margin but no matching anchor fails. Stored corpus: 12/16
   FAIL (every per-unit report lacks the anchor). full suite: 1546 passed, 5 skipped.
 
+- **SAM slice back-formed, key_assumption contradicts it (rank 15)** — FIXED,
+  C1/D20 pattern. SAM.mid is set by an independent LLM layer, so the real serviceable
+  slice is sam.mid/tam.mid — but the LLM's `key_assumption` prose stated a DIFFERENT
+  percentage (174ae091: SAM is 90% of TAM while the assumption said "15%", Δ75pp;
+  e55db08e 71% vs "5%") and was rendered in 0/16 HTMLs. Now `_sync_sam_narrative`
+  records `serviceable_slice_pct` = the computed sam.mid/tam.mid (the ONE authoritative
+  slice), the template renders it as authoritative with key_assumption demoted to
+  supporting rationale, and gate d38 fails a SAM whose serviceable_slice_pct is absent
+  or disagrees with the ratio. Stored corpus: 16/16 FAIL (none carried the authoritative
+  field). The flat 0.35 hyperlocal serviceable_fraction default remains a residual.
+  full suite: 1556 passed, 5 skipped.
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:

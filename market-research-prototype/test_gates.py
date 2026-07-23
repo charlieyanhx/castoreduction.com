@@ -24,7 +24,9 @@ def clean_result() -> dict:
         "market_scale": {"scale": "hyperlocal", "signals": {"is_physical": True}},
         "discover": {"geo_sourced": True},
         "market_sizing": {
-            "tam": {"mid": 5_000_000}, "sam": {"mid": 1_750_000}, "som": {"mid": 450_000},
+            "tam": {"mid": 5_000_000},
+            "sam": {"mid": 1_750_000, "serviceable_slice_pct": 35.0},  # R4 rank 15: 1.75M/5M
+            "som": {"mid": 450_000},
             "validation": {"passed": True}, "publishable": True,
             "sources_to_validate": ["US Census ACS (trade-area households)"],
         },

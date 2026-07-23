@@ -807,6 +807,28 @@ def d37_viability_anchored_to_real_margin(r: dict, html: Optional[str]) -> Findi
     return Finding(True, f"viability anchored to the computed {cm}% margin")
 
 
+def d38_sam_slice_authoritative(r: dict, html: Optional[str]) -> Finding:
+    """R4 rank 15: the serviceable slice a report stands behind is sam.mid / tam.mid.
+    The LLM's key_assumption prose stated a different % (174ae091: SAM is 90% of TAM
+    but the assumption said '15%') and was rendered nowhere. FAIL when a SAM lacks the
+    computed `serviceable_slice_pct` or that figure disagrees with sam.mid/tam.mid."""
+    ms = r.get("market_sizing") or {}
+    tam_mid = _num((ms.get("tam") or {}).get("mid"))
+    sam = ms.get("sam") or {}
+    sam_mid = _num(sam.get("mid"))
+    if not tam_mid or not sam_mid:
+        return Finding(None, "no SAM/TAM mids")
+    computed = sam_mid / tam_mid * 100.0
+    slice_pct = _num(sam.get("serviceable_slice_pct"))
+    if slice_pct is None:
+        return Finding(False, f"SAM has no serviceable_slice_pct (computed slice is "
+                              f"{computed:.1f}% of TAM — the authoritative figure)")
+    if abs(slice_pct - computed) > 0.5:
+        return Finding(False, f"serviceable_slice_pct {slice_pct}% != computed "
+                              f"{computed:.1f}% (sam.mid/tam.mid)")
+    return Finding(True, f"serviceable slice {slice_pct}% matches sam.mid/tam.mid")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1101,6 +1123,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D35", "TAM method divergence disclosed (no fake 0% spread)", "R4 rank 12: single-origin collapse hides 8-28x method spread", "fail", d35_tam_method_divergence_disclosed),
     Invariant("D36", "validation warns surfaced (not under a green chip)", "R4 rank 13: advisory warns computed, rendered nowhere", "fail", d36_validation_warns_surfaced),
     Invariant("D37", "viability anchored to the real per-unit margin", "R4 rank 14: unit-econ anchor gated on transactional only", "fail", d37_viability_anchored_to_real_margin),
+    Invariant("D38", "SAM serviceable slice is authoritative (sam/tam), rendered", "R4 rank 15: slice back-formed, key_assumption contradicts it", "fail", d38_sam_slice_authoritative),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
