@@ -310,6 +310,15 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   from the prompt, so this is a prompt-anchoring fix — no clean report-JSON gate for
   the LLM's arithmetic). full suite: 1598 passed, 5 skipped.
 
+- **Near-dupe collapse skipped the geo set (rank 22)** — FIXED, defensive.
+  `osm_named_competitors` deduped OSM venues by EXACT lowercase name only, so near-
+  duplicates ("Brooklyn Barber" vs "Brooklyn Barber Co") and corporate families
+  survived to be plotted as rival camps — the RapidFuzz `collapse_near_dupes` that runs
+  on the web set never ran here. It now runs on the geo payload too (brand-key +
+  fuzzy ≥92). Gate d42 flags near-dupe roster pairs. The wave-4 rosters are already
+  clean at that threshold (0/16), so d42 is a regression guard here rather than a
+  corpus-fail canary — documented as such. full suite: 1602 passed, 5 skipped.
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:

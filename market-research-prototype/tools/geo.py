@@ -356,9 +356,15 @@ def osm_named_competitors(lat: float, lng: float, radius_m: int = 3000,
     if not names:
         return Evidence(source="osm_named_competitors", category="geo", count=0,
                         skeleton=True, error="Overpass returned no named venues")
+    # R4 rank 22: the exact-lowercase dedup above misses NEAR-duplicates — "Brooklyn
+    # Barber" vs "Brooklyn Barber Co", or a corporate family plotted as rival camps.
+    # The RapidFuzz collapse that runs on the web set never ran on the geo set; run it.
+    from sources import collapse_near_dupes
+    payload = collapse_near_dupes([{"brand": n, "name": n} for n in names],
+                                  key="name", threshold=92)
     return Evidence(
-        source="osm_named_competitors", category="geo", count=len(names),
-        payload=[{"brand": n, "name": n} for n in names],
+        source="osm_named_competitors", category="geo", count=len(payload),
+        payload=payload,
         cost_meta={"source": "OpenStreetMap Overpass", "radius_m": radius_m,
                    "category": f"{osm_key}={osm_value}"},
     )
