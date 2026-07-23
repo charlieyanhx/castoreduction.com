@@ -42,21 +42,21 @@ VERTICAL_ANCHORS = {
         "value": 102.0, "unit": "%",
         "description": "Median NRR for $1-10M ARR B2B SaaS (KeyBanc 2024 SaaS Survey).",
         "source": "https://www.keybanc.com/-/media/keybank/business-insights/2024-saas-survey-key-findings.pdf",
-        "applies_to": ["b2b", "saas"],
+        "applies_to": ["saas"],  # R4 rank 24: SaaS metric, not all-b2b
     },
     "b2b_saas_median_cac_payback": {
         "label": "B2B SaaS Median CAC Payback",
         "value": 18.0, "unit": "months",
         "description": "Median CAC payback period for $1-25M ARR B2B SaaS (OpenView 2024 SaaS benchmarks).",
         "source": "https://openviewpartners.com/saas-benchmarks/",
-        "applies_to": ["b2b", "saas"],
+        "applies_to": ["saas"],  # R4 rank 24: SaaS metric, not all-b2b
     },
     "b2b_saas_magic_number": {
         "label": "B2B SaaS Magic Number Benchmark",
         "value": 0.7, "unit": "ratio",
         "description": "Healthy magic number benchmark — >1.0 efficient, 0.5-1.0 acceptable, <0.5 inefficient.",
         "source": "https://www.bvp.com/atlas/the-saas-magic-number",
-        "applies_to": ["b2b", "saas"],
+        "applies_to": ["saas"],  # R4 rank 24: SaaS metric, not all-b2b
     },
     # DTC e-commerce — Shopify Plus / Klaviyo / 2024 industry reports
     "dtc_median_repeat_rate": {
@@ -86,7 +86,7 @@ VERTICAL_ANCHORS = {
         "value": 187.0, "unit": "USD/employee/year",
         "description": "Average employer spend on digital health benefits per employee (Mercer 2024 National Survey).",
         "source": "https://www.mercer.com/insights/total-rewards/employee-benefits/national-survey-employer-sponsored-health-plans/",
-        "applies_to": ["healthcare", "digital_health", "wellness", "employer", "b2b"],
+        "applies_to": ["healthcare", "digital_health", "wellness", "employer"],  # R4 rank 24: health metric, not all-b2b
     },
     "wellbeing_app_completion_rate": {
         "label": "Wellbeing App Median Program Completion Rate",
@@ -358,8 +358,10 @@ def fetch_vertical_anchors(business_model: str = "", category: str = "") -> dict
     bm = (business_model or "").lower()
     cat = (category or "").lower()
     full = bm + " " + cat
-    if "b2b" in full or "saas" in full:
-        tags.update(["b2b", "saas"])
+    if "b2b" in full:
+        tags.add("b2b")
+    if "saas" in full or "software" in full:
+        tags.update(["saas", "b2b"])  # R4 rank 24: saas is b2b-flavored, but b2b hardware is not saas
     if "dtc" in full or "ecommerce" in full or "e-commerce" in full or "consumer" in full or "direct-to-consumer" in full:
         tags.update(["dtc", "ecommerce", "consumer"])
     if "marketplace" in full:

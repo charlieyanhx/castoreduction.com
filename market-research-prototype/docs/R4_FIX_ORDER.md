@@ -328,11 +328,19 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   with its section's own condition, gate d43 fails any href='#X' with no matching
   id='X' (16/16 stale corpus). (c) "· 0.0/day" — a tiny-volume year rendered "0.0/day";
   now shows "<1/day". (d) "3 weakest assumptions" heading hardcoded "3" while the list
-  may hold 1/2/4+; now un-numbered. **Remaining rank-24 residuals** (documented): the
-  self-refuting cannot-decode notice (taste.py:271-291); churn 5.0 default
-  (financials.py:202); "b2b"→SaaS anchor substring (macro_anchors.py:361-368);
-  seat/account scale mixing; formula-tokenizer phantom-suffix section block
-  (skills/sizing/validate.py:36-38).
+  may hold 1/2/4+; now un-numbered. (e) "b2b"→SaaS ANCHOR SUBSTRING — any venture whose
+  model/category contained "b2b" was tagged 'saas', and the three "B2B SaaS" anchors
+  (NRR, CAC-payback, magic number) + the employer-digital-health anchor listed 'b2b' in
+  their applies_to, so a b2b HARDWARE venture (800c261b, a superconductor firm) was
+  benchmarked against SaaS retention metrics it has no basis for. Now "b2b" alone no
+  longer implies "saas", the SaaS anchors apply to 'saas' only, and the health anchor to
+  health tags only — a b2b-hardware venture gets zero vertical anchors, a b2b-saas
+  venture keeps its saas anchors, a b2b-health venture keeps the health one. Gate d44:
+  a stored vertical anchor the venture's tags can't justify fails (4/16 stale corpus).
+  **Remaining rank-24 residuals** (documented, lower-value/risky): self-refuting
+  cannot-decode notice (taste.py:271-291); churn 5.0 default — already disclosed as
+  "assumed", value is a judgment call (financials.py:202); seat/account scale mixing;
+  formula-tokenizer phantom-suffix section block (skills/sizing/validate.py:36-38).
 
 - **Unit resolver (rank 23) — CORE ALREADY GATED; residuals documented.** Measured on
   the corpus: `economics.unit == financials.unit` on 16/16 reports — the cross-surface

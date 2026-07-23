@@ -938,6 +938,29 @@ def d43_no_dead_in_page_anchors(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, f"{len(anchors)} in-page anchors all resolve to a section")
 
 
+def d44_vertical_anchors_match_tags(r: dict, html: Optional[str]) -> Finding:
+    """R4 rank 24: the 'b2b' substring pulled the 'saas' tag, so a b2b HARDWARE venture
+    got 'B2B SaaS' NRR / CAC-payback / magic-number anchors it has no basis for
+    (800c261b, a superconductor firm). FAIL when a stored vertical anchor is not
+    selectable by the venture's own model/category tags."""
+    ms = r.get("market_sizing") or {}
+    stored = ((ms.get("macro_anchors") or {}).get("vertical_anchors") or {})
+    if not stored:
+        return Finding(None, "no vertical anchors")
+    prof = r.get("profile") or {}
+    try:
+        from macro_anchors import fetch_vertical_anchors
+        valid = set(fetch_vertical_anchors(prof.get("business_model", ""),
+                                           prof.get("category", "")).keys())
+    except Exception:
+        return Finding(None, "macro_anchors unavailable")
+    extra = sorted(set(stored) - valid)
+    if extra:
+        return Finding(False, "vertical anchors not justified by the venture's tags: "
+                              + ", ".join(extra[:4]))
+    return Finding(True, f"{len(stored)} vertical anchors all match the venture's tags")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1238,6 +1261,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D41", "no empty per-customer price (non-priced fall-through)", "R4 rank 20: ad_supported hits the subscription else-branch", "fail", d41_no_empty_price_per_customer),
     Invariant("D42", "no near-duplicate competitors (geo set collapsed too)", "R4 rank 22: near-dupe collapse skipped the geo set", "fail", d42_no_near_dupe_competitors),
     Invariant("D43", "no dead in-page nav anchors", "R4 rank 24: nav linked to conditionally-rendered sections", "fail", d43_no_dead_in_page_anchors),
+    Invariant("D44", "vertical macro anchors match the venture's tags", "R4 rank 24: b2b substring pulled saas anchors onto b2b hardware", "fail", d44_vertical_anchors_match_tags),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
