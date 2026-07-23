@@ -1024,12 +1024,22 @@ def score_viability(
     # actual computed economics object (retail_unit_economics' contribution margin,
     # or the honest marketplace/ad_supported revenue_basis disclosure) instead.
     _econ = economics or {}
-    if _econ.get("model") == "transactional" and _econ.get("contribution_margin_pct") is not None:
+    _ue_anchor = None
+    # R4 rank 14: the computed per-unit contribution margin was surfaced only for
+    # model=='transactional', so hybrid/services/ecommerce (also per-unit, also carrying
+    # a real contribution_margin_pct) got NOTHING and viability invented a margin —
+    # 28d0ec61 computed 65.5% but viability called it "thin on unit-level contribution
+    # margins" and scored 40. Surface it for every per-unit kind and record the exact
+    # anchor so it is both fed AND verifiable.
+    from business_model import is_per_unit
+    if is_per_unit(_econ.get("model")) and _econ.get("contribution_margin_pct") is not None:
         real_metrics.append(
             f"- Unit economics (per-unit, {_econ.get('unit', 'unit')}): contribution margin "
             f"{_econ['contribution_margin_pct']}%, break-even {_econ.get('break_even_units_per_month', '?')} "
             f"{_econ.get('unit', 'units')}/month. **Anchor unit_economics_health to this** — do NOT "
             "invent a CLV:CAC ratio.")
+        _ue_anchor = {"contribution_margin_pct": _econ["contribution_margin_pct"],
+                      "unit": _econ.get("unit"), "source": "economics"}
     elif business_model_kind in ("marketplace", "ad_supported") and _econ.get("revenue_basis"):
         _needs = ", ".join(_econ.get("needs_operator_input") or [])
         real_metrics.append(
@@ -1079,6 +1089,10 @@ def score_viability(
         result["strengths"] = ["(LLM did not populate — likely truncation; see raw)"]
     if not result.get("risks"):
         result["risks"] = ["(LLM did not populate — likely truncation; see raw)"]
+    # R4 rank 14: record the real per-unit margin viability was anchored to, so the
+    # anchoring is verifiable (gate D37) rather than an unprovable prompt claim.
+    if _ue_anchor is not None:
+        result["unit_economics_anchor"] = _ue_anchor
     return result
 
 

@@ -223,6 +223,18 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   HTML, or sit under a plain-green "passed the integrity gate" chip, fails. Stored
   corpus: 9/16 FAIL. full suite: 1535 passed, 5 skipped.
 
+- **Viability unit-econ anchor gated on transactional (rank 14)** — FIXED, broadened.
+  The computed per-unit contribution margin was surfaced to viability ONLY when
+  `economics.model == "transactional"`. Hybrid/services/ecommerce (also per-unit, also
+  carrying a real contribution_margin_pct) got nothing, so viability invented one —
+  28d0ec61 (hybrid) computed a 65.5% margin, yet viability's unit_economics_health
+  reasoning said "data is thin on unit-level contribution margins" and scored it 40.
+  Now the condition is `is_per_unit(model)` (transactional/ecommerce/services/hybrid),
+  and score_viability records `unit_economics_anchor` — the exact margin it was fed —
+  so the anchoring is verifiable, not an unprovable prompt claim. Gate d37: a per-unit
+  venture with a computed margin but no matching anchor fails. Stored corpus: 12/16
+  FAIL (every per-unit report lacks the anchor). full suite: 1546 passed, 5 skipped.
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:
