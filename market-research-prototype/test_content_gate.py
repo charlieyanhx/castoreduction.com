@@ -83,8 +83,12 @@ class TestPriceScrapeGated(unittest.TestCase):
         with patch("competitor_pricing.mrp_http.get",
                    return_value=self._resp(REAL_PRICING_HTML)):
             out = scrape_brand_prices("realroaster.com", max_paths=1)
+        # R4 rank 7: a multi-tier page legitimately spans >3x ($9.99-$59.99 here),
+        # so `median` is now None by the coherence rule — the fixture is a genuinely
+        # wide spread. What this test asserts is the CONTENT gate's job: a substantive
+        # page is not blocked and its prices ARE extracted (unlike the parked page).
         self.assertGreater(out["count"], 0)
-        self.assertIsNotNone(out["median"])
+        self.assertTrue(out["prices_found"])
 
 
 if __name__ == "__main__":

@@ -108,6 +108,27 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   was passing vacuously with no grounded bucket at all.
 - **Withheld TAM restated in narrative prose (D09 checked disclosure, not obedience)** — fixed in `f5758b1`. What that fix does NOT cover is ranked at #5: the SOM-derived revenue *table* and the raw sizing dict fed to viability sit outside both the template guard and D09's prose scan.
 
+- **Benchmark rows are fabricated prices (rank 7)** — FIXED, coherence floor.
+  `scrape_brand_prices` pooled every dollar amount regexed off up to N pages into
+  one unitless list and medianed it (purpleair.shop: [9.99, 11, 12, 139, 239, 349]
+  → $75.50, a 35x mixed-SKU spread); `gather_competitor_prices` medianed those
+  per-domain medians with NO count floor, so ONE scraped domain became a "category
+  median"; the template presented it as authoritative with no unit caveat. Now:
+  (a) `_coherent_median` returns (None, reason) unless n>=3 AND max/min<=3x — a
+  mixed-SKU pile or a lone price is no longer a price; (b) `_assemble_domain_result`
+  carries `no_price_reason` when a domain is incoherent (raw list kept for
+  provenance); (c) `_aggregate` yields `category_median=None` + `category_median_reason`
+  unless >=3 priced, coherent, on-category domains agree; (d) the template's pricing
+  anchor line is retitled "list prices, unit unverified across sites" and the bare
+  authoritative "category median $X" claim is gone. Gate d31: an incoherent per-domain
+  median that still carries a price fails; a category median from <3 domains fails;
+  a coherent multi-domain benchmark passes. Stored corpus: 7/7 priced reports FAIL
+  (the panel's exact count); the re-render passes. Four legacy sibling tests updated —
+  each supplied 1-2 prices/domains and asserted the no-floor median (the mechanism
+  under repair); now they assert their actual concern (content gate lets substantive
+  pages through and extracts prices; JS-render fallback fires; relevance EXCLUSION of
+  off-category domains) with enough coherent domains to clear the floor.
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:

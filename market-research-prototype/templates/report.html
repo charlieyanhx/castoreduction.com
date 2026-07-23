@@ -360,7 +360,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 
   {% if competitor_pricing and competitor_pricing.category_median %}
   <div style="margin-top:8px;font-size:9pt;color:#4b5563">
-    <strong>Pricing anchor:</strong> Scraped from {{ competitor_pricing.competitors_with_prices }} competitor homepages — category median ${{ competitor_pricing.category_median }}, range ${{ competitor_pricing.category_range[0] }}–${{ competitor_pricing.category_range[1] }}
+    <strong>Pricing anchor (list prices, unit unverified across sites):</strong> median of {{ competitor_pricing.competitors_with_prices }} competitor homepages with a coherent same-unit price — ${{ competitor_pricing.category_median }}, range ${{ competitor_pricing.category_range[0] }}–${{ competitor_pricing.category_range[1] }}. Scraped list prices are not normalized to our unit; validate before pricing on this.
   </div>
   {% endif %}
 </div>

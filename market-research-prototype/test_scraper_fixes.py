@@ -325,8 +325,11 @@ class TestPricingPathAndJsRender(unittest.TestCase):
              patch("scrape.crawl.fetch_page",
                    return_value={"html": rendered, "markdown": "", "status": 200}):
             out = cp.scrape_brand_prices("acmesaas.com", max_paths=2)
-        self.assertIsNotNone(out["median"])
+        # R4 rank 7: a lone JS-rendered price is not a coherent median (n<3), so
+        # `median` is None — but the point of THIS test is that the JS-render
+        # fallback fired and extracted the price at all.
         self.assertIn(49.0, out["prices_found"])
+        self.assertIsNone(out["median"])
 
 
 class TestCompetitorCompletenessLoop(unittest.TestCase):

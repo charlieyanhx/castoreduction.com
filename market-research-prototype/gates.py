@@ -480,6 +480,37 @@ def d30_differentiators_evidence_backed(r: dict, html: Optional[str]) -> Finding
     return Finding(True, "differentiators evidence-backed, distinct, honestly rated")
 
 
+def d31_benchmark_prices_coherent(r: dict, html: Optional[str]) -> Finding:
+    """A benchmark price must be a comparable per-unit price, not a mixed-SKU median
+    (R4 rank 7, 7/16).
+
+    scrape_brand_prices pooled every dollar amount off a page and medianed it —
+    purpleair.shop's [9.99..349] became "$75.50", spread 31.7x. Two checks:
+      1. any per-domain median whose prices_found span > 3x is incoherent;
+      2. a category_median backed by fewer than 3 priced domains is not a category."""
+    cp = r.get("competitor_pricing") or {}
+    per_domain = cp.get("per_domain") or []
+    if not per_domain and cp.get("category_median") is None:
+        return Finding(None, "no competitor pricing")
+    problems = []
+    for d in per_domain:
+        med = d.get("median")
+        prices = [p for p in (d.get("prices_found") or [])
+                  if isinstance(p, (int, float)) and p > 0]
+        if med and prices:
+            spread = max(prices) / min(prices) if min(prices) > 0 else 999
+            if spread > 3.0:
+                problems.append(f"{d.get('domain')}: median ${med} from a "
+                                f"{spread:.0f}x price spread (mixed SKUs)")
+    n_priced = sum(1 for d in per_domain if d.get("median"))
+    if cp.get("category_median") is not None and n_priced < 3:
+        problems.append(f"category median from only {n_priced} priced domain(s) "
+                        "— not a defensible category")
+    if problems:
+        return Finding(False, "; ".join(problems[:3]))
+    return Finding(True, "benchmark prices coherent and adequately sourced")
+
+
 def d09_publishable_gated(r: dict, html: Optional[str]) -> Finding:
     """Failed validation must WITHHELD the numbers — not merely disclaim them.
 
@@ -893,6 +924,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D28", "competitor domains are identities, not lookalikes", "R4 rank 4: pattern-probed squatter poisoned prices", "fail", d28_domain_identity_verified),
     Invariant("D29", "withheld sizing binds derived surfaces (scenarios, viability)", "R4 rank 5: unflagged revenue table below a do-not-rely banner", "fail", d29_withhold_propagates),
     Invariant("D30", "differentiators evidence-backed, distinct, honestly rated", "R4 rank 6: fabricated before evidence, strength pinned high", "fail", d30_differentiators_evidence_backed),
+    Invariant("D31", "benchmark prices coherent (same-unit, >=3 domains)", "R4 rank 7: mixed-SKU median fabricated as a category price", "fail", d31_benchmark_prices_coherent),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
