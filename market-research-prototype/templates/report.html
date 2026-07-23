@@ -306,7 +306,9 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   <div style="display:flex;flex-wrap:wrap;gap:8px">
     {{ chip(ok, '✓ Reproducible', 'deterministic — same input, same numbers') }}
     {% if integrity.validation.ran %}
-      {% if integrity.validation.passed %}{{ chip(ok, '✓ Validated', 'passed the integrity gate') }}
+      {% if integrity.validation.passed %}
+        {% if integrity.validation.n_warns %}{{ chip(warn, '⚠ Validated with warnings', integrity.validation.n_warns|string + ' advisory warning(s) — see Market Size') }}
+        {% else %}{{ chip(ok, '✓ Validated', 'passed the integrity gate') }}{% endif %}
       {% else %}{{ chip(bad, '✗ Failed validation', integrity.validation.n_blocks|string + ' blocking issue(s) — figures withheld') }}{% endif %}
     {% endif %}
     {% if integrity.triangulation %}
@@ -572,6 +574,17 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   </ul>
 </div>
 {% endif %}
+<!-- VALIDATION WARNS -->
+{% if market_sizing.validation and market_sizing.validation.warns %}
+<div style="border:1px solid #f59e0b;background:rgba(245,158,11,0.08);border-radius:8px;padding:14px;margin:10px 0">
+  <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#92400e;margin-bottom:6px">⚠ Validation warnings — advisory, not blocking</div>
+  <div style="font-size:10pt;color:#78350f">These figures passed the hard gate but carry unresolved consistency warnings — weigh them before relying on the numbers:</div>
+  <ul style="margin:6px 0 0;padding-left:18px;font-size:10pt;color:#78350f">
+  {% for w in market_sizing.validation.warns %}<li>{{ w.msg }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+<!-- END VALIDATION WARNS -->
 {% if not sizing_blocked %}
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:14px 0">
   {% for key, label in [('tam','TAM'), ('sam','SAM'), ('som','SOM')] %}
