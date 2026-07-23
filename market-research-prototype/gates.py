@@ -785,6 +785,28 @@ def d36_validation_warns_surfaced(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, f"{len(warns)} warn(s) surfaced; chip is not plain-green")
 
 
+def d37_viability_anchored_to_real_margin(r: dict, html: Optional[str]) -> Finding:
+    """R4 rank 14: a per-unit venture with a computed contribution margin must anchor
+    viability to THAT margin, not invent one. The surfacing was gated on
+    model=='transactional', so hybrid/services/ecommerce got nothing (28d0ec61 computed
+    65.5% but viability called it 'thin on unit-level contribution margins', score 40).
+    FAIL when economics is a per-unit kind with a contribution_margin_pct but viability
+    carries no unit_economics_anchor, or the anchor disagrees with the computed margin."""
+    from business_model import is_per_unit
+    econ = r.get("economics") or {}
+    cm = econ.get("contribution_margin_pct")
+    if not is_per_unit(econ.get("model")) or not _num(cm):
+        return Finding(None, "not a per-unit venture with a computed margin")
+    anchor = (r.get("viability") or {}).get("unit_economics_anchor")
+    if not anchor:
+        return Finding(False, f"economics computed a {cm}% per-unit margin but viability "
+                              "records no unit_economics_anchor — margin not surfaced")
+    a = _num(anchor.get("contribution_margin_pct"))
+    if a is None or abs(a - float(cm)) > 0.01:
+        return Finding(False, f"viability anchor margin {a} != computed {cm}")
+    return Finding(True, f"viability anchored to the computed {cm}% margin")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1078,6 +1100,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D34", "roster is only real competitors (references partitioned out)", "R4 rank 10: self-flagged junk relabeled not excluded", "fail", d34_roster_excludes_references),
     Invariant("D35", "TAM method divergence disclosed (no fake 0% spread)", "R4 rank 12: single-origin collapse hides 8-28x method spread", "fail", d35_tam_method_divergence_disclosed),
     Invariant("D36", "validation warns surfaced (not under a green chip)", "R4 rank 13: advisory warns computed, rendered nowhere", "fail", d36_validation_warns_surfaced),
+    Invariant("D37", "viability anchored to the real per-unit margin", "R4 rank 14: unit-econ anchor gated on transactional only", "fail", d37_viability_anchored_to_real_margin),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
