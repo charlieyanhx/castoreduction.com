@@ -922,6 +922,22 @@ def d42_no_near_dupe_competitors(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, f"{len(names)} distinct competitors, no near-dupes")
 
 
+def d43_no_dead_in_page_anchors(r: dict, html: Optional[str]) -> Finding:
+    """R4 rank 24: the 'Jump to' nav linked to sections that render conditionally, so
+    16/16 reports carried dead in-page anchors (#sensitivity, #audiences, #customer-
+    universe, …) that scroll nowhere. FAIL when an href='#X' has no matching id='X'."""
+    if html is None:
+        return Finding(None, "no html to check")
+    import re
+    anchors = set(re.findall(r'href="#([a-z0-9][a-z0-9-]*)"', html))
+    ids = set(re.findall(r'id="([a-z0-9][a-z0-9-]*)"', html))
+    dead = sorted(anchors - ids)
+    if dead:
+        return Finding(False, f"dead in-page anchors (nav link, no target section): "
+                              f"{', '.join('#' + a for a in dead[:6])}")
+    return Finding(True, f"{len(anchors)} in-page anchors all resolve to a section")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1221,6 +1237,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D40", "hyperlocal SOM basis honest (capacity vs unsourced estimate)", "R4 rank 18: 'capacity-based' claimed over an LLM guess", "fail", d40_hyperlocal_som_basis_honest),
     Invariant("D41", "no empty per-customer price (non-priced fall-through)", "R4 rank 20: ad_supported hits the subscription else-branch", "fail", d41_no_empty_price_per_customer),
     Invariant("D42", "no near-duplicate competitors (geo set collapsed too)", "R4 rank 22: near-dupe collapse skipped the geo set", "fail", d42_no_near_dupe_competitors),
+    Invariant("D43", "no dead in-page nav anchors", "R4 rank 24: nav linked to conditionally-rendered sections", "fail", d43_no_dead_in_page_anchors),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

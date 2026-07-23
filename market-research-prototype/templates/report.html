@@ -281,15 +281,18 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:10px 16px;color:#2563eb">
     <a href="#executive-summary" style="color:inherit">Executive summary</a> ·
     <a href="#differentiators" style="color:inherit">Differentiators</a> ·
-    <a href="#customer-universe" style="color:inherit">Customer universe</a> ·
-    <a href="#segment-ranking" style="color:inherit">Segment prioritization</a> ·
+    {# R4 rank 24: each of these SECTIONS renders conditionally, but the nav links used
+       to render unconditionally — dead in-page anchors on 16/16 reports. Guard every
+       conditional link with the SAME condition its section uses. #}
+    {% if customer_universe and customer_universe.count and customer_universe.count > 0 %}<a href="#customer-universe" style="color:inherit">Customer universe</a> ·{% endif %}
+    {% if segment_ranking and segment_ranking.top_5 %}<a href="#segment-ranking" style="color:inherit">Segment prioritization</a> ·{% endif %}
     <a href="#competitive-landscape" style="color:inherit">Competitive landscape</a> ·
-    <a href="#features" style="color:inherit">Features</a> ·
-    <a href="#audiences" style="color:inherit">Audiences</a> ·
+    {% if max_diff and max_diff.ranked_features %}<a href="#features" style="color:inherit">Features</a> ·{% endif %}
+    {% if audiences and audiences|length > 1 %}<a href="#audiences" style="color:inherit">Audiences</a> ·{% endif %}
     <a href="#pricing" style="color:inherit">Pricing</a> ·
     <a href="#economics" style="color:inherit">Unit economics</a> ·
-    <a href="#sensitivity" style="color:inherit">Sensitivity</a> ·
-    <a href="#macro-anchors" style="color:inherit">Macro anchors</a> ·
+    {% if economics.sensitivity and economics.sensitivity.churn_sensitivity %}<a href="#sensitivity" style="color:inherit">Sensitivity</a> ·{% endif %}
+    {% if market_sizing and market_sizing.macro_anchors and (market_sizing.macro_anchors.series or market_sizing.macro_anchors.vertical_anchors) %}<a href="#macro-anchors" style="color:inherit">Macro anchors</a> ·{% endif %}
     <a href="#methodology" style="color:inherit">Methodology</a> ·
     <a href="#citations" style="color:inherit">Citations</a>
   </div>
@@ -694,7 +697,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 
 {% if market_sizing.weakest_assumptions and market_sizing.weakest_assumptions|select|list|length > 0 %}
 <div style="background:#fef2f2;border-left:3px solid #dc2626;padding:10px 14px;font-size:10pt;margin:10px 0">
-  <strong>3 weakest assumptions in this model:</strong>
+  <strong>Weakest assumptions in this model:</strong>{# R4 rank 24: was hardcoded "3" while the list may hold 1, 2, or 4+ #}
   <ul style="margin:6px 0 0;padding-left:20px">{% for a in market_sizing.weakest_assumptions if a %}<li>{{ a }}</li>{% endfor %}</ul>
 </div>
 {% endif %}
@@ -753,7 +756,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
       <td style="padding:10px"><strong style="color:{{ color }};text-transform:capitalize">{{ label }}</strong><br><span style="font-size:9pt;color:#6b7280">{{ s.y3_ceiling_label or ('ceiling: ' + s.y3_basis|string) }}</span></td>
       {% for yk in ['year_1','year_2','year_3'] %}{% set y = s[yk] %}
       <td style="text-align:right;padding:10px">{{ format_currency(y.revenue_usd) }}<br>
-        <span style="font-size:9pt;color:#6b7280">{{ '{:,}'.format(y.units) }} {{ financials.assumptions.unit }}s · {{ y.units_per_day }}/day</span><br>
+        <span style="font-size:9pt;color:#6b7280">{{ '{:,}'.format(y.units) }} {{ financials.assumptions.unit }}s{% if y.units_per_day and y.units_per_day >= 1 %} · {{ y.units_per_day }}/day{% elif y.units_per_day %} · &lt;1/day{% endif %}</span><br>
         {# A withheld profit must not be formatted — SafeUndefined turns the absent
            key into "$0/mo profit" in red, a figure nobody computed (the D24 class,
            one table up from where it was first fixed). #}

@@ -319,16 +319,20 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   clean at that threshold (0/16), so d42 is a regression guard here rather than a
   corpus-fail canary — documented as such. full suite: 1602 passed, 5 skipped.
 
-- **Render/honesty small fry (rank 24) — PARTIAL.** Landed the one item the audit
-  mis-flagged as LLM-judgement but is actually code: break-even units used `round()`
-  (understating a threshold — 100.4 → "break even at 100" when 101 are needed);
-  `retail_unit_economics` now `math.ceil`s the monthly break-even and derives the daily
-  rate from it. **Remaining rank-24 residuals** (documented, not yet fixed): dead
-  `#sensitivity` anchor + methodology promise (report.html:291,655,1638); self-refuting
-  cannot-decode notice (taste.py:271-291); "3 weakest assumptions" heading when fewer
-  exist; churn 5.0 default (financials.py:202); "· 0.0/day" render; "b2b"→SaaS anchor
-  substring (macro_anchors.py:361-368); seat/account scale mixing; formula-tokenizer
-  phantom-suffix section block (skills/sizing/validate.py:36-38).
+- **Render/honesty small fry (rank 24) — MOSTLY LANDED.** Fixed: (a) break-even units
+  used `round()` (understating a threshold — 100.4 → "break even at 100" when 101 are
+  needed); `retail_unit_economics` now `math.ceil`s it. (b) DEAD IN-PAGE NAV ANCHORS —
+  the "Jump to" nav linked to sections that render conditionally, so 16/16 reports
+  carried anchors (#sensitivity, #audiences, #customer-universe, #segment-ranking,
+  #features, #macro-anchors) that scroll nowhere; each conditional link is now guarded
+  with its section's own condition, gate d43 fails any href='#X' with no matching
+  id='X' (16/16 stale corpus). (c) "· 0.0/day" — a tiny-volume year rendered "0.0/day";
+  now shows "<1/day". (d) "3 weakest assumptions" heading hardcoded "3" while the list
+  may hold 1/2/4+; now un-numbered. **Remaining rank-24 residuals** (documented): the
+  self-refuting cannot-decode notice (taste.py:271-291); churn 5.0 default
+  (financials.py:202); "b2b"→SaaS anchor substring (macro_anchors.py:361-368);
+  seat/account scale mixing; formula-tokenizer phantom-suffix section block
+  (skills/sizing/validate.py:36-38).
 
 - **Unit resolver (rank 23) — DEFERRED (residual).** The unit resolver can emit a bare
   "unit" and the sizing vs pricing paths can resolve it differently (plan.py:440-512;
