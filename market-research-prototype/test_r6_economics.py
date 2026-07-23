@@ -15,6 +15,7 @@ Mapped defects pinned here:
 """
 from __future__ import annotations
 
+import math
 import unittest
 
 from business_model import retail_unit_economics
@@ -39,7 +40,10 @@ class TestModelIsTheRealKind(unittest.TestCase):
 class TestOneMargin(unittest.TestCase):
     def test_break_even_uses_the_rounded_disclosed_pct(self):
         e = _econ()   # raw margin 3.333 -> pct rounds to 33.3
-        want = round(10_000.0 / (10.0 * 0.333))
+        # R4 rank 24: break-even is a THRESHOLD — ceil, not round (you must sell at
+        # least this many units to cover fixed cost). The disclosed 0.333 margin is
+        # still what it is computed from; only round→ceil changed.
+        want = math.ceil(10_000.0 / (10.0 * 0.333))
         self.assertEqual(e["break_even_units_per_month"], want)
 
 
