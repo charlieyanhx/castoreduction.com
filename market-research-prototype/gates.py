@@ -893,6 +893,35 @@ def d41_no_empty_price_per_customer(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, "no empty per-customer price rendered")
 
 
+def d42_no_near_dupe_competitors(r: dict, html: Optional[str]) -> Finding:
+    """R4 rank 22: the RapidFuzz near-dupe collapse ran on the web competitor set but
+    not the geo set, so same-name / corporate-family venues ('Brooklyn Barber' twice)
+    could be plotted as rival camps. FAIL when two roster entries are >=92 fuzzy-similar
+    by brand name."""
+    disc = r.get("discover") or {}
+    roster = ((disc.get("synthesis") or {}).get("ranked_opportunities")
+              or disc.get("ranked_opportunities") or [])
+    names = [str(o.get("brand") or o.get("name") or "").strip() for o in roster]
+    names = [n for n in names if n]
+    if len(names) < 2:
+        return Finding(None, "fewer than 2 named competitors")
+    try:
+        from rapidfuzz import fuzz
+        from sources import _brand_key  # same normalization collapse_near_dupes uses
+    except Exception:
+        return Finding(None, "rapidfuzz/sources unavailable")
+    keys = [_brand_key(n) for n in names]
+    for i in range(len(keys)):
+        for j in range(i + 1, len(keys)):
+            if not (keys[i] and keys[j]):
+                continue
+            if keys[i] == keys[j] or max(fuzz.ratio(keys[i], keys[j]),
+                                         fuzz.token_sort_ratio(keys[i], keys[j])) >= 92:
+                return Finding(False, f"near-duplicate competitors: "
+                                      f"'{names[i]}' vs '{names[j]}'")
+    return Finding(True, f"{len(names)} distinct competitors, no near-dupes")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1191,6 +1220,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D39", "price reconciliation priced in the venture's unit", "R4 rank 16: hardcoded /mo on a per-unit venture", "fail", d39_price_reconcile_unit_honest),
     Invariant("D40", "hyperlocal SOM basis honest (capacity vs unsourced estimate)", "R4 rank 18: 'capacity-based' claimed over an LLM guess", "fail", d40_hyperlocal_som_basis_honest),
     Invariant("D41", "no empty per-customer price (non-priced fall-through)", "R4 rank 20: ad_supported hits the subscription else-branch", "fail", d41_no_empty_price_per_customer),
+    Invariant("D42", "no near-duplicate competitors (geo set collapsed too)", "R4 rank 22: near-dupe collapse skipped the geo set", "fail", d42_no_near_dupe_competitors),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
