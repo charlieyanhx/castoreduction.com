@@ -20,8 +20,8 @@ METHODOLOGY (follow it exactly, one fix per commit):
 
 REMAINING WORK (in priority order):
 A. Rank 23 residuals (skills/perspective.py:60-68 one WTP band can pool demand/supply/advertiser sides on multi-sided ventures; a few hardcoded "$"/"/mo"; bare-"unit" noun fallback in plan.py _UNIT_DEFAULT_BY_KIND). NOTE: the core cross-surface unit divergence is already 0/16 (D05/D21 gate it) — only these narrower pieces remain, and a wrong unit-scale change can CREATE a report bug, so measure carefully.
-B. Rank 24 tail: self-refuting cannot-decode notice (taste.py:271-291); churn 5.0 default (financials.py:202); "b2b"→SaaS anchor substring (macro_anchors.py:361-368); seat/account scale mixing; formula-tokenizer phantom-suffix section block (skills/sizing/validate.py:36-38).
-C. THE FINAL MEASUREMENT (highest value, BLOCKED here): regenerate the 16-venture corpus by running the pipeline over each report's profile.summary input (~2h live LLM), then `python gates.py --corpus out/wave4_corpus --gate all` (the D25–D43 gates should flip green), then run benchmarks/r4_panel.js for the qualitative rubric audit vs the 13.5%/53 baseline. This needs ANTHROPIC_API_KEY set — confirm it's present before starting, or tell me it's missing.
+B. Rank 24 tail (3 left; the rest are DONE — see fix order): churn 5.0 default — already disclosed as "assumed", value is a judgment call (financials.py:202); seat/account scale mixing; formula-tokenizer phantom-suffix section block (skills/sizing/validate.py:36-38, risky — it touches the working formula-reconciliation validator, so measure a true false-positive before changing).
+C. THE FINAL MEASUREMENT (highest value, BLOCKED here): regenerate the 16-venture corpus by running the pipeline over each report's profile.summary input (~2h live LLM), then `python gates.py --corpus out/wave4_corpus --gate all` (the D25–D45 gates should flip green), then run benchmarks/r4_panel.js for the qualitative rubric audit vs the 13.5%/53 baseline. This needs ANTHROPIC_API_KEY set — confirm it's present before starting, or tell me it's missing.
 
 Start by reading docs/R4_FIX_ORDER.md, then pick up at item A. Ask me nothing you can determine from the code or corpus; measure, fix, gate, prove, commit.
 ```
@@ -32,11 +32,14 @@ Start by reading docs/R4_FIX_ORDER.md, then pick up at item A. Ask me nothing yo
 
 - **Ranks 7–22 fully fixed** — gates D31–D42 added, plus D04/D18 rewrites. Each TDD'd,
   corpus-measured, full-suite-green, committed and pushed.
-- **Rank 24 mostly landed** — break-even `ceil()`, dead in-page nav anchors (gate D43,
-  16/16 stale corpus), `0.0/day`→`<1/day`, un-numbered "weakest assumptions" heading.
+- **Rank 24 — 7 items landed** — break-even `ceil()`; dead in-page nav anchors (D43,
+  16/16); `0.0/day`→`<1/day`; un-numbered "weakest assumptions" heading; b2b→SaaS anchor
+  substring (D44, 4/16); self-refuting cannot-decode notice (D45, 10/16). 3 residuals
+  left (churn default — disclosed/judgment; seat/account scale mixing; formula-tokenizer
+  phantom-suffix — risky).
 - **Rank 23** — the cross-surface unit divergence is already 0/16 (D05/D21); narrower
   residuals documented.
-- **43 gates registered** (was ~22 at session start). Full suite: 1611 passed, 5 skipped.
+- **45 gates registered** (was ~22 at session start). Full suite: 1629 passed, 5 skipped.
 
 ## The measurement blocker
 
