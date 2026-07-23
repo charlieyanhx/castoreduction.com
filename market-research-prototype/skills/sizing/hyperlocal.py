@@ -298,12 +298,19 @@ def size_hyperlocal(
                 som, "SOM_obtainable", unit_src,
                 f"min(${unit_rev:,.0f} single-unit rev × {ramp_factor:.0%} ramp, "
                 f"${sam:,.0f} SAM)"))
-            # Surface saturation honestly when fair share sits far below capacity SOM.
+            # Surface saturation honestly when fair share sits far below the SOM.
+            # R4 rank 18: the note claimed "capacity-based" even when the SOM rests on
+            # an UNSOURCED single-unit revenue estimate (no seat data) — 4/6 hyperlocal
+            # reports. Only a real seats×turns model is capacity-based; the LLM estimate
+            # is not, and the note must say so.
             if fair_share_usd is not None and som and fair_share_usd < 0.5 * som:
+                _basis = ("capacity-based (measured seats × turns)" if supply_seats else
+                          "based on an UNSOURCED single-unit revenue estimate — not a "
+                          "measured capacity model")
                 notes.append(
                     f"Trade area has ~{competitors} comparable venues — an equal-split "
                     f"fair share would be only ~${fair_share_usd:,.0f}/yr. The SOM above "
-                    f"is capacity-based and assumes real differentiation/location, not "
+                    f"is {_basis} and assumes real differentiation/location, not "
                     f"average share in a fragmented market.")
         elif fair_share_usd is not None:
             # No capacity anchor — fall back to fair share, flagged (likely low).

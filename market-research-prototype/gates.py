@@ -860,6 +860,25 @@ def d39_price_reconcile_unit_honest(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, "price reconciliation uses the venture's unit")
 
 
+def d40_hyperlocal_som_basis_honest(r: dict, html: Optional[str]) -> Finding:
+    """R4 rank 18: a hyperlocal SOM that rests on an UNSOURCED single-unit revenue
+    estimate must not be described as 'capacity-based' — only a real seats × turns
+    model is capacity-based. 4/6 hyperlocal reports claimed capacity while the SOM was
+    an LLM guess (no seat data). FAIL when the notes say the SOM is 'capacity-based'
+    without any seat/capacity evidence."""
+    ms = r.get("market_sizing") or {}
+    scale = (ms.get("scale_decision") or {}).get("scale")
+    if scale != "hyperlocal":
+        return Finding(None, "not a hyperlocal venture")
+    notes = " ".join(ms.get("notes") or [])
+    if not notes:
+        return Finding(None, "no sizing notes")
+    if "capacity-based" in notes and "seat" not in notes.lower():
+        return Finding(False, "SOM described as 'capacity-based' with no seat/capacity "
+                              "model — it is an unsourced single-unit revenue estimate")
+    return Finding(True, "hyperlocal SOM basis described honestly")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1156,6 +1175,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D37", "viability anchored to the real per-unit margin", "R4 rank 14: unit-econ anchor gated on transactional only", "fail", d37_viability_anchored_to_real_margin),
     Invariant("D38", "SAM serviceable slice is authoritative (sam/tam), rendered", "R4 rank 15: slice back-formed, key_assumption contradicts it", "fail", d38_sam_slice_authoritative),
     Invariant("D39", "price reconciliation priced in the venture's unit", "R4 rank 16: hardcoded /mo on a per-unit venture", "fail", d39_price_reconcile_unit_honest),
+    Invariant("D40", "hyperlocal SOM basis honest (capacity vs unsourced estimate)", "R4 rank 18: 'capacity-based' claimed over an LLM guess", "fail", d40_hyperlocal_som_basis_honest),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

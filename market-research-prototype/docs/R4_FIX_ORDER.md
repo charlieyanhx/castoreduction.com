@@ -267,6 +267,18 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   each cap disclosed in _ordering_corrections/weakest_assumptions, and gate d04 checks
   all three edges, not just the mid. Stored corpus: 3/16 FAIL. full suite: 1576 passed.
 
+- **Hyperlocal SOM mislabelled "capacity-based" (rank 18)** — FIXED (prose half).
+  The saturation note printed "The SOM above is capacity-based" even when the SOM
+  rested on an UNSOURCED single-unit revenue estimate — no seat data, just an LLM guess
+  (4/6 hyperlocal reports). Only a real seats × turns model is capacity-based. The note
+  now words itself by whether `supply_seats` was supplied ("capacity-based (measured
+  seats × turns)" vs "based on an UNSOURCED single-unit revenue estimate — not a
+  measured capacity model"). Gate d40: a hyperlocal SOM called capacity-based with no
+  seat evidence fails. Stored corpus: 4/16 FAIL. The other constituent — TAM = πr² ×
+  density × the wrong BLS parent aggregate (gym sized on apparel spend) — is a
+  data-quality residual (needs a category→BLS-series map, not a template fix).
+  full suite: 1582 passed, 5 skipped.
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:
