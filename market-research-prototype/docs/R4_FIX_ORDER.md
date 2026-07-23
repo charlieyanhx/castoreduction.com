@@ -147,6 +147,24 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   n<3 catches). The at-or-above-recommended-price recount is rank 11's job (it needs
   the PSM price, computed downstream of consumer research).
 
+- **No canonical competitor roster (rank 9)** — FIXED, one roster. Measured on the
+  corpus: 15/16 reports carried divergent competitor counts across four surfaces.
+  `competitor_density` counted `len(enriched)` — the full discovered pool (~20 on
+  national ventures) — while the report DISPLAYED the LLM's curated 7-9; national
+  clustering ran on the `signals` pool (~20), a THIRD set; and clustering silently
+  dropped every competitor whose text was <20 chars, so a 30-venue geo market plotted
+  5-12 dots with no disclosure. Now the DISPLAYED roster (ranked_opportunities) is
+  canonical: (a) `discover._set_canonical_density` pins `competitor_density =
+  len(ranked_opportunities)` after synthesis — count what you show, not what you
+  discovered; (b) plan.py clusters the roster (`opps`), never the larger `signals`
+  pool, so the map positions exactly the competitors the report lists; (c)
+  `cluster_competitors` records `n_input`/`n_dropped`/`dropped` so `n_competitors +
+  n_dropped == n_input`, and the template discloses "N of M positioned; the rest had
+  descriptions too thin to place". Gate d33: density != roster length fails; clustering
+  that saw a different set than the roster fails; clustering that lost competitors
+  without disclosing them fails. Stored corpus: 10/16 FAIL (every national report,
+  density 17-20 vs roster 7-9). D16 stays green (density>=roster/2 still holds).
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:

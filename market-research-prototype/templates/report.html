@@ -993,6 +993,9 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <div style="margin: 16px 0">
   {{ competitor_chart|safe }}
 </div>
+{% if clustering and clustering.n_dropped %}
+<p style="font-size:9pt;color:#b45309;margin-top:-8px">⚠ {{ clustering.n_competitors }} of {{ clustering.n_input }} competitors are positioned above; {{ clustering.n_dropped }} had descriptions too thin to place on the map.</p>
+{% endif %}
 {% if whitespace and whitespace.whitespace_found %}
 <p style="font-size:10pt;color:#6b7280;margin-top:-8px">
   <strong style="color:#b45309">Whitespace detected</strong> — the dashed orange region shows the largest gap in the competitive map (4×4 grid analysis). This is where positioning is least crowded.

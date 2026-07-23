@@ -207,6 +207,19 @@ def _density_counts(enriched: list[dict]) -> tuple[int, int]:
     return len(enriched), active
 
 
+def _set_canonical_density(result: dict) -> None:
+    """R4 rank 9: the ONE competitor count a report stands behind is the roster it
+    DISPLAYS — ranked_opportunities — not the larger discovered pool. Density counted
+    len(enriched) (~20 on national ventures) while the report listed the LLM's curated
+    7-9, so a buyer read "20 competitors" above a list of 9. Pin density to the
+    displayed roster after synthesis so every surface counts the same set. No-op when
+    no roster exists yet (the geo paths set both from the same list already)."""
+    roster = ((result.get("synthesis") or {}).get("ranked_opportunities")
+              or result.get("ranked_opportunities") or [])
+    if roster:
+        result["competitor_density"] = len(roster)
+
+
 def _is_megabrand(brand_name: str) -> bool:
     """True if the brand is a legacy megabrand the founder doesn't need to learn from."""
     if not brand_name:
@@ -789,6 +802,7 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
             "_synthesis_error": str(e),
         }
 
+    _set_canonical_density(result)  # R4 rank 9: density == displayed roster length
     return result
 
 

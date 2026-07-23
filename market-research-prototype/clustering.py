@@ -154,9 +154,15 @@ def cluster_competitors(
       "pca_explained_variance": float,
     }
     """
-    # Build description texts for each competitor
+    # Build description texts for each competitor. R4 rank 9: a competitor with too
+    # little text to embed is DROPPED from the map — but the drop was silent, so a
+    # 30-venue geo market plotted 7 dots with no disclosure. Record what was dropped
+    # so the count reconciles (n_competitors + n_dropped == n_input) and the report
+    # can say "N of M mapped; the rest had descriptions too thin to position".
+    n_input = len(competitors)
     texts = []
     names = []
+    dropped = []
     for c in competitors:
         desc_parts = [
             c.get("description", ""),
@@ -168,6 +174,7 @@ def cluster_competitors(
             desc_parts.append(" ".join(c["reddit_top_subs"]))
         text = " ".join(p for p in desc_parts if p)
         if len(text) < 20:
+            dropped.append(c.get("brand") or f"unknown_{len(dropped)}")
             continue
         texts.append(text)
         names.append(c.get("brand", f"unknown_{len(names)}"))
@@ -177,6 +184,9 @@ def cluster_competitors(
         return {
             "error": f"Need at least 4 competitors with descriptions to cluster, got {n}",
             "n_competitors": n,
+            "n_input": n_input,
+            "n_dropped": len(dropped),
+            "dropped": dropped,
         }
 
     # Build embeddings (semantic first, TF-IDF fallback)
@@ -242,6 +252,9 @@ def cluster_competitors(
 
     return {
         "n_competitors": n,
+        "n_input": n_input,          # R4 rank 9: competitors handed to the map...
+        "n_dropped": len(dropped),   # ...minus those too thin to embed == n_competitors
+        "dropped": dropped,
         "k": best_k,
         "silhouette_score": round(float(best_score), 3),
         "clusters": clusters,
