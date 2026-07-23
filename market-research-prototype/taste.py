@@ -285,8 +285,12 @@ def decode_taste(brand: str, domain: str) -> dict:
                 f"(found {len(reviews)} Trustpilot reviews, {len(reddit)} Reddit posts, "
                 f"{len(articles)} review articles, {len(homepage_excerpts)} homepage testimonials; "
                 f"total {total_sources} signals — threshold is {MIN_TOTAL})."
-                + (" The brand may be enterprise B2B with no consumer review surface, "
-                   "too new, or mostly sold through resellers." if total_sources > 0 else
+                # R4 rank 24: the old total_sources>0 clause said "with no consumer
+                # review surface" while the SAME sentence reported finding 15-21 signals
+                # — a self-refuting notice on 10/16 reports. When signals were found but
+                # fell below the bar, say the surface is THIN, not absent.
+                + (" The review surface is too thin to decode confidently — the brand "
+                   "may be enterprise B2B, too new, or mostly sold through resellers." if total_sources > 0 else
                    " The brand has no scrapable presence on Trustpilot, Reddit, or owned channels.")
             ),
             "confidence": 0.0,

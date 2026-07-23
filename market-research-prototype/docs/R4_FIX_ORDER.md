@@ -337,10 +337,17 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   health tags only — a b2b-hardware venture gets zero vertical anchors, a b2b-saas
   venture keeps its saas anchors, a b2b-health venture keeps the health one. Gate d44:
   a stored vertical anchor the venture's tags can't justify fails (4/16 stale corpus).
-  **Remaining rank-24 residuals** (documented, lower-value/risky): self-refuting
-  cannot-decode notice (taste.py:271-291); churn 5.0 default — already disclosed as
-  "assumed", value is a judgment call (financials.py:202); seat/account scale mixing;
-  formula-tokenizer phantom-suffix section block (skills/sizing/validate.py:36-38).
+  (f) SELF-REFUTING CANNOT-DECODE NOTICE — when taste decode fell below the bar on thin
+  REVIEWS but other signals pushed the total over 8, the notice read "…total 21
+  signals… the brand may be enterprise B2B with no consumer review surface" — claiming
+  an absent surface in the same sentence that reported 21 signals (10/16 reports). Now
+  a below-bar-but-nonzero notice says the surface is "too thin to decode confidently",
+  not absent; only a genuine 0-signal case says "no scrapable presence". Gate d45 fails
+  a notice reporting N>0 signals that also claims absence (10/16 stale corpus).
+  **Remaining rank-24 residuals** (documented, lower-value/risky): churn 5.0 default —
+  already disclosed as "assumed", value is a judgment call (financials.py:202);
+  seat/account scale mixing; formula-tokenizer phantom-suffix section block
+  (skills/sizing/validate.py:36-38).
 
 - **Unit resolver (rank 23) — CORE ALREADY GATED; residuals documented.** Measured on
   the corpus: `economics.unit == financials.unit` on 16/16 reports — the cross-surface
