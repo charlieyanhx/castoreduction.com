@@ -389,7 +389,8 @@ def reconcile_wtp_with_price(wtp: dict | None, recommended: float | None,
     }
 
 
-def reconcile_pricing(stated: float | None, recommended) -> dict | None:
+def reconcile_pricing(stated: float | None, recommended,
+                      unit_label: str = "/mo") -> dict | None:
     """Compare the user's stated price to the model's recommendation, visibly.
 
     Returns a reconciliation dict (or None if nothing to reconcile) so the report
@@ -402,22 +403,53 @@ def reconcile_pricing(stated: float | None, recommended) -> dict | None:
         return None
     if stated is None or stated <= 0 or rec <= 0:
         return None
+    # R4 rank 16: render prices in the venture's OWN unit, not a hardcoded "/mo" — an
+    # $18,500-per-project consultancy read "$18,500/mo", a per-coffee cafe "$6/mo".
+    u = unit_label or "/mo"
     delta_pct = round((rec - stated) / stated * 100, 1)
     if abs(delta_pct) <= 15:
         verdict = "aligned"
-        note = (f"Your ${stated:,.0f}/mo aligns with the model's recommended "
-                f"${rec:,.0f}/mo ({delta_pct:+.0f}%).")
+        note = (f"Your ${stated:,.0f}{u} aligns with the model's recommended "
+                f"${rec:,.0f}{u} ({delta_pct:+.0f}%).")
     elif rec < stated:
         verdict = "model_suggests_lower"
-        note = (f"You stated ${stated:,.0f}/mo; the model's price simulation suggests "
-                f"${rec:,.0f}/mo ({delta_pct:+.0f}%) may capture more of the market. "
+        note = (f"You stated ${stated:,.0f}{u}; the model's price simulation suggests "
+                f"${rec:,.0f}{u} ({delta_pct:+.0f}%) may capture more of the market. "
                 f"Validate before changing.")
     else:
         verdict = "model_suggests_higher"
-        note = (f"You stated ${stated:,.0f}/mo; willingness-to-pay analysis suggests "
-                f"${rec:,.0f}/mo ({delta_pct:+.0f}%) — you may be under-pricing.")
+        note = (f"You stated ${stated:,.0f}{u}; willingness-to-pay analysis suggests "
+                f"${rec:,.0f}{u} ({delta_pct:+.0f}%) — you may be under-pricing.")
     return {"stated_usd": stated, "recommended_usd": rec,
             "delta_pct": delta_pct, "verdict": verdict, "note": note}
+
+
+def price_of_record(unit_price, device_price, stated, opt, unit_noun,
+                    is_transactional) -> dict:
+    """R4 rank 16: ONE disclosed price of record + its provenance. The price fed to
+    economics/financials was a bare fallback chain (unit_price or device_price or stated
+    or opt) that could differ from the PSM optimal shown elsewhere, unreconciled. This
+    records which source won, the PSM optimal, and whether they materially (>15%) differ
+    so a second price of record can never hide."""
+    if is_transactional:
+        chain = [("stated per-unit price", unit_price),
+                 ("one-time device/hardware price", device_price),
+                 ("stated price", stated), ("PSM optimal", opt)]
+        value, basis = next(((v, b) for b, v in chain if v), (opt, "PSM optimal"))
+    else:
+        value, basis = opt, "PSM optimal"
+    try:
+        value = float(value) if value is not None else None
+    except (TypeError, ValueError):
+        value = None
+    try:
+        psm = float(opt) if opt is not None else None
+    except (TypeError, ValueError):
+        psm = None
+    differs = bool(value is not None and psm is not None and psm > 0
+                   and abs(value - psm) / psm > 0.15)
+    return {"value": value, "unit": unit_noun, "basis": basis,
+            "psm_optimal": psm, "differs_from_psm": differs}
 
 
 # A per-transaction price phrase ("$6 per drink", "$15/cut") makes the natural WTP unit
@@ -1865,8 +1897,11 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
 
     # C5 (Manus-parity): the user's stated price must not be silently dropped.
     # Reconcile it against the model's recommended optimal price, visibly.
+    # R4 rank 16: in the venture's own unit, never a hardcoded "/mo".
+    _recon_unit = f"/{_psm_unit}" if (is_per_unit(biz_kind) and _psm_unit) else "/mo"
     recon = reconcile_pricing(extract_stated_price(description),
-                              psm_result.get("optimal_price_point"))
+                              psm_result.get("optimal_price_point"),
+                              unit_label=_recon_unit)
     if recon:
         result["price_reconciliation"] = recon
         log.info("[plan] price reconciliation: stated=%s recommended=%s verdict=%s",
@@ -1912,8 +1947,13 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         _device_price = extract_device_price(description)
         _stated = extract_stated_price(description)
         _unit_noun = _psm_unit  # cycle38: model-derived unit, never "/mo" for a per-unit venture
+        # R4 rank 16: ONE disclosed price of record + provenance (which source won, the
+        # PSM optimal, whether they materially differ) — so a second price can't hide.
+        _por = price_of_record(_unit_price, _device_price, _stated, _opt, _unit_noun,
+                               is_transactional)
+        result["pricing"]["price_of_record"] = _por
         if is_transactional:
-            _price_per_unit = float(_unit_price or _device_price or _stated or _opt)
+            _price_per_unit = _por["value"] if _por["value"] is not None else float(_opt)
         else:
             _price_per_unit = _opt
 
