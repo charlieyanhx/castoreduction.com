@@ -201,6 +201,12 @@ def estimate_market_size(
     optimal = psm_result.get("optimal_price_point") if psm_result else None
     optimal_str = f"${optimal}" if optimal else "unknown"
 
+    # R4 rank 21: the bottom-up method is firm-count × ACV, but it was fed the raw
+    # monthly price as the ACV anchor with no period label — so a $14/mo SaaS was sized
+    # on a ~$15 "ACV" instead of $168/yr, a 10-12x TAM understatement (4a755faa,
+    # becc8783). Annualize the ACV explicitly for recurring models and label the period.
+    acv_str = _acv_anchor(optimal, profile.get("business_model"))
+
     price_range = psm_result.get("acceptable_range") if psm_result else None
     price_range_str = f"${price_range[0]}–${price_range[1]}" if price_range else "unknown"
 
@@ -241,6 +247,7 @@ def estimate_market_size(
         f"Competitors: {comp_blob[:500]}\n"
         f"Audience: {audience_blob[:300]}\n"
         f"Pricing anchors: median ${price_anchor_str}, optimal ${optimal_str}, range {price_range_str}\n"
+        f"ACV anchor for the BOTTOM-UP method: {acv_str}\n"
     )
     # cycle30: TAM was getting 1-2/3 methods filled even with retry. Split into
     # 3 separate single-method calls + 1 reconciliation call. Forces full filling.
@@ -602,6 +609,23 @@ ALL fields REQUIRED. growth_cagr_pct must be a SINGLE number (e.g. 23, not "18-2
     result = _enforce_sizing_ordering(result)
 
     return result
+
+
+def _acv_anchor(optimal, business_model) -> str:
+    """R4 rank 21: build the ACV anchor for the bottom-up TAM method, with an explicit
+    annual period. A recurring model's monthly price must be ×12'd — feeding the raw
+    monthly figure as 'ACV' under-sized a $14/mo SaaS by ~12x. Returns a labelled
+    string the sizing prompt injects."""
+    if not optimal:
+        return "unknown"
+    bm = str(business_model or "").lower()
+    recurring = ("/mo" in bm or any(k in bm for k in
+                 ("subscription", "saas", "member", "recurring", "per month", "monthly")))
+    if recurring:
+        acv = float(optimal) * 12
+        return (f"${acv:,.0f}/yr ACV (the ${optimal}/mo price ANNUALIZED ×12 — use THIS "
+                f"as the ACV in the bottom-up method, NEVER the monthly figure)")
+    return f"${optimal} per unit/contract (one-time or per-purchase ACV)"
 
 
 def _sync_sam_narrative(sam: dict, tam_mid) -> dict:
