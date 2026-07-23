@@ -182,6 +182,21 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   any reference/off-category/is_competitor==false entry in the roster fails. Stored
   corpus: 6/16 FAIL. full suite: 1504 passed, 5 skipped.
 
+- **Price-above-WTP-ceiling never flagged (rank 11)** — FIXED, ceiling compare.
+  `reconcile_wtp_with_price` compared the recommended price to the WTP MEDIAN inside a
+  0.1x-10x deadband, so a price 3-9x the median — or a price above the top of the
+  simulated range — sailed through unflagged as long as recommended/median stayed under
+  10x. Now the comparison is against the CEILING (the band's high, or the single
+  point): a price at/below the ceiling is defensible (someone would pay it); a price
+  above it is flagged, and the note reports how many simulated segments actually named
+  a price that high (the honest "0 of N" — this also lands rank 8's deferred
+  at-or-above count, since the recommended price and the interviews both exist at the
+  reconcile call site). Gate d18 rewritten to the ceiling-breach invariant: recommended
+  > ceiling requires the wtp_price_mismatch flag; recommended <= ceiling is N/A. Stored
+  corpus: 3 reports FAIL on small breaches the old 10x deadband hid (42>40, 14.99>10,
+  13.5>13). Compat preserved — the wave-2 83-156x shapes still flag with their old
+  wtp/ratio/note fields. full suite: 1516 passed, 5 skipped.
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:
