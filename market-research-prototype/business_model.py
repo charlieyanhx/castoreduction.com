@@ -16,6 +16,7 @@ The classifier is deterministic (no LLM). The retail economics are pure math.
 """
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 # cycle38 (audit M4 Phase B): seven monetization models, deterministic keyword routing.
@@ -250,8 +251,11 @@ def retail_unit_economics(
     _margin_frac_disclosed = (out["contribution_margin_pct"] or 0) / 100.0
     be_units_month = monthly_fixed_cost / (price_per_unit * _margin_frac_disclosed) \
         if _margin_frac_disclosed else monthly_fixed_cost / margin
-    out["break_even_units_per_month"] = round(be_units_month)
-    out["break_even_units_per_day"] = round(be_units_month / 30.0, 1)
+    # R4 rank 24: break-even is a THRESHOLD — you must sell at least this many units to
+    # cover fixed cost. round() understated it (100.4 → "break even at 100" when 101 are
+    # needed). Ceil the monthly figure and derive the daily rate from it.
+    out["break_even_units_per_month"] = math.ceil(be_units_month)
+    out["break_even_units_per_day"] = round(out["break_even_units_per_month"] / 30.0, 1)
     if est_visits_per_year:
         out["visits_per_year_assumed"] = est_visits_per_year
         out["annual_value_per_regular_usd"] = round(est_visits_per_year * margin, 2)

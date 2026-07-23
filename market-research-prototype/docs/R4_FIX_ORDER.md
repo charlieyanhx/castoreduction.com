@@ -319,6 +319,24 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   clean at that threshold (0/16), so d42 is a regression guard here rather than a
   corpus-fail canary — documented as such. full suite: 1602 passed, 5 skipped.
 
+- **Render/honesty small fry (rank 24) — PARTIAL.** Landed the one item the audit
+  mis-flagged as LLM-judgement but is actually code: break-even units used `round()`
+  (understating a threshold — 100.4 → "break even at 100" when 101 are needed);
+  `retail_unit_economics` now `math.ceil`s the monthly break-even and derives the daily
+  rate from it. **Remaining rank-24 residuals** (documented, not yet fixed): dead
+  `#sensitivity` anchor + methodology promise (report.html:291,655,1638); self-refuting
+  cannot-decode notice (taste.py:271-291); "3 weakest assumptions" heading when fewer
+  exist; churn 5.0 default (financials.py:202); "· 0.0/day" render; "b2b"→SaaS anchor
+  substring (macro_anchors.py:361-368); seat/account scale mixing; formula-tokenizer
+  phantom-suffix section block (skills/sizing/validate.py:36-38).
+
+- **Unit resolver (rank 23) — DEFERRED (residual).** The unit resolver can emit a bare
+  "unit" and the sizing vs pricing paths can resolve it differently (plan.py:440-512;
+  skills/perspective.py:60-68; market_sizing unit path); one WTP band pools
+  demand/supply/advertiser sides; some paths hardcode "$" and "/mo". This is a 6/16
+  multi-file threading cluster; deferred with its locations recorded rather than
+  rushed. D05/D21 already gate the economics/financials/WTP unit agreement.
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:
