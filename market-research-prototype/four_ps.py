@@ -31,18 +31,29 @@ def model_directive(business_model_kind: str | None, economics: dict | None = No
                "revenue', no 'subscribers'/'subscriber target', no churn, no CLV:CAC, no 'per "
                "account', no SaaS benchmarks. A subscription may appear ONLY as an explicitly-"
                "labeled OPTIONAL SECONDARY line, never as the headline revenue.")
-    if kind in ("transactional", "ecommerce", "services", "hybrid"):
+    # R4 rank 19: HYBRID is per-unit PRIMARY plus a real recurring leg the profile
+    # defines. The old code routed it through the pure per-unit branch under _NO_SUB —
+    # whose blanket "no MRR / no subscribers / no churn / no CLV:CAC" ban erased the
+    # recurring leg the same directive's `extra` line told the model to show. Give it its
+    # own directive that permits the recurring leg as a clearly-labeled SECONDARY line.
+    if kind == "hybrid":
+        unit = ((economics or {}).get("unit")) or "unit"
+        return (f"\n\nMONETIZATION MODEL — HYBRID (one-time {unit} sale + a real secondary "
+                f"recurring leg). The one-time leg (the device/product) is the PRIMARY, "
+                f"headline revenue = {unit}s sold × price per {unit}. The recurring leg is "
+                f"REAL and defined by the profile — show it as a clearly LABELED SECONDARY "
+                f"line (its retention / recurring revenue belong there, never as the "
+                f"headline, and never dropped). Do NOT collapse the venture into a pure "
+                f"subscription, and do NOT erase the recurring half the profile defines.")
+    if kind in ("transactional", "ecommerce", "services"):
         unit = ((economics or {}).get("unit")) or "unit"
         kindlabel = {
             "transactional": "TRANSACTIONAL RETAIL", "ecommerce": "ECOMMERCE (one-time product sale)",
-            "services": "SERVICES (project/retainer)", "hybrid": "HYBRID (one-time + a secondary recurring leg)",
+            "services": "SERVICES (project/retainer)",
         }[kind]
-        extra = ("" if kind != "hybrid" else
-                 " For HYBRID, the one-time leg (e.g. the device/product) is the PRIMARY revenue; "
-                 "the recurring leg is real but secondary — show BOTH, never drop the one-time half.")
         return (f"\n\nMONETIZATION MODEL — {kindlabel} (revenue = {unit}s sold × price per {unit}). "
                 f"{_NO_SUB} Frame all revenue, pricing, place and viability as per-{unit} volume × "
-                f"contribution margin.{extra}")
+                f"contribution margin.")
     if kind == "subscription":
         return (
             "\n\nMONETIZATION MODEL — SUBSCRIPTION (recurring): MRR, churn, and CLV:CAC apply. "

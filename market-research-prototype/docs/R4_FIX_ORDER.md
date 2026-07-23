@@ -279,6 +279,17 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   data-quality residual (needs a category→BLS-series map, not a template fix).
   full suite: 1582 passed, 5 skipped.
 
+- **Hybrid ventures erased (rank 19)** — FIXED, own directive. HYBRID is per-unit
+  PRIMARY plus a real recurring leg the profile defines, but `model_directive` routed
+  it through the pure per-unit branch under `_NO_SUB` — whose blanket "no MRR / no
+  subscribers / no churn / no CLV:CAC / never as the headline" ban erased the recurring
+  leg the same directive's trailing line told the model to show. Hybrid now has its own
+  directive: the one-time leg is the headline, and the recurring leg is permitted as a
+  clearly-labelled SECONDARY line (never dropped, never the headline). The pure per-unit
+  kinds (transactional/ecommerce/services) keep `_NO_SUB`. Verified by prompt capture
+  (the erasure lived in viability/4Ps prose, so there is no clean report-JSON gate — it
+  is documented as a prompt fix). full suite: 1587 passed, 5 skipped.
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:
