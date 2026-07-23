@@ -778,17 +778,20 @@ def d18_wtp_price_reconciled(r: dict, html: Optional[str]) -> Finding:
     flag is present. N/A when either number is missing or they already agree."""
     syn = ((r.get("consumer_research") or {}).get("synthesis") or {})
     wtp = syn.get("willingness_to_pay") or {}
-    wtp_point = wtp.get("median") if wtp.get("median") is not None else wtp.get("point")
+    center = wtp.get("median") if wtp.get("median") is not None else wtp.get("point")
+    ceiling = wtp.get("high") if wtp.get("high") is not None else center
     recommended = (r.get("pricing") or {}).get("psm", {}).get("optimal_price_point")
-    if not wtp_point or not recommended:
-        return Finding(None, "WTP or recommended price missing")
-    ratio = _num(recommended) / _num(wtp_point) if _num(wtp_point) else None
-    if ratio is None or 0.1 <= ratio <= 10:
-        return Finding(None, "WTP and recommended price agree (no mismatch)")
+    ceiling_n, rec_n = _num(ceiling), _num(recommended)
+    if not ceiling_n or not rec_n:
+        return Finding(None, "WTP ceiling or recommended price missing")
+    # R4 rank 11: the mismatch that misleads a buyer is a price ABOVE the top of the
+    # WTP range — not a ratio-to-median inside a wide deadband. A price at/below the
+    # ceiling is fine (someone would pay it).
+    if rec_n <= ceiling_n:
+        return Finding(None, f"recommended {rec_n} within WTP range (ceiling {ceiling_n})")
     flagged = "wtp_price_mismatch" in syn
-    return Finding(flagged, f"WTP {wtp_point} vs recommended {recommended} "
-                   f"({ratio:.0f}x) — unflagged" if not flagged else
-                   f"mismatch disclosed ({ratio:.0f}x)")
+    return Finding(flagged, f"recommended {rec_n} above WTP ceiling {ceiling_n} — "
+                   + ("disclosed" if flagged else "UNFLAGGED"))
 
 
 def d19_no_off_category_direct_competitor(r: dict, html: Optional[str]) -> Finding:

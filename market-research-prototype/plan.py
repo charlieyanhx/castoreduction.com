@@ -330,42 +330,61 @@ def extract_device_price(text: str) -> float | None:
     return None
 
 
-def reconcile_wtp_with_price(wtp: dict | None, recommended: float | None) -> dict | None:
-    """B3/D18: flag a large gap between the consumer-research WTP synthesis and the
-    PSM-recommended price — never fabricate agreement, never silently average them.
+def reconcile_wtp_with_price(wtp: dict | None, recommended: float | None,
+                             interviews: list | None = None) -> dict | None:
+    """B3/D18 + R4 rank 11: flag a recommended price that sits ABOVE the top of the
+    simulated willingness-to-pay range — a price no simulated segment said they'd pay.
 
-    Real R4 shape: a consumer WTP band of $150-1,500/unit rendered beside a
-    $125,000/unit PSM recommendation with no comment (800c261b, e55db08e,
-    4a755faa — 83-100x gaps). The two numbers usually answer different questions
-    (a simulated individual's casual willingness-to-pay vs. an enterprise/B2B
-    budget-holder's price point), so the fix discloses the mismatch rather than
-    reconciling the values. Returns None when either number is missing or the
-    ratio is within 0.1x-10x (no mismatch worth flagging)."""
+    The old check compared the recommendation to the WTP MEDIAN inside a 0.1x-10x
+    deadband, so a price 3-9x the median, or a price above the band's high, sailed
+    through as long as recommended/median stayed under 10x (800c261b, e55db08e,
+    4a755faa — 83-156x gaps were caught, but the subtler over-ceiling cases were not).
+    Now the comparison is against the CEILING (the band's high, or the single point):
+    a price at or below the ceiling is defensible — someone would pay it; a price above
+    it is flagged, with how many simulated segments actually named a price that high
+    (the honest "0 of N" the report never showed). Returns None when either number is
+    missing or the recommendation is within the range."""
     if not wtp or not recommended:
         return None
-    wtp_point = wtp.get("median") if wtp.get("median") is not None else wtp.get("point")
-    if not wtp_point:
-        return None
+    center = wtp.get("median") if wtp.get("median") is not None else wtp.get("point")
+    ceiling = wtp.get("high") if wtp.get("high") is not None else center
     try:
-        wtp_point = float(wtp_point)
         recommended = float(recommended)
+        center = float(center) if center is not None else None
+        ceiling = float(ceiling) if ceiling is not None else center
     except (TypeError, ValueError):
         return None
-    if wtp_point <= 0:
+    if not ceiling or ceiling <= 0 or recommended <= 0:
         return None
-    ratio = recommended / wtp_point
-    if 0.1 <= ratio <= 10:
-        return None
+    if recommended <= ceiling:
+        return None  # within what at least one simulated segment would pay
+
+    # How many simulated segments named a price at or above the recommendation.
+    n_named = n_at_or_above = None
+    if interviews:
+        named = [float(w) for iv in interviews
+                 if isinstance((w := iv.get("willingness_to_pay_usd")), (int, float))
+                 and not isinstance(w, bool) and w > 0]
+        n_named = len(named)
+        n_at_or_above = sum(1 for v in named if v >= recommended)
+
+    anchor = center if center is not None else ceiling
+    ratio = round(recommended / anchor, 1) if anchor else None
+    count_clause = (f" — {n_at_or_above} of {n_named} simulated segments named a price "
+                    f"that high" if n_at_or_above is not None else "")
     return {
-        "wtp": wtp_point,
+        "wtp": anchor,
+        "wtp_ceiling": ceiling,
         "recommended": recommended,
-        "ratio": round(ratio, 1),
+        "ratio": ratio,
+        "n_named": n_named,
+        "n_at_or_above": n_at_or_above,
         "note": (
-            f"The consumer willingness-to-pay simulation (${wtp_point:,.0f}) and the "
-            f"recommended price (${recommended:,.0f}) differ by {ratio:,.0f}x — likely "
-            "different buyer framings (an individual's casual budget vs. a business "
-            "purchase decision). Do NOT average or silently pick one; validate "
-            "willingness-to-pay with real buyer interviews before pricing."
+            f"The recommended price (${recommended:,.0f}) is above the top of the "
+            f"simulated willingness-to-pay range (${ceiling:,.0f}){count_clause}. These "
+            "may reflect different buyer framings; do NOT average the two or silently "
+            "pick one — validate willingness-to-pay with real buyer interviews before "
+            "pricing."
         ),
     }
 
@@ -1858,8 +1877,10 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     # casual WTP vs. an enterprise/B2B budget-holder's price point) and used to render
     # side by side with no comment. Disclose the mismatch; never fabricate agreement.
     _wtp_syn = (result.get("consumer_research") or {}).get("synthesis") or {}
-    wtp_flag = reconcile_wtp_with_price(_wtp_syn.get("willingness_to_pay"),
-                                        psm_result.get("optimal_price_point"))
+    wtp_flag = reconcile_wtp_with_price(
+        _wtp_syn.get("willingness_to_pay"),
+        psm_result.get("optimal_price_point"),
+        interviews=(result.get("consumer_research") or {}).get("interviews"))
     if wtp_flag:
         _wtp_syn["wtp_price_mismatch"] = wtp_flag
         log.info("[plan] WTP/price mismatch flagged: wtp=%s recommended=%s ratio=%sx",
