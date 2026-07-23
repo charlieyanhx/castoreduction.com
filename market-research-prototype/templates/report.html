@@ -1040,6 +1040,19 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <p style="color:#9ca3af">No competitor data available.</p>
 {% endif %}
 
+{% if reference_cases %}
+<h3 style="margin-top:16px;font-size:11pt;color:#4b5563">Reference cases <span style="font-weight:400;color:#9ca3af">(not counted as competitors — different category or wrong-entity matches, kept for context)</span></h3>
+<div class="competitors">
+  {% for c in reference_cases[:6] %}
+  <div class="comp-row">
+    <div class="rank" style="color:#9ca3af">·</div>
+    <div class="brand" style="color:#6b7280">{{ c.brand }} <span class="domain">{{ c.domain or '' }}</span></div>
+  </div>
+  {% if c.thesis %}<div style="font-size:9pt;color:#9ca3af;padding:0 14px 4px 50px">{{ c.thesis }}</div>{% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
 <!-- CUSTOMER VOICE (REDDIT) -->
 {% if reddit_signal and reddit_signal.threads_found is defined %}
 <h2>Customer Voice — Multi-Source</h2>

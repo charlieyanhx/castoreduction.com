@@ -713,6 +713,27 @@ def d33_competitor_counts_reconcile(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, f"{n_roster} competitors coherent across density/roster/map")
 
 
+def d34_roster_excludes_references(r: dict, html: Optional[str]) -> Finding:
+    """R4 rank 10: the competitor roster (ranked_opportunities) must contain only real
+    competitors — reference/off-category/non-competitor entries belong in
+    reference_cases, not counted as competitors. B4/D19 relabeled them 'reference' but
+    left them in the roster, inflating density and taking map dots. FAIL when a
+    ranked_opportunities entry is off_category, flagged is_competitor==false, or labelled
+    relevance=='reference'."""
+    disc = r.get("discover") or {}
+    roster = ((disc.get("synthesis") or {}).get("ranked_opportunities")
+              or disc.get("ranked_opportunities") or [])
+    if not roster:
+        return Finding(None, "no competitor roster")
+    junk = [o.get("brand") for o in roster
+            if o.get("off_category") or o.get("is_competitor") is False
+            or (o.get("relevance") or "").strip().lower() == "reference"]
+    if junk:
+        return Finding(False, f"{len(junk)} non-competitor entries counted in the "
+                              f"roster: {', '.join(str(b) for b in junk[:4])}")
+    return Finding(True, f"{len(roster)} entries, all real competitors")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1000,6 +1021,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D31", "benchmark prices coherent (same-unit, >=3 domains)", "R4 rank 7: mixed-SKU median fabricated as a category price", "fail", d31_benchmark_prices_coherent),
     Invariant("D32", "WTP aggregation honest (real median, no $0 payer, n>=3 band)", "R4 rank 8: upper-middle order statistic, $0 payer, 2-answer median", "fail", d32_wtp_aggregation_honest),
     Invariant("D33", "competitor counts reconcile (density==roster==map input)", "R4 rank 9: 4 competitor counts on 4 surfaces, none canonical", "fail", d33_competitor_counts_reconcile),
+    Invariant("D34", "roster is only real competitors (references partitioned out)", "R4 rank 10: self-flagged junk relabeled not excluded", "fail", d34_roster_excludes_references),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

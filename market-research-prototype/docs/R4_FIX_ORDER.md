@@ -165,6 +165,23 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   without disclosing them fails. Stored corpus: 10/16 FAIL (every national report,
   density 17-20 vs roster 7-9). D16 stays green (density>=roster/2 still holds).
 
+- **Self-flagged junk relabeled, never excluded (rank 10)** — FIXED, partitioned.
+  `_apply_relevance_to_ranking` (B4/D19) demoted an off-category or non-competitor
+  entry to `relevance: "reference"` and sorted it last, but LEFT it in
+  ranked_opportunities — so it still counted toward density, took a dot on the PCA
+  map, and could name a positioning pole. The misattribution verdict ("a cryptography
+  firm, not a superconductor company") lived in the free-text `thesis`, never a flag.
+  Corpus: 6 rosters listed 19 `reference`-relevance entries as competitors. Now:
+  (a) `_partition_reference_cases` splits the ranked list — real competitors (direct/
+  adjacent, on-category, `is_competitor` != false) stay in ranked_opportunities;
+  references move to `reference_cases`; (b) a structured `is_competitor` flag is added
+  to the synthesis schema so the verdict is a flag, not prose; (c) because rank 9
+  derives density and the map from ranked_opportunities, both now count only real
+  competitors — no separate surface to sync; (d) the template shows reference_cases in
+  a clearly-separated section so founders still see the full landscape. Gate d34:
+  any reference/off-category/is_competitor==false entry in the roster fails. Stored
+  corpus: 6/16 FAIL. full suite: 1504 passed, 5 skipped.
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:
