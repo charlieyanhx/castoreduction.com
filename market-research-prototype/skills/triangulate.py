@@ -68,7 +68,7 @@ def triangulate(label: str, estimates: list) -> dict:
             norm.append(ev)
 
     if not norm:
-        return {"label": label, "point": None, "spread": None,
+        return {"label": label, "point": None, "spread": None, "raw_spread": None,
                 "confidence": "none", "n_independent": 0, "n_estimates": 0,
                 "converged": False, "flag": "no numeric estimates",
                 "paths": [], "cross_origin": []}
@@ -85,9 +85,22 @@ def triangulate(label: str, estimates: list) -> dict:
     hi, lo = max(cross_vals), min(cross_vals)
     spread = (hi - lo) / point if point else None
 
+    # R4 rank 12: the divergence of ALL raw estimates, BEFORE the within-origin
+    # collapse. When every method shares one origin the cross-origin `spread` is 0.0 —
+    # which falsely reads as "converged" above tables whose methods span 8-28x. Expose
+    # the raw spread so that divergence is never hidden behind a single median.
+    raw_pt = _median([e.value for e in norm])
+    raw_spread = ((max(e.value for e in norm) - min(e.value for e in norm)) / raw_pt
+                  if raw_pt else None)
+
     if n_independent < 2:
+        # A single origin has no cross-origin spread to report — 0.0 is a lie, not a
+        # measurement. Null it and let raw_spread carry the honest divergence.
+        spread = None
+        _rs = f"; its {len(norm)} estimates diverge {raw_spread:.0%}" if (
+            raw_spread is not None and raw_spread > CONF_MED) else ""
         confidence, converged, flag = "single_source", False, (
-            f"only 1 independent origin ({next(iter(by_origin))}) — not triangulated")
+            f"only 1 independent origin ({next(iter(by_origin))}) — not triangulated{_rs}")
     elif spread is not None and spread <= CONF_HIGH:
         confidence, converged, flag = "high", True, None
     elif spread is not None and spread <= CONF_MED:
@@ -100,6 +113,7 @@ def triangulate(label: str, estimates: list) -> dict:
         "label": label,
         "point": round(point),
         "spread": round(spread, 3) if spread is not None else None,
+        "raw_spread": round(raw_spread, 3) if raw_spread is not None else None,
         "confidence": confidence,
         "converged": converged,
         "n_independent": n_independent,

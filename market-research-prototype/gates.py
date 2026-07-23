@@ -734,6 +734,34 @@ def d34_roster_excludes_references(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, f"{len(roster)} entries, all real competitors")
 
 
+def d35_tam_method_divergence_disclosed(r: dict, html: Optional[str]) -> Finding:
+    """R4 rank 12: when the three TAM methods (top-down/bottom-up/analog) diverge by
+    more than 3x, that divergence must be disclosed — not collapsed to a single point
+    with spread 0.0. Every method shares the 'llm' origin, so triangulate reduces them
+    to one median and reports a cross-origin spread of 0.0 that reads as "converged"
+    above tables actually spanning 8-28x (800c261b 27.8x). FAIL when methods diverge
+    >3x but the triangulation reports converged/spread 0 or carries no raw_spread."""
+    tam = ((r.get("market_sizing") or {}).get("tam") or {})
+    vals = [float(tam[k]["value_usd"]) for k in
+            ("method_top_down", "method_bottom_up", "method_analog")
+            if isinstance(tam.get(k), dict) and _num(tam[k].get("value_usd"))]
+    if len(vals) < 2 or min(vals) <= 0:
+        return Finding(None, "fewer than 2 numeric TAM methods")
+    span = max(vals) / min(vals)
+    if span <= 3.0:
+        return Finding(True, f"TAM methods span {span:.1f}x — coherent")
+    tri = tam.get("triangulation") or {}
+    spread, raw = tri.get("spread"), tri.get("raw_spread")
+    if tri.get("converged") is True or (spread is not None and spread == 0):
+        return Finding(False, f"TAM methods span {span:.1f}x but triangulation reports "
+                              f"spread={spread}/converged={tri.get('converged')} — "
+                              "the divergence is hidden behind one median")
+    if raw is None:
+        return Finding(False, f"TAM methods span {span:.1f}x but no raw_spread is "
+                              "disclosed — the divergence is invisible")
+    return Finding(True, f"TAM methods span {span:.1f}x, disclosed (raw_spread={raw})")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1025,6 +1053,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D32", "WTP aggregation honest (real median, no $0 payer, n>=3 band)", "R4 rank 8: upper-middle order statistic, $0 payer, 2-answer median", "fail", d32_wtp_aggregation_honest),
     Invariant("D33", "competitor counts reconcile (density==roster==map input)", "R4 rank 9: 4 competitor counts on 4 surfaces, none canonical", "fail", d33_competitor_counts_reconcile),
     Invariant("D34", "roster is only real competitors (references partitioned out)", "R4 rank 10: self-flagged junk relabeled not excluded", "fail", d34_roster_excludes_references),
+    Invariant("D35", "TAM method divergence disclosed (no fake 0% spread)", "R4 rank 12: single-origin collapse hides 8-28x method spread", "fail", d35_tam_method_divergence_disclosed),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
