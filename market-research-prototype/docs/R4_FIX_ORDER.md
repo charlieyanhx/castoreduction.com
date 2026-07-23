@@ -300,6 +300,16 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   non-priced ventures in the set). The $0-PSM falsy anchor and gate-d21-N/A pieces are
   minor residuals. full suite: 1589 passed, 5 skipped.
 
+- **Bottom-up ACV fed a monthly price with no period (rank 21)** — FIXED, annualized.
+  The bottom-up TAM method (firm-count × ACV) was fed the raw monthly PSM price as the
+  ACV anchor, unlabelled — so a $14/mo SaaS was sized on a ~$15 "ACV" instead of
+  $168/yr, a 10-12x TAM understatement (4a755faa's calc read "$16.80 ACV"; becc8783
+  "$15 ACV"). `_acv_anchor` now annualizes a recurring price (×12) and labels the period
+  ("$168/yr ACV … NEVER the monthly figure"), injected into the sizing prompt's
+  bottom-up anchor. Verified on the helper (the bottom-up TAM is computed by the LLM
+  from the prompt, so this is a prompt-anchoring fix — no clean report-JSON gate for
+  the LLM's arithmetic). full suite: 1598 passed, 5 skipped.
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:
