@@ -842,7 +842,11 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 </table>
 <div style="background:#f9fafb;padding:10px 14px;border-radius:6px;font-size:9.5pt;color:#4b5563">
   <strong>Assumptions:</strong>
-  Annual price per customer: ${{ financials.assumptions.annual_price_per_customer }} ({{ financials.assumptions.monthly_churn_pct }}%/mo churn assumed).
+  {# R4 rank 20: a non-priced model (ad-supported / marketplace) or a $0 PSM price used
+     to render an empty "Annual price per customer: $ (%/mo churn assumed)". Guard it. #}
+  {% if financials.assumptions.annual_price_per_customer %}Annual price per customer: ${{ financials.assumptions.annual_price_per_customer }} ({{ financials.assumptions.monthly_churn_pct }}%/mo churn assumed).
+  {% elif financials.assumptions.revenue_basis %}{{ financials.assumptions.revenue_basis }}
+  {% else %}This model does not price per customer (e.g. ad-supported / marketplace) — see the yield-per-user basis above.{% endif %}
   S-curve adoption: Y1=8%, Y2=35%, Y3=100% of year-3 ceiling.
   {% if financials.assumptions.scenario_basis %}<br>{{ financials.assumptions.scenario_basis }}{% endif %}
   {% if financials.assumptions.break_even_monthly_fixed_cost %}<br><strong>Break-even basis:</strong>

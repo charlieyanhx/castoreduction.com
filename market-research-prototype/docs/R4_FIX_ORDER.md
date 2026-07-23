@@ -290,6 +290,16 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   (the erasure lived in viability/4Ps prose, so there is no clean report-JSON gate — it
   is documented as a prompt fix). full suite: 1587 passed, 5 skipped.
 
+- **Non-priced models fall through (rank 20)** — FIXED, guarded. An ad-supported (or
+  marketplace) venture, or a $0 PSM price, fell through the subscription assumptions
+  block and rendered a literally empty "Annual price per customer: $ (%/mo churn
+  assumed)" — 3219f4db (ad_supported, PSM $0) shipped exactly that. The line is now
+  guarded: it renders the per-customer price only when there is one, falls back to the
+  revenue_basis, else states the model does not price per customer. Gate d41 fails an
+  HTML showing the empty "$ (" per-customer line. Stored corpus: 1/16 FAIL (only 2
+  non-priced ventures in the set). The $0-PSM falsy anchor and gate-d21-N/A pieces are
+  minor residuals. full suite: 1589 passed, 5 skipped.
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:
