@@ -88,6 +88,75 @@ def extract_prices_from_html(html: str) -> list[float]:
         return []
 
 
+# R4 rank 7 constants: a median is a comparable per-unit price only when it comes
+# from enough same-unit prices with a tight spread. A mixed-SKU list (sticker +
+# filter + device) medians to a number that means nothing.
+MIN_PRICES_FOR_MEDIAN = 3
+MAX_PRICE_SPREAD = 3.0            # max/min across a domain's prices
+MIN_DOMAINS_FOR_CATEGORY = 3
+
+
+def _coherent_median(prices: list) -> tuple:
+    """(median, reason). A number only when >=MIN_PRICES_FOR_MEDIAN same-scale prices
+    with max/min <= MAX_PRICE_SPREAD; otherwise (None, why-not).
+
+    This is the check the old code skipped: it pooled every dollar amount off a page
+    and medianed the pot. purpleair.shop's [9.99, 11, 12, 139, 239, 349] medians to
+    $75.50 with spread 31.7x — a number that is not the price of anything.
+    """
+    vals = sorted(float(p) for p in (prices or []) if isinstance(p, (int, float)) and p > 0)
+    if len(vals) < MIN_PRICES_FOR_MEDIAN:
+        return None, f"only n={len(vals)} prices (need {MIN_PRICES_FOR_MEDIAN})"
+    spread = vals[-1] / vals[0] if vals[0] > 0 else float("inf")
+    if spread > MAX_PRICE_SPREAD:
+        return None, (f"price spread {spread:.1f}x (${vals[0]:.0f}-${vals[-1]:.0f}) "
+                      "exceeds the mixed-SKU threshold — not a comparable per-unit price")
+    return round(median(vals), 2), ""
+
+
+def _assemble_domain_result(domain: str, all_prices: list, paths_tried: list,
+                            page_text_sample: str) -> dict:
+    """One domain's benchmark row, with coherence applied (R4 rank 7)."""
+    med, reason = _coherent_median(all_prices)
+    out = {
+        "domain": domain,
+        "prices_found": all_prices,
+        "median": med,
+        "min": round(min(all_prices), 2) if all_prices else None,
+        "max": round(max(all_prices), 2) if all_prices else None,
+        "count": len(all_prices),
+        "paths_tried": paths_tried,
+        "page_text_sample": page_text_sample,
+    }
+    if med is None and all_prices:
+        out["no_price_reason"] = reason
+    return out
+
+
+def _aggregate(per_domain: list) -> dict:
+    """Category-level aggregation with a domain-count floor (R4 rank 7).
+
+    A "category median" from one or two domains is not a category. Only domains that
+    yielded a COHERENT median and are on-category count toward it."""
+    medians = [d["median"] for d in per_domain
+               if d.get("median") and not d.get("off_category")]
+    out = {
+        "per_domain": per_domain,
+        "competitor_count": len(per_domain),
+        "competitors_with_prices": len(medians),
+        "category_median": None,
+        "category_range": None,
+    }
+    if len(medians) >= MIN_DOMAINS_FOR_CATEGORY:
+        out["category_median"] = round(median(medians), 2)
+        out["category_range"] = [round(min(medians), 2), round(max(medians), 2)]
+    else:
+        out["category_median_reason"] = (
+            f"only n={len(medians)} domains yielded a comparable per-unit price "
+            f"(need {MIN_DOMAINS_FOR_CATEGORY}) — no defensible category median")
+    return out
+
+
 def scrape_brand_prices(domain: str, max_paths: int = MAX_PATHS_PER_DOMAIN) -> dict:
     """
     Try several common e-commerce paths on a brand site, extract prices.
@@ -127,24 +196,10 @@ def scrape_brand_prices(domain: str, max_paths: int = MAX_PATHS_PER_DOMAIN) -> d
             log.debug(f"  {url} failed: {e}")
             continue
 
-    # Filter outliers (top 10% and bottom 10%) before computing median
-    if len(all_prices) >= 4:
-        all_prices.sort()
-        trim = max(1, len(all_prices) // 10)
-        trimmed = all_prices[trim:-trim] if trim < len(all_prices) // 2 else all_prices
-    else:
-        trimmed = all_prices
-
-    return {
-        "domain": domain,
-        "prices_found": all_prices,
-        "median": round(median(trimmed), 2) if trimmed else None,
-        "min": round(min(trimmed), 2) if trimmed else None,
-        "max": round(max(trimmed), 2) if trimmed else None,
-        "count": len(all_prices),
-        "paths_tried": paths_tried,
-        "page_text_sample": page_text_sample,
-    }
+    # R4 rank 7: coherence, not outlier-trimming. Trimming a mixed-SKU list still
+    # medians a sticker against a device — the fix is to REFUSE a number when the
+    # prices are not the same kind of thing (see _coherent_median).
+    return _assemble_domain_result(domain, all_prices, paths_tried, page_text_sample)
 
 
 def gather_competitor_prices(domains: list[str], max_workers: int = 4,
@@ -178,13 +233,5 @@ def gather_competitor_prices(domains: list[str], max_workers: int = 4,
                 log.info(f"  {d['domain']} excluded from category median "
                          f"(relevance {rel:.2f} < {RELEVANCE_THRESHOLD})")
 
-    # Aggregate medians across competitors that yielded prices (off-category excluded)
-    medians = [d["median"] for d in per_domain
-               if d.get("median") and not d.get("off_category")]
-    return {
-        "per_domain": per_domain,
-        "competitor_count": len(per_domain),
-        "competitors_with_prices": len(medians),
-        "category_median": round(median(medians), 2) if medians else None,
-        "category_range": [round(min(medians), 2), round(max(medians), 2)] if medians else None,
-    }
+    # R4 rank 7: a category median needs >=3 priced, coherent, on-category domains.
+    return _aggregate(per_domain)

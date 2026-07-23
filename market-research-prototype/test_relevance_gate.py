@@ -88,46 +88,53 @@ class TestValidateDomainRelevance(unittest.TestCase):
 
 
 class TestCategoryMedianGated(unittest.TestCase):
+    # R4 rank 7: a category median needs >=3 priced, coherent, on-category domains.
+    # These relevance-gate tests now supply enough coherent domains that the median
+    # forms — so they exercise the EXCLUSION logic (their actual concern) rather than
+    # the coherence floor.
     def test_off_category_domain_excluded_from_median(self):
         from competitor_pricing import gather_competitor_prices
 
-        TEXTS = {"ontopic.com": "fresh oysters daily menu " * 20,
-                 "apparel-store.com": LONG_PAGE}
-        RELS = {TEXTS["ontopic.com"][:2000]: 0.7, TEXTS["apparel-store.com"][:2000]: 0.1}
+        ontopic = ["a.com", "b.com", "c.com"]
+        TEXTS = {d: "fresh oysters daily menu " * 20 for d in ontopic}
+        TEXTS["apparel-store.com"] = LONG_PAGE
+        RELS = {TEXTS[d][:2000]: (0.7 if d in ontopic else 0.1) for d in TEXTS}
 
         def fake_scrape(domain, max_paths=2):
-            price = 10.0 if domain == "ontopic.com" else 500.0
-            return {"domain": domain, "prices_found": [price], "median": price,
-                    "min": price, "max": price, "count": 1, "paths_tried": ["/"],
-                    "page_text_sample": TEXTS[domain]}
+            price = 10.0 if domain in ontopic else 500.0
+            return {"domain": domain, "prices_found": [price, price + 1, price - 1],
+                    "median": price, "min": price - 1, "max": price + 1, "count": 3,
+                    "paths_tried": ["/"], "page_text_sample": TEXTS[domain]}
 
         with patch("competitor_pricing.scrape_brand_prices", side_effect=fake_scrape), \
              patch("sources.category_page_relevance",
                    side_effect=lambda cat, text: RELS[text[:2000]]):
-            out = gather_competitor_prices(["ontopic.com", "apparel-store.com"],
+            out = gather_competitor_prices(ontopic + ["apparel-store.com"],
                                            category="seafood restaurant")
 
-        self.assertEqual(out["category_median"], 10.0)         # only the relevant one
+        self.assertEqual(out["category_median"], 10.0)         # only the relevant ones
         rows = {r["domain"]: r for r in out["per_domain"]}
         self.assertTrue(rows["apparel-store.com"]["off_category"])   # kept, flagged
         self.assertEqual(rows["apparel-store.com"]["median"], 500.0)
-        self.assertFalse(rows["ontopic.com"].get("off_category"))
+        self.assertFalse(rows["a.com"].get("off_category"))
 
     def test_no_category_or_abstain_keeps_old_behavior(self):
         from competitor_pricing import gather_competitor_prices
 
+        domains = ["x.com", "y.com", "z.com"]
+
         def fake_scrape(domain, max_paths=2):
-            return {"domain": domain, "prices_found": [42.0], "median": 42.0,
-                    "min": 42.0, "max": 42.0, "count": 1, "paths_tried": ["/"],
+            return {"domain": domain, "prices_found": [41.0, 42.0, 43.0], "median": 42.0,
+                    "min": 41.0, "max": 43.0, "count": 3, "paths_tried": ["/"],
                     "page_text_sample": LONG_PAGE}
 
         with patch("competitor_pricing.scrape_brand_prices", side_effect=fake_scrape):
-            out = gather_competitor_prices(["brand.com"])       # no category passed
+            out = gather_competitor_prices(domains)             # no category passed
         self.assertEqual(out["category_median"], 42.0)
 
         with patch("competitor_pricing.scrape_brand_prices", side_effect=fake_scrape), \
              patch("sources.category_page_relevance", return_value=None):
-            out = gather_competitor_prices(["brand.com"], category="anything")
+            out = gather_competitor_prices(domains, category="anything")
         self.assertEqual(out["category_median"], 42.0)          # abstain never blocks
 
 
