@@ -164,6 +164,7 @@ Return JSON:
       }},
       "description": "1 sentence — what this business sells or does",
       "relevance": "direct | adjacent | reference — 'direct' = same product category; 'adjacent' = same buyer/business model but different product; 'reference' = different category but instructive case study",
+      "is_competitor": "true | false — set FALSE when this is NOT a competitor in this market: a wrong-entity match (e.g. a cryptography firm surfaced for a superconductor venture), a different-category business, or a pure reference. Put the reason in the thesis. This is a STRUCTURED verdict — do not bury 'this isn't really a competitor' in the thesis prose while leaving relevance 'direct'.",
       "thesis": "why this is an opportunity or reference — 1-2 sentences, specific",
       "suggested_next_step": "decode_taste | monitor | ignore"
     }}
@@ -503,6 +504,28 @@ def _apply_relevance_to_ranking(entries: list[dict]) -> list[dict]:
     return out
 
 
+def _partition_reference_cases(entries: list[dict]) -> tuple[list[dict], list[dict]]:
+    """R4 rank 10: split the ranked list into real COMPETITORS and REFERENCE cases.
+
+    B4/D19 relabeled an off-category or non-competitor entry `relevance: "reference"`
+    and sorted it last, but LEFT it in ranked_opportunities — so it still inflated
+    competitor_density, took a dot on the PCA map, and could name a positioning pole.
+    The misattribution verdict ("a cryptography firm, not a superconductor company")
+    lived in the free-text thesis, never a flag. This excludes from the competitor set
+    any entry that is off_category, explicitly flagged `is_competitor: false`, or
+    labelled `relevance: "reference"` (different category, instructive only). An entry
+    with no relevance verdict is KEPT — do not exclude what was never classified.
+    Returns (competitors, reference_cases), preserving order within each."""
+    competitors, references = [], []
+    for e in entries or []:
+        relevance = (e.get("relevance") or "").strip().lower()
+        is_reference = (e.get("off_category")
+                        or e.get("is_competitor") is False
+                        or relevance == "reference")
+        (references if is_reference else competitors).append(e)
+    return competitors, references
+
+
 def _gather_signals(brand: dict, category: str, geo: str) -> dict:
     """
     Pull all free signals for one brand. Category is used as disambiguation
@@ -801,6 +824,16 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
             "ranked_opportunities": _apply_relevance_to_ranking(raw_ranked),  # B4/D19
             "_synthesis_error": str(e),
         }
+
+    # R4 rank 10: move reference / off-category / non-competitor entries OUT of the
+    # competitor roster into reference_cases, so density and the map (rank 9, both
+    # derived from ranked_opportunities) count only real competitors.
+    syn = result.get("synthesis") or {}
+    comps, refs = _partition_reference_cases(syn.get("ranked_opportunities") or [])
+    syn["ranked_opportunities"] = comps
+    if refs:
+        syn["reference_cases"] = refs
+    result["synthesis"] = syn
 
     _set_canonical_density(result)  # R4 rank 9: density == displayed roster length
     return result

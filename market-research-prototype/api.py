@@ -624,6 +624,7 @@ def get_job_onepager(job_id: str):
         personas=r.get("personas"),
         psm=psm,
         competitors=competitors,
+        reference_cases=(r.get("discover", {}).get("synthesis", {}) or {}).get("reference_cases", []),
         steps_completed=r.get("_steps_completed", []),
         generated_date=datetime.now().strftime("%Y-%m-%d %H:%M"),
         format_currency=format_currency,
@@ -765,6 +766,9 @@ def get_job_report_html(job_id: str):
         research_brief=r.get("research_brief"),
         psm=psm,
         competitors=competitors,
+        # R4 rank 10: reference/off-category entries partitioned out of the competitor
+        # roster — shown separately so they don't count as competitors.
+        reference_cases=(r.get("discover", {}).get("synthesis", {}) or {}).get("reference_cases", []),
         competitor_chart=competitor_chart,
         clustering=clustering,
         whitespace=whitespace,
