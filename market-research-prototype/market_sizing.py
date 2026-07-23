@@ -622,6 +622,11 @@ def _sync_sam_narrative(sam: dict, tam_mid) -> dict:
     if not tam_v:
         return sam
     pct = sam_v / tam_v * 100.0
+    # R4 rank 15: the ONE authoritative serviceable slice is sam.mid/tam.mid. The LLM's
+    # key_assumption prose often states a different % (174ae091: SAM is 90% of TAM but
+    # the assumption said "15%") and was rendered nowhere. Pin the computed slice so the
+    # template renders THAT as authoritative, with key_assumption as supporting rationale.
+    sam["serviceable_slice_pct"] = round(pct, 1)
     sam["calculation"] = (
         f"TAM {format_currency(tam_v)} mid × {pct:.1f}% serviceable slice "
         f"= {format_currency(sam_v)} SAM"

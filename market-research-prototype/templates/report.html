@@ -665,11 +665,15 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 </div>
 {% endif %}
 
-{% if market_sizing.sam and market_sizing.sam.serviceability_waterfall %}
+<!-- SAM SLICE -->
+{% if market_sizing.sam and (market_sizing.sam.serviceability_waterfall or market_sizing.sam.serviceable_slice_pct is not none) %}
 <div style="background:#eef2ff;border-left:3px solid #3730a3;padding:10px 14px;font-size:10pt;color:#1f2937;margin:10px 0">
-  <strong>SAM serviceability waterfall:</strong> {{ market_sizing.sam.serviceability_waterfall }}
+  {% if market_sizing.sam.serviceable_slice_pct is not none %}<div><strong>Serviceable slice:</strong> {{ market_sizing.sam.serviceable_slice_pct }}% of TAM (computed from SAM ÷ TAM — the authoritative figure).</div>{% endif %}
+  {% if market_sizing.sam.serviceability_waterfall %}<div style="margin-top:4px"><strong>Waterfall:</strong> {{ market_sizing.sam.serviceability_waterfall }}</div>{% endif %}
+  {% if market_sizing.sam.key_assumption %}<div style="margin-top:4px;color:#4b5563"><strong>Key assumption:</strong> {{ market_sizing.sam.key_assumption }}</div>{% endif %}
 </div>
 {% endif %}
+<!-- END SAM SLICE -->
 {% if market_sizing.som and market_sizing.som.comparable_anchor %}
 <div style="background:#f0fdf4;border-left:3px solid #10b981;padding:10px 14px;font-size:10pt;color:#1f2937;margin:10px 0">
   <strong>SOM analog anchor:</strong> {{ market_sizing.som.comparable_anchor }}
