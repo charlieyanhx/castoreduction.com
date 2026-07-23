@@ -344,10 +344,17 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   a below-bar-but-nonzero notice says the surface is "too thin to decode confidently",
   not absent; only a genuine 0-signal case says "no scrapable presence". Gate d45 fails
   a notice reporting N>0 signals that also claims absence (10/16 stale corpus).
-  **Remaining rank-24 residuals** (documented, lower-value/risky): churn 5.0 default —
-  already disclosed as "assumed", value is a judgment call (financials.py:202);
-  seat/account scale mixing; formula-tokenizer phantom-suffix section block
-  (skills/sizing/validate.py:36-38).
+  (g) FORMULA-TOKENIZER PHANTOM SUFFIX — `safe_eval_formula`'s numeric regex allowed a
+  SPACE before a k/m/b/t suffix, so "300 mid-size" read the 'm' of "mid" as Mega and
+  "1,500 Midwest" as 1,500M — a phantom 1e6× blow-up. The formula-reconciliation check
+  then reported "computes 120,000,000,000,000 … (1e+06× off)" and, being >2.5×, raised
+  a HARD block that withheld an otherwise-correct sizing (3219f4db, de34e328). The
+  suffix now requires a standalone letter (`[kmbt](?![a-z])`), so "300 mid" is 300 while
+  "100k"/"130M"/"15%" still resolve; the two phantom blocks clear and the two GENUINE
+  discrepancies (174ae091 10×, 4a755faa 0.1×) are preserved — verified end-to-end
+  through `_check`. **Remaining rank-24 residuals**: churn 5.0 default — already
+  disclosed as "assumed", value is a judgment call (financials.py:202); seat/account
+  scale mixing.
 
 - **Unit resolver (rank 23) — CORE ALREADY GATED; residuals documented.** Measured on
   the corpus: `economics.unit == financials.unit` on 16/16 reports — the cross-surface

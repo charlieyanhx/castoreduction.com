@@ -33,8 +33,13 @@ _UNIT_MULT = {"k": 1e3, "m": 1e6, "b": 1e9, "t": 1e12}
 # A numeric token: optional $, digits/commas/decimal, optional k/m/b/t or %.
 # An operator (* or /) only counts when immediately followed by another number —
 # so "/hh/yr" or "/location" (per-unit prose) is ignored, but "/ 3%" is division.
+# R4 rank 24: the magnitude suffix used to allow whitespace before a bare k/m/b/t —
+# so "300 mid-size" read the 'm' of "mid" as Mega (a phantom 1e6× blow-up that raised a
+# false hard block and withheld correct sizings). A space-separated suffix letter must
+# now be STANDALONE — `[kmbt]` not followed by another letter — while attached suffixes
+# ("100k", "130M") and "%" still resolve.
 _FORMULA_TOKEN = re.compile(
-    r"(?P<num>\$?\s*\d[\d,]*\.?\d*\s*(?:k|m|b|t|%)?)|(?P<op>[*/](?=\s*\$?\s*\d))"
+    r"(?P<num>\$?\s*\d[\d,]*\.?\d*(?:\s*(?:[kmbt](?![a-z])|%))?)|(?P<op>[*/](?=\s*\$?\s*\d))"
 )
 
 
