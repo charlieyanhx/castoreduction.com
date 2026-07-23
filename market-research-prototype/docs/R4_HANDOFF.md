@@ -41,6 +41,26 @@ Start by reading docs/R4_FIX_ORDER.md, then pick up at item A. Ask me nothing yo
   residuals documented.
 - **45 gates registered** (was ~22 at session start). Full suite: 1634 passed, 5 skipped.
 
+## Debuggable report — DONE (v1)
+
+`report/section_provenance.py` maps every report section → the skill/module that
+produced it (`SECTION_SOURCES`), and `build_section_provenance(result)` returns the
+producer + data-character (llm/computed/fetched/simulated/mixed) for each section
+present. The report renders a `?debug=1` overlay (fixed panel, print-hidden) listing
+section → module → origin → produced_by. Wired in `api.py` (`GET /jobs/{id}/report.html?debug=1`).
+Tests in `test_section_provenance.py` (12). **Optional follow-up**: inline per-section
+badges (JS matches each provenance entry to the section's DOM id and badges it in place)
+— needs stable `id=` anchors on the section `<h2>`s; the panel already covers the need.
+
+## Front-end audit — NEXT (chosen: "audit & fix what's rough")
+
+Surfaces: `web/` (index/dashboard/workspace/progress + app.js/workspace.js) and the
+Jinja report (`templates/report.html`). Dogfood with the browse tools against a running
+server (`preview_start` the dev server), list concrete issues (broken/empty/error
+states, hierarchy, spacing, the anti-template design bar), fix incrementally with
+before/after screenshots. NOTE: generating a fresh report needs live LLM keys; the UI
+shell and an existing stored report can be audited without them.
+
 ## The measurement blocker
 
 The definitive R4 pass-rate re-measurement (corpus regen + r4_panel.js) cannot run
