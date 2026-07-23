@@ -961,6 +961,25 @@ def d44_vertical_anchors_match_tags(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, f"{len(stored)} vertical anchors all match the venture's tags")
 
 
+def d45_cannot_decode_notice_not_self_refuting(r: dict, html: Optional[str]) -> Finding:
+    """R4 rank 24: the 'insufficient customer voice' notice reported finding N signals
+    and, in the same sentence, claimed 'no consumer review surface' / 'no scrapable
+    presence' (10/16 reports: 'total 21 signals … no consumer review surface'). FAIL
+    when a notice that reports total N>0 signals also claims the surface is absent."""
+    if html is None:
+        return Finding(None, "no html to check")
+    import re
+    notices = re.findall(r"total (\d+) signals[^.]*\.([^<]{0,160})", html)
+    if not notices:
+        return Finding(None, "no cannot-decode notices")
+    for total, tail in notices:
+        if int(total) > 0 and ("no consumer review surface" in tail
+                                or "no scrapable presence" in tail):
+            return Finding(False, f"notice reports {total} signals yet claims the "
+                                  "surface is absent (self-refuting)")
+    return Finding(True, f"{len(notices)} cannot-decode notice(s), none self-refuting")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1262,6 +1281,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D42", "no near-duplicate competitors (geo set collapsed too)", "R4 rank 22: near-dupe collapse skipped the geo set", "fail", d42_no_near_dupe_competitors),
     Invariant("D43", "no dead in-page nav anchors", "R4 rank 24: nav linked to conditionally-rendered sections", "fail", d43_no_dead_in_page_anchors),
     Invariant("D44", "vertical macro anchors match the venture's tags", "R4 rank 24: b2b substring pulled saas anchors onto b2b hardware", "fail", d44_vertical_anchors_match_tags),
+    Invariant("D45", "cannot-decode notice not self-refuting", "R4 rank 24: 'N signals found ... no review surface'", "fail", d45_cannot_decode_notice_not_self_refuting),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
