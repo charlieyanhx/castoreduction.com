@@ -197,6 +197,20 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   13.5>13). Compat preserved — the wave-2 83-156x shapes still flag with their old
   wtp/ratio/note fields. full suite: 1516 passed, 5 skipped.
 
+- **Convergence fabricated (rank 12)** — FIXED, raw_spread exposed. Every national
+  report estimated TAM three ways (top-down/bottom-up/analog) all sharing the single
+  origin 'llm'. `triangulate` collapses within an origin first, so the three methods
+  reduce to one median and the cross-origin `spread` comes out 0.0 — which reads as
+  "converged" above tables whose methods actually span 8-28x (measured: 800c261b
+  27.8x/spread 0.0; method_analog returned the identical $1.5B in 8 of 16 ventures).
+  Now triangulate exposes `raw_spread` (the divergence of ALL estimates BEFORE the
+  origin collapse) and refuses to report a fake 0.0 cross-origin spread for a single
+  origin — `spread` is None, the honest divergence lives in `raw_spread`, and the
+  flag names it ("its 3 estimates diverge 2680%"). Gate d35: a >3x method divergence
+  that reports converged/spread 0 or carries no raw_spread fails. Stored corpus: 9/16
+  FAIL. The analog's recalled ARR and the ±15% display band remain LLM/render
+  residuals (section 4). full suite: 1527 passed, 5 skipped.
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:
