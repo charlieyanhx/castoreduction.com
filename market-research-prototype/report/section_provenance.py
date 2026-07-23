@@ -1,0 +1,131 @@
+"""report/section_provenance.py — section → producing script, for the debuggable report.
+
+Every report section renders from exactly one result-key, and each result-key is produced
+by exactly one skill (`@skill(produces=...)`) or one domain module (financials / economics
+/ sizing math). This maps section → producer so the report's `?debug=1` overlay can badge
+each block with the script that owns it, the evidence it consumed, and the character of
+its data — turning "this sentence is wrong" into "open <module>".
+
+Section-level and deterministic; a test fails if a section the report renders has no
+producer entry here, or if a skill-produced section drifts from the live SKILL_REGISTRY.
+The `module` points at where the CONTENT logic lives (differentiators.py, taste.py,
+four_ps.py, …), not the thin skill wrapper in skills.pipeline_steps.
+"""
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+
+# data-character vocabulary — the honest label for how a section's numbers/prose arise
+COMPUTED = "computed"      # deterministic arithmetic from upstream data
+LLM = "llm"                # an LLM wrote this prose / made this judgement
+FETCHED = "fetched"        # scraped / API-retrieved real-world data
+SIMULATED = "simulated"    # LLM-simulated panels (WTP, personas, max-diff)
+MIXED = "mixed"            # a blend (e.g. sizing: fetched anchors + LLM estimates)
+
+
+@dataclass(frozen=True)
+class SectionSource:
+    section: str                    # human label ("Market Size")
+    result_key: str                 # result dict key it renders from ("market_sizing")
+    produced_by: str                # the skill or function that produces it
+    module: str                     # dotted module path where the logic lives
+    kind: str                       # "skill" | "module"
+    origin: str                     # default data character (see vocabulary above)
+    consumes: tuple[str, ...] = ()  # upstream result-keys it depends on
+
+
+# The authoritative section → producer table. Ordered roughly as the report reads.
+SECTION_SOURCES: tuple[SectionSource, ...] = (
+    SectionSource("Company profile", "profile", "profile_skill", "profile", "skill", LLM),
+    SectionSource("Differentiators", "differentiators", "differentiators_skill",
+                  "differentiators", "skill", LLM, ("competitor_pricing", "audiences")),
+    SectionSource("Customer universe", "customer_universe", "customer_universe_skill",
+                  "skills.pipeline_steps", "skill", FETCHED),
+    SectionSource("Segment prioritization", "segment_ranking", "rank_segments",
+                  "plan", "module", COMPUTED, ("customer_universe",)),
+    SectionSource("Competitive landscape", "discover", "discover_competitors_skill",
+                  "discover", "skill", FETCHED),
+    SectionSource("Competitor map", "clustering", "cluster_competitors",
+                  "clustering", "module", COMPUTED, ("discover",)),
+    SectionSource("Feature importance", "max_diff", "max_diff_skill",
+                  "skills.pipeline_steps", "skill", SIMULATED),
+    SectionSource("Decoded audiences", "audiences", "taste_skill", "taste", "skill", FETCHED),
+    SectionSource("Consumer research / WTP", "consumer_research", "consumer_research_skill",
+                  "skills.perspective", "skill", SIMULATED, ("company_profile",)),
+    SectionSource("Pricing (PSM)", "pricing", "psm_skill", "pricing", "skill", SIMULATED),
+    SectionSource("Pricing benchmark", "pricing_benchmark", "build_benchmark_table",
+                  "pricing", "module", FETCHED, ("competitor_pricing",)),
+    SectionSource("Unit economics", "economics", "retail_unit_economics",
+                  "business_model", "module", COMPUTED, ("pricing", "market_sizing")),
+    SectionSource("Market size", "market_sizing", "market_sizing_skill",
+                  "skills.sizing.dispatch", "skill", MIXED),
+    SectionSource("Validation", "validation", "validate_numbers",
+                  "skills.sizing.validate", "skill", COMPUTED, ("market_sizing",)),
+    SectionSource("3-year financials", "financials", "project_three_year",
+                  "financials", "module", COMPUTED, ("market_sizing", "pricing")),
+    SectionSource("4Ps", "four_ps", "four_ps_skill", "four_ps", "skill", LLM,
+                  ("personas", "max_diff", "pricing")),
+    SectionSource("Viability", "viability", "viability_skill", "four_ps", "skill", LLM,
+                  ("four_ps", "differentiators", "market_sizing")),
+    SectionSource("Personas", "personas", "personas_skill", "skills.pipeline_steps",
+                  "skill", SIMULATED, ("audiences",)),
+    SectionSource("Customer voice (Reddit)", "reddit_signal", "reddit_customer_voice",
+                  "tools.scrape", "module", FETCHED),
+    SectionSource("Verification", "verification", "run_verifier",
+                  "report.verifier", "module", LLM),
+    SectionSource("Research brief", "research_brief", "research_crew",
+                  "orchestrator.steps.crew", "module", LLM),
+    SectionSource("Integrity summary", "integrity", "build_integrity_summary",
+                  "plan", "module", COMPUTED),
+)
+
+_BY_KEY: dict[str, SectionSource] = {s.result_key: s for s in SECTION_SOURCES}
+
+
+def _present(result: dict, key: str) -> bool:
+    """A section renders when its result-key holds non-empty, non-errored data."""
+    v = result.get(key)
+    if not v:
+        return False
+    if isinstance(v, dict) and v.get("error"):
+        return False
+    return True
+
+
+def _refine_origin(key: str, data, default: str) -> str:
+    """Sharpen the default data-character from the actual payload where we can — the
+    honest 'llm vs fetched' distinction the integrity work already tracks per figure."""
+    if key == "market_sizing" and isinstance(data, dict):
+        origins = set()
+        tam = data.get("tam") or {}
+        for mk in ("method_top_down", "method_bottom_up", "method_analog"):
+            o = (tam.get(mk) or {}).get("origin")
+            if o:
+                origins.add(o)
+        if origins == {"llm"}:
+            return LLM
+        if origins and origins != {"llm"}:
+            return MIXED
+    return default
+
+
+def build_section_provenance(result: dict) -> list[dict]:
+    """For each report section PRESENT in `result`, return its producer descriptor with
+    the data-character refined from the payload. Ordered as SECTION_SOURCES. This is the
+    data the ?debug overlay renders as per-section badges.
+    """
+    out: list[dict] = []
+    for s in SECTION_SOURCES:
+        if not _present(result, s.result_key):
+            continue
+        entry = asdict(s)
+        entry["consumes"] = list(s.consumes)
+        entry["origin"] = _refine_origin(s.result_key, result.get(s.result_key), s.origin)
+        out.append(entry)
+    return out
+
+
+def producer_for(result_key: str) -> dict | None:
+    """The producer descriptor for one result-key (None if unmapped)."""
+    s = _BY_KEY.get(result_key)
+    return asdict(s) if s else None
