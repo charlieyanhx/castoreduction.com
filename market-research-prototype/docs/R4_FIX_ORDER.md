@@ -211,6 +211,18 @@ Ranked fix order for the report generator, derived from 46 root-cause clusters p
   FAIL. The analog's recalled ARR and the ±15% display band remain LLM/render
   residuals (section 4). full suite: 1527 passed, 5 skipped.
 
+- **Validation warns rendered nowhere (rank 13)** — FIXED, surfaced + amber chip.
+  `validate_numbers` computed advisory `warns` ("grounded 135M vs modeled 1,500M
+  diverge 11.1x — at least one is wrong"; "SOM estimates diverge 97%") and stored them,
+  but the template rendered only the hard `blocks` and only when passed==false — so 7
+  reports showed a green "✓ Validated — passed the integrity gate" chip over a stored,
+  unrendered 11x-divergence warning. Now the template renders the warns list whenever
+  it is non-empty (amber advisory box under Market Size), and the integrity chip turns
+  amber "⚠ Validated with warnings" (build_integrity_summary already carried n_warns —
+  the chip just ignored it). Gate d36: a report whose stored warns are absent from the
+  HTML, or sit under a plain-green "passed the integrity gate" chip, fails. Stored
+  corpus: 9/16 FAIL. full suite: 1535 passed, 5 skipped.
+
 ## 1. Dedupe: 46 clusters → 24 causes
 
 The 46 clusters collapse hard. The biggest merges:

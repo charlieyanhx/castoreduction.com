@@ -762,6 +762,29 @@ def d35_tam_method_divergence_disclosed(r: dict, html: Optional[str]) -> Finding
     return Finding(True, f"TAM methods span {span:.1f}x, disclosed (raw_spread={raw})")
 
 
+def d36_validation_warns_surfaced(r: dict, html: Optional[str]) -> Finding:
+    """R4 rank 13: advisory validation.warns ('estimates diverge 11x — at least one is
+    wrong') were computed and stored but rendered nowhere, while a green 'Validated —
+    passed the integrity gate' chip sat over them. When warns exist, the report must
+    render each warn's text AND must not show the plain-green Validated chip."""
+    val = ((r.get("market_sizing") or {}).get("validation") or {})
+    warns = val.get("warns") or []
+    if not warns:
+        return Finding(None, "no validation warns")
+    if html is None:
+        return Finding(None, "no html to check")
+    import html as _html_mod
+    text = _html_mod.unescape(html)
+    missing = [w.get("msg") for w in warns if w.get("msg") and w["msg"] not in text]
+    if missing:
+        return Finding(False, f"{len(missing)} of {len(warns)} validation warn(s) not "
+                              "rendered in the report")
+    if "passed the integrity gate" in text:
+        return Finding(False, "warns present but a plain-green 'Validated' chip "
+                              "('passed the integrity gate') is shown over them")
+    return Finding(True, f"{len(warns)} warn(s) surfaced; chip is not plain-green")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1054,6 +1077,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D33", "competitor counts reconcile (density==roster==map input)", "R4 rank 9: 4 competitor counts on 4 surfaces, none canonical", "fail", d33_competitor_counts_reconcile),
     Invariant("D34", "roster is only real competitors (references partitioned out)", "R4 rank 10: self-flagged junk relabeled not excluded", "fail", d34_roster_excludes_references),
     Invariant("D35", "TAM method divergence disclosed (no fake 0% spread)", "R4 rank 12: single-origin collapse hides 8-28x method spread", "fail", d35_tam_method_divergence_disclosed),
+    Invariant("D36", "validation warns surfaced (not under a green chip)", "R4 rank 13: advisory warns computed, rendered nowhere", "fail", d36_validation_warns_surfaced),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
