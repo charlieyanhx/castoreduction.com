@@ -100,14 +100,23 @@ class RunLedger:
 
     # ---------- recording ----------
     def append(self, event: dict) -> Optional[dict]:
-        """Append one event, stamped with the current step label + wall time.
-        No-op (returns None) when recording is off — recording is opt-in per run so
-        imports and tests don't accumulate a global trace."""
+        """Append one event, stamped with the current step label, wall time, and the id
+        of the run that produced it. No-op (returns None) when recording is off —
+        recording is opt-in per run so imports and tests don't accumulate a global trace.
+
+        The `run_id` stamp is what makes cross-run contamination structurally impossible
+        rather than merely unlikely (audit criticals #2/#3): a sink can tell whose event
+        it is being handed, so a transcript cannot absorb a neighbouring run's history
+        even if two runs somehow share a bus. Stamped only when the ledger knows its run
+        — a bare RunLedger() has no run to attribute events to.
+        """
         if not self._enabled:
             return None
         ev = dict(event)
         ev.setdefault("step", _step.get())
         ev.setdefault("t", round(time.time(), 3))
+        if self.run_id:
+            ev.setdefault("run_id", self.run_id)
         with self._lock:
             self._events.append(ev)
         if self._sink is not None:
@@ -115,6 +124,15 @@ class RunLedger:
                 self._sink(ev)
             except Exception:
                 pass  # a failing sink must never take the run down
+        return ev
+
+    def restore(self, event: dict) -> dict:
+        """Re-admit an already-recorded event VERBATIM — no re-stamping of step, time or
+        run_id. This is how transcript.replay() rebuilds a ledger without rewriting the
+        history it is supposed to reproduce faithfully."""
+        ev = dict(event)
+        with self._lock:
+            self._events.append(ev)
         return ev
 
     def record_step(self, name: str, status: str = "complete", **extra) -> Optional[dict]:

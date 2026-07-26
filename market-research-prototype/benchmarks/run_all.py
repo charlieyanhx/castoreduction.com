@@ -50,14 +50,21 @@ def _poll_job(api_base: str, job_id: str, timeout_s: int = 1800, interval_s: int
         time.sleep(interval_s)
 
 
-def run_one(case_name: str, api_base: str, with_prose: bool) -> dict:
-    """Fire + score a single case. Returns {case, job_id, grade}."""
+def run_one(case_name: str, api_base: str, with_prose: bool,
+            job_timeout_s: int = 1800) -> dict:
+    """Fire + score a single case. Returns {case, job_id, grade}.
+
+    `job_timeout_s` is wall clock from SUBMISSION, and the server serializes generation
+    (jobs._RUN_GATE), so a case submitted alongside N-1 others waits for them first. The
+    caller scales this by --parallel; measured p90 plan is ~568s, so an unscaled 1800s
+    ceiling reports spurious TimeoutError from --parallel 4 upward on a healthy pipeline.
+    """
     refs = load_references(case_name)
     description = refs["venture_under_test"]["description"]
     print(f"[{case_name}] firing /plan...", file=sys.stderr)
     job_id = _post_plan(api_base, description)
     print(f"[{case_name}] job {job_id} — polling...", file=sys.stderr)
-    job = _poll_job(api_base, job_id)
+    job = _poll_job(api_base, job_id, timeout_s=job_timeout_s)
     if job.get("state") != "complete":
         return {
             "case": case_name,
@@ -130,6 +137,10 @@ def main():
     p.add_argument("--cases", default="", help="Comma-separated case names. Default: all")
     p.add_argument("--with-prose", action="store_true", help="Enable LLM prose-quality judge (costs tokens)")
     p.add_argument("--parallel", type=int, default=1, help="Run N cases concurrently (default 1)")
+    p.add_argument("--job-timeout", type=int, default=1800,
+                   help="Per-job wall-clock ceiling in seconds, measured from submission. "
+                        "Scaled by --parallel, because the server serializes generation "
+                        "(default 1800)")
     p.add_argument("--out", default="", help="Optional JSON output path for full dashboard")
     p.add_argument("--samples", type=int, default=1,
                    help="Run each case N times and report mean ± stdev (default 1)")
@@ -142,15 +153,20 @@ def main():
     if args.samples == 1:
         # Original single-run behavior
         if args.parallel > 1:
+            # The server generates one report at a time (jobs._RUN_GATE), so submitting N
+            # at once queues them — each case's wall clock from submission grows with N.
+            queue_timeout = args.job_timeout * args.parallel
             with ThreadPoolExecutor(max_workers=args.parallel) as pool:
-                futs = {pool.submit(run_one, c, args.api, args.with_prose): c for c in cases}
+                futs = {pool.submit(run_one, c, args.api, args.with_prose,
+                                    queue_timeout): c for c in cases}
                 for fut in as_completed(futs):
                     rows.append(fut.result())
                     _checkpoint(args.out, rows)  # cycle31: incremental
             rows.sort(key=lambda r: cases.index(r["case"]))
         else:
             for c in cases:
-                rows.append(run_one(c, args.api, args.with_prose))
+                rows.append(run_one(c, args.api, args.with_prose,
+                                    args.job_timeout))
                 _checkpoint(args.out, rows)
     else:
         # cycle31: multi-sample mode for statistical robustness
@@ -159,7 +175,8 @@ def main():
         for sample_idx in range(args.samples):
             print(f"\n=== sample {sample_idx + 1}/{args.samples} ===", file=sys.stderr)
             for c in cases:
-                row = run_one(c, args.api, args.with_prose)
+                row = run_one(c, args.api, args.with_prose,
+                              args.job_timeout)
                 row["_sample_idx"] = sample_idx
                 sample_rows[c].append(row)
                 _checkpoint(args.out + ".samples", [r for rs in sample_rows.values() for r in rs])

@@ -1027,6 +1027,47 @@ def d46_ranked_score_is_pythons(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, f"{checked} displayed score(s) all equal the Python composite")
 
 
+def d47_trace_belongs_to_one_run(r: dict, html: Optional[str]) -> Finding:
+    """Audit criticals #2/#3: a report's `_trace` must be exactly ONE run's history.
+
+    `step_done` appends to `_steps_completed` and records the ledger step event in the
+    same call, idempotent per result dict, and every `_step_done` site in plan.py passes
+    the same `result`. So within one run no step name can repeat and no step event can
+    exist that `_steps_completed` never declared. Either means a concurrent run's events
+    landed in this report — which is how the buyer-facing "Data Provenance" panel came to
+    publish another run's work: on the pre-fix corpus 8/16 reports carry duplicate or
+    foreign step events, and the contaminated ones report 84-107 LLM calls against a clean
+    median of 37 (~2.8x). `_cogs` is derived from the same event list, so the disclosed
+    cost of the report inherits the same inflation.
+
+    Post-fix every event carries `run_id`, so more than one run id in a trace is direct
+    proof; that clause is inert on pre-fix reports, which is why the structural checks
+    carry the baseline. Steps DECLARED but absent from the trace are not failed here — a
+    resume seed and plan.py's direct "refine" append both legitimately declare a step
+    with no ledger event in this run."""
+    tr = r.get("_trace")
+    if not isinstance(tr, list) or not tr:
+        return Finding(None, "no _trace (D12 covers presence)")
+    declared = r.get("_steps_completed") or []
+    comp = [e.get("name") for e in tr if isinstance(e, dict)
+            and e.get("layer") == "step" and e.get("status") == "complete"]
+    if not comp:
+        return Finding(None, "no step-complete events in the trace")
+    run_ids = {e.get("run_id") for e in tr if isinstance(e, dict) and e.get("run_id")}
+    dupes = sorted({n for n in comp if comp.count(n) > 1})
+    foreign = sorted(n for n in set(comp) - set(declared) if n)
+    problems = []
+    if len(run_ids) > 1:
+        problems.append(f"{len(run_ids)} distinct run_ids in one trace")
+    if dupes:
+        problems.append(f"step(s) recorded complete more than once: {dupes[:4]}")
+    if foreign:
+        problems.append(f"step event(s) this run never declared: {foreign[:4]}")
+    if problems:
+        return Finding(False, "; ".join(problems))
+    return Finding(True, f"{len(comp)} step event(s), one run's history")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1330,6 +1371,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D44", "vertical macro anchors match the venture's tags", "R4 rank 24: b2b substring pulled saas anchors onto b2b hardware", "fail", d44_vertical_anchors_match_tags),
     Invariant("D45", "cannot-decode notice not self-refuting", "R4 rank 24: 'N signals found ... no review surface'", "fail", d45_cannot_decode_notice_not_self_refuting),
     Invariant("D46", "ranked score is Python's, not the model's", "audit critical #1: opportunity_score == enriched _score", "fail", d46_ranked_score_is_pythons),
+    Invariant("D47", "trace belongs to one run", "audit criticals #2/#3: no duplicate/foreign step events, one run_id", "fail", d47_trace_belongs_to_one_run),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

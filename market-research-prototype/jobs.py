@@ -169,7 +169,10 @@ def _attach_transcript(job_id: str):
         from persistence import transcript as _t
         from persistence.ledger import LEDGER
 
-        writer = _t.TranscriptWriter(_t.path_for(job_id))
+        # Bound to this job id: the writer refuses events stamped with another run, so a
+        # leaked subscription or a future concurrency change cannot mix two runs'
+        # histories into one transcript (audit criticals #2/#3).
+        writer = _t.TranscriptWriter(_t.path_for(job_id), run_id=job_id)
         # Route the ledger through the hook BUS rather than binding the single sink
         # directly to the transcript (Wave 3 item 3): the bus fans out, so live
         # streaming/metrics can observe the same run without evicting the transcript.
@@ -198,9 +201,32 @@ def _detach_transcript(handle) -> None:
         pass
 
 
+# One generation at a time, per process.
+#
+# persistence/ledger.py states this as its own precondition — "One process runs one report
+# at a time (the pipeline fans out with threads, not processes), so a module default keeps
+# the @tool decorator and provenance shim free of plumbing" — and the @tool decorator,
+# llm.py's COGS accounting and provenance.reset() all address that single module-global
+# LEDGER. run_async used to spawn an unbounded thread per job, so the precondition was
+# merely hoped for: two overlapping runs shared one ledger, each other's transcripts, and
+# a reset() that cleared whichever run was already in flight (audit criticals #2/#3).
+#
+# This gate makes the documented invariant true. Queued jobs wait here in `pending` and
+# start in submission order. Real concurrent generation is a separate project: it needs a
+# per-run ledger threaded through the ~8 ThreadPoolExecutor fan-outs (ContextVars do not
+# cross into worker threads), and a half-done version would lose events rather than mix
+# them — strictly worse than queueing.
+_RUN_GATE = threading.Semaphore(1)
+
+
 def run_async(job_id: str, fn: Callable[[], dict], progress_fn: Callable | None = None) -> None:
     """
     Spawn a thread to run fn(), catch any error, update job state.
+
+    Generation is serialized process-wide (see _RUN_GATE): the thread starts immediately
+    but waits its turn, and the job stays `pending` until it actually begins — a queued
+    job that claimed `running` would both mislead the UI and look orphaned to
+    cleanup_orphaned_jobs' staleness cutoff.
 
     If the function accepts a `progress` callback, pass one that persists
     partial results to the jobs table after each step — so the UI can show
@@ -211,27 +237,33 @@ def run_async(job_id: str, fn: Callable[[], dict], progress_fn: Callable | None 
         update(job_id, result=partial_result)
 
     def worker():
-        update(job_id, state="running")
-        # Wave 3 item 2: stream this run's ledger events to a durable per-run JSONL
-        # transcript keyed by job id. Attached BEFORE fn() so it captures everything —
-        # run_plan's provenance.reset() clears events but keeps the sink. Best-effort:
-        # a transcript problem must never stop the job from running.
-        writer = _attach_transcript(job_id)
-        try:
-            # If fn accepts a `progress` kwarg, pass it — otherwise call plain
-            import inspect
-            sig = inspect.signature(fn)
-            if "progress" in sig.parameters:
-                result = fn(progress=progress_callback)
-            else:
-                result = fn()
-            update(job_id, state="complete", result=result)
-            log.info("job %s complete", job_id)
-        except Exception as e:
-            log.exception("job %s failed", job_id)
-            update(job_id, state="error", error=f"{type(e).__name__}: {e}")
-        finally:
-            _detach_transcript(writer)
+        with _RUN_GATE:
+            _run_one(job_id, fn, progress_callback)
 
     t = threading.Thread(target=worker, daemon=True, name=f"job-{job_id[:8]}")
     t.start()
+
+
+def _run_one(job_id: str, fn: Callable[[], dict], progress_callback: Callable) -> None:
+    """Run one job to completion with the generation slot held."""
+    update(job_id, state="running")
+    # Wave 3 item 2: stream this run's ledger events to a durable per-run JSONL
+    # transcript keyed by job id. Attached BEFORE fn() so it captures everything —
+    # run_plan's provenance.reset() clears events but keeps the sink. Best-effort:
+    # a transcript problem must never stop the job from running.
+    writer = _attach_transcript(job_id)
+    try:
+        # If fn accepts a `progress` kwarg, pass it — otherwise call plain
+        import inspect
+        sig = inspect.signature(fn)
+        if "progress" in sig.parameters:
+            result = fn(progress=progress_callback)
+        else:
+            result = fn()
+        update(job_id, state="complete", result=result)
+        log.info("job %s complete", job_id)
+    except Exception as e:
+        log.exception("job %s failed", job_id)
+        update(job_id, state="error", error=f"{type(e).__name__}: {e}")
+    finally:
+        _detach_transcript(writer)

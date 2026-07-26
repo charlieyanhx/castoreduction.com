@@ -51,15 +51,27 @@ class TranscriptWriter:
     Callable so it can be handed straight to `RunLedger.set_sink()`. Line-buffered +
     explicit flush: the file is readable and complete-up-to-now at any instant, without
     closing — that is what makes a SIGKILL'd run resumable.
+
+    Bound to a run when `run_id` is given: an event stamped with a DIFFERENT run is
+    dropped rather than appended. That is the structural half of audit criticals #2/#3 —
+    writers subscribe to a shared fan-out bus, and a writer that will not record someone
+    else's history cannot produce a mixed transcript no matter how the bus is wired.
+    Unstamped events are accepted, so a ledger with no run id (and any non-ledger caller)
+    keeps working.
     """
 
-    def __init__(self, path: _PathLike) -> None:
+    def __init__(self, path: _PathLike, run_id: str = "") -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.run_id = run_id or ""
         self._lock = threading.Lock()
         self._fh = open(self.path, "a", encoding="utf-8")
 
     def __call__(self, event: dict) -> None:
+        if self.run_id:
+            origin = event.get("run_id")
+            if origin and origin != self.run_id:
+                return  # another run's event — never ours to record
         line = json.dumps(event, default=str, ensure_ascii=False)
         with self._lock:
             self._fh.write(line + "\n")
@@ -120,5 +132,5 @@ def replay(path: _PathLike, run_id: str = "") -> RunLedger:
     led = RunLedger(run_id or p.stem)
     led.start(run_id or p.stem)
     for ev in read_events(p):
-        led.append(ev)
+        led.restore(ev)
     return led
