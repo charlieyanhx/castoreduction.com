@@ -1068,6 +1068,35 @@ def d47_trace_belongs_to_one_run(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, f"{len(comp)} step event(s), one run's history")
 
 
+def d48_shipped_report_attributes_its_sections(r: dict, html: Optional[str]) -> Finding:
+    """Provenance a buyer cannot see is not provenance.
+
+    report/section_provenance.py maps every section to the script that produced it, and
+    build_section_provenance() runs on EVERY render — then the result was discarded unless
+    someone hand-typed `?debug=1`. Measured: 0/16 shipped reports named any producing
+    module, nothing in web/ or templates/ linked to the flag, and the PDF path calls the
+    endpoint positionally so it could never carry the overlay.
+
+    FAIL when a section the report renders carries no visible producer/origin attribution.
+    N/A on a debug render — the subject is the shipped report, not the debug view."""
+    if html is None:
+        return Finding(None, "no html to check")
+    if "prov-legend" in html:
+        return Finding(None, "debug render — the gate judges the shipped report")
+    from report.section_provenance import build_section_provenance
+    prov = build_section_provenance(r)
+    if not prov:
+        return Finding(None, "no attributable sections in this result")
+    missing = [p["result_key"] for p in prov
+               if f'data-produced-by="{p["module"]}"' not in html
+               or f'data-origin="{p["origin"]}"' not in html]
+    if missing:
+        return Finding(False, f"{len(missing)}/{len(prov)} rendered section(s) carry no "
+                              f"producer/origin a reader can see: {', '.join(missing[:6])}")
+    return Finding(True, f"all {len(prov)} rendered section(s) name their module and "
+                         "declare computed/fetched/llm/simulated/mixed")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1372,6 +1401,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D45", "cannot-decode notice not self-refuting", "R4 rank 24: 'N signals found ... no review surface'", "fail", d45_cannot_decode_notice_not_self_refuting),
     Invariant("D46", "ranked score is Python's, not the model's", "audit critical #1: opportunity_score == enriched _score", "fail", d46_ranked_score_is_pythons),
     Invariant("D47", "trace belongs to one run", "audit criticals #2/#3: no duplicate/foreign step events, one run_id", "fail", d47_trace_belongs_to_one_run),
+    Invariant("D48", "shipped report attributes its sections", "provenance a buyer cannot see is not provenance", "fail", d48_shipped_report_attributes_its_sections),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

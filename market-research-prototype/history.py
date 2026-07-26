@@ -71,17 +71,27 @@ def compute_deltas(current: dict, previous: dict) -> dict:
     cur_opps = (current.get("discover", {}).get("synthesis", {}) or {}).get("ranked_opportunities", []) or []
     prev_opps = (previous.get("discover", {}).get("synthesis", {}) or {}).get("ranked_opportunities", []) or []
 
-    cur_brands = {o.get("brand"): o.get("opportunity_score", 0) for o in cur_opps if o.get("brand")}
-    prev_brands = {o.get("brand"): o.get("opportunity_score", 0) for o in prev_opps if o.get("brand")}
+    # A ranked record can legitimately carry NO score — a geo-sourced neighbour, or a brand
+    # the momentum enrichment never measured (discover._restore_computed_numbers drops an
+    # unbacked number rather than printing one). `.get(key, 0)` does NOT protect against
+    # that: the key exists holding None, so the default never fires and the subtraction
+    # below raises TypeError. Membership is the roster; scores are only the numeric ones.
+    cur_brands = {o.get("brand"): o.get("opportunity_score") for o in cur_opps if o.get("brand")}
+    prev_brands = {o.get("brand"): o.get("opportunity_score") for o in prev_opps if o.get("brand")}
 
     new_competitors = [b for b in cur_brands if b not in prev_brands]
     dropped_competitors = [b for b in prev_brands if b not in cur_brands]
     score_changes = []
     for b, score in cur_brands.items():
-        if b in prev_brands:
-            delta = score - prev_brands[b]
-            if abs(delta) >= 5:  # only flag significant moves
-                score_changes.append({"brand": b, "previous": prev_brands[b], "current": score, "delta": round(delta, 1)})
+        # Both sides must be numbers to have moved. `is None` rather than a falsy test —
+        # 0.0 is a real score (a rival with no public footprint), not a missing one.
+        prev = prev_brands.get(b)
+        if score is None or prev is None:
+            continue
+        delta = score - prev
+        if abs(delta) >= 5:  # only flag significant moves
+            score_changes.append({"brand": b, "previous": prev, "current": score,
+                                  "delta": round(delta, 1)})
 
     cur_personas = {p.get("name") for p in (current.get("personas", {}) or {}).get("personas", []) if p.get("name")}
     prev_personas = {p.get("name") for p in (previous.get("personas", {}) or {}).get("personas", []) if p.get("name")}
