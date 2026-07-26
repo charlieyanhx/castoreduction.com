@@ -39,7 +39,8 @@ def render_discover(result: dict) -> str:
         if density is not None:
             lines.append(f"- **Competitor density:** {density} competitors identified")
         if avg is not None:
-            lines.append(f"- **Average opportunity score:** {avg}")
+            lines.append(f"- **Average web-momentum score:** {avg} "
+                         "(0-100 from public signals across all candidates)")
         trends = (result.get("steps") or {}).get("trends") or {}
         if trends.get("slope_12m") is not None:
             lines.append(f"- **Category trend slope (12mo):** {trends['slope_12m']:+.1%}")
@@ -51,7 +52,8 @@ def render_discover(result: dict) -> str:
         lines.append("## Ranked opportunities")
         lines.append("")
         for i, o in enumerate(opps, 1):
-            lines.append(f"### {i}. {o.get('brand', '?')} — score {o.get('opportunity_score', '?')}")
+            lines.append(f"### {i}. {o.get('brand', '?')} — web-momentum score "
+                         f"{o.get('opportunity_score', '?')}")
             lines.append("")
             if o.get("domain"):
                 lines.append(f"**Domain:** [{o['domain']}](https://{o['domain']})")

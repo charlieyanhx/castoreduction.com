@@ -1064,6 +1064,18 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 {% endif %}
 
 {% if competitors %}
+{# The number in the right-hand column is the Python composite of the free public
+   signals gathered for each brand (discover._signal_score) — search-trend slope, review
+   volume and velocity, Reddit mentions, domain age, archive activity, social reach. It is
+   NOT a competitive-strength rating, and saying so matters now that it is the computed
+   value rather than the model's: a well-funded B2B rival with no consumer review surface
+   legitimately scores near zero. #}
+<p style="font-size:9.5pt;color:#6b7280;margin:0 0 8px">
+  The score is <strong>web momentum</strong> (0&ndash;100), computed from public signals only:
+  search-trend slope, review volume and velocity, Reddit mentions, domain age, archive
+  activity, social reach. A low score means a <em>thin public footprint</em>, not a weak
+  competitor &mdash; and &mdash; means no public signal was gathered for that brand.
+</p>
 <div class="competitors">
   {% for c in competitors[:6] %}
   <div class="comp-row">
