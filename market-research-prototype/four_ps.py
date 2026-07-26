@@ -376,10 +376,13 @@ def assemble_4ps(
         "business_model": profile.get("business_model"),
     }, indent=2)[:2000]
 
-    competitors_blob = "\n".join(
-        f"  - {c.get('brand')} ({c.get('domain')}) — score {c.get('opportunity_score', '?')}: {c.get('thesis', '')[:120]}"
+    # web-momentum, not competitive strength — see the note in market_sizing's comp_blob.
+    competitors_blob = ("\n".join(
+        f"  - {c.get('brand')} ({c.get('domain')}) — web-momentum score "
+        f"{c.get('opportunity_score', '?')}: {c.get('thesis', '')[:120]}"
         for c in competitors[:5]
-    )[:2000]
+    ) + "\n  (score = public-signal momentum 0-100; low = thin public footprint,"
+        "\n   not a weak rival)")[:2000]
 
     audience_blob = json.dumps({
         "brand": top_audience.get("brand"),

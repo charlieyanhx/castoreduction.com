@@ -464,6 +464,19 @@ def _verify_competitor_completeness(candidates: list[dict], category: str, geo: 
     return candidates
 
 
+def _enriched_index(enriched: list) -> tuple[dict, dict]:
+    """domain→record and brand→record lookups, for matching the records the synthesis
+    LLM rebuilt back to the Python-enriched originals they came from."""
+    return ({e.get("domain"): e for e in enriched if e.get("domain")},
+            {e.get("brand"): e for e in enriched if e.get("brand")})
+
+
+def _match_enriched(op: dict, by_domain: dict, by_brand: dict) -> dict | None:
+    """The enriched record an LLM-ranked record refers to. Domain first: brand names
+    collide across ventures (two 'Citizen's), domains don't."""
+    return by_domain.get(op.get("domain")) or by_brand.get(op.get("brand"))
+
+
 def _merge_enrichment_provenance(ranked_ops: list, enriched: list) -> None:
     """Copy per-record provenance from the enriched candidates into the LLM-ranked
     records, matched by domain then brand (R4 rank 4).
@@ -474,16 +487,74 @@ def _merge_enrichment_provenance(ranked_ops: list, enriched: list) -> None:
     it, which meant no gate could ever police identity-blind adoption. Mutates
     ranked_ops in place; records with no enriched counterpart are left alone.
     """
-    by_domain = {e.get("domain"): e for e in enriched if e.get("domain")}
-    by_brand = {e.get("brand"): e for e in enriched if e.get("brand")}
+    by_domain, by_brand = _enriched_index(enriched)
     for op in ranked_ops or []:
-        src = by_domain.get(op.get("domain")) or by_brand.get(op.get("brand"))
+        src = _match_enriched(op, by_domain, by_brand)
         if not src:
             continue
         for key in ("off_category", "relevance_score", "domain_source",
                     "domain_confidence"):
             if key in src:
                 op[key] = src[key]
+
+
+# Every signal `_gather_signals` fetches and `_signal_score` reads. These are the values
+# a ranked record is allowed to display — the model may describe them, never restate them.
+_GATHERED_SIGNAL_KEYS = (
+    "trend_slope", "trend_current", "trustpilot_reviews", "trustpilot_avg_stars",
+    "trustpilot_velocity_slope", "trustpilot_monthly", "reddit_mentions",
+    "reddit_raw_mentions", "domain_age_days", "wayback_avg_per_month",
+    "wayback_velocity", "wayback_months_covered", "ig_followers", "ig_posts",
+    "ig_following",
+)
+
+
+def _restore_computed_numbers(ranked_ops: list, enriched: list) -> int:
+    """Put the Python-computed numbers back after synthesis. Returns records corrected.
+
+    Audit critical #1. The synthesis prompt asks the LLM to rebuild each record with an
+    `opportunity_score` and a `signals` block, and nothing copied the Python values back
+    — so the report printed the model's re-scoring of data Python had already scored.
+    Measured on the 16-venture corpus: 73/77 records with a Python counterpart (94%)
+    displayed a different score, the model inflating by a mean of +14.3 points (62 higher
+    vs 11 lower; MetOx 0.0 -> 45, Taskrabbit 25.0 -> 68). In all 10 affected reports the
+    disclosed Python average sat beside displayed scores averaging +16 to +37.5 higher.
+
+    The asymmetry that gave it away: the `except` fallback below already built
+    `opportunity_score` from `_score`. Only the failure path was honest.
+
+    A record with no enriched counterpart keeps its prose but loses any score — an
+    unmatched brand is one Python never measured, so there is no number to show. The
+    template renders a missing score as 'nearby' (geo-sourced neighbours) or an em dash.
+    Mutates in place.
+    """
+    by_domain, by_brand = _enriched_index(enriched)
+    corrected = 0
+    for op in ranked_ops or []:
+        src = _match_enriched(op, by_domain, by_brand)
+        if src is None:
+            # No Python counterpart: strip an unbacked score rather than print it.
+            if op.get("opportunity_score") is not None:
+                op["opportunity_score"] = None
+                corrected += 1
+            continue
+        was = op.get("opportunity_score")
+        now = src.get("_score")
+        op["opportunity_score"] = now
+        signals = dict(op.get("signals") or {})
+        # Re-source every key either side mentions: a signal the gatherer never found is
+        # the model inventing one, so it resolves to None rather than staying a guess.
+        for key in set(signals) | set(_GATHERED_SIGNAL_KEYS):
+            if key in _GATHERED_SIGNAL_KEYS or key in src:
+                signals[key] = src.get(key)
+        op["signals"] = {k: v for k, v in signals.items()
+                         if v is not None or k in (op.get("signals") or {})}
+        if was != now:
+            corrected += 1
+    if corrected:
+        log.info("[discover] restored Python-computed numbers on %d ranked record(s)",
+                 corrected)
+    return corrected
 
 
 def _apply_relevance_to_ranking(entries: list[dict]) -> list[dict]:
@@ -793,6 +864,11 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
         # entries by raw score.
         _merge_enrichment_provenance(synthesis.get("ranked_opportunities") or [],
                                      enriched_sorted)
+        # Audit critical #1: the model narrates, Python scores. Every number the record
+        # displays is re-sourced from the enriched original, so the per-record scores can
+        # no longer contradict `avg_opportunity_score` computed from the same pool above.
+        _restore_computed_numbers(synthesis.get("ranked_opportunities") or [],
+                                  enriched_sorted)
         synthesis["ranked_opportunities"] = _apply_relevance_to_ranking(
             synthesis["ranked_opportunities"])
         result["synthesis"] = synthesis

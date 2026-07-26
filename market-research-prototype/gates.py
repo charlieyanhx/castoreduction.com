@@ -980,6 +980,53 @@ def d45_cannot_decode_notice_not_self_refuting(r: dict, html: Optional[str]) -> 
     return Finding(True, f"{len(notices)} cannot-decode notice(s), none self-refuting")
 
 
+def d46_ranked_score_is_pythons(r: dict, html: Optional[str]) -> Finding:
+    """Audit critical #1: a ranked competitor's displayed opportunity_score must be the
+    Python composite (`_signal_score` -> `_score`) of the record enrichment gathered for
+    it, not the synthesis LLM's re-scoring of the same data.
+
+    Both values are in the report: `discover.steps.signals[*]._score` is Python's, and
+    `discover.synthesis.ranked_opportunities[*].opportunity_score` is what prints. On the
+    pre-fix corpus 73 of 77 matchable records (94%) disagreed, the model inflating by a
+    mean of +14.3 points — and the disclosed `avg_opportunity_score`, computed from the
+    Python pool, sat beside displayed scores averaging +25.6 higher.
+
+    A record with no enriched counterpart (geo-sourced neighbours) must carry no score;
+    a score without a counterpart is a number nothing computed. N/A when discovery has
+    no enriched pool or no ranked records to compare."""
+    d = r.get("discover") or {}
+    enriched = ((d.get("steps") or {}).get("signals")) or []
+    ops = ((d.get("synthesis") or {}).get("ranked_opportunities")
+           or d.get("ranked_opportunities") or [])
+    if not enriched or not ops:
+        return Finding(None, "no enriched pool or no ranked records")
+    by_domain = {e.get("domain"): e for e in enriched if e.get("domain")}
+    by_brand = {e.get("brand"): e for e in enriched if e.get("brand")}
+    bad, unbacked, checked = [], 0, 0
+    for op in ops:
+        src = by_domain.get(op.get("domain")) or by_brand.get(op.get("brand"))
+        shown = op.get("opportunity_score")
+        if src is None:
+            if shown is not None:
+                unbacked += 1
+            continue
+        py = src.get("_score")
+        if py is None or shown is None:
+            continue
+        checked += 1
+        if abs(_num(py) - _num(shown)) > 0.5:
+            bad.append(f"{op.get('brand') or op.get('domain')} {py}->{shown}")
+    if unbacked:
+        return Finding(False, f"{unbacked} ranked record(s) print a score with no "
+                              "Python-computed counterpart")
+    if bad:
+        return Finding(False, f"{len(bad)}/{checked} displayed scores are the model's, "
+                              f"not Python's: {', '.join(bad[:4])}")
+    if not checked:
+        return Finding(None, "no record pairs both sides scored")
+    return Finding(True, f"{checked} displayed score(s) all equal the Python composite")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1282,6 +1329,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D43", "no dead in-page nav anchors", "R4 rank 24: nav linked to conditionally-rendered sections", "fail", d43_no_dead_in_page_anchors),
     Invariant("D44", "vertical macro anchors match the venture's tags", "R4 rank 24: b2b substring pulled saas anchors onto b2b hardware", "fail", d44_vertical_anchors_match_tags),
     Invariant("D45", "cannot-decode notice not self-refuting", "R4 rank 24: 'N signals found ... no review surface'", "fail", d45_cannot_decode_notice_not_self_refuting),
+    Invariant("D46", "ranked score is Python's, not the model's", "audit critical #1: opportunity_score == enriched _score", "fail", d46_ranked_score_is_pythons),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

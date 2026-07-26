@@ -183,9 +183,18 @@ def estimate_market_size(
         f"Target customer: {(profile.get('apparent_target_customer') or '')[:300]}\n"
     )
 
+    # The score is web momentum (search trend, review volume, domain age, social), NOT
+    # competitive strength. Said plainly in the prompt because it is now the Python-
+    # computed value: a serious B2B rival with no consumer review surface scores near 0,
+    # and a model told only "score 0" would read that as a weak competitor.
     comp_blob = "\n".join(
-        f"  - {c.get('brand','?')} (relevance: {c.get('relevance','?')}) — score {c.get('opportunity_score','?')}"
+        f"  - {c.get('brand','?')} (relevance: {c.get('relevance','?')})"
+        f" — web-momentum score {c.get('opportunity_score','?')}"
         for c in competitors[:6]
+    ) + (
+        "\n  (web-momentum score = 0-100 from public signals only: search trend, review"
+        "\n   volume, domain age, social reach. A low score means a thin PUBLIC footprint,"
+        "\n   not a weak competitor.)"
     ) if competitors else "  (no competitors found)"
 
     audience_blob = (
