@@ -250,6 +250,53 @@ def acs_demographics(state_fips: str, county_fips: str,
                     cost_meta={"source": f"US Census ACS 5-yr {year}"})
 
 
+_TIGERWEB_COUNTY = ("https://tigerweb.geo.census.gov/arcgis/rest/services/"
+                    "TIGERweb/State_County/MapServer/1/query")
+_TIGERWEB_TRACT = ("https://tigerweb.geo.census.gov/arcgis/rest/services/"
+                   "TIGERweb/Tracts_Blocks/MapServer/0/query")
+
+
+@tool(category="geo", returns="{land_km2, geoid, level}",
+      cost_usd=0.0)
+def census_land_area(state_fips: str, county_fips: str,
+                     tract: Optional[str] = None) -> Evidence:
+    """Land area in km² for a county or census tract, from US Census TIGERweb.
+
+    This is what turns an ACS household COUNT into a household DENSITY, which is the only
+    way a county or tract figure can be placed on a single premise's trade-area scale
+    (audit high #4: the county count was being used as the trade area directly, a measured
+    372x overstatement in Los Angeles County). Keyless, unlike the ACS API.
+
+    Takes FIPS codes from geocode_address. Land area EXCLUDES water, which is what a
+    residential-density denominator wants. Do NOT use for household or population counts —
+    that is acs_demographics.
+    """
+    geoid = f"{state_fips}{county_fips}{tract}" if tract else f"{state_fips}{county_fips}"
+    url = _TIGERWEB_TRACT if tract else _TIGERWEB_COUNTY
+    data = _http_json("GET", url, params={
+        "where": f"GEOID='{geoid}'", "outFields": "GEOID,NAME,AREALAND",
+        "returnGeometry": "false", "f": "json"}, timeout=12)
+    features = (data or {}).get("features") if isinstance(data, dict) else None
+    if not features:
+        return Evidence(source="census_land_area", category="geo", count=0, skeleton=True,
+                        error=f"TIGERweb returned no geography for GEOID {geoid}")
+    attrs = features[0].get("attributes") or {}
+    try:
+        # AREALAND arrives as a STRING of square metres.
+        land_km2 = float(attrs.get("AREALAND")) / 1e6
+    except (TypeError, ValueError):
+        return Evidence(source="census_land_area", category="geo", count=0, skeleton=True,
+                        error=f"TIGERweb AREALAND unparseable: {attrs.get('AREALAND')!r}")
+    if land_km2 <= 0:
+        return Evidence(source="census_land_area", category="geo", count=0, skeleton=True,
+                        error=f"TIGERweb reported non-positive land area for {geoid}")
+    return Evidence(source="census_land_area", category="geo", count=1,
+                    payload={"land_km2": land_km2, "geoid": geoid,
+                             "name": attrs.get("NAME"),
+                             "level": "tract" if tract else "county"},
+                    cost_meta={"source": "US Census TIGERweb"})
+
+
 def resolve_naics(category: str) -> Optional[str]:
     """Map ANY business category to a US NAICS code — generically, via the LLM.
 

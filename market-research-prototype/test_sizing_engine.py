@@ -84,6 +84,20 @@ def _geo_evidence(source, payload):
     return Evidence(source=source, category="geo", count=1, payload=payload)
 
 
+# Audit high #4: size_hyperlocal no longer treats a Census household COUNT for a whole
+# geography as the trade area. It converts the count to a DENSITY over that geography's
+# land area and applies the catchment, so every stub must also answer census_land_area.
+# 400 households/km² is a coherent urban density; the fixtures' counts were never
+# county-realistic anyway (LA County has ~3.3M households, not 120,000), so pairing each
+# count with an area at this density keeps the resulting catchment in a sane range.
+_URBAN_HH_PER_KM2 = 400.0
+
+
+def _land_evidence(households: float) -> Evidence:
+    return Evidence(source="census_land_area", category="geo", count=1,
+                    payload={"land_km2": households / _URBAN_HH_PER_KM2})
+
+
 class TestHyperlocalRestaurantInLA(unittest.TestCase):
     def _patches(self, households=120000, competitors=80):
         geo = _geo_evidence("geocode_address",
@@ -93,22 +107,33 @@ class TestHyperlocalRestaurantInLA(unittest.TestCase):
                        payload={"count": competitors})
         return geo, acs, poi
 
+    def _stub(self, geo, acs, poi, land=None):
+        table = {"geocode_address": lambda *a, **k: geo,
+                 "acs_demographics": lambda *a, **k: acs,
+                 "poi_competition": lambda *a, **k: poi,
+                 "census_land_area": lambda *a, **k: (
+                     land if land is not None else _land_evidence(120000))}
+        return lambda n: type("T", (), {"fn": staticmethod(table[n])})
+
     def test_full_path_produces_sourced_numbers(self):
         geo, acs, poi = self._patches()
         with patch("skills.sizing.hyperlocal.get_tool") as gt:
-            gt.side_effect = lambda n: type("T", (), {"fn": staticmethod({
-                "geocode_address": lambda *a, **k: geo,
-                "acs_demographics": lambda *a, **k: acs,
-                "poi_competition": lambda *a, **k: poi,
-            }[n])})
+            gt.side_effect = self._stub(geo, acs, poi)
             # Pass spend explicitly so the test never calls the LLM resolver.
             e = size_hyperlocal(address="123 Main St, Los Angeles, CA",
                                 category="food_away_from_home",
                                 annual_spend_per_hh=3360.0,
                                 supply_seats=60)
         p = e.payload
-        # TAM = 120,000 households × $3,360 = $403.2M
-        self.assertAlmostEqual(p["tam_usd"], 120000 * 3360.0)
+        # Audit high #4: TAM is the CATCHMENT's households × spend, not the whole
+        # geography's. This assertion used to read `120000 * 3360.0` — the county count
+        # straight through, with radius_m ignored.
+        from skills.sizing.hyperlocal import trade_area_households
+        expected_hh = trade_area_households(120000, 120000 / _URBAN_HH_PER_KM2, 3000)
+        self.assertAlmostEqual(p["trade_area_households"], expected_hh, delta=0.5)
+        self.assertAlmostEqual(p["tam_usd"], expected_hh * 3360.0, delta=1.0)
+        self.assertLess(p["tam_usd"], 120000 * 3360.0,
+                        "TAM is still at whole-geography scale")
         self.assertLess(p["sam_usd"], p["tam_usd"])
         self.assertLessEqual(p["som_usd"], p["sam_usd"])
         # Every figure carries a source.
@@ -127,11 +152,7 @@ class TestHyperlocalRestaurantInLA(unittest.TestCase):
         geo, acs, poi = self._patches()
         with patch("skills.sizing.hyperlocal.get_tool") as gt, \
              patch("skills.sizing.hyperlocal.resolve_annual_spend", return_value=(3360.0, False)):
-            gt.side_effect = lambda n: type("T", (), {"fn": staticmethod({
-                "geocode_address": lambda *a, **k: geo,
-                "acs_demographics": lambda *a, **k: acs,
-                "poi_competition": lambda *a, **k: poi,
-            }[n])})
+            gt.side_effect = self._stub(geo, acs, poi)
             e = size_hyperlocal(address="x", category="food_away_from_home")  # no spend passed
         tam_fig = next(f for f in e.payload["figures"] if f["label"] == "TAM_local")
         self.assertIn("UNSOURCED", tam_fig["source"])
@@ -147,11 +168,7 @@ class TestHyperlocalRestaurantInLA(unittest.TestCase):
         with patch("skills.sizing.hyperlocal.get_tool") as gt, \
              patch("skills.sizing.hyperlocal._estimate_households", return_value=120000.0), \
              patch("skills.sizing.hyperlocal.resolve_annual_spend", return_value=(3360.0, True)):
-            gt.side_effect = lambda n: type("T", (), {"fn": staticmethod({
-                "geocode_address": lambda *a, **k: geo,
-                "acs_demographics": lambda *a, **k: acs_fail,
-                "poi_competition": lambda *a, **k: poi,
-            }[n])})
+            gt.side_effect = self._stub(geo, acs_fail, poi)
             e = size_hyperlocal(address="x")
         self.assertEqual(e.payload["confidence"], "low")
         self.assertEqual(e.payload["tam_usd"], 120000 * 3360.0)   # computes, not None

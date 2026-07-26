@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sqlite3
@@ -1097,6 +1098,45 @@ def d48_shipped_report_attributes_its_sections(r: dict, html: Optional[str]) -> 
                          "declare computed/fetched/llm/simulated/mixed")
 
 
+def d49_trade_area_matches_its_radius(r: dict, html: Optional[str]) -> Finding:
+    """Audit high #4: a hyperlocal trade-area household count must be consistent with the
+    radius it claims, not with the county the address happens to sit in.
+
+    `size_hyperlocal` sizes ONE premise inside `radius_m`. The count used to come straight
+    from `acs_demographics` for the whole COUNTY, with the radius ignored and the result
+    labelled confidence="high" / "US Census ACS". The overstatement is exactly
+    county_land_km2 / catchment_km2; measured against live TIGERweb land areas for a 3km
+    catchment: Los Angeles 372x, Gallatin MT 239x, Harris TX 156x, Cook IL 87x.
+
+    The check is a density ceiling, not an equality: households / catchment_km2 must be a
+    residentially plausible density. Manhattan, the densest US county, is ~13,500
+    households/km², so 20,000 is a generous ceiling that no real catchment reaches and that
+    every county-scale figure blows through (LA County as a 3km trade area implies ~117,000
+    households/km²). N/A for non-hyperlocal sizings and when the scale is not disclosed."""
+    ms = r.get("market_sizing") or {}
+    if (ms.get("scale") or "").lower() not in ("hyperlocal", "trade_area", ""):
+        return Finding(None, f"not a hyperlocal sizing (scale={ms.get('scale')})")
+    if ms.get("method") and ms.get("method") != "trade_area_catchment" and not ms.get("scale"):
+        return Finding(None, "not a trade-area sizing")
+    households = ms.get("trade_area_households")
+    radius_m = ms.get("radius_m")
+    if households is None or not radius_m:
+        return Finding(None, "trade-area households or radius not disclosed")
+    area = math.pi * (_num(radius_m) / 1000.0) ** 2
+    if area <= 0:
+        return Finding(None, "non-positive catchment")
+    density = _num(households) / area
+    MAX_PLAUSIBLE = 20_000.0        # Manhattan, the densest US county, is ~13,500 hh/km²
+    if density > MAX_PLAUSIBLE:
+        return Finding(False, f"{_num(households):,.0f} households in a "
+                              f"{_num(radius_m) / 1000:.1f} km catchment "
+                              f"({area:,.1f} km²) implies {density:,.0f} households/km² — "
+                              "denser than Manhattan, so this is a county-scale count "
+                              "presented as a trade area")
+    return Finding(True, f"{_num(households):,.0f} households over {area:,.1f} km² "
+                         f"= {density:,.0f} households/km², a plausible catchment")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1402,6 +1442,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D46", "ranked score is Python's, not the model's", "audit critical #1: opportunity_score == enriched _score", "fail", d46_ranked_score_is_pythons),
     Invariant("D47", "trace belongs to one run", "audit criticals #2/#3: no duplicate/foreign step events, one run_id", "fail", d47_trace_belongs_to_one_run),
     Invariant("D48", "shipped report attributes its sections", "provenance a buyer cannot see is not provenance", "fail", d48_shipped_report_attributes_its_sections),
+    Invariant("D49", "trade area matches its radius", "audit high #4: no county-scale household count as a trade area", "fail", d49_trade_area_matches_its_radius),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
