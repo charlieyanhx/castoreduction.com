@@ -21,6 +21,7 @@ validate_numbers before returning; a hard block sets Evidence.error.
 """
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 from skills.registry import skill
@@ -146,6 +147,41 @@ def _fig(value: Optional[float], label: str, source: str, formula: str) -> dict:
     return {"value_usd": value, "label": label, "source": source, "formula": formula}
 
 
+def catchment_km2(radius_m: int) -> float:
+    """Area of the trade-area disc. The ONE definition of catchment size."""
+    return math.pi * (radius_m / 1000.0) ** 2
+
+
+def trade_area_households(geography_households: Optional[float],
+                          geography_land_km2: Optional[float],
+                          radius_m: int) -> Optional[float]:
+    """Households inside the trade area, from a Census count for a WHOLE geography.
+
+    Audit high #4. `acs_demographics` answers for a county (or tract) — a geography orders
+    of magnitude larger than one premise's catchment — and its count was previously used as
+    the trade area directly, with `radius_m` ignored and the result labelled
+    confidence="high" / "US Census ACS". The overstatement is exactly
+    geography_land_km2 / catchment_km2; measured against live TIGERweb land areas for a
+    3km catchment (28.3 km²): Los Angeles 372x, Gallatin MT 239x, Harris TX 156x,
+    Cook IL 87x — and only 2x in Manhattan, which is why it could hide.
+
+    So: convert the count to a DENSITY over the geography's own land area, then apply the
+    catchment. That makes this the same formula the UNSOURCED fallback already used
+    (`_estimate_households`: pi*r^2 x density) — the two paths now differ only in where
+    density comes from, not in what scale they denote.
+
+    Returns None when the scale cannot be established (no count, or no land area), because
+    an unscalable count is not a trade-area number and must not be presented as one.
+    Capped at the geography's total: a catchment wider than its own county cannot hold more
+    households than the county has.
+    """
+    if not geography_households or not geography_land_km2 or geography_land_km2 <= 0:
+        return None
+    area = catchment_km2(radius_m)
+    density = geography_households / geography_land_km2
+    return min(area * density, float(geography_households))
+
+
 @skill(produces="market_sizing", consumes=["market_scale"])
 def size_hyperlocal(
     address: str,
@@ -191,18 +227,44 @@ def size_hyperlocal(
     matched = gp.get("matched_address") or address
     geocoded = bool(gp) and not g.error
 
-    # 2. Demographics (county-level catchment baseline).
+    # 2. Trade-area households = catchment area × residential density (audit high #4).
+    #
+    # ACS answers for a whole county or tract, so its COUNT is not a trade area — it has to
+    # become a DENSITY over that geography's own land area before the catchment can be
+    # applied. Previously the county count was used directly with radius_m ignored, which
+    # overstated a single premise's trade area by exactly county_land_km2 / catchment_km2
+    # (measured: 372x in Los Angeles County) while labelling it confidence="high" /
+    # "US Census ACS". Both paths below now compute the SAME quantity at the SAME scale and
+    # differ only in where density comes from — sourced geography, or an LLM estimate.
+    #
+    # Tract first: it is the smaller geography, so its density is closer to the catchment's
+    # own and less diluted by the rest of the county.
+    land = get_tool("census_land_area").fn
     households = households_src = None
     households_sourced = False
-    if state_fips and county_fips:
-        d = acs(state_fips=state_fips, county_fips=county_fips, year=year)
-        households = (d.payload or {}).get("households") if not d.error else None
-    if households is not None:
-        households_sourced = True
-        households_src = f"US Census ACS 5-yr {year}"
-    else:
-        # Fallback: estimate trade-area households via the LLM, clearly UNSOURCED.
-        # (Census ACS unreachable, OR geocode fell back to Nominatim / failed → no FIPS.)
+    geo_hh = geo_km2 = None
+    geo_level = None
+    tract = gp.get("tract")
+    candidate_geographies = ([tract] if tract else []) + [None]   # tract, then county
+    for _tract in candidate_geographies if (state_fips and county_fips) else []:
+        d = acs(state_fips=state_fips, county_fips=county_fips, tract=_tract, year=year)
+        geo_hh = (d.payload or {}).get("households") if not d.error else None
+        if not geo_hh:
+            continue
+        a = land(state_fips=state_fips, county_fips=county_fips, tract=_tract)
+        geo_km2 = (a.payload or {}).get("land_km2") if not a.error else None
+        households = trade_area_households(geo_hh, geo_km2, radius_m)
+        if households:
+            geo_level = "tract" if _tract else "county"
+            households_sourced = True
+            households_src = (f"US Census ACS 5-yr {year} + TIGERweb land area "
+                              f"({geo_level} density × catchment)")
+            break
+    if not households_sourced:
+        # No verifiable scale (ACS unreachable, no FIPS, or TIGERweb had no land area for
+        # the geography). An unscalable county count must NOT be shipped as a trade area,
+        # so fall through to the estimate — which is on the right scale by construction and
+        # wears the UNSOURCED label the sourced path cannot honestly claim.
         households = _estimate_households(matched, radius_m)
         households_src = "LLM estimate (UNSOURCED — validate vs US Census ACS)"
 
@@ -261,8 +323,12 @@ def size_hyperlocal(
 
     if households and spend:
         tam = households * spend
+        # State the CATCHMENT the households belong to, not just the count — the count
+        # alone is what let a county-scale figure pass as a trade area (audit high #4).
         figures.append(_fig(tam, "TAM_local", f"{households_src} + {spend_src}",
-                             f"{households:,.0f} households × ${spend:,.0f}/hh/yr"))
+                             f"{households:,.0f} households within {radius_m / 1000:.1f} km "
+                             f"({catchment_km2(radius_m):,.1f} km² catchment) × "
+                             f"${spend:,.0f}/hh/yr"))
         sam = tam * serviceable_fraction
         figures.append(_fig(sam, "SAM_local", "derived",
                             f"TAM × {serviceable_fraction:.0%} serviceable"))
@@ -335,6 +401,16 @@ def size_hyperlocal(
         "trade_area_spend_usd": tam,  # catchment ceiling
         "figures": figures,
         "households": households, "competitors": competitors,
+        # The trade-area scale, stated so it can be gated (D49): the count, the radius it
+        # belongs to, and — when sourced — the geography whose density produced it.
+        "trade_area_households": households,
+        "radius_m": radius_m,
+        "catchment_km2": round(catchment_km2(radius_m), 2),
+        "households_sourced": households_sourced,
+        "density_geography": geo_level,
+        "density_geography_households": geo_hh if households_sourced else None,
+        "density_geography_land_km2": geo_km2 if households_sourced else None,
+        "scale": "hyperlocal",
         "method": "trade_area_catchment", "confidence": confidence, "notes": notes,
     }
 

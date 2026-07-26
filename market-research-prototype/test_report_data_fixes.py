@@ -68,10 +68,15 @@ class TestSomCapacityAnchor(unittest.TestCase):
             "state_fips": "06", "county_fips": "037"})
         acs = Evidence("acs_demographics", "geo", 1, payload={"households": 50000})
         poi = Evidence("poi_competition", "geo", competitors, payload={"count": competitors})
+        # 125 km² for 50,000 households = 400/km² (audit high #4: the count is now a
+        # density over the geography's area, scaled to the catchment). SAM stays far
+        # above the capacity ceiling, so SOM is still capacity-anchored as intended.
+        land = Evidence("census_land_area", "geo", 1, payload={"land_km2": 125.0})
         return lambda n: type("T", (), {"fn": staticmethod({
             "geocode_address": lambda *a, **k: geo,
             "acs_demographics": lambda *a, **k: acs,
             "poi_competition": lambda *a, **k: poi,
+            "census_land_area": lambda *a, **k: land,
         }[n])})
 
     def test_som_is_capacity_anchored_not_tiny_fair_share(self):
@@ -99,11 +104,18 @@ class TestSomCapacityAnchor(unittest.TestCase):
 
 
 class TestTamHouseholdsFallback(unittest.TestCase):
-    def _tools(self, geo, acs, poi):
+    def _tools(self, geo, acs, poi, land=None):
+        """Audit high #4: size_hyperlocal converts a Census household COUNT for a whole
+        geography into a DENSITY over its land area and applies the catchment, so the
+        stub must answer census_land_area too. Defaults to "unavailable" — the two
+        fallback cases below have ACS down anyway, and no verifiable area is exactly
+        when the correct-scale UNSOURCED estimate should take over."""
+        no_area = Evidence("census_land_area", "geo", 0, skeleton=True, error="no area")
         return lambda n: type("T", (), {"fn": staticmethod({
             "geocode_address": lambda *a, **k: geo,
             "acs_demographics": lambda *a, **k: acs,
             "poi_competition": lambda *a, **k: poi,
+            "census_land_area": lambda *a, **k: (land if land is not None else no_area),
         }[n])})
 
     def test_tam_computes_via_labeled_fallback_when_census_down(self):
@@ -150,7 +162,11 @@ class TestTamHouseholdsFallback(unittest.TestCase):
             "lat": 34.08, "lng": -118.27, "state_fips": "06", "county_fips": "037"})
         acs = Evidence("acs_demographics", "geo", 1, payload={"households": 100000})
         poi = Evidence("poi_competition", "geo", 30, payload={"count": 30})
-        with patch("skills.sizing.hyperlocal.get_tool", self._tools(geo, acs, poi)), \
+        # 250 km² for 100,000 households = 400/km², a coherent urban density. Without a
+        # land area there is no verifiable trade-area scale, so the sourced path would
+        # (correctly) decline and this test would no longer be about Census provenance.
+        land = Evidence("census_land_area", "geo", 1, payload={"land_km2": 250.0})
+        with patch("skills.sizing.hyperlocal.get_tool", self._tools(geo, acs, poi, land)), \
              patch("skills.sizing.hyperlocal.resolve_annual_spend", return_value=(600.0, True)):
             e = size_hyperlocal(address="x", category="coffee", osm_value="cafe")
         fig = next(f for f in e.payload["figures"] if f["label"] == "TAM_local")
