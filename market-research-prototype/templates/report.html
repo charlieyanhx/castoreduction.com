@@ -329,6 +329,9 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     <a href="#economics" style="color:inherit">Unit economics</a> ·
     {% if economics.sensitivity and economics.sensitivity.churn_sensitivity %}<a href="#sensitivity" style="color:inherit">Sensitivity</a> ·{% endif %}
     {% if market_sizing and market_sizing.macro_anchors and (market_sizing.macro_anchors.series or market_sizing.macro_anchors.vertical_anchors) %}<a href="#macro-anchors" style="color:inherit">Macro anchors</a> ·{% endif %}
+    {# Guarded with the same condition as the section itself — D43 fails any in-page
+       anchor whose target id is absent. #}
+    {% if section_provenance %}<a href="#provenance" style="color:inherit">Provenance</a> ·{% endif %}
     <a href="#methodology" style="color:inherit">Methodology</a> ·
     <a href="#citations" style="color:inherit">Citations</a>
   </div>
@@ -1766,6 +1769,50 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     <p style="font-size:9.5pt;color:#4b5563;margin:12px 0 0"><strong>LLM:</strong> {{ provenance.llm.fresh }} fresh + {{ provenance.llm.cached }} cached calls · {{ provenance.llm.out_tok|default(0) }} output tokens · models: {% for m, n in provenance.llm.models.items() %}{{ m }} ({{ n }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
   </div>
 </details>
+{% endif %}
+
+{# SHIPPED PROVENANCE: every section names the script that produced it.
+   The same data as the debug overlay, but in the report a buyer actually opens:
+   build_section_provenance() already runs on every render and was being discarded unless
+   someone hand-typed the flag. Deliberately NOT the overlay's markup — the overlay's own
+   test pins that its classes and heading stay absent from a non-debug render, and a
+   Jinja comment (not an HTML one) keeps this note out of the shipped page. Deliberately
+   not inside `.no-print`, and no markup inside the <h2>: report/pdf strips no-print
+   containers wholesale and reads <h2> inner text for the TOC and running header. #}
+{% if section_provenance %}
+<h2 id="provenance">How each section was produced</h2>
+<p style="font-size:10pt;color:#4b5563">One row per section in this report: the module that
+  owns it, and how its content arose. Read this before trusting a number in isolation —
+  a <em>computed</em> figure and a <em>simulated</em> one carry very different weight.</p>
+<table style="width:100%;border-collapse:collapse;font-size:10pt;margin-top:10px">
+  <thead style="background:#f3f4f6"><tr>
+    <th style="text-align:left;padding:7px 8px;border:1px solid #e5e7eb">Section</th>
+    <th style="text-align:left;padding:7px 8px;border:1px solid #e5e7eb">How it arose</th>
+    <th style="text-align:left;padding:7px 8px;border:1px solid #e5e7eb">Produced by</th>
+    <th style="text-align:left;padding:7px 8px;border:1px solid #e5e7eb">Module</th>
+  </tr></thead>
+  <tbody>
+  {% for p in section_provenance %}
+    {% set ocolor = {'computed': '#047857', 'fetched': '#1d4ed8', 'llm': '#6d28d9',
+                     'simulated': '#b45309', 'mixed': '#4b5563'} %}
+    <tr data-section="{{ p.result_key }}" data-origin="{{ p.origin }}"
+        data-produced-by="{{ p.module }}">
+      <td style="padding:7px 8px;border:1px solid #e5e7eb"><strong>{{ p.section }}</strong></td>
+      <td style="padding:7px 8px;border:1px solid #e5e7eb;color:{{ ocolor.get(p.origin, '#4b5563') }};font-weight:600">{{ p.origin }}</td>
+      <td style="padding:7px 8px;border:1px solid #e5e7eb;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9pt">{{ p.produced_by }}</td>
+      <td style="padding:7px 8px;border:1px solid #e5e7eb;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:9pt">{{ p.module }}{% if p.consumes %}<div style="color:#9ca3af;font-size:8.5pt">&larr; {{ p.consumes|join(', ') }}</div>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p style="font-size:9.5pt;color:#6b7280;margin-top:8px">
+  <strong>computed</strong> — deterministic arithmetic from upstream data ·
+  <strong>fetched</strong> — retrieved from a real external source ·
+  <strong>llm</strong> — a language model wrote it ·
+  <strong>simulated</strong> — an LLM-simulated buyer panel, not a real survey ·
+  <strong>mixed</strong> — a blend, e.g. fetched anchors with model-estimated shares.
+  A wrong sentence points at the module that owns it: open that file.
+</p>
 {% endif %}
 
 <!-- ITER 36: METHODOLOGY APPENDIX -->

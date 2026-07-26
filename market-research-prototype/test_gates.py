@@ -47,7 +47,25 @@ def clean_result() -> dict:
     }
 
 
-CLEAN_HTML = "<html>" + "x" * 2000 + "</html>"
+def _attribution_rows(result: dict) -> str:
+    """The per-section producer/origin markup a healthy report carries (D48).
+
+    Derived from the fixture's own sections rather than hand-listed, so adding a section to
+    clean_result() cannot silently leave the fixture unattributed. The report's real
+    attribution is proven elsewhere — test_shipped_provenance.py renders through the live
+    endpoint and checks the stale corpus fails 16/16 — so here this only keeps the "no
+    detector false-fires on a healthy result" contract honest.
+    """
+    from report.section_provenance import build_section_provenance
+    return "".join(
+        f'<tr data-section="{p["result_key"]}" data-origin="{p["origin"]}"'
+        f' data-produced-by="{p["module"]}"></tr>'
+        for p in build_section_provenance(result))
+
+
+CLEAN_HTML = ("<html>" + "x" * 2000
+              + '<h2 id="provenance">How each section was produced</h2><table>'
+              + _attribution_rows(clean_result()) + "</table></html>")
 
 
 def run_one(det_id: str, r: dict, html=CLEAN_HTML):

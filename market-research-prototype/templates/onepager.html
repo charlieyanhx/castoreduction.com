@@ -134,7 +134,10 @@ footer{text-align:center;font-size:8pt;color:#94a3b8;margin-top:18px;padding-top
         {% if c.relevance %}<span class="relevance rel-{{ c.relevance }}">{{ c.relevance }}</span>{% endif %}
         <span style="color:#94a3b8;font-size:8.5pt">{{ c.domain or '' }}</span>
       </span>
-      <span class="score-pill">{{ c.opportunity_score|default('?') }}</span>
+      {# `default()` fires only on UNDEFINED, so an explicit None rendered the literal
+         word "None" onto a buyer's one-pager. Test `is not none`, and never treat a real
+         0 (a rival with no public footprint) as missing. Matches report.html's guard. #}
+      <span class="score-pill">{% if c.get('opportunity_score') is not none %}{{ c.opportunity_score }}{% elif c.get('geo_sourced') %}nearby{% else %}&mdash;{% endif %}</span>
     </li>
     {% endfor %}
   </ul>

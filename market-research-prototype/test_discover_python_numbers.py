@@ -190,6 +190,51 @@ class TestTheScoreIsLabelledForWhatItMeasures(unittest.TestCase):
         self.assertNotIn('— score {o.get', src)
 
 
+class TestBlastRadiusOfAnAbsentScore(unittest.TestCase):
+    """Dropping an unbacked score introduces an explicit `opportunity_score: None`, which
+    two consumers could not previously receive. `dict.get(key, 0)` returns None when the
+    key EXISTS holding None, and Jinja's `default()` only fires on UNDEFINED — so the old
+    guards silently fail open. Measured: history's delta math raises TypeError, and the
+    one-pager renders the literal string "None" to a buyer.
+
+    A real 0.0 must stay a 0.0 through both — it is a legitimate score, not a missing one.
+    """
+
+    def test_history_does_not_crash_on_a_scoreless_competitor(self):
+        import history
+        cur = {"discover": {"synthesis": {"ranked_opportunities": [
+            {"brand": "Scoreless", "opportunity_score": None},
+            {"brand": "Real", "opportunity_score": 12.0}]}}}
+        prev = {"discover": {"synthesis": {"ranked_opportunities": [
+            {"brand": "Scoreless", "opportunity_score": 40},
+            {"brand": "Real", "opportunity_score": 30.0}]}}}
+        diff = history.compute_deltas(cur, prev)
+        moved = {c["brand"] for c in (diff.get("score_changes") or [])}
+        self.assertNotIn("Scoreless", moved, "a scoreless brand cannot have moved")
+        self.assertIn("Real", moved)
+
+    def test_history_still_reports_a_move_down_to_a_true_zero(self):
+        import history
+        cur = {"discover": {"synthesis": {"ranked_opportunities": [
+            {"brand": "MetOx", "opportunity_score": 0.0}]}}}
+        prev = {"discover": {"synthesis": {"ranked_opportunities": [
+            {"brand": "MetOx", "opportunity_score": 45}]}}}
+        (change,) = history.compute_deltas(cur, prev)["score_changes"]
+        self.assertEqual(change["brand"], "MetOx")
+        self.assertEqual(change["delta"], -45.0)
+
+    def test_the_one_pager_never_prints_the_word_none_as_a_score(self):
+        from jinja2 import Environment, FileSystemLoader
+        import api
+        env = Environment(loader=FileSystemLoader("templates"), autoescape=True,
+                          undefined=api.SafeUndefined)
+        src = env.loader.get_source(env, "onepager.html")[0]
+        start = src.index('<span class="score-pill">')
+        frag = env.from_string(src[start:src.index("</span>", start) + 7])
+        self.assertNotIn("None", frag.render(c={"opportunity_score": None}))
+        self.assertIn("0", frag.render(c={"opportunity_score": 0.0}))
+
+
 class TestGateD46(unittest.TestCase):
     """D46 is the deterministic regression guard: it reads both values out of a stored
     report and fails when the displayed score isn't Python's."""
