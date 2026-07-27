@@ -43,8 +43,12 @@ class TestScrapedArpuBasis(unittest.TestCase):
         with patch("skills.price_intel.scrape_market_price", return_value=skel), \
              patch("skills.sizing.bottom_up.grounded_bottom_up", side_effect=fake_gb), \
              patch.dict("os.environ", {"CASTOR_SCRAPE_PRICE": "1"}):
+            # biz_kind is now load-bearing: the modeled price carries the VENTURE's unit,
+            # so it may only be annualized for a genuinely monthly model. This test always
+            # meant a subscription CRM — it just never had to say so before.
             ground_sizing_bottom_up(_SIZING, "a CRM, no price", {"geography": "US"},
-                                    arpu_monthly_fallback=80.0)
+                                    arpu_monthly_fallback=80.0,
+                                    biz_kind="subscription")
         self.assertEqual(cap["annual_arpu"], 80.0 * 12)            # modeled fallback used
 
 

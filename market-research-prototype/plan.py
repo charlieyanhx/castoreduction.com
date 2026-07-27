@@ -690,7 +690,8 @@ def scrub_failed_psm_citations(four_ps: dict, pricing: dict | None) -> dict:
 
 
 def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
-                            arpu_monthly_fallback: float | None = None) -> dict:
+                            arpu_monthly_fallback: float | None = None,
+                            biz_kind: str | None = None) -> dict:
     """C2/F3 (audit remediation): replace the LLM's hallucinated bottom-up TAM method
     with a LIVE Census-grounded one (target-customer establishment count × ARPU).
 
@@ -721,6 +722,26 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
         except Exception as e:
             log.warning("[plan] price scrape failed (non-fatal): %s", e)
     if not arpu_monthly:
+        # The PSM optimal price carries the VENTURE's unit, not months. Annualizing a
+        # per-unit price (x12) fabricates a subscription that does not exist — and the
+        # result is then tagged data_origin="census", so a made-up figure inherits real
+        # provenance. Corpus shape 800c261b prices superconducting tape at $125,000 per
+        # UNIT; x12 would publish a $186M "Census-grounded" bottom-up TAM.
+        #
+        # The other two bases are monthly by construction: extract_stated_price reads $/mo,
+        # and scrape_market_price keeps only recurring $5-$5,000/month values. So the guard
+        # belongs here, on the modeled fallback alone. Unknown kind counts as per-unit —
+        # the safe reading of a modeled price is "unit unspecified".
+        from business_model import is_per_unit
+        if arpu_monthly_fallback and (not biz_kind or is_per_unit(biz_kind)):
+            out = dict(sizing)
+            out["notes"] = list(out.get("notes") or []) + [
+                f"Bottom-up TAM not Census-grounded: the only price available is the "
+                f"modeled optimal (${arpu_monthly_fallback:,.0f}), which for a "
+                f"{biz_kind or 'unclassified'} model is per-unit, not monthly — "
+                f"annualizing it would invent recurring revenue this venture does not "
+                f"have. Provide a monthly price to ground this method."]
+            return out
         arpu_monthly = arpu_monthly_fallback
         arpu_sourced = "modeled price (PSM optimal)"
         arpu_origin = "llm"
@@ -1046,23 +1067,53 @@ def _surface_late_geo_competitors(result: dict, geo_competitors: list, category:
     via a dict spread, but never touched competitor_density — so the report still
     cited the STALE pre-override density (a small LLM-guessed candidate count) against
     the 25-30 real geo competitors now on display. Caught live by D16 on the wave2.75
-    regen (5dbf3f54, 94008e7c, 955a4b3b, a618db1a, c48497fa, e8baf9dd). Mutates
-    result["discover"] in place when geo_competitors is non-empty and nothing existing
-    is already populated; no-op otherwise."""
-    existing = ((result.get("discover") or {}).get("ranked_opportunities")
-                or (result.get("discover") or {}).get("competitors") or [])
-    if not geo_competitors or existing:
+    regen (5dbf3f54, 94008e7c, 955a4b3b, a618db1a, c48497fa, e8baf9dd).
+
+    Audit high #7. Two key mistakes, both now fixed:
+
+    * it GUARDED on `discover.ranked_opportunities` / `discover.competitors`, keys nothing
+      in the pipeline writes, so it could not see a roster the discover step had already
+      produced — and would then override `competitor_density` (which IS read) against a
+      roster it had not written;
+    * it WROTE the roster to `discover.ranked_opportunities`, while every renderer reads
+      `discover.synthesis.ranked_opportunities`, so the names never displayed.
+
+    Inert in practice — measured across the 6 corpus reports where it fires, the names it
+    wrote were the same set and order as the ones `_promote_geo_competitors` had already put
+    at the rendered key — but the count-vs-roster divergence was one missing sibling write
+    away.
+
+    Names are surfaced ONLY when the category genuinely maps to an OSM amenity. The roster
+    handed to us rides `size_by_scale`'s coarse tag fallback, which resolves an unmapped
+    category to ("amenity", "restaurant") — deliberately, for a density estimate. Rendering
+    that would print nearby restaurants as a dog groomer's competitor set, and D34 would
+    pass them (bare {brand, name} entries carry no off_category or relevance to fail on).
+    So this follows the rule `geo_competitor_opps` already documents for itself: fail safe,
+    never fabricate a wrong-category set. When the category does not map, nothing changes —
+    not even the density, because a count taken from a wrong-category query is itself a
+    misleading number. Mutates result["discover"] in place; no-op otherwise."""
+    disc = result.get("discover") or {}
+    # Guard on the key that actually renders.
+    if not geo_competitors or (disc.get("synthesis") or {}).get("ranked_opportunities"):
         return
-    result["discover"] = {
-        **(result.get("discover") or {}),
-        "ranked_opportunities": geo_competitors,
-        "geo_sourced": True,
-        "category": category,
-        "competitor_density": len(geo_competitors),  # B1/D16: keep in sync
-    }
+    if not _resolve_osm_tag(category or ""):
+        log.info("[plan] geo-competitors NOT surfaced: category %r has no OSM mapping, so "
+                 "the nearby-venue roster would be the wrong category", category)
+        return
+    roster = [{**c, "rank": i + 1, "geo_sourced": True}
+              for i, c in enumerate(geo_competitors) if c.get("brand")]
+    if not roster:
+        return
+    # Mutate in place rather than rebinding: callers hold `disc` aliases (the 4Ps and
+    # viability prompts read density off one), and a dict spread left them on the old value.
+    disc.setdefault("synthesis", {})["ranked_opportunities"] = roster
+    disc["geo_sourced"] = True
+    disc["category"] = category
+    disc["competitor_density"] = len(roster)   # B1/D16/D33: one roster, one count
+    result["discover"] = disc
     if "discover" not in result["_steps_completed"]:
         _step_done(result, "discover")
-    log.info("[plan] geo-competitors surfaced: %d nearby venues", len(geo_competitors))
+    log.info("[plan] geo-competitors surfaced: %d nearby venues", len(roster))
 
 
 def build_provenance_summary(result: dict) -> dict | None:
@@ -1232,84 +1283,82 @@ def triangulate_sizing(sizing: dict) -> dict:
     The 3 TAM methods are tagged by data origin: a Census/BLS-grounded bottom-up is an
     independent origin ('census'); LLM-generated top-down/analog collapse to one 'llm'
     origin (they're correlated draws from one model — not independent). The headline
-    `mid` becomes the median ACROSS origins, with the triangulation object attached so
-    the report can show convergence/divergence honestly. cycle33 / TRIANGULATION.md.
+    `mid` becomes the median ACROSS origins, and the convergence view is attached so the
+    report can show convergence/divergence honestly. cycle33 / TRIANGULATION.md.
+
+    ONE ENGINE (audit high #9). This used to run two: report.forecast.triangulate produced
+    the headline (unit-aware, EXCLUDING minority-unit methods) while skills.triangulate
+    produced the `triangulation` object the report renders (unit-blind, INCLUDING them). The
+    convergence badge could therefore annotate a headline it did not equal. Latent on the
+    corpus only because every stored report has one unit and one origin, which makes the two
+    engines arithmetically identical. report.forecast now derives both, so `point == mid` by
+    construction.
     """
     tam = sizing.get("tam") or {}
-    try:
-        from skills.triangulate import triangulate, Estimate
-    except Exception:
-        return sizing
-    ests = []
     from skills.sizing.validate import safe_eval_formula
     out = dict(sizing)
     out_tam = dict(tam)
+    from report.forecast import Method as _FMethod, triangulate as _ftri
+    _methods = []
     for key, method in (("method_top_down", "top_down"),
                         ("method_bottom_up", "bottom_up"),
                         ("method_analog", "analog")):
         blk = dict(tam.get(key) or {})
         v = blk.get("value_usd")
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
-            # F5: do NOT silently rewrite a value to match its own formula. A gross
-            # value/formula mismatch is an arithmetic hallucination — FLAG it and let
-            # the validation gate block it (F1 then withholds the numbers), instead of
-            # laundering an incoherent figure into a publishable one.
-            computed = safe_eval_formula(str(blk.get("calculation") or ""))
-            if computed and computed > 0 and (computed / v > 10 or computed / v < 0.1):
-                blk["_formula_mismatch"] = {"stated": v, "computed": round(computed)}
-                out_tam[key] = blk          # record the flag; keep the stated value
-            src = str(blk.get("source") or "")
-            origin = str(blk.get("data_origin") or "llm")
-            ests.append(Estimate(float(v), src or "estimate_market_size", method, origin))
-    if not ests:
+        if not (isinstance(v, (int, float)) and not isinstance(v, bool)):
+            continue
+        # F5: do NOT silently rewrite a value to match its own formula. A gross
+        # value/formula mismatch is an arithmetic hallucination — FLAG it and let
+        # the validation gate block it (F1 then withholds the numbers), instead of
+        # laundering an incoherent figure into a publishable one.
+        computed = safe_eval_formula(str(blk.get("calculation") or ""))
+        if computed and computed > 0 and (computed / v > 10 or computed / v < 0.1):
+            blk["_formula_mismatch"] = {"stated": v, "computed": round(computed)}
+            out_tam[key] = blk          # record the flag; keep the stated value
+        _methods.append(_FMethod(
+            name=method, value_usd=float(v),
+            unit=(blk.get("unit") or "revenue").lower(),
+            origin=(blk.get("data_origin") or "llm").lower(),
+            formula=blk.get("calculation") or "", source=blk.get("source") or ""))
+    if not _methods:
         return sizing
 
-    tri = triangulate("TAM", ests)
-    if tri.get("point") is not None:
-        # W4-1: the FINAL owner of the headline — and the site that used to switch the
-        # derivation to a median while leaving market_sizing's "unweighted average"
-        # sentence lying, and derive low/high from cross[] (one entry PER ORIGIN, so
-        # all-llm collapsed the band to mid±15% under a caption claiming it spans the
-        # methods). Numbers and prose now regenerate together through the one model.
-        from report.forecast import Method as _FMethod, triangulate as _ftri
-        _methods = []
-        for k in ("method_top_down", "method_bottom_up", "method_analog"):
-            m = out_tam.get(k) or {}
-            v = m.get("value_usd")
-            try:
-                if v is not None:
-                    _methods.append(_FMethod(
-                        name=k.replace("method_", ""), value_usd=float(v),
-                        unit=(m.get("unit") or "revenue").lower(),
-                        origin=(m.get("data_origin") or "llm").lower(),
-                        formula=m.get("calculation") or "", source=m.get("source") or ""))
-            except (TypeError, ValueError):
-                continue
-        if _methods:
-            s = _ftri(_methods)
-            out_tam["mid"], out_tam["low"], out_tam["high"] = s.mid, s.low, s.high
-            out_tam["reconciliation"] = s.derivation
-            out_tam["range_basis"] = s.range_basis
-            out_tam["n_independent_origins"] = s.n_independent
-            for m in s.unit_conflict:
-                blk = out_tam.get(f"method_{m.name}")
-                if blk:
-                    blk["excluded_from_headline"] = True
-        else:  # no method blocks (pure-estimate path) — keep the origin-median point
-            out_tam["mid"] = tri["point"]
-    out_tam["triangulation"] = tri
+    # W4-1: the FINAL owner of the headline — and the site that used to switch the
+    # derivation to a median while leaving market_sizing's "unweighted average"
+    # sentence lying, and derive low/high from cross[] (one entry PER ORIGIN, so
+    # all-llm collapsed the band to mid±15% under a caption claiming it spans the
+    # methods). Numbers and prose now regenerate together through the one model.
+    s = _ftri(_methods)
+    out_tam["mid"], out_tam["low"], out_tam["high"] = s.mid, s.low, s.high
+    out_tam["reconciliation"] = s.derivation
+    out_tam["range_basis"] = s.range_basis
+    out_tam["n_independent_origins"] = s.n_independent
+    for m in s.unit_conflict:
+        blk = out_tam.get(f"method_{m.name}")
+        if blk:
+            blk["excluded_from_headline"] = True
+    # The convergence view the report renders, from the SAME engine that set `mid`.
+    out_tam["triangulation"] = {
+        "label": "TAM", "point": s.point, "spread": s.spread,
+        # D35: the spread across EVERY printed method, so a wide table can never be
+        # described only by the subset the headline was taken from.
+        "raw_spread": s.raw_spread,
+        "converged": s.converged, "confidence": s.confidence,
+        "cross_origin": [dict(c) for c in s.cross_origin],
+        "n_independent": s.n_independent, "flag": s.flag,
+    }
     out["tam"] = out_tam
     # Triangulation moved the headline TAM → re-derive any dependent figures from
     # the NEW mid so they stay consistent (else the gate's segmentation_sum check
     # correctly blocks every report). Segments rescale by share_pct, else proportionally.
-    out = _renormalize_segmentation(out, tri.get("point"))
+    out = _renormalize_segmentation(out, s.mid)
     # D15 / audit C1: SAM and its calc strings were anchored to the PRE-triangulation
     # TAM — the report then showed two different TAMs in one section (the R4 panel's
     # dominant CRITICAL cluster, 10/16). Re-derive SAM from the canonical TAM so the
     # serviceability fraction is preserved and every 'TAM $X' string cites the headline.
-    out = _resync_sam_after_triangulation(out, tam.get("mid"), tri.get("point"))
+    out = _resync_sam_after_triangulation(out, tam.get("mid"), s.mid)
     log.info("[plan] triangulated TAM: point=%s n_independent=%s confidence=%s",
-             tri.get("point"), tri.get("n_independent"), tri.get("confidence"))
+             s.point, s.n_independent, s.confidence)
     return out
 
 
@@ -1408,7 +1457,11 @@ def refine_pipeline_result(result: dict, description: str, geo: str, profile: di
         return result
 
     def _regen_sizing(rep: dict) -> dict:
-        ms = ground_sizing_bottom_up(rep.get("market_sizing") or {}, description, profile)
+        # biz_kind must travel here too: without it the modeled-price fallback is treated
+        # as unit-unknown and declines to ground, so a refine would silently lose the
+        # Census-grounded bottom-up that the first pass had.
+        ms = ground_sizing_bottom_up(rep.get("market_sizing") or {}, description, profile,
+                                     biz_kind=rep.get("business_model_kind"))
         ms = triangulate_sizing(ms)
         ms = gate_and_annotate_sizing(ms, rep.get("market_scale"))
         new = dict(rep); new["market_sizing"] = ms; return new
@@ -2160,8 +2213,11 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         # F3: ARPU basis = stated price, else the modeled PSM optimal price, so the
         # Census-grounded bottom-up fires for most digital ventures (not only typed $/mo).
         _psm_price = (psm_result or {}).get("optimal_price_point")
+        # biz_kind gates the modeled-price fallback: a per-unit price must not be
+        # annualized into recurring revenue (see ground_sizing_bottom_up).
         sizing = ground_sizing_bottom_up(sizing, description, profile,
-                                         arpu_monthly_fallback=_psm_price)
+                                         arpu_monthly_fallback=_psm_price,
+                                         biz_kind=biz_kind)
         # cycle33: real origin-independent triangulation (replaces naive averaging).
         sizing = triangulate_sizing(sizing)
         # cycle33: gate + annotate via the numbers-right engine (non-breaking).

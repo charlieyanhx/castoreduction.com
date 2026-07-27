@@ -83,6 +83,21 @@ class Sizing:
     unit_conflict: tuple[Method, ...]
     methods_used: tuple[Method, ...]
     headline_unit: str
+    # --- the convergence view (audit high #9) -------------------------------------
+    # This used to come from a SECOND engine (skills.triangulate) which was unit-blind and
+    # included the methods this one excludes — so the badge could certify a headline it did
+    # not equal. Derived here, from the same method set that produced `mid`, so `point ==
+    # mid` by construction.
+    point: Optional[float] = None
+    spread: Optional[float] = None      # across ORIGINS; None when nothing to span between
+    # Across EVERY method the report prints, including the ones excluded from the headline.
+    # D35 requires this: without it a wide table can only be described by a spread computed
+    # over the subset, which is how a divergence gets hidden behind one median.
+    raw_spread: Optional[float] = None
+    converged: bool = False
+    confidence: str = "single_source"
+    cross_origin: tuple[dict, ...] = ()
+    flag: str = ""
 
 
 def _money(v: float) -> str:
@@ -111,6 +126,56 @@ def _split_units(methods: list[Method]) -> tuple[list[Method], tuple[Method, ...
     return kept, conflict, headline_unit
 
 
+# Spread thresholds for the convergence verdict. Spread is (max-min)/mid across origins.
+_CONV_HIGH = 0.25      # origins within a quarter of the headline — genuinely converged
+_CONV_MED = 0.60       # beyond this the estimates are telling different stories
+
+
+def _convergence(kept, conflict, mid, origin_points, by_origin, n_independent):
+    """The convergence verdict for the headline this engine just derived.
+
+    Computed over the KEPT methods, because those are what `mid` is a median of — but with
+    one correction that matters: the report prints EVERY method, including the ones excluded
+    for unit conflict. Claiming convergence over the kept subset while a 13.5x outlier sits
+    in the same table is a divergence hidden behind one median, which is exactly what D35
+    exists to catch. So when an exclusion happened AND the full printed set still disagrees,
+    the verdict is downgraded and says so.
+    """
+    all_vals = [m.value_usd for m in list(kept) + list(conflict)]
+    raw_spread = None
+    if all_vals and mid:
+        raw_spread = (max(all_vals) - min(all_vals)) / abs(mid)
+
+    cross = tuple({"origin": o, "value": median(v)} for o, v in by_origin.items())
+
+    if n_independent < 2 or not mid:
+        # Spread ACROSS ORIGINS is undefined with one origin; 0.0 would read as perfect
+        # agreement between sources that do not exist.
+        only = ", ".join(by_origin) or "none"
+        extra = (f"; its {len(all_vals)} estimates diverge {raw_spread:.0%}"
+                 if raw_spread is not None and raw_spread > _CONV_MED else "")
+        return (mid, None, raw_spread, False, "single_source", cross,
+                f"only {n_independent} independent origin"
+                f"{'s' if n_independent != 1 else ''} ({only}) — not triangulated{extra}")
+
+    spread = (max(origin_points) - min(origin_points)) / abs(mid)
+    if spread <= _CONV_HIGH:
+        confidence, converged, flag = "high", True, ""
+    elif spread <= _CONV_MED:
+        confidence, converged, flag = "medium", True, ""
+    else:
+        confidence, converged, flag = "low", False, (
+            f"the {n_independent} independent origins disagree {spread:.0%}")
+
+    if conflict and raw_spread is not None and raw_spread > _CONV_MED:
+        confidence, converged = "low", False
+        flag = ((flag + "; ") if flag else "") + (
+            f"the {len(all_vals)} printed methods still diverge {raw_spread:.0%} — "
+            f"the headline is a median of the {len(kept)} unit-consistent ones, not a "
+            f"converged triangulation")
+    return (mid, spread, raw_spread, converged, confidence, cross, flag)
+
+
 def triangulate(methods: Iterable[Method], *, rule: str = MEDIAN_ACROSS_ORIGINS) -> Sizing:
     """Derive the headline and band ONCE, and say honestly how it was done."""
     methods = list(methods or [])
@@ -119,7 +184,9 @@ def triangulate(methods: Iterable[Method], *, rule: str = MEDIAN_ACROSS_ORIGINS)
                       derivation="No method produced a value — nothing to triangulate.",
                       range_basis="No range: no method produced a value.",
                       n_independent=0, unit_conflict=(), methods_used=(),
-                      headline_unit="revenue")
+                      headline_unit="revenue", point=None, spread=None, raw_spread=None,
+                      converged=False, confidence="single_source", cross_origin=(),
+                      flag="no method produced a value")
 
     kept, conflict, headline_unit = _split_units(methods)
 
@@ -170,7 +237,12 @@ def triangulate(methods: Iterable[Method], *, rule: str = MEDIAN_ACROSS_ORIGINS)
         parts.append("Only 1 independent origin — this is a single-source estimate, "
                      "not a triangulation.")
 
-    return Sizing(mid=round(mid), low=round(low), high=round(high), rule=rule,
+    _mid_r = round(mid)
+    point, spread, raw_spread, converged, confidence, cross, flag = _convergence(
+        kept, conflict, _mid_r, origin_points, by_origin, n_independent)
+    return Sizing(mid=_mid_r, low=round(low), high=round(high), rule=rule,
                   derivation=" ".join(parts), range_basis=range_basis,
                   n_independent=n_independent, unit_conflict=conflict,
-                  methods_used=tuple(kept), headline_unit=headline_unit)
+                  methods_used=tuple(kept), headline_unit=headline_unit,
+                  point=point, spread=spread, raw_spread=raw_spread, converged=converged,
+                  confidence=confidence, cross_origin=cross, flag=flag)
