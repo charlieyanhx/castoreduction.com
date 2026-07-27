@@ -48,14 +48,13 @@ def _normalize(result: dict) -> dict:
                 "value_usd": float(val), "label": f"TAM_{key}",
                 "source": f"estimate_market_size: {label}",
                 # The engine emits `calculation` — that is the arithmetic C7 reconciles.
-                # `rationale` is a real key elsewhere (agent selection, scale
-                # classification) but no writer ever put it on a sizing method block, so
-                # reading it first always fell through to `source` prose ("Gartner Market
-                # Guide for…"), which safe_eval_formula cannot parse — turning the
-                # formula check into a silent pass. Kept in the chain below `calculation`
-                # so a caller that does supply it still works. (audit high #5)
-                "formula": (block.get("calculation") or block.get("rationale")
-                            or block.get("source") or label),
+                # NO prose fallback: `source`/`label` in the formula slot IS the original
+                # defect. A citation ("Gartner Market Guide for…") is not arithmetic, and
+                # feeding it to safe_eval_formula is what turned the reconciliation check
+                # into a silent pass. "" makes safe_eval_formula return None, so C7 no-ops
+                # HONESTLY instead of appearing to reconcile a citation. Same shape as
+                # plan.py's adapter. (audit high #5)
+                "formula": block.get("calculation") or "",
                 # Parity with plan.py's adapter: origin travels WITH the figure, or
                 # validate's external cross-check can never see it.
                 "origin": block.get("data_origin") or "llm",
@@ -67,8 +66,13 @@ def _normalize(result: dict) -> dict:
             figures.append({
                 "value_usd": float(mid), "label": f"{name}_mid",
                 "source": "estimate_market_size 3-method triangulation",
-                "formula": (block.get("calculation") or block.get("rationale")
-                            or f"{name} midpoint of method range"),
+                # Deliberately NOT `calculation` here. The mid figures carry no
+                # independent arithmetic: TAM.calculation is absent on every digital
+                # report, SOM's parses ~1 in 16, and SAM's is REWRITTEN from tam.mid and
+                # sam.mid by _sync_sam_narrative — so reconciling it would check the
+                # model against itself and always agree. The per-method figures above
+                # are the ones that carry checkable arithmetic.
+                "formula": f"{name} midpoint of method range",
             })
 
     # Method triangulation spread (warn signal carried in payload).

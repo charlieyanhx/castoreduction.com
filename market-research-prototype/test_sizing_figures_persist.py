@@ -143,19 +143,32 @@ class TestNormalizeReadsTheRealKey(unittest.TestCase):
         fig = next(f for f in payload["figures"] if f["label"] == "TAM_method_top_down")
         self.assertEqual(fig["formula"], "$10B * 10%")
 
-    def test_normalize_uses_calculation_for_the_tam_sam_som_mids(self):
+    def test_the_mid_figures_do_not_borrow_the_sam_calculation(self):
+        """SAM's `calculation` is REWRITTEN from tam.mid and sam.mid by
+        _sync_sam_narrative, so reconciling it against sam.mid checks the model against
+        itself and can only ever agree — a check that cannot fail is worse than no check,
+        because it reads as coverage. The per-method figures carry the real arithmetic."""
         from skills.sizing.national_digital import _normalize
         sizing = _tam()
-        sizing["sam"]["calculation"] = "TAM * 30% serviceable"
+        sizing["sam"]["calculation"] = "TAM $1,000,000,000 mid × 30.0% = $300,000,000 SAM"
         payload = _normalize(sizing)
         fig = next(f for f in payload["figures"] if f["label"] == "SAM_mid")
-        self.assertEqual(fig["formula"], "TAM * 30% serviceable")
+        self.assertEqual(fig["formula"], "SAM midpoint of method range")
 
-    def test_normalize_still_falls_back_when_there_is_no_calculation(self):
+    def test_prose_never_lands_in_the_formula_slot(self):
+        """A citation is not arithmetic. Falling back to `source`/`label` is what made the
+        reconciliation a silent pass: safe_eval_formula was handed "Gartner Market Guide"
+        and returned None, which the gate treats as "nothing to check" — indistinguishable
+        from a healthy skip. An empty formula reaches that same no-op honestly."""
         from skills.sizing.national_digital import _normalize
-        payload = _normalize(_tam(method_analog={"value_usd": 5e8, "source": "Comparable"}))
+        from skills.sizing.validate import safe_eval_formula
+        payload = _normalize(_tam(method_analog={
+            "value_usd": 5e8, "source": "Gartner Market Guide for Human Resources Tech"}))
         fig = next(f for f in payload["figures"] if f["label"] == "TAM_method_analog")
-        self.assertTrue(fig["formula"])
+        self.assertEqual(fig["formula"], "")
+        self.assertNotIn("Gartner", fig["formula"])
+        self.assertIsNone(safe_eval_formula(fig["formula"]))
+        self.assertTrue(fig["source"], "the citation still belongs in `source`")
 
     def test_normalize_carries_origin_so_the_external_check_can_see_it(self):
         """Parity with plan.py's adapter, which travels origin WITH the figure."""
