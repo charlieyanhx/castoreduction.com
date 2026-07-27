@@ -551,6 +551,24 @@ def _restore_computed_numbers(ranked_ops: list, enriched: list) -> int:
                          if v is not None or k in (op.get("signals") or {})}
         if was != now:
             corrected += 1
+    # REORDER, because the values just changed underneath the order.
+    #
+    # The list arrived sorted by the model using its OWN inflated scores; restoring Python's
+    # composite leaves true values in a stale order. Measured on the corpus: 10/10 reports
+    # then print a score column that is not descending — worst case [0.0, 10.0, 26.0, 0.0],
+    # a top-ranked competitor scoring zero above one scoring 26. A regression introduced by
+    # the restore itself, so it is fixed here rather than left for a renderer to paper over.
+    #
+    # Scoreless records (geo-sourced neighbours) sort LAST and keep their relative order —
+    # they are not competitors that scored badly, they are competitors nobody scored. The
+    # sort is stable, so `_apply_relevance_to_ranking`'s on-category-first pass still holds
+    # afterwards, and whole records move so prose travels with its own numbers.
+    if ranked_ops:
+        ranked_ops.sort(key=lambda o: (o.get("opportunity_score") is None,
+                                       -(o.get("opportunity_score") or 0.0)))
+        for i, op in enumerate(ranked_ops, 1):
+            if "rank" in op:          # persisted, and read by render_md and the one-pager
+                op["rank"] = i
     if corrected:
         log.info("[discover] restored Python-computed numbers on %d ranked record(s)",
                  corrected)

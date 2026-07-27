@@ -763,7 +763,15 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
         "value_usd": gb.payload["tam_usd"],
         "calculation": fig0.get("formula", ""),
         "source": fig0.get("source", "US Census CBP"),
-        "data_origin": "census",   # REAL provenance — a fetched count actually fired
+        # The COUNT is fetched; the ARPU multiplying it may not be. A Census count times a
+        # modelled price is not a fetched figure, and `data_origin` is what triangulation
+        # reads to decide which estimates are INDEPENDENT — stamping 'census' on an
+        # LLM-priced product manufactures a second origin out of the same model draw the
+        # other methods came from. `arpu_origin` was already computed here and read by
+        # nothing at all.
+        "data_origin": "census" if arpu_origin in ("stated", "scrape") else "llm",
+        "count_origin": "census",   # the establishment count really was fetched
+        "arpu_origin": arpu_origin,
     }
     vals = [tam[k]["value_usd"] for k in
             ("method_top_down", "method_bottom_up", "method_analog")
@@ -776,7 +784,10 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
     out["notes"] = list(out.get("notes") or []) + [
         f"Bottom-up grounded in live Census count "
         f"({gb.payload['establishments']:,} establishments × "
-        f"${arpu_monthly * 12:,.0f}/yr from {arpu_sourced})."]
+        f"${arpu_monthly * 12:,.0f}/yr from {arpu_sourced})."
+        + ("" if arpu_origin in ("stated", "scrape") else
+           " The establishment count is a live Census figure but the price is modeled, so "
+           "this method is not independent of the LLM estimates.")]
     log.info("[plan] C2: grounded bottom-up TAM = %s (%s establishments)",
              gb.payload["tam_usd"], gb.payload["establishments"])
     return out
