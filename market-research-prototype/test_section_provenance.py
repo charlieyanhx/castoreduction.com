@@ -131,3 +131,33 @@ class TestOnTheRealCorpus(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestModuleEntriesResolve(unittest.TestCase):
+    """The gap that let this table drift: skill-kind entries were checked against
+    SKILL_REGISTRY, module-kind entries were checked against nothing. Three of them named
+    functions that existed nowhere in the repo, and one named the wrong module — a table
+    that looks authoritative while sending a debugger to a file that will not contain what
+    it promised is worse than no table."""
+
+    def test_every_module_entry_names_a_function_that_exists(self):
+        import importlib
+        broken = []
+        for src in SECTION_SOURCES:
+            if src.kind != "module":
+                continue
+            try:
+                mod = importlib.import_module(src.module)
+            except Exception as e:
+                broken.append(f"{src.result_key}: cannot import {src.module} ({e})")
+                continue
+            if not hasattr(mod, src.produced_by):
+                broken.append(f"{src.result_key}: {src.module} has no {src.produced_by}")
+        self.assertEqual(broken, [], "section table points at code that is not there")
+
+    def test_every_skill_entry_still_names_a_registered_skill(self):
+        import skills.discovery, skills.perspective, skills.pipeline_steps  # noqa: F401
+        from skills.registry import SKILL_REGISTRY
+        broken = [f"{s.result_key}: {s.produced_by}" for s in SECTION_SOURCES
+                  if s.kind == "skill" and s.produced_by not in SKILL_REGISTRY]
+        self.assertEqual(broken, [])

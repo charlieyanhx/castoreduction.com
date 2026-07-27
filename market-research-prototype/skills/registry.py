@@ -209,3 +209,36 @@ def describe_skill(name: str) -> dict:
 
 def describe_all_skills() -> dict:
     return {name: describe_skill(name) for name in sorted(SKILL_REGISTRY)}
+
+
+def records_production(result_key: str):
+    """Record that a plain function produced a report result key, with its file and line.
+
+    Nine report sections are produced by ordinary functions rather than registered skills
+    — rank_segments, cluster_competitors, retail_unit_economics, project_three_year,
+    build_integrity_summary and friends. They are not skills (no Evidence envelope, no
+    consumes contract) and forcing them to be would misrepresent what they are. But a
+    debugger asking "which script wrote this sentence?" deserves the same answer for them,
+    so this records the identical event the @skill wrapper does, and nothing else.
+
+    Deliberately does NOT wrap, time, or catch: this decorator only observes. A function
+    that raises must raise exactly as before.
+    """
+    def decorator(fn: Callable) -> Callable:
+        loc = _where(fn)
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            out = fn(*args, **kwargs)
+            try:
+                import provenance as _trace
+                _trace.append({"layer": "skill", "name": fn.__name__,
+                               "produces": result_key, "consumes": [],
+                               "module": loc["module"], "qualname": loc["qualname"],
+                               "file": loc["file"], "line": loc["line"], "ok": True,
+                               "duration_s": 0.0, "error": "", "kind": "function"})
+            except Exception:
+                pass
+            return out
+        return wrapper
+    return decorator
