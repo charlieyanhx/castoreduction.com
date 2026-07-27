@@ -245,7 +245,14 @@ class TestGroundingBroadened(unittest.TestCase):
                 # may be annualized. Stated explicitly now that the guard reads it.
                 biz_kind="subscription")
         bu = out["tam"]["method_bottom_up"]
-        self.assertEqual(bu["data_origin"], "census")
+        # The grounding still fires — only the LABEL changed. A real Census count times a
+        # MODELLED price is not a fetched figure, and data_origin is what triangulation
+        # reads to decide which estimates are independent, so an LLM-priced product must
+        # not claim 'census' and manufacture a second origin from the same model draw.
+        # count_origin still credits the real establishment count.
+        self.assertEqual(bu["data_origin"], "llm")
+        self.assertEqual(bu["count_origin"], "census")
+        self.assertEqual(bu["arpu_origin"], "llm")
         self.assertEqual(bu["value_usd"], 500_000_000)
 
     def test_no_price_and_no_fallback_leaves_unchanged(self):

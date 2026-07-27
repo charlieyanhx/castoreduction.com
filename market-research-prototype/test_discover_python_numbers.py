@@ -101,7 +101,11 @@ class TestProseIsTheModels(unittest.TestCase):
         self.assertEqual(ops[0]["thesis"], "Fast-casual Greek with strong repeat behaviour.")
         self.assertEqual(ops[0]["description"], "SF mini-chain.")
         self.assertEqual(ops[0]["suggested_next_step"], "Visit a store.")
-        self.assertEqual(ops[0]["rank"], 3)
+        # `rank` is NOT prose — it is an ordering, and the roster is now re-sorted to the
+        # restored scores, so rank renumbers to match. Preserving the model's rank was the
+        # bug: it left a true score column in a stale order (10/10 corpus reports).
+        # test_llm_vs_script_boundary owns the renumbering contract.
+        self.assertEqual(ops[0]["rank"], 1)
 
 
 class TestUnbackedRecords(unittest.TestCase):

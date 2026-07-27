@@ -120,7 +120,14 @@ class TestTheGroundingRefusesANonMonthlyBasis(unittest.TestCase):
                 "team analytics saas", {}, arpu_monthly_fallback=99.0,
                 biz_kind="subscription")
         self.assertEqual(called["annual_arpu"], 99.0 * 12)
-        self.assertEqual((out["tam"]["method_bottom_up"] or {})["data_origin"], "census")
+        # The grounding still fires — only the LABEL changed. A real Census count times a
+        # MODELLED price is not a fetched figure, and data_origin is what triangulation
+        # reads to decide which estimates are independent, so an LLM-priced product must
+        # not claim 'census' and manufacture a second origin from the same model draw.
+        # count_origin still credits the real establishment count.
+        _bu = out["tam"]["method_bottom_up"] or {}
+        self.assertEqual(_bu["data_origin"], "llm")
+        self.assertEqual(_bu["count_origin"], "census")
 
     def test_an_unknown_business_model_is_not_assumed_monthly(self):
         """Absent a kind, the safe reading of a modeled price is 'unit unknown'."""
