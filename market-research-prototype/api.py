@@ -696,7 +696,30 @@ def get_job_trace(job_id: str):
         f"&middot; {len(rows) - n_result} written in the template. "
         "A block's row names the field, the module, and what that step actually ran.</div>")
 
-    body = ["<h2>Per-step activity on this run</h2><table><tr><th>step</th><th>llm calls</th>"
+    from report.trace import by_script
+    body = ["<h2>What each script produced</h2>"
+            "<div class=sub>One row per script, most of the report first. This is the same "
+            "data as the block table below, grouped the other way &mdash; use it when the "
+            "question is about a script rather than about one sentence.</div>"
+            "<table><tr><th>script</th><th>blocks</th><th>how</th><th>generated with</th>"
+            "<th>tools it used</th><th>sections it owns</th><th>steps</th></tr>"]
+    for g in by_script(page, r):
+        failed = ("<br><span class=inf>tool failures: "
+                  + esc("; ".join(g["tools_failed"][:3])) + "</span>"
+                  if g["tools_failed"] else "")
+        origins = " ".join(f"<span class='o o-{esc(o)}'>{esc(o)}</span>" for o in g["origins"])
+        gen = (esc(", ".join(g["models"])) + (f" &middot; {g['tokens']:,} tok"
+                                              if g["tokens"] else "")
+               if g["models"] else "&mdash;")
+        body.append(
+            f"<tr><td class=p>{esc(g['module'])}</td><td>{g['blocks']}</td>"
+            f"<td>{origins}</td><td class=t>{gen}</td>"
+            f"<td class=t>{esc(', '.join(g['tools'])) if g['tools'] else '&mdash;'}{failed}</td>"
+            f"<td class=t>{esc(', '.join(g['sections'])) if g['sections'] else '&mdash;'}</td>"
+            f"<td class=t>{esc(', '.join(g['steps'])) if g['steps'] else '&mdash;'}</td></tr>")
+    body.append("</table>")
+
+    body += ["<h2>Per-step activity on this run</h2><table><tr><th>step</th><th>llm calls</th>"
             "<th>models</th><th>tokens</th><th>tools</th><th>attribution</th></tr>"]
     for step, a in acts.items():
         attribution = (f"{a['labelled']} recorded"
