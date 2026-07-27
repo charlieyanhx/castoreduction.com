@@ -86,14 +86,29 @@ def recorded_producers(result: dict) -> dict[str, dict]:
     SECTION_SOURCES remains the fallback for reports produced before this recording
     existed, and for content that no registered skill owns (plan.py's own helpers).
     """
+    # Join on the FUNCTION NAME, not on `produces`. The two vocabularies have drifted: the
+    # report renders `profile` while profile_skill produces `company_profile`, `discover` vs
+    # `competitor_landscape`, `pricing` vs `psm_pricing`, `max_diff` vs `feature_ranking`,
+    # `audiences` vs `audience_taste`. Keying on `produces` would silently hit only 6 of 22
+    # report keys. SECTION_SOURCES already records each section's producing FUNCTION, and
+    # test_section_provenance asserts every skill-kind entry names a registered skill — so
+    # the name join is exact and already drift-guarded, where an alias table would rot.
+    from report.section_provenance import SECTION_SOURCES
+    key_for_fn = {src.produced_by: src.result_key for src in SECTION_SOURCES}
+
     out: dict[str, dict] = {}
     for e in _run_events(result):
-        if e.get("layer") != "skill" or not e.get("produces"):
+        if e.get("layer") != "skill":
+            continue
+        # The report key this call fed, else the skill's own output category.
+        result_key = key_for_fn.get(e.get("name")) or e.get("produces")
+        if not result_key:
             continue
         # Last writer wins: a key re-derived later in the run (triangulation, refine) is
         # owned by whichever call produced the value that survived into the report.
-        out[e["produces"]] = {
-            "produced_by": e.get("name"), "module": e.get("module") or "",
+        out[result_key] = {
+            "produced_by": e.get("name"), "produces": e.get("produces"),
+            "module": e.get("module") or "",
             "qualname": e.get("qualname") or "", "file": e.get("file") or "",
             "line": e.get("line") or 0, "ok": e.get("ok"),
             "duration_s": e.get("duration_s"), "recorded": True,

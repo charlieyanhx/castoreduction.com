@@ -35,6 +35,15 @@ class SectionSource:
 
 
 # The authoritative section → producer table. Ordered roughly as the report reads.
+#
+# DRIFT IS THE FAILURE MODE HERE. Three entries in this table named functions that did not
+# exist anywhere in the repo (`reddit_customer_voice`, `run_verifier`, `research_crew`) and
+# one named the wrong module (`rank_segments` lives in segment_scoring.py, not plan.py) —
+# the table LOOKED authoritative while pointing a debugger at files that would not contain
+# what it promised. The skill-kind entries were guarded by a test against SKILL_REGISTRY;
+# the module-kind ones were not, so nothing caught it. They are now: see
+# test_section_provenance's module-resolution test. Prefer the RUN's own record
+# (report/trace.recorded_producers) over this table wherever one exists.
 SECTION_SOURCES: tuple[SectionSource, ...] = (
     SectionSource("Company profile", "profile", "profile_skill", "profile", "skill", LLM),
     SectionSource("Differentiators", "differentiators", "differentiators_skill",
@@ -42,7 +51,7 @@ SECTION_SOURCES: tuple[SectionSource, ...] = (
     SectionSource("Customer universe", "customer_universe", "customer_universe_skill",
                   "skills.pipeline_steps", "skill", FETCHED),
     SectionSource("Segment prioritization", "segment_ranking", "rank_segments",
-                  "plan", "module", COMPUTED, ("customer_universe",)),
+                  "segment_scoring", "module", COMPUTED, ("customer_universe",)),
     SectionSource("Competitive landscape", "discover", "discover_competitors_skill",
                   "discover", "skill", FETCHED),
     SectionSource("Competitor map", "clustering", "cluster_competitors",
@@ -69,11 +78,11 @@ SECTION_SOURCES: tuple[SectionSource, ...] = (
                   ("four_ps", "differentiators", "market_sizing")),
     SectionSource("Personas", "personas", "personas_skill", "skills.pipeline_steps",
                   "skill", SIMULATED, ("audiences",)),
-    SectionSource("Customer voice (Reddit)", "reddit_signal", "reddit_customer_voice",
-                  "tools.scrape", "module", FETCHED),
-    SectionSource("Verification", "verification", "run_verifier",
+    SectionSource("Customer voice (Reddit)", "reddit_signal", "fetch_signal",
+                  "reddit_signal", "module", FETCHED),
+    SectionSource("Verification", "verification", "verify_report",
                   "report.verifier", "module", LLM),
-    SectionSource("Research brief", "research_brief", "research_crew",
+    SectionSource("Research brief", "research_brief", "run_crew_step",
                   "orchestrator.steps.crew", "module", LLM),
     SectionSource("Integrity summary", "integrity", "build_integrity_summary",
                   "plan", "module", COMPUTED),

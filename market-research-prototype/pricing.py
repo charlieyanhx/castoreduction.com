@@ -215,6 +215,14 @@ def simulate_van_westendorp(
     return result
 
 
+try:  # provenance: record that this function produced a report key
+    from skills.registry import records_production as _records_production
+except Exception:  # pragma: no cover — never let provenance break an import
+    def _records_production(_k):
+        return lambda f: f
+
+
+@_records_production("pricing_benchmark")
 def build_benchmark_table(
     our_tiers: list[dict],
     competitor_pricing: dict | None,
