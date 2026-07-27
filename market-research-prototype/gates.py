@@ -1137,6 +1137,33 @@ def d49_trade_area_matches_its_radius(r: dict, html: Optional[str]) -> Finding:
                          f"= {density:,.0f} households/km², a plausible catchment")
 
 
+def d50_no_publishable_sizing_without_numbers(r: dict, html: Optional[str]) -> Finding:
+    """A sizing with no numbers must never claim to be publishable.
+
+    Measured on a live run: size_hyperlocal returned tam/sam/som all empty, with its own
+    note "households or spend unavailable — TAM not computed", and the gate reported
+    passed=true / publishable=True. Every check in validate._check is guarded on the value
+    being numeric, so absent numbers satisfy all of them vacuously — "nothing to check" was
+    indistinguishable from "checked and fine". The report's unpublishable banner and every
+    downstream refusal are keyed on that verdict, so none of them fired.
+
+    Producing no numbers is ALLOWED — a run can legitimately fail to size a market. Saying
+    those absent numbers are publishable is not. N/A when there is no sizing at all."""
+    ms = r.get("market_sizing") or {}
+    if not ms:
+        return Finding(None, "no market_sizing on this report")
+    mids = [(ms.get(k) or {}).get("mid") for k in ("tam", "sam", "som")]
+    has_number = any(isinstance(v, (int, float)) and not isinstance(v, bool) for v in mids)
+    if has_number:
+        return Finding(True, "sizing produced at least one figure")
+    if ms.get("publishable"):
+        return Finding(False, "sizing produced no TAM/SAM/SOM value yet is marked "
+                              "publishable — an empty sizing passed the gate vacuously, so "
+                              "the report ships with no market size and no warning")
+    return Finding(True, "sizing produced no figures and honestly says so "
+                         "(publishable=False)")
+
+
 def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> Finding:
     """B2 + C3: a venture whose business model is NOT a true subscription
     (transactional/ecommerce/services/hybrid, OR marketplace) must NOT have
@@ -1443,6 +1470,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D47", "trace belongs to one run", "audit criticals #2/#3: no duplicate/foreign step events, one run_id", "fail", d47_trace_belongs_to_one_run),
     Invariant("D48", "shipped report attributes its sections", "provenance a buyer cannot see is not provenance", "fail", d48_shipped_report_attributes_its_sections),
     Invariant("D49", "trade area matches its radius", "audit high #4: no county-scale household count as a trade area", "fail", d49_trade_area_matches_its_radius),
+    Invariant("D50", "no publishable sizing without numbers", "an empty sizing passed the gate vacuously and shipped", "fail", d50_no_publishable_sizing_without_numbers),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

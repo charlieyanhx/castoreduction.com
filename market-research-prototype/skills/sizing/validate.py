@@ -116,6 +116,37 @@ def _check(sizing: dict, max_share: float) -> tuple[list[dict], list[dict]]:
     def _num(x):
         return isinstance(x, (int, float)) and not isinstance(x, bool)
 
+    # NOTHING TO CHECK IS NOT A PASS.
+    #
+    # Every check below is guarded by `_num(...)` — deliberately, so a partial sizing is
+    # judged on what it actually produced. But that makes an EMPTY sizing satisfy all of
+    # them vacuously: measured on a live run, `tam: {}, sam: {}, som: {}` came back
+    # `passed: true, blocks: [], warns: []` and therefore `publishable: True`, so a report
+    # shipped with no market size and no signal that anything had gone wrong. The loud
+    # unpublishable banner and every downstream refusal are keyed on this verdict, and none
+    # of them fire when emptiness reads as health.
+    #
+    # A sizing that produced NO NUMBER AT ALL has not been validated, it has been SKIPPED.
+    #
+    # "Any number" means any numeric *_usd value on the sizing (som_demand_usd and
+    # som_supply_usd count — they drive the triangulation warn) OR any figure carrying a
+    # value_usd. A payload of figures with no headline mids has very much produced numbers,
+    # and the provenance / formula-reconciliation / external-grounding checks all run on
+    # exactly that shape. Scoping this to tam/sam/som alone broke five of them.
+    #
+    # And it appends rather than returning early: suppressing the remaining checks would
+    # replace one silent pass with a narrower one.
+    #
+    # 0.0 is a number — a market genuinely sized at zero is a finding, not an absence — so
+    # the test is `_num`, not truthiness.
+    _values = [v for k, v in sizing.items() if k.endswith("_usd")]
+    _values += [f.get("value_usd") for f in (sizing.get("figures") or [])
+                if isinstance(f, dict)]
+    if not any(_num(v) for v in _values):
+        blocks.append({"check": "no_numbers",
+                       "msg": "sizing produced no numeric figure at all — nothing was "
+                              "validated, so this cannot be published as validated"})
+
     # Ordering: SOM ≤ SAM ≤ TAM (only compare the pairs we actually have).
     if _num(sam) and _num(tam) and sam > tam:
         blocks.append({"check": "ordering", "msg": f"SAM {sam:,.0f} > TAM {tam:,.0f}"})
