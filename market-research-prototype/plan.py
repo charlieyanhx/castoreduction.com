@@ -220,6 +220,22 @@ def gate_and_annotate_sizing(sizing: dict, scale_decision: dict | None) -> dict:
         }
         v = validate_numbers(adapted)
         out["validation"] = v.payload
+        # Persist the figures we just validated (audit high #5). They used to live and die
+        # inside `adapted`, so `market_sizing.figures` never existed on a digital or
+        # regional report — and report/verifier.py's layer-2 formula check reads exactly
+        # that key, so it silently found nothing to check on 10 of 16 corpus reports: every
+        # size_national_digital and size_regional one, i.e. precisely the reports whose
+        # arithmetic an LLM wrote rather than Python computed. C7 inside validate_numbers
+        # did run on them (30/30 method figures, catching both real contradictions in the
+        # corpus); this makes the same figures re-checkable by the second, independent
+        # checker instead of leaving it blind.
+        #
+        # Never CLOBBER: this gate runs on every sizing, and a hyperlocal one has no
+        # `method_*` blocks, so `figures` comes back empty for it — while size_hyperlocal
+        # has already published its own three (TAM_local/SAM_local/SOM_obtainable). An
+        # unconditional assignment would delete exactly the figures the verifier can
+        # currently read.
+        out["figures"] = figures or out.get("figures") or []
         # C3 (audit remediation): a failed gate makes the sizing UNPUBLISHABLE.
         # The renderer hard-banners this and downstream consumers can refuse it —
         # "validate loud" now actually blocks instead of silently annotating.

@@ -216,7 +216,11 @@ def _detach_transcript(handle) -> None:
 # per-run ledger threaded through the ~8 ThreadPoolExecutor fan-outs (ContextVars do not
 # cross into worker threads), and a half-done version would lose events rather than mix
 # them — strictly worse than queueing.
-_RUN_GATE = threading.Semaphore(1)
+# BOUNDED, deliberately: a plain Semaphore silently raises its own ceiling if some path
+# ever releases more than it acquired, which would let two generations run against one
+# shared ledger again — the exact bug this gate exists to prevent, reintroduced invisibly.
+# BoundedSemaphore raises ValueError on the imbalance instead.
+_RUN_GATE = threading.BoundedSemaphore(1)
 
 
 def run_async(job_id: str, fn: Callable[[], dict], progress_fn: Callable | None = None) -> None:
@@ -237,21 +241,42 @@ def run_async(job_id: str, fn: Callable[[], dict], progress_fn: Callable | None 
         update(job_id, result=partial_result)
 
     def worker():
-        with _RUN_GATE:
-            _run_one(job_id, fn, progress_callback)
+        # The terminal state is published only after the slot is released, so a caller that
+        # sees `complete`/`error` knows the next job can start immediately. _run_one catches
+        # everything and returns an outcome, so no path can leave the job stuck `running`.
+        _RUN_GATE.acquire()
+        try:
+            outcome = _run_one(job_id, fn, progress_callback)
+        finally:
+            _RUN_GATE.release()
+        update(job_id, **outcome)
+        if outcome.get("state") == "complete":
+            log.info("job %s complete", job_id)
 
     t = threading.Thread(target=worker, daemon=True, name=f"job-{job_id[:8]}")
     t.start()
 
 
-def _run_one(job_id: str, fn: Callable[[], dict], progress_callback: Callable) -> None:
-    """Run one job to completion with the generation slot held."""
+def _run_one(job_id: str, fn: Callable[[], dict],
+             progress_callback: Callable) -> dict:
+    """Run one job with the generation slot held, and RETURN its outcome for the caller to
+    publish once the slot is free.
+
+    Returning rather than publishing is what makes the terminal state meaningful: `complete`
+    and `error` come to mean "this job has let go of every shared resource" — the BUS
+    subscription, the ledger sink, and the generation slot — rather than merely "fn()
+    returned". Anything waiting on the state (the UI, benchmarks, a caller queueing the next
+    job) could otherwise proceed while this thread was still finishing up and still holding
+    the slot: a small, load-dependent window that showed up as cross-test flakiness at
+    roughly 1 run in 3.
+    """
     update(job_id, state="running")
     # Wave 3 item 2: stream this run's ledger events to a durable per-run JSONL
     # transcript keyed by job id. Attached BEFORE fn() so it captures everything —
     # run_plan's provenance.reset() clears events but keeps the sink. Best-effort:
     # a transcript problem must never stop the job from running.
     writer = _attach_transcript(job_id)
+    outcome: dict = {}
     try:
         # If fn accepts a `progress` kwarg, pass it — otherwise call plain
         import inspect
@@ -260,10 +285,12 @@ def _run_one(job_id: str, fn: Callable[[], dict], progress_callback: Callable) -
             result = fn(progress=progress_callback)
         else:
             result = fn()
-        update(job_id, state="complete", result=result)
-        log.info("job %s complete", job_id)
+        outcome = {"state": "complete", "result": result}
     except Exception as e:
         log.exception("job %s failed", job_id)
-        update(job_id, state="error", error=f"{type(e).__name__}: {e}")
+        outcome = {"state": "error", "error": f"{type(e).__name__}: {e}"}
     finally:
+        # Release this run's hold on the shared ledger/bus before returning, so the caller
+        # can release the slot and publish the terminal state with nothing outstanding.
         _detach_transcript(writer)
+    return outcome
