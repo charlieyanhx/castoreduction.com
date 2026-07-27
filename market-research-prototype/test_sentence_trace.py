@@ -305,3 +305,86 @@ class TestByScriptOnARealReport(unittest.TestCase):
         grouped = sum(g["blocks"] for g in by_script(page, result))
         self.assertEqual(grouped, len(full_trace(page, result)),
                          "grouping lost or duplicated blocks")
+
+
+class TestRecordedProducers(unittest.TestCase):
+    """The authoritative answer: the @skill decorator knows which result key it produces,
+    so it records its own module/file/line at production time. No static table to drift,
+    no text matching, and the answer has somewhere to click."""
+
+    def _result_with_record(self):
+        return {"four_ps": {"price": {"narrative": "A" * 50}},
+                "_trace": [{"layer": "skill", "name": "four_ps_skill",
+                            "produces": "four_ps", "module": "skills.pipeline_steps",
+                            "qualname": "four_ps_skill", "file": "four_ps.py",
+                            "line": 412, "ok": True, "duration_s": 2.1, "t": 100}]}
+
+    def test_a_recorded_producer_supplies_the_file_and_line(self):
+        from report.trace import chain_for_path
+        c = chain_for_path("four_ps.price.narrative", self._result_with_record())
+        self.assertEqual(c["file"], "four_ps.py")
+        self.assertEqual(c["line"], 412)
+        self.assertEqual(c["source_ref"], "four_ps.py:412")
+        self.assertEqual(c["attribution"], "recorded")
+
+    def test_the_recorded_producer_beats_the_static_map(self):
+        """The map says four_ps_skill lives in `four_ps`; the RUN says four_ps.py:412.
+        The run wins — it cannot have drifted."""
+        from report.trace import chain_for_path
+        c = chain_for_path("four_ps.price.narrative", self._result_with_record())
+        self.assertEqual(c["produced_by"], "four_ps_skill")
+        self.assertEqual(c["module"], "skills.pipeline_steps")
+
+    def test_without_a_record_it_falls_back_and_says_so(self):
+        from report.trace import chain_for_path
+        c = chain_for_path("four_ps.price.narrative",
+                           {"four_ps": {"price": {"narrative": "A" * 50}}})
+        self.assertEqual(c["attribution"], "declared map")
+        self.assertEqual(c["source_ref"], "")
+
+    def test_the_last_producer_of_a_key_wins(self):
+        """A key re-derived later in the run (triangulation, refine) is owned by whichever
+        call produced the value that actually survived into the report."""
+        from report.trace import recorded_producers
+        r = {"_trace": [
+            {"layer": "skill", "produces": "market_sizing", "name": "first",
+             "file": "a.py", "line": 1, "t": 10},
+            {"layer": "skill", "produces": "market_sizing", "name": "second",
+             "file": "b.py", "line": 2, "t": 20}]}
+        self.assertEqual(recorded_producers(r)["market_sizing"]["produced_by"], "second")
+
+    def test_the_registry_captures_where_every_skill_lives(self):
+        import skills.discovery, skills.perspective, skills.pipeline_steps  # noqa: F401
+        from skills.registry import SKILL_REGISTRY
+        missing = [n for n, m in SKILL_REGISTRY.items() if not m.file or not m.line]
+        self.assertEqual(missing, [], f"skills with no source location: {missing}")
+
+    def test_a_real_skill_call_records_its_own_location(self):
+        import provenance
+        from skills.registry import skill
+
+        @skill(produces="demo_key")
+        def demo_skill():
+            return {"ok": True}
+
+        provenance.reset("t")
+        demo_skill()
+        rec = [e for e in provenance.snapshot() if e.get("layer") == "skill"]
+        self.assertEqual(len(rec), 1)
+        self.assertEqual(rec[0]["produces"], "demo_key")
+        self.assertTrue(rec[0]["file"].endswith("test_sentence_trace.py"))
+        self.assertGreater(rec[0]["line"], 0)
+
+    def test_a_failing_skill_still_records_that_it_ran(self):
+        import provenance
+        from skills.registry import skill
+
+        @skill(produces="boom_key")
+        def boom_skill():
+            raise RuntimeError("nope")
+
+        provenance.reset("t")
+        boom_skill()
+        (rec,) = [e for e in provenance.snapshot() if e.get("layer") == "skill"]
+        self.assertFalse(rec["ok"])
+        self.assertIn("RuntimeError", rec["error"])
