@@ -140,40 +140,123 @@ class TestConcurrentJobsAreIsolated(unittest.TestCase):
     """The headline defect: two overlapping generations cross-contaminating."""
 
     def test_each_transcript_contains_only_its_own_steps(self):
+        """Two jobs submitted together, each recording run_plan-shaped steps.
+
+        No barrier: the gate means they cannot overlap, so trying to force overlap only
+        burns the barrier's timeout and makes the test slow and flaky. What still has to
+        hold is that neither transcript picks up the other's history — which a leaked BUS
+        subscription or a stale ledger sink would break even when runs are sequential.
+        The pre-fix failure was exactly this assertion, reading
+        ['alpha-one', 'alpha-two', 'beta-two'] for job A.
+        """
         import jobs
         import provenance
         with _JobEnv():
             a = jobs.create("plan", {"description": "alpha"})
             b = jobs.create("plan", {"description": "beta"})
-            started = threading.Barrier(2, timeout=20)
 
             def make(tag):
                 def fake_plan():
                     provenance.reset()                  # what run_plan does
                     provenance.record_step(f"{tag}-one", status="complete")
-                    try:
-                        started.wait()                  # force the two runs to overlap
-                    except threading.BrokenBarrierError:
-                        pass
                     provenance.record_step(f"{tag}-two", status="complete")
                     return {"ok": tag}
                 return fake_plan
 
             jobs.run_async(a, make("alpha"))
             jobs.run_async(b, make("beta"))
-            # Serialization means the two never actually overlap, so the barrier times
-            # out rather than deadlocking — that is the point. Either way both finish.
-            self.assertEqual(_await_states([a, b], timeout=40), ["complete", "complete"])
+            self.assertEqual(_await_states([a, b]), ["complete", "complete"])
 
             steps_a = T.replay(T.path_for(a)).steps()
             steps_b = T.replay(T.path_for(b)).steps()
 
-        self.assertTrue(all(s.startswith("alpha") for s in steps_a),
-                        f"job A's transcript contains foreign steps: {steps_a}")
-        self.assertTrue(all(s.startswith("beta") for s in steps_b),
-                        f"job B's transcript contains foreign steps: {steps_b}")
-        self.assertEqual(steps_a, ["alpha-one", "alpha-two"])
-        self.assertEqual(steps_b, ["beta-one", "beta-two"])
+        self.assertEqual(steps_a, ["alpha-one", "alpha-two"],
+                         f"job A's transcript is not exactly its own: {steps_a}")
+        self.assertEqual(steps_b, ["beta-one", "beta-two"],
+                         f"job B's transcript is not exactly its own: {steps_b}")
+
+    def test_two_writers_on_one_bus_cannot_cross_write(self):
+        """The structural guarantee, tested at the topology that caused the bug rather
+        than by racing threads: both writers subscribed to the shared BUS, events stamped
+        with one run's id. Only that run's writer may record them."""
+        from entry import hooks as _hooks
+        with _JobEnv() as d:
+            wa = T.TranscriptWriter(d / "a.jsonl", run_id="job-a")
+            wb = T.TranscriptWriter(d / "b.jsonl", run_id="job-b")
+            ta, tb = _hooks.BUS.subscribe(wa), _hooks.BUS.subscribe(wb)
+            try:
+                _hooks.BUS.emit({"layer": "step", "name": "a-only",
+                                 "status": "complete", "run_id": "job-a"})
+                _hooks.BUS.emit({"layer": "step", "name": "b-only",
+                                 "status": "complete", "run_id": "job-b"})
+            finally:
+                _hooks.BUS.unsubscribe(ta)
+                _hooks.BUS.unsubscribe(tb)
+                wa.close()
+                wb.close()
+            self.assertEqual([e["name"] for e in T.read_events(d / "a.jsonl")], ["a-only"])
+            self.assertEqual([e["name"] for e in T.read_events(d / "b.jsonl")], ["b-only"])
+
+    def test_run_one_returns_its_outcome_for_the_caller_to_publish(self):
+        """Splitting "run it" from "publish the result" is what lets the slot be released
+        first. When _run_one silently kept publishing and returned None instead, every
+        worker thread died on `update(job_id, **None)` AFTER the state had been set — so
+        the suite stayed green and only a PytestUnhandledThreadExceptionWarning showed it.
+        Assert the contract directly."""
+        import jobs
+        with _JobEnv():
+            j = jobs.create("plan", {"description": "x"})
+            outcome = jobs._run_one(j, lambda: {"ok": True}, lambda _p: None)
+        self.assertIsInstance(outcome, dict)
+        self.assertEqual(outcome["state"], "complete")
+        self.assertEqual(outcome["result"], {"ok": True})
+
+    def test_run_one_returns_an_error_outcome_rather_than_raising(self):
+        import jobs
+        with _JobEnv():
+            j = jobs.create("plan", {"description": "x"})
+
+            def explode():
+                raise RuntimeError("boom")
+
+            outcome = jobs._run_one(j, explode, lambda _p: None)
+        self.assertEqual(outcome["state"], "error")
+        self.assertIn("RuntimeError", outcome["error"])
+
+    def test_no_worker_thread_dies_unhandled(self):
+        """The warning that exposed the bug above, asserted rather than hoped for."""
+        import threading
+
+        import jobs
+        seen: list = []
+        prev = threading.excepthook
+        threading.excepthook = lambda args: seen.append(args)
+        try:
+            with _JobEnv():
+                ids = [jobs.create("plan", {"description": str(n)}) for n in range(3)]
+                for n, j in enumerate(ids):
+                    jobs.run_async(j, (lambda: {"ok": True}) if n else
+                                   (lambda: (_ for _ in ()).throw(RuntimeError("boom"))))
+                _await_states(ids)
+        finally:
+            threading.excepthook = prev
+        self.assertEqual([a.exc_type.__name__ for a in seen], [],
+                         "a job worker thread raised out of its own run loop")
+
+    def test_a_terminal_state_means_the_slot_is_already_free(self):
+        """`complete` is published only after the generation slot is released, so a caller
+        that polls for it can start the next job immediately. Publishing it earlier left a
+        small, load-dependent window where the slot was still held — which showed up as
+        roughly 1-in-3 flakiness across tests."""
+        import jobs
+        with _JobEnv():
+            j = jobs.create("plan", {"description": "x"})
+            jobs.run_async(j, lambda: {"ok": True})
+            _await_states([j])
+            acquired = jobs._RUN_GATE.acquire(blocking=False)
+            if acquired:
+                jobs._RUN_GATE.release()
+        self.assertTrue(acquired, "the slot was still held after the job reported complete")
 
     def test_generation_never_runs_two_at_once(self):
         import jobs

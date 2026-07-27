@@ -20,14 +20,19 @@ tests can isolate to a temp dir.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from pathlib import Path
-from typing import Any, Iterable, Optional, Union
+from typing import Any, Iterable, NamedTuple, Optional, Union
 
 from persistence.ledger import RunLedger
 
 _PathLike = Union[str, "os.PathLike[str]", Path]
+
+# stdlib logger under the "mrp" root logger.py already configures — avoids a repo-root
+# import from inside the persistence package.
+_log = logging.getLogger("mrp.transcript")
 
 
 def transcript_dir() -> Path:
@@ -100,28 +105,85 @@ def write_all(source: Union[RunLedger, Iterable[dict]], path: _PathLike) -> Path
     return p
 
 
+class TranscriptScan(NamedTuple):
+    """What one pass over a transcript found.
+
+    `corrupt` is the point of this type: a non-terminal unparseable line is LOST HISTORY,
+    and a reader has to be able to say so rather than receive a short list that looks
+    complete. `truncated_tail` is the separate, documented, survivable case.
+    """
+    events: list[dict]
+    lines: int                    # non-blank lines seen
+    truncated_tail: bool          # final line half-written — the survivable SIGKILL case
+    corrupt: tuple[int, ...]      # 1-based line numbers of NON-terminal failures
+
+    @property
+    def intact(self) -> bool:
+        """True when nothing was lost beyond an in-flight final write."""
+        return not self.corrupt
+
+
+def scan(path: _PathLike) -> TranscriptScan:
+    """One pass over a transcript, separating a survivable truncated tail from real
+    corruption (audit high #8).
+
+    `read_events` used to skip ANY unparseable line, which delivered the truncated-tail
+    tolerance this module documents but quietly broke the replay→identical-state promise it
+    documents right above it: a byte flipped mid-file made a real event vanish and the
+    shortened history looked complete.
+
+    The discriminator is the newline. `TranscriptWriter.__call__` writes `line + "\\n"` in a
+    single call, so the newline is the last byte of every COMPLETE record and only the final
+    line can lack one. A missing trailing newline is therefore the half-written tail; every
+    other failure is damage. Bytes are decoded per line so a flipped byte is counted rather
+    than raised — and never repaired into U+FFFD, which would admit a mangled line as if it
+    were a real event.
+
+    Corruption is reported, not raised: persistence must never be able to fail a run.
+    """
+    p = Path(path)
+    if not p.exists():
+        return TranscriptScan([], 0, False, ())
+    raw = p.read_bytes()
+    truncated_tail = bool(raw) and not raw.endswith(b"\n")
+    events: list[dict] = []
+    corrupt: list[int] = []
+    non_blank = 0
+    byte_lines = raw.split(b"\n")
+    if byte_lines and byte_lines[-1] == b"":
+        byte_lines.pop()                      # trailing newline, not an empty record
+    last = len(byte_lines) - 1
+    for idx, blob in enumerate(byte_lines):
+        if not blob.strip():
+            continue
+        non_blank += 1
+        try:
+            ev = json.loads(blob.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            # A failure on the final line of a file with no trailing newline is the write
+            # that was in flight; anywhere else the writer had finished the line.
+            if not (idx == last and truncated_tail):
+                corrupt.append(idx + 1)
+            continue
+        if isinstance(ev, dict):
+            events.append(ev)
+        elif not (idx == last and truncated_tail):
+            corrupt.append(idx + 1)           # valid JSON, but not an event
+    if corrupt:
+        _log.warning("transcript %s has %d corrupt line(s) at %s — %d event(s) recovered; "
+                     "history is incomplete", p.name, len(corrupt),
+                     ",".join(str(n) for n in corrupt), len(events))
+    return TranscriptScan(events, non_blank, truncated_tail, tuple(corrupt))
+
+
 def read_events(path: _PathLike) -> list[dict]:
     """Parse a transcript into events, skipping blank/garbage/truncated lines.
 
     Tolerance is deliberate: the last line of a killed run is frequently half-written,
-    and a strict parser would throw away an otherwise perfect history over it.
+    and a strict parser would throw away an otherwise perfect history over it. Use `scan()`
+    when you need to know whether anything beyond that tail was lost.
     """
-    p = Path(path)
-    if not p.exists():
-        return []
-    out: list[dict] = []
-    with open(p, "r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                ev = json.loads(line)
-            except (ValueError, json.JSONDecodeError):
-                continue  # truncated tail or garbage — skip, keep the rest
-            if isinstance(ev, dict):
-                out.append(ev)
-    return out
+    return scan(path).events
 
 
 def replay(path: _PathLike, run_id: str = "") -> RunLedger:

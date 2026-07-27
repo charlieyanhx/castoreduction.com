@@ -1491,7 +1491,21 @@ def run_gate(reports: dict[str, tuple[dict, Optional[str]]], gate: str) -> dict:
     for name, (r, html) in reports.items():
         cells = {}
         for inv in invs:
-            f = inv.check(r, html)
+            # Isolate per detector, as report/verifier.py and harness_gates.py both do.
+            # Every detector reaches into the shape it expects, so one wrongly-typed field
+            # used to take the detector down, propagate out of BOTH loops and leave the
+            # sweep with no scorecard at all — measured: a report whose sections arrive as
+            # strings raises in 31 of 49 detectors and scores zero reports. The apparatus
+            # that judges whether a report is honest has to degrade one cell at a time.
+            #
+            # ok=False, never None: None would hide a dead detector inside the
+            # not-applicable count and let a gate report PASS with nothing checked.
+            # Severity is read from the invariant below as usual, so a raising warn-level
+            # detector is recorded without becoming blocking.
+            try:
+                f = inv.check(r, html)
+            except Exception as e:
+                f = Finding(False, f"detector raised {type(e).__name__}: {e}"[:300])
             cells[inv.id] = {"ok": f.ok, "detail": f.detail, "severity": inv.severity}
             if f.ok is False and inv.severity == "fail":
                 failures += 1

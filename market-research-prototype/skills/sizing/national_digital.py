@@ -47,7 +47,18 @@ def _normalize(result: dict) -> dict:
             figures.append({
                 "value_usd": float(val), "label": f"TAM_{key}",
                 "source": f"estimate_market_size: {label}",
-                "formula": block.get("rationale") or block.get("source") or label,
+                # The engine emits `calculation` — that is the arithmetic C7 reconciles.
+                # `rationale` is a real key elsewhere (agent selection, scale
+                # classification) but no writer ever put it on a sizing method block, so
+                # reading it first always fell through to `source` prose ("Gartner Market
+                # Guide for…"), which safe_eval_formula cannot parse — turning the
+                # formula check into a silent pass. Kept in the chain below `calculation`
+                # so a caller that does supply it still works. (audit high #5)
+                "formula": (block.get("calculation") or block.get("rationale")
+                            or block.get("source") or label),
+                # Parity with plan.py's adapter: origin travels WITH the figure, or
+                # validate's external cross-check can never see it.
+                "origin": block.get("data_origin") or "llm",
             })
 
     for name, block in (("TAM", tam), ("SAM", sam), ("SOM", som)):
@@ -56,7 +67,8 @@ def _normalize(result: dict) -> dict:
             figures.append({
                 "value_usd": float(mid), "label": f"{name}_mid",
                 "source": "estimate_market_size 3-method triangulation",
-                "formula": block.get("rationale") or f"{name} midpoint of method range",
+                "formula": (block.get("calculation") or block.get("rationale")
+                            or f"{name} midpoint of method range"),
             })
 
     # Method triangulation spread (warn signal carried in payload).

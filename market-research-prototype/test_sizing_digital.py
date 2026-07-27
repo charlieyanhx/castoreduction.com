@@ -14,13 +14,17 @@ from skills.sizing.national_digital import size_national_digital, _normalize
 
 
 def _legacy(tam_mid, sam_mid, som_mid, td=None, bu=None, an=None):
+    """NOTE: method blocks carry `calculation`, which is what estimate_market_size really
+    emits (market_sizing.py's prompt schema). This fixture used `rationale` — a key no
+    writer in the repo ever puts on a sizing block — so these tests were passing by
+    matching themselves rather than the engine (audit high #5)."""
     tam = {"label": "TAM", "low": tam_mid * 0.85, "mid": tam_mid, "high": tam_mid * 1.15}
     if td is not None:
-        tam["method_top_down"] = {"value_usd": td, "rationale": "analyst ÷ ARPU"}
+        tam["method_top_down"] = {"value_usd": td, "calculation": "analyst ÷ ARPU"}
     if bu is not None:
-        tam["method_bottom_up"] = {"value_usd": bu, "rationale": "accounts × ARPU"}
+        tam["method_bottom_up"] = {"value_usd": bu, "calculation": "accounts × ARPU"}
     if an is not None:
-        tam["method_analog"] = {"value_usd": an, "rationale": "comparable co."}
+        tam["method_analog"] = {"value_usd": an, "calculation": "comparable co."}
     return {
         "tam": tam,
         "sam": {"label": "SAM", "mid": sam_mid},
