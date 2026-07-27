@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from persistence.ledger import (  # noqa: F401  (re-exported for existing callers)
     LEDGER,
+    append,
     current_step,
     disable,
     record_llm,
@@ -27,6 +28,6 @@ from persistence.ledger import (  # noqa: F401  (re-exported for existing caller
 )
 
 __all__ = [
-    "reset", "disable", "set_step", "current_step",
+    "reset", "disable", "set_step", "current_step", "append",
     "record_tool", "record_llm", "record_step", "snapshot",
 ]

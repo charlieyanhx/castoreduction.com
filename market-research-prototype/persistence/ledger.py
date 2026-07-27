@@ -241,6 +241,12 @@ def disable() -> None:
     LEDGER.disable()
 
 
+def append(event: dict) -> Optional[dict]:
+    """Append an arbitrary event to the current run's ledger — used by the @skill decorator
+    to record which function produced which result key, and where it lives."""
+    return LEDGER.append(event)
+
+
 def record_step(name: str, status: str = "complete", **extra) -> Optional[dict]:
     return LEDGER.record_step(name, status=status, **extra)
 

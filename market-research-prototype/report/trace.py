@@ -75,6 +75,32 @@ def _root_key(path: str) -> str:
     return re.split(r"[.\[]", path, maxsplit=1)[0]
 
 
+def recorded_producers(result: dict) -> dict[str, dict]:
+    """result key -> the skill that ACTUALLY produced it, from this run's ledger.
+
+    This is the authoritative answer, and it beats the static SECTION_SOURCES table on
+    every count: the @skill decorator already knows which result key it produces, so it
+    records the module, qualname, file and LINE at the moment of production. Nothing to
+    keep in sync, nothing inferred from text, and the answer carries somewhere to click.
+
+    SECTION_SOURCES remains the fallback for reports produced before this recording
+    existed, and for content that no registered skill owns (plan.py's own helpers).
+    """
+    out: dict[str, dict] = {}
+    for e in _run_events(result):
+        if e.get("layer") != "skill" or not e.get("produces"):
+            continue
+        # Last writer wins: a key re-derived later in the run (triangulation, refine) is
+        # owned by whichever call produced the value that survived into the report.
+        out[e["produces"]] = {
+            "produced_by": e.get("name"), "module": e.get("module") or "",
+            "qualname": e.get("qualname") or "", "file": e.get("file") or "",
+            "line": e.get("line") or 0, "ok": e.get("ok"),
+            "duration_s": e.get("duration_s"), "recorded": True,
+        }
+    return out
+
+
 def producer_for_path(path: str) -> Optional[dict]:
     """The producing script for a result path, via its root key.
 
@@ -320,10 +346,19 @@ def _generation_source(origin: Optional[str], act: dict, produced_by: str) -> st
 
 
 def chain_for_path(path: str, result: dict,
-                   activity: Optional[dict] = None) -> dict:
-    """The whole provenance chain for one result path — static map joined to the live run."""
-    producer = producer_for_path(path) or {}
+                   activity: Optional[dict] = None,
+                   recorded: Optional[dict] = None) -> dict:
+    """The whole provenance chain for one result path.
+
+    Prefers what the run RECORDED (the @skill decorator's own module/file/line) over the
+    static section map, so the answer is a fact with a line number rather than a
+    declaration that could have drifted.
+    """
+    producer = dict(producer_for_path(path) or {})
     root = _root_key(path)
+    rec = (recorded if recorded is not None else recorded_producers(result)).get(root)
+    if rec:
+        producer.update({k: v for k, v in rec.items() if v not in (None, "", 0)})
     step = _step_for_key(root, result)
     acts = activity if activity is not None else step_activity(result)
     act = acts.get(step or "", {})
@@ -338,6 +373,13 @@ def chain_for_path(path: str, result: dict,
         "section": producer.get("section"),
         "module": producer.get("module") or root,
         "produced_by": producer.get("produced_by"),
+        # Where the code is. Empty when the run predates skill recording and the static
+        # map is all we have — which is itself worth seeing.
+        "file": producer.get("file") or "",
+        "line": producer.get("line") or 0,
+        "source_ref": (f"{producer['file']}:{producer['line']}"
+                       if producer.get("file") and producer.get("line") else ""),
+        "attribution": "recorded" if producer.get("recorded") else "declared map",
         "origin": producer.get("origin"),
         "consumes": producer.get("consumes") or [],
         "via": producer.get("via"),
@@ -362,10 +404,11 @@ def full_trace(html: str, result: dict) -> list[dict]:
     Ordered as the report reads, so a block's row is where the eye already is.
     """
     activity = step_activity(result)
+    recorded = recorded_producers(result)
     rows = []
     for row in trace_report(html, result):
         if row["kind"] == "result":
-            rows.append({**chain_for_path(row["path"], result, activity),
+            rows.append({**chain_for_path(row["path"], result, activity, recorded),
                          "kind": "result", "text": row["text"]})
         else:
             rows.append({**row, "generated_by": "static text in templates/report.html "
@@ -373,7 +416,10 @@ def full_trace(html: str, result: dict) -> list[dict]:
                          "step": None, "step_models": [], "step_tools": [],
                          "step_tools_failed": [], "result_key": None,
                          "consumes": [], "via": None, "section": None,
-                         "step_llm_calls": None, "step_tokens": None})
+                         "step_llm_calls": None, "step_tokens": None,
+                         "file": "templates/report.html", "line": 0,
+                         "source_ref": "templates/report.html",
+                         "attribution": "template"})
     return rows
 
 

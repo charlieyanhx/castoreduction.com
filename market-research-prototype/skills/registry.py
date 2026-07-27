@@ -52,9 +52,33 @@ class SkillMeta:
     fn: Callable
     signature: str
     docstring: str
+    # WHERE the code lives, captured at registration. The decorator already knows which
+    # result key a function produces; adding its file and line makes provenance a RECORDED
+    # FACT with somewhere to click, instead of a hand-maintained table that can drift.
+    module: str = ""
+    qualname: str = ""
+    file: str = ""          # repo-relative
+    line: int = 0
 
 
 SKILL_REGISTRY: dict[str, SkillMeta] = {}
+
+
+def _where(fn: Callable) -> dict:
+    """Where a function is defined, repo-relative. Best-effort: a missing source file must
+    never stop a skill from registering."""
+    import os
+    out = {"module": getattr(fn, "__module__", "") or "",
+           "qualname": getattr(fn, "__qualname__", "") or "",
+           "file": "", "line": 0}
+    try:
+        path = inspect.getsourcefile(fn) or ""
+        out["line"] = inspect.getsourcelines(fn)[1]
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        out["file"] = os.path.relpath(path, root) if path else ""
+    except Exception:
+        pass
+    return out
 
 
 def skill(produces: str, consumes: Optional[list[str]] = None):
@@ -81,7 +105,26 @@ def skill(produces: str, consumes: Optional[list[str]] = None):
         SKILL_REGISTRY[name] = SkillMeta(
             name=name, produces=produces, consumes=list(consumes),
             fn=fn, signature=sig, docstring=doc,
+            **_where(fn),
         )
+
+        _loc = _where(fn)
+
+        def _record(ok: bool, duration: float, error: str = "") -> None:
+            """One authoritative record per skill call: which function produced which
+            result key, and where that function lives. This is what lets the report trace
+            say "four_ps.price.narrative came from four_ps.py:412" as a FACT rather than
+            matching text against a static map. Best-effort — provenance is a debugging
+            feature and must never fail a run."""
+            try:
+                import provenance as _trace
+                _trace.append({"layer": "skill", "name": name, "produces": produces,
+                               "consumes": list(consumes), "module": _loc["module"],
+                               "qualname": _loc["qualname"], "file": _loc["file"],
+                               "line": _loc["line"], "ok": ok,
+                               "duration_s": round(duration, 3), "error": error[:140]})
+            except Exception:
+                pass
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs) -> Evidence:
@@ -92,6 +135,7 @@ def skill(produces: str, consumes: Optional[list[str]] = None):
                 err = f"{type(e).__name__}: {e}"
                 log.warning("[skill/%s] failed: %s", name, err)
                 log.debug(traceback.format_exc())
+                _record(False, time.time() - t0, err)
                 return Evidence(
                     source=name, category="skill_output", count=0,
                     payload=None, fetched_at=t0,
@@ -99,6 +143,7 @@ def skill(produces: str, consumes: Optional[list[str]] = None):
                     error=err,
                 )
             duration = round(time.time() - t0, 3)
+            _record(True, duration)
             if isinstance(result, Evidence):
                 if result.fetched_at == 0.0:
                     result.fetched_at = t0
