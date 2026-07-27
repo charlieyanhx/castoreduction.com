@@ -230,3 +230,78 @@ class TestNoNestedCorruption(unittest.TestCase):
     def test_an_unmapped_root_names_itself_rather_than_a_question_mark(self):
         html, _ = annotate("<p>" + "A" * 40 + "</p>", {"brand_new_thing": {"x": "A" * 40}})
         self.assertIn('data-by="brand_new_thing"', html)
+
+
+class TestByScript(unittest.TestCase):
+    """The inverted view: per script, what it produced. `full_trace` answers "what made
+    this block?"; this answers "what did this script make?"."""
+
+    def _html(self):
+        return ("<p>" + "A" * 50 + "</p><p>" + "B" * 50 + "</p>"
+                "<p>Static prose written straight into the report template, long enough.</p>")
+
+    def _result(self):
+        return {"four_ps": {"price": {"narrative": "A" * 50},
+                            "product": {"narrative": "B" * 50}}}
+
+    def test_blocks_from_one_script_are_grouped(self):
+        from report.trace import by_script
+        rows = {g["module"]: g for g in by_script(self._html(), self._result())}
+        self.assertEqual(rows["four_ps"]["blocks"], 2)
+        self.assertEqual(sorted(rows["four_ps"]["paths"]),
+                         ["four_ps.price.narrative", "four_ps.product.narrative"])
+
+    def test_template_prose_is_its_own_row(self):
+        from report.trace import by_script
+        rows = {g["module"]: g for g in by_script(self._html(), self._result())}
+        self.assertEqual(rows["templates/report.html"]["blocks"], 1)
+        self.assertEqual(rows["templates/report.html"]["origins"], ["authored"])
+
+    def test_the_biggest_contributor_comes_first(self):
+        from report.trace import by_script
+        rows = by_script(self._html(), self._result())
+        self.assertEqual([g["blocks"] for g in rows], sorted((g["blocks"] for g in rows),
+                                                             reverse=True))
+
+    def test_a_step_is_counted_once_however_many_blocks_share_it(self):
+        """20 sentences from one step must not report 20x that step's token spend."""
+        from report.trace import by_script
+        result = dict(self._result())
+        result["_trace"] = [
+            {"layer": "step", "name": "four_ps", "status": "complete", "t": 100},
+            {"layer": "llm", "model": "m", "step": "four_ps", "in_tok": 10, "out_tok": 5,
+             "t": 99},
+        ]
+        (row,) = [g for g in by_script(self._html(), result) if g["module"] == "four_ps"]
+        self.assertEqual(row["blocks"], 2)
+        self.assertEqual(row["tokens"], 15, "the step's cost was multiplied by its blocks")
+        self.assertEqual(row["llm_calls"], 1)
+
+    def test_a_failed_tool_is_surfaced_against_the_script(self):
+        from report.trace import by_script
+        result = dict(self._result())
+        result["_trace"] = [
+            {"layer": "step", "name": "four_ps", "status": "complete", "t": 100},
+            {"layer": "tool", "name": "acs_demographics", "step": "four_ps", "ok": False,
+             "error": "ACS blocked", "t": 99},
+        ]
+        (row,) = [g for g in by_script(self._html(), result) if g["module"] == "four_ps"]
+        self.assertTrue(any("acs_demographics" in f for f in row["tools_failed"]))
+
+
+@unittest.skipIf(not _CORPUS, "no corpus on disk")
+class TestByScriptOnARealReport(unittest.TestCase):
+    def test_every_block_of_the_report_is_accounted_for(self):
+        import api
+        from report.trace import by_script, full_trace
+        result = json.load(open(_CORPUS[0]))["result"]
+        real = api.jobs.get
+        api.jobs.get = lambda _i: {"state": "complete", "kind": "plan",
+                                   "result": result, "error": None}
+        try:
+            page = api.get_job_report_html("t", debug=0).body.decode()
+        finally:
+            api.jobs.get = real
+        grouped = sum(g["blocks"] for g in by_script(page, result))
+        self.assertEqual(grouped, len(full_trace(page, result)),
+                         "grouping lost or duplicated blocks")

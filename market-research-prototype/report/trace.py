@@ -375,3 +375,51 @@ def full_trace(html: str, result: dict) -> list[dict]:
                          "consumes": [], "via": None, "section": None,
                          "step_llm_calls": None, "step_tokens": None})
     return rows
+
+
+def by_script(html: str, result: dict) -> list[dict]:
+    """Inverted: one row per SCRIPT, and everything it produced in this report.
+
+    `full_trace` answers "what produced this block?" walking the report in reading order.
+    This answers the other direction — "what did this script produce?" — which is the view
+    you want when the question is about a script rather than about a sentence: how much of
+    the report it owns, which model it drove, what it fetched, and whether any of its tools
+    failed. Same joined data, grouped the other way.
+    """
+    acts = step_activity(result)
+    groups: dict[str, dict] = {}
+    for row in full_trace(html, result):
+        module = row.get("module") or "?"
+        g = groups.setdefault(module, {
+            "module": module, "blocks": 0, "paths": [], "sections": set(),
+            "functions": set(), "origins": set(), "steps": set(),
+            "models": set(), "tools": set(), "tools_failed": [],
+            "in_tok": 0, "out_tok": 0, "llm_calls": 0})
+        g["blocks"] += 1
+        if row.get("path"):
+            g["paths"].append(row["path"])
+        for key, field in (("section", "sections"), ("produced_by", "functions"),
+                           ("origin", "origins"), ("step", "steps")):
+            if row.get(key):
+                g[field].add(row[key])
+    # Attribute each script's run cost through the steps its blocks came from, counting a
+    # step once even when many blocks share it — otherwise a script with 20 sentences in
+    # one step would appear to have spent 20x the tokens it actually did.
+    for g in groups.values():
+        for step in g["steps"]:
+            a = acts.get(step) or {}
+            g["llm_calls"] += a.get("llm_calls") or 0
+            g["in_tok"] += a.get("in_tok") or 0
+            g["out_tok"] += a.get("out_tok") or 0
+            g["models"] |= set(a.get("models") or [])
+            g["tools"] |= set((a.get("tools") or {}).keys())
+            g["tools_failed"] += a.get("tools_failed") or []
+    out = []
+    for g in groups.values():
+        out.append({**g,
+                    "sections": sorted(g["sections"]), "functions": sorted(g["functions"]),
+                    "origins": sorted(g["origins"]), "steps": sorted(g["steps"]),
+                    "models": sorted(g["models"]), "tools": sorted(g["tools"]),
+                    "tokens": g["in_tok"] + g["out_tok"]})
+    # Most of the report first — that is usually where a problem is worth chasing.
+    return sorted(out, key=lambda g: (-g["blocks"], g["module"]))
