@@ -166,11 +166,31 @@ def _call_groq(system: str, user: str, max_tokens: int, model: str) -> tuple[str
 
 _gemini_last_call = 0  # rate limiter timestamp
 
+# Recent non-transient backend failures, so an exhausted chain can say WHY (see
+# _record_backend_failure). Bounded — this is a diagnostic, not a log.
+_LAST_CHAIN_ERRORS: list[str] = []
+
+def _gemini_client():
+    """The genai client. Separated so the request-shaping logic below is testable without
+    a live key or a network round trip."""
+    from google import genai
+    return genai.Client(api_key=os.environ.get("GEMINI_API_KEY", ""))
+
+
+# Which models accept `thinking_config`, learned at runtime. Support is SPLIT across the
+# models a free key can reach, and the two requirements conflict — measured live:
+#   gemini-flash-latest / gemini-flash-lite-latest  -> 400 INVALID_ARGUMENT WITH it
+#   gemini-3.5-flash                                -> emits ZERO characters WITHOUT it
+# so no single static config works, and this is a per-model fact rather than a global one.
+# Before this, `thinking_config` was sent unconditionally and the primary model rejected
+# every request: the whole LLM layer returned _parse_error, reported to the user as
+# "the model is busy (rate limit)".
+_GEMINI_THINKING_OK: dict[str, bool] = {}
+
+
 def _call_gemini(system: str, user: str, max_tokens: int, model: str) -> tuple[str, int, int]:
     global _gemini_last_call
-    from google import genai
-    key = os.environ.get("GEMINI_API_KEY", "")
-    client = genai.Client(api_key=key)
+    client = _gemini_client()
     full_prompt = f"{system}\n\n{user}"
 
     # Rate limiter — at least 4s between calls (free tier = 15 RPM)
@@ -193,6 +213,10 @@ def _call_gemini(system: str, user: str, max_tokens: int, model: str) -> tuple[s
     # faster. Was burning ~20s × N-calls per plan.
     last_err = None
     for m in models_to_try:
+      # Try the thinking-disabled form first unless this model has already rejected it.
+      # `thinking_budget: 0` is load-bearing where supported (see cycle36 note below), so
+      # it is dropped per model on evidence, never pre-emptively.
+      for _use_thinking in ([True, False] if _GEMINI_THINKING_OK.get(m, True) else [False]):
         try:
             _gemini_last_call = time.time()
             response = client.models.generate_content(
@@ -210,25 +234,33 @@ def _call_gemini(system: str, user: str, max_tokens: int, model: str) -> tuple[s
                         "max_output_tokens": max_tokens,
                         "temperature": 0,  # F2: deterministic — same input → same number
                         "seed": 42,
-                        "thinking_config": {"thinking_budget": 0}},
+                        **({"thinking_config": {"thinking_budget": 0}}
+                           if _use_thinking else {})},
             )
             text = response.text or ""
             usage_meta = getattr(response, "usage_metadata", None)
             in_tok = getattr(usage_meta, "prompt_token_count", 0) or 0
             out_tok = getattr(usage_meta, "candidates_token_count", 0) or 0
+            _GEMINI_THINKING_OK[m] = _use_thinking
             return text, in_tok, out_tok
         except Exception as e:
             last_err = e
             err_str = str(e)
+            if _use_thinking and ("INVALID_ARGUMENT" in err_str or "400" in err_str):
+                # This model does not accept thinking_config. Retry it once WITHOUT, and
+                # remember, so the wasted attempt is paid once rather than per call.
+                _GEMINI_THINKING_OK[m] = False
+                log.info("gemini %s rejects thinking_config — retrying without it", m)
+                continue
             if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
                 log.info("gemini %s on %s — falling through to next model", "429", m)
-                continue
+                break
             if "503" in err_str or "UNAVAILABLE" in err_str:
                 log.info("gemini %s on %s — falling through", "503", m)
-                continue
+                break
             if "404" in err_str or "NOT_FOUND" in err_str:
                 log.warning("gemini model %s not available, skipping", m)
-                continue
+                break
             # Real unexpected error: bubble immediately
             raise
 
@@ -293,6 +325,12 @@ def _try_one_backend(backend: str, system: str, user: str, max_tokens: int,
             return None
         # Non-transient: re-raise so caller can decide
         log.warning("[llm] %s hard failure: %s", backend, e)
+        # Keep the reason so the caller's user-facing message can name the real cause.
+        # A 400 is OUR malformed request; reporting it as "rate-limited" sends the reader
+        # off to wait for a quota that was never the problem — which is exactly how a dead
+        # LLM layer stayed hidden behind "the model is busy".
+        _LAST_CHAIN_ERRORS.append(f"{backend}: {e}")
+        del _LAST_CHAIN_ERRORS[:-8]
         return None
 
 
@@ -443,7 +481,12 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
             )
         raw = _chain_text(system_full, user_msg, max_tokens, tier)
         if raw is None:
-            return {"_parse_error": "all backends exhausted (rate-limited or unavailable)",
+            _why = ("invalid request rejected by every backend (a 400 — this is a bug in "
+                    "the request, not throttling; see the llm log)"
+                    if any("INVALID_ARGUMENT" in str(x) or "400" in str(x)
+                           for x in _LAST_CHAIN_ERRORS)
+                    else "rate-limited or unavailable")
+            return {"_parse_error": f"all backends exhausted ({_why})",
                     "_raw": "", "_chain_tried": list(BACKEND_DEFAULTS)}
         text = raw
         obj, error = _parse_payload(text)
