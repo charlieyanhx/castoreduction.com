@@ -135,6 +135,42 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   {% endfor %}
   <div class="hint" style="margin-top:8px">origin: <b>llm</b> model wrote it &middot; <b>computed</b> arithmetic &middot; <b>fetched</b> scraped &middot; <b>simulated</b> LLM panel &middot; <b>mixed</b> blend</div>
 </div>
+{# SENTENCE TRACE. report/trace.py wraps each result-derived run of text in
+   <span class="tr" data-src=... data-by=...>, so hovering a sentence that reads wrong names
+   the exact field and module behind it. Debug-only, like the panel above. #}
+<style>
+  .tr{border-bottom:1px dotted rgba(124,58,237,.55);cursor:help}
+  .tr:hover{background:rgba(124,58,237,.14)}
+  #tr-readout{position:fixed;bottom:0;left:0;right:0;z-index:10000;display:none;
+    background:#0f1117;color:#e5e7eb;border-top:1px solid #7c3aed;
+    font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;padding:8px 14px}
+  #tr-readout b{color:#c4b5fd}
+  #tr-readout .hint{color:#6b7280;float:right}
+  @media print{.tr{border-bottom:none;background:none}#tr-readout{display:none !important}}
+</style>
+<div id="tr-readout" class="no-print"></div>
+<script>
+(function () {
+  var out = document.getElementById('tr-readout');
+  if (!out) return;
+  function show(el) {
+    out.innerHTML = '<b>' + el.dataset.src + '</b>'
+      + '  &larr; ' + el.dataset.by + '  (' + el.dataset.origin + ')'
+      + '<span class="hint">click to copy the path</span>';
+    out.style.display = 'block';
+  }
+  document.addEventListener('mouseover', function (e) {
+    var el = e.target.closest && e.target.closest('.tr');
+    if (el) show(el);
+  });
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest && e.target.closest('.tr');
+    if (!el) return;
+    if (navigator.clipboard) navigator.clipboard.writeText(el.dataset.src);
+    out.innerHTML = '<b>' + el.dataset.src + '</b><span class="hint">copied</span>';
+  });
+})();
+</script>
 {% endif %}
 <!-- END DEBUG PROVENANCE OVERLAY -->
 

@@ -813,6 +813,15 @@ def get_job_report_html(job_id: str, debug: int = 0):
         # debug: per-run data-provenance trace (which tool/source/LLM produced each piece).
         provenance=__import__("plan").build_provenance_summary(r),
     )
+    if debug:
+        # Sentence-level provenance: mark every result-derived run of text with the exact
+        # result path behind it, so a sentence that reads wrong names the field — and the
+        # script — to go and read. Debug-only: this changes the page's bytes (never its
+        # words), and it must not reach the buyer's report or the PDF.
+        from report.trace import annotate as _annotate
+        html, _trace_stats = _annotate(html, r)
+        log.info("[report] sentence trace: %d/%d blocks attributed to a result path",
+                 _trace_stats["matched"], _trace_stats["blocks"])
     return HTMLResponse(content=html)
 
 
