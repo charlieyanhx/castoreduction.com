@@ -1240,9 +1240,16 @@ class TestCompetitorDensity(unittest.TestCase):
         result = {"discover": {"competitor_density": 12, "active_signal_density": 1},
                   "_steps_completed": []}
         geo_competitors = [{"brand": f"Venue {i}"} for i in range(25)]
-        _surface_late_geo_competitors(result, geo_competitors)
+        # A mapping category is now a PRECONDITION for surfacing anything (audit high #7):
+        # the roster rides size_by_scale's coarse ("amenity","restaurant") tag fallback, so
+        # an unmapped category would render nearby restaurants as this venture's rivals.
+        # The invariant under test is unchanged — density tracks the roster that surfaced.
+        _surface_late_geo_competitors(result, geo_competitors, category="cafe")
         self.assertEqual(result["discover"]["competitor_density"], 25)
         self.assertTrue(result["discover"]["geo_sourced"])
+        # ...and one roster, one count: the names must be where the report reads them.
+        self.assertEqual(
+            len(result["discover"]["synthesis"]["ranked_opportunities"]), 25)
 
     def test_late_geo_surfacing_noop_when_no_geo_or_already_populated(self):
         from plan import _surface_late_geo_competitors

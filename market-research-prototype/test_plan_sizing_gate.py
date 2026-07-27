@@ -240,7 +240,10 @@ class TestGroundingBroadened(unittest.TestCase):
                 {"tam": {"method_top_down": {"value_usd": 1_000_000_000}}},
                 "a SaaS with no price mentioned in the text",   # no $/mo
                 {"target_customer": "restaurants"},
-                arpu_monthly_fallback=99.0)
+                arpu_monthly_fallback=99.0,
+                # A SaaS is a monthly model — the only kind whose modeled optimal price
+                # may be annualized. Stated explicitly now that the guard reads it.
+                biz_kind="subscription")
         bu = out["tam"]["method_bottom_up"]
         self.assertEqual(bu["data_origin"], "census")
         self.assertEqual(bu["value_usd"], 500_000_000)

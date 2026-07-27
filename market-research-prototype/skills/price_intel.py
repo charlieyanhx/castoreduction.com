@@ -14,6 +14,7 @@ a skeleton (never a guess) when nothing is scrapeable.
 from __future__ import annotations
 
 import statistics
+from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
@@ -68,7 +69,21 @@ def scrape_market_price(
                         skeleton=True, error="no search results for pricing")
 
     filt = filter_aggregator_domains(rows)
-    real = (filt.payload or rows)
+    # "Filtered to EMPTY" and "filter could not RUN" are different facts, and `or` cannot
+    # tell them apart: an empty list is falsy, so the case this filter exists to catch —
+    # every hit is an aggregator — used to fall back to the UNFILTERED rows. G2/Capterra
+    # pages list many vendors' prices, so their median is not any one competitor's price,
+    # yet it was returned tagged origin="scrape" and consumed as an INDEPENDENT origin by
+    # the bottom-up TAM triangulation. Only an unavailable filter may fall back.
+    if filt.error or filt.payload is None:
+        real = rows                      # filter unavailable — better raw than nothing
+    elif not filt.payload:
+        return Evidence(source="scrape_market_price", category="skill_output", count=0,
+                        skeleton=True,
+                        error="every pricing hit was an aggregator (multi-vendor listing) "
+                              "— no independent competitor page to price from")
+    else:
+        real = filt.payload
     urls = [r.get("url") for r in real if isinstance(r, dict) and r.get("url")][:max_pages]
 
     prices: list[dict] = []
@@ -82,7 +97,18 @@ def scrape_market_price(
 
     vals = sorted(p["value"] for p in prices)
     median = float(statistics.median(vals))
-    sources = sorted({p["source"] for p in prices})
+    # Only real, comparable sources. `sorted()` over a set holding both None and "" raises
+    # TypeError and took the whole skill down — a price row with no source is a page we
+    # cannot cite, so it must not be counted as one either.
+    sources = sorted({str(p.get("source")) for p in prices if p.get("source")})
+    # WHICH hosts the median came from, not just how many. A downstream independence claim
+    # needs the roster to check it; computing it here keeps one owner of the list.
+    def _host(url) -> str:
+        try:
+            return urlparse(str(url or "")).netloc.lower()
+        except Exception:
+            return ""
+    source_hosts = sorted({h for h in (_host(s) for s in sources) if h})
     return Evidence(
         source="scrape_market_price", category="skill_output",
         count=len(prices),
@@ -91,6 +117,7 @@ def scrape_market_price(
             "annual_usd": round(median * 12, 2),
             "n_prices": len(prices),
             "n_sources": len(sources),
+            "source_hosts": source_hosts,
             "low": vals[0], "high": vals[-1],
             "prices": prices[:30],
             "origin": "scrape",
