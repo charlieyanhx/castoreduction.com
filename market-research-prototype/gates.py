@@ -1574,6 +1574,74 @@ def d53_no_fabricated_agency_citation(r: dict, html: str | None) -> Finding:
                          "or an explicit unsourced disclosure")
 
 
+# Keys the ledger names that legitimately land under a DIFFERENT result path. Verified by
+# searching run2's result for each: counting these as lost would make the gate cry wolf on
+# two healthy outputs, and I nearly reported five losses instead of three by skipping this.
+_LEDGER_KEY_ALIASES = {
+    "competitor_landscape": ("discover.synthesis.ranked_opportunities", "discover"),
+    "pricing_benchmark": ("pricing.benchmark",),
+    "market_scale": ("market_scale", "market_sizing.scale_decision"),
+    "market_sizing": ("market_sizing",),
+}
+
+
+def _path_present(r: dict, dotted: str) -> bool:
+    cur: object = r
+    for part in dotted.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return False
+        cur = cur[part]
+    return bool(cur)
+
+
+def d54_produced_output_reaches_the_report(r: dict, html: str | None) -> Finding:
+    """Work the pipeline paid for must reach the report, or the run must say why it did not.
+
+    MEASURED on run2: the ledger recorded 9 outputs as produced, with module, qualname, file
+    and line. Three appear NOWHERE in the result -- clustering (cluster_competitors,
+    clustering.py:142, ok=true), consumer_research, price_intel. `clustering` was in run1's
+    report and vanished from run2's while still being recorded as produced, because the caller
+    does `if not clustering.get("error")` and on error simply moves on.
+
+    A section that disappears without a trace is indistinguishable from one that was never
+    meant to exist, so the trace ends up MORE complete than the report it describes.
+
+    A drop is acceptable -- real data is sometimes too sparse -- but it must be RECORDED.
+    `_dropped_outputs[key] = reason` satisfies this gate; silence does not.
+
+    N/A when the run carries no ledger (`_trace`), since there is nothing to reconcile."""
+    if not (r.get("_trace") or []):
+        return Finding(None, "no run ledger to reconcile against")
+    try:
+        from report.trace import recorded_producers
+        produced = recorded_producers(r) or {}
+    except Exception as e:                     # pragma: no cover - defensive
+        return Finding(None, f"cannot read the ledger: {type(e).__name__}: {e}")
+    if not produced:
+        return Finding(None, "ledger records no produced outputs")
+
+    dropped = r.get("_dropped_outputs") or {}
+    lost = []
+    for key, meta in produced.items():
+        if key in dropped:
+            continue                            # accounted for, with a reason
+        paths = _LEDGER_KEY_ALIASES.get(key, (key,))
+        if any(_path_present(r, p) for p in paths):
+            continue
+        by = (meta or {}).get("produced_by") or "?"
+        where = ""
+        if (meta or {}).get("file"):
+            where = f" ({meta['file']}:{meta.get('line')})"
+        lost.append(f"{key} produced by {by}{where}")
+    if lost:
+        return Finding(False,
+                       f"{len(lost)} output(s) the ledger records as produced are absent from "
+                       "the report with no reason recorded: " + "; ".join(lost[:4])
+                       + (f" (+{len(lost)-4} more)" if len(lost) > 4 else ""))
+    return Finding(True, f"all {len(produced)} recorded outputs are present or explained "
+                         f"({len(dropped)} explained drop(s))")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -1628,6 +1696,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D51", "momentum count measured on the shown roster", "audit critical: 6/6 geo reports cited an active count from the discarded set", "fail", d51_momentum_count_measured_on_the_shown_roster),
     Invariant("D52", "chosen sizing skill actually ran", "harness item 1: the classifier named size_hyperlocal and the LLM sized it instead", "fail", d52_chosen_sizing_skill_actually_ran),
     Invariant("D53", "no fabricated agency citation", "harness item 2: 14/15 agency-citing figures had no origin proving a call", "fail", d53_no_fabricated_agency_citation),
+    Invariant("D54", "produced output reaches the report", "harness item 7: 3 sections the ledger recorded as produced vanished silently", "fail", d54_produced_output_reaches_the_report),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
