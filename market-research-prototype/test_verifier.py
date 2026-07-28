@@ -233,8 +233,17 @@ class TestSeverityAndOrdering(unittest.TestCase):
 
     def test_summary_counts_by_severity(self):
         s = verify_report(self.base, self.html).summary()
-        self.assertEqual(set(s) - {"publishable"},
+        self.assertEqual(set(s) - {"publishable", "coverage"},
                          {Severity.BLOCK, Severity.ADVISORY, Severity.INFO})
+
+    def test_summary_also_reports_coverage(self):
+        """`coverage` is load-bearing, not incidental: a Finding is only recorded when an
+        invariant returns False, so a gate that could not answer was indistinguishable from
+        one that passed. Measured: run_plan verified with html=None and 10 fail-severity
+        gates were silently absent from every verdict."""
+        s = verify_report(self.base, self.html).summary()
+        self.assertIn("answered", s["coverage"])
+        self.assertIn("not_applicable", s["coverage"])
 
 
 class TestRobustness(unittest.TestCase):
@@ -305,10 +314,24 @@ class TestPipelineWiring(unittest.TestCase):
             "findings": []})
         self.assertIn("No blocking issue was found", html)
 
-    def test_api_passes_verification_to_the_template(self):
+    def test_the_renderer_passes_verification_to_the_template(self):
+        """The invariant is unchanged: the verification block must reach the template. Only
+        its address moved — the render was extracted out of the FastAPI route into
+        report/render_html.py so run_plan can render (and therefore verify) a real page
+        before it ships. Asserting on the route's source would now pass vacuously."""
         import inspect
-        import api
+
+        from report import render_html
         self.assertIn('verification=r.get("verification")',
+                      inspect.getsource(render_html.render_report_html))
+
+    def test_the_route_still_reaches_that_renderer(self):
+        """Guards the other half: an extracted renderer nothing calls is worse than an
+        inline one."""
+        import inspect
+
+        import api
+        self.assertIn("render_report_html",
                       inspect.getsource(api.get_job_report_html))
 
 

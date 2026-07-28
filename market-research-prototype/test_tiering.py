@@ -104,7 +104,7 @@ class TestLlmIntegration(unittest.TestCase):
         import llm
         seen = {}
 
-        def fake(system, user, max_tokens, model):
+        def fake(system, user, max_tokens, model, json_mode=True):
             seen["model"] = model
             return "hi", 1, 1
 
@@ -118,7 +118,7 @@ class TestLlmIntegration(unittest.TestCase):
         import llm
         seen = {}
 
-        def fake(system, user, max_tokens, model):
+        def fake(system, user, max_tokens, model, json_mode=True):
             seen["model"] = model
             return "hi", 1, 1
 

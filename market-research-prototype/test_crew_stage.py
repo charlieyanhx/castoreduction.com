@@ -136,11 +136,14 @@ class TestRendering(unittest.TestCase):
         html = self._render({"error": "all workers failed"})
         self.assertIn("all workers failed", html)
 
-    def test_api_passes_the_brief_to_the_template(self):
+    def test_the_renderer_passes_the_brief_to_the_template(self):
+        """Unchanged invariant, new address: the render moved out of the FastAPI route into
+        report/render_html.py so run_plan can verify a real page before it ships."""
         import inspect
-        import api
+
+        from report import render_html
         self.assertIn('research_brief=r.get("research_brief")',
-                      inspect.getsource(api.get_job_report_html))
+                      inspect.getsource(render_html.render_report_html))
 
 
 if __name__ == "__main__":

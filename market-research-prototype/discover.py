@@ -214,11 +214,42 @@ def _set_canonical_density(result: dict) -> None:
     len(enriched) (~20 on national ventures) while the report listed the LLM's curated
     7-9, so a buyer read "20 competitors" above a list of 9. Pin density to the
     displayed roster after synthesis so every surface counts the same set. No-op when
-    no roster exists yet (the geo paths set both from the same list already)."""
+    no roster exists yet.
+
+    All THREE numbers, not just the count. `active_signal_density` and
+    `avg_opportunity_score` are published beside the density and describe the same set, so
+    a swap that resyncs only the count leaves two numbers measured over a pool the report
+    does not show. Measured on the shipped corpus: 6 of 6 geo-sourced reports stated an
+    active-momentum count over a 26-30 venue OSM roster carrying no signal data at all, and
+    the claim was cited and load-bearing — "Focus initial promotional efforts on the 7
+    competitors with active web-momentum signals" named rivals from the discarded set.
+
+    An unmeasurable number becomes None, never 0. OSM venue records carry no web-momentum
+    data; zero would assert "all 30 were checked and none have momentum", which is the same
+    absence-read-as-measurement error in the other direction. Callers already treat None as
+    "say nothing" (competitive_density_directive omits the parenthetical)."""
     roster = ((result.get("synthesis") or {}).get("ranked_opportunities")
               or result.get("ranked_opportunities") or [])
-    if roster:
-        result["competitor_density"] = len(roster)
+    if not roster:
+        return
+    result["competitor_density"] = len(roster)
+
+    # Recount only from what the displayed roster itself carries.
+    scored = [o for o in roster if isinstance(o.get("opportunity_score"), (int, float))]
+    result["avg_opportunity_score"] = (
+        round(sum(o["opportunity_score"] for o in scored) / len(scored), 1)
+        if scored else None)
+
+    # "Has signal data" is a property of the record, not of the count: an entry with
+    # `signals: {}` was checked and found quiet, an entry with no `signals` key at all was
+    # never checked. Only the first kind can be counted.
+    observed = [o for o in roster if ("signals" in o or "_score" in o
+                                      or "active_signal" in o)]
+    result["active_signal_density"] = (
+        sum(1 for o in observed
+            if (o.get("signals") or {}) or o.get("active_signal")
+            or (o.get("_score") or 0) > 20)
+        if observed else None)
 
 
 def _is_megabrand(brand_name: str) -> bool:

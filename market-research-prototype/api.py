@@ -70,6 +70,33 @@ import json as _json
 import time as _time
 
 
+def halt_reason(job: dict | None) -> str | None:
+    """Why this job has no report to serve, or None if it produced one.
+
+    `state` cannot answer this. `run_plan` does not always RAISE on an unrecoverable step —
+    at plan.py:1580 it RETURNS {"error": "Profile extraction failed: ...", "profile": {...}}
+    and nothing else — and jobs._run_one marks any non-raising return `complete`. So a run
+    that produced only an error string is stored as a completed job. Measured on that exact
+    shape: /report.html served 200 with 23,142 bytes of report chrome including Viability
+    and Competitive sections, and /report.pdf built a 70,919-byte PDF from it.
+
+    One predicate, because the question was previously asked eight different ways in eight
+    places and every one of them asked only about `state`. `state` answers "did the worker
+    return?"; a buyer needs "did it return a report?".
+
+    A top-level `result.error` is the pipeline's own way of saying "this run has no report".
+    An error nested inside a SECTION (result["reddit"]["error"]) is a partial failure and
+    still ships — suppressing those would withhold reports that are substantially complete.
+    """
+    if not job:
+        return "job not found"
+    state = job.get("state")
+    if state != "complete":
+        return f"state={state}"
+    err = (job.get("result") or {}).get("error")
+    return str(err) if err else None
+
+
 def _find_existing_job(kind: str, match_params: dict, max_age_hours: int = 24) -> str | None:
     """Check if a completed job of this kind with matching params exists recently."""
     recent = jobs.list_recent(limit=50)
@@ -82,6 +109,10 @@ def _find_existing_job(kind: str, match_params: dict, max_age_hours: int = 24) -
         # Load full job to check params
         full = jobs.get(j["id"])
         if not full:
+            continue
+        # list_recent carries no result, so the halt check needs the full record: a run that
+        # produced only an error must not be served to the NEXT caller as a fresh result.
+        if halt_reason(full):
             continue
         params = full.get("params", {})
         if all(params.get(k) == v for k, v in match_params.items()):
@@ -397,6 +428,16 @@ def get_job(job_id: str):
     j = jobs.get(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
+    # The console polls this to decide whether to show a report link. A run that returned
+    # an error instead of a report is stored `complete` with an empty `error` column, so
+    # without this the UI shows a finished job pointing at a report that cannot render.
+    #
+    # ONLY the completed-but-empty case. halt_reason also reports "state=running", which is
+    # the right answer for "may I serve a report" and the wrong one here — reusing it
+    # verbatim relabelled every in-progress job as failed.
+    if (j.get("state") == "complete" and not j.get("error")
+            and (_err := (j.get("result") or {}).get("error"))):
+        j = {**j, "error": str(_err), "state": "error"}
     return j
 
 
@@ -453,8 +494,8 @@ def post_regenerate_section(job_id: str, req: RegenSectionRequest):
         raise HTTPException(status_code=404, detail="job not found")
     if job.get("kind") != "plan":
         raise HTTPException(status_code=400, detail=f"can only regenerate sections of plan jobs, got '{job.get('kind')}'")
-    if job.get("state") != "complete":
-        raise HTTPException(status_code=409, detail=f"job state is {job.get('state')}, must be complete")
+    if (_why := halt_reason(job)):
+        raise HTTPException(status_code=409, detail=f"nothing to regenerate from: {_why}")
 
     result = job.get("result") or {}
     # Pipeline stores under "four_ps" (legacy tests use "4ps" — accept both)
@@ -551,8 +592,11 @@ def compare_plans(left: str, right: str):
     right_job = jobs.get(right)
     if not left_job or not right_job:
         raise HTTPException(status_code=404, detail="job not found")
-    if left_job["state"] != "complete" or right_job["state"] != "complete":
-        raise HTTPException(status_code=409, detail="both jobs must be complete")
+    if halt_reason(left_job) or halt_reason(right_job):
+        raise HTTPException(status_code=409,
+                            detail="both jobs must have produced a report: "
+                                   f"left={halt_reason(left_job) or 'ok'}, "
+                                   f"right={halt_reason(right_job) or 'ok'}")
     if left_job["kind"] != "plan" or right_job["kind"] != "plan":
         raise HTTPException(status_code=400, detail="both must be /plan jobs")
 
@@ -588,8 +632,8 @@ def get_job_onepager(job_id: str):
     j = jobs.get(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
-    if j["state"] != "complete":
-        raise HTTPException(status_code=409, detail=f"job not complete (state={j['state']})")
+    if (_why := halt_reason(j)):
+        raise HTTPException(status_code=409, detail=f"job produced no report: {_why}")
     if j["kind"] != "plan":
         raise HTTPException(status_code=400, detail="one-pager only available for /plan jobs")
 
@@ -664,8 +708,8 @@ def get_job_trace(job_id: str):
     own append-only ledger, so it reports what happened rather than what was intended.
     """
     j = jobs.get(job_id)
-    if not j or j.get("state") != "complete":
-        raise HTTPException(status_code=404, detail="Job not found or not complete")
+    if (_why := halt_reason(j)):
+        raise HTTPException(status_code=404, detail=f"no report to trace: {_why}")
     r = j.get("result") or {}
     from report.trace import full_trace, step_activity
     page = get_job_report_html(job_id).body.decode()
@@ -768,14 +812,18 @@ def get_job_report_html(job_id: str, debug: int = 0):
     j = jobs.get(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
-    if j["state"] != "complete":
+    if halt_reason(j):
         # M2 fix: never hand a paying human a bare 409 / blank page. A job can be
         # mid-run ("running"), or have halted ("error", or orphaned by a worker/process
         # death). Return a friendly HTML status page that explains what happened and
         # offers to regenerate — instead of an empty body that reads as a broken product.
         state = j["state"]
         steps = len(((j.get("result") or {}) or {}).get("_steps_completed") or [])
-        err = j.get("error") or ""
+        # A run can fail two ways: the worker raised (job.error) or run_plan returned an
+        # error instead of a report (result.error). Both must reach the reader.
+        err = j.get("error") or (j.get("result") or {}).get("error") or ""
+        if state == "complete" and err:
+            state = "halted"
         if state == "running":
             headline, detail = ("Report still generating…",
                                 f"This run has completed {steps} steps. Refresh in a moment.")
@@ -802,131 +850,9 @@ def get_job_report_html(job_id: str, debug: int = 0):
     if j["kind"] != "plan":
         raise HTTPException(status_code=400, detail="HTML report only available for /plan jobs")
 
-    from jinja2 import Environment, FileSystemLoader
-    from datetime import datetime
-
-    env = Environment(loader=FileSystemLoader("templates"), autoescape=True, undefined=SafeUndefined)
-    tpl = env.get_template("report.html")
-
-    r = j["result"] or {}
-    profile = r.get("profile", {})
-    profile = {**profile, "name": display_title(profile)}
-    four_ps = r.get("four_ps", {})
-    viability = r.get("viability", {})
-    validation = r.get("validation", {})
-    psm = (r.get("pricing", {}) or {}).get("psm", {})
-    competitors = (r.get("discover", {}).get("synthesis", {}) or {}).get("ranked_opportunities", [])
-
-    # Color for viability score
-    score = viability.get("viability_score") or 0
-    if score >= 70:
-        viability_color = "#10b981"
-    elif score >= 40:
-        viability_color = "#f59e0b"
-    else:
-        viability_color = "#ef4444"
-
-    # Render competitor map SVG if clustering data exists
-    from charts import competitor_map_svg
-    import charts
-    from report.section_provenance import build_section_provenance
-    clustering = r.get("clustering")
-    whitespace = r.get("whitespace")
-    competitor_chart = competitor_map_svg(clustering, whitespace) if clustering else ""
-
-    # Build a transparent "data sources used" summary for the report
-    sigs = (r.get("discover", {}).get("steps", {}) or {}).get("signals", [])
-    audience = r.get("audience", {})
-    cp = r.get("competitor_pricing", {})
-    sources_used = {
-        "google_trends": any(s.get("trend_slope") is not None for s in sigs),
-        "trustpilot": any(s.get("trustpilot_reviews") is not None for s in sigs) or (audience.get("_evidence", {}) or {}).get("trustpilot_review_count", 0) > 0,
-        "reddit": any((s.get("reddit_mentions") or 0) > 0 for s in sigs) or (audience.get("_evidence", {}) or {}).get("reddit_post_count", 0) > 0,
-        "wayback_machine": any(s.get("wayback_avg_per_month") is not None for s in sigs),
-        "instagram": any(s.get("ig_followers") is not None for s in sigs),
-        "domain_age_rdap": any(s.get("domain_age_days") is not None for s in sigs),
-        "review_articles": (audience.get("_evidence", {}) or {}).get("article_count", 0) > 0,
-        "competitor_homepage_scrape": len(sigs) > 0,
-        "competitor_pricing": (cp.get("competitors_with_prices", 0) or 0) > 0,
-        "clustering": clustering is not None and not clustering.get("error"),
-        "market_sizing": (r.get("market_sizing") is not None) and not (r.get("market_sizing") or {}).get("error"),
-    }
-
-    from market_sizing import format_currency
-
-    html = tpl.render(
-        job_id=job_id,
-        profile=profile,
-        market_sizing=r.get("market_sizing"),
-        financials=r.get("financials"),
-        personas=r.get("personas"),
-        audiences=r.get("audiences"),
-        audiences_undecodable=r.get("audiences_undecodable"),
-        deltas=r.get("_deltas_vs_previous"),
-        previous_job_id=r.get("_previous_job_id"),
-        format_currency=format_currency,
-        four_ps=four_ps,
-        viability=viability,
-        viability_color=viability_color,
-        validation=validation,
-        # W6-1: what the pre-publication verifier found on THIS report.
-        verification=r.get("verification"),
-        # W6: the research crew's integrated brief (deep effort only).
-        research_brief=r.get("research_brief"),
-        psm=psm,
-        competitors=competitors,
-        # R4 rank 10: reference/off-category entries partitioned out of the competitor
-        # roster — shown separately so they don't count as competitors.
-        reference_cases=(r.get("discover", {}).get("synthesis", {}) or {}).get("reference_cases", []),
-        # Debuggable report: section→script provenance + the ?debug=1 toggle.
-        section_provenance=build_section_provenance(r),
-        debug=bool(debug),
-        competitor_chart=competitor_chart,
-        clustering=clustering,
-        whitespace=whitespace,
-        steps_completed=r.get("_steps_completed", []),
-        duration_seconds=r.get("_duration_seconds"),
-        generated_date=datetime.now().strftime("%Y-%m-%d %H:%M"),
-        sources_used=sources_used,
-        competitor_pricing=cp,
-        reddit_signal=r.get("reddit_signal"),
-        economics=r.get("economics"),
-        pricing_benchmark=(r.get("pricing") or {}).get("benchmark"),
-        differentiators=r.get("differentiators"),
-        customer_universe=r.get("customer_universe"),
-        segment_ranking=r.get("segment_ranking"),
-        segment_radar=(charts.segment_radar_svg((r.get("segment_ranking") or {}).get("top_pick", {}))
-                      if (r.get("segment_ranking") or {}).get("top_pick") else ""),
-        # Iter 41: max_diff was being computed (11 features in cycle 5) but never passed to template
-        max_diff=r.get("max_diff"),
-        # cycle33: STORM-style multi-perspective consumer research
-        consumer_research=r.get("consumer_research"),
-        market_scale=r.get("market_scale"),
-        # cycle33 C5: stated-vs-recommended price reconciliation (no silent re-pricing)
-        price_reconciliation=r.get("price_reconciliation"),
-        # cycle33: generator-evaluator-refine audit (present only when refine=True)
-        refine_audit=r.get("_refine"),
-        # cycle35: surface backend rigor to the UX (no dark capabilities)
-        integrity=__import__("plan").build_integrity_summary(r),
-        # cycle36: flag a run crippled by transient LLM/network failures (never present
-        # $0 TAM / failed sections as real findings — tell the reader to regenerate).
-        run_health=__import__("plan").assess_run_health(r),
-        # cycle37: business model (transactional retail vs subscription) → model-aware
-        # pricing / unit-economics / financials rendering.
-        business_model_kind=r.get("business_model_kind"),
-        # debug: per-run data-provenance trace (which tool/source/LLM produced each piece).
-        provenance=__import__("plan").build_provenance_summary(r),
-    )
-    if debug:
-        # Sentence-level provenance: mark every result-derived run of text with the exact
-        # result path behind it, so a sentence that reads wrong names the field — and the
-        # script — to go and read. Debug-only: this changes the page's bytes (never its
-        # words), and it must not reach the buyer's report or the PDF.
-        from report.trace import annotate as _annotate
-        html, _trace_stats = _annotate(html, r)
-        log.info("[report] sentence trace: %d/%d blocks attributed to a result path",
-                 _trace_stats["matched"], _trace_stats["blocks"])
-    return HTMLResponse(content=html)
+    from report.render_html import render_report_html
+    return HTMLResponse(content=render_report_html(j["result"] or {}, job_id=job_id,
+                                                  debug=debug))
 
 
 @app.get("/jobs/{job_id}/report.pdf")
@@ -941,8 +867,8 @@ def get_job_report_pdf(job_id: str):
     """
     from fastapi.responses import Response
     j = jobs.get(job_id)
-    if not j or j.get("state") != "complete":
-        raise HTTPException(status_code=404, detail="Job not found or not complete")
+    if (_why := halt_reason(j)):
+        raise HTTPException(status_code=404, detail=f"no report to render: {_why}")
 
     # Reuse the HTML endpoint by calling its function directly
     html_response = get_job_report_html(job_id)
@@ -980,8 +906,8 @@ def get_job_report(job_id: str):
     j = jobs.get(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
-    if j["state"] != "complete":
-        raise HTTPException(status_code=409, detail=f"job not complete (state={j['state']})")
+    if (_why := halt_reason(j)):
+        raise HTTPException(status_code=409, detail=f"job produced no report: {_why}")
 
     result = j["result"] or {}
     kind = j["kind"]

@@ -55,8 +55,29 @@ class Finding:
 
 
 @dataclass
+class Coverage:
+    """How much of the rulebook could actually answer on this report.
+
+    A Finding is only recorded when an invariant returns False, so a detector that DECLINED
+    to answer produced output identical to one that passed: nothing. The pass then reported
+    zero blocking issues and stamped the report publishable. Measured: run_plan verified with
+    html=None, and 10 fail-severity invariants can only answer with a rendered page — so a
+    tenth of the rulebook was silently absent from every verdict.
+
+    "Nothing was found" and "nothing could be checked" must not look the same."""
+    answered: int = 0
+    not_applicable: int = 0
+    blind_ids: list[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict:
+        return {"answered": self.answered, "not_applicable": self.not_applicable,
+                "blind_ids": sorted(self.blind_ids)}
+
+
+@dataclass
 class VerificationResult:
     findings: list[Finding] = field(default_factory=list)
+    coverage: Coverage = field(default_factory=Coverage)
 
     @property
     def publishable(self) -> bool:
@@ -67,6 +88,7 @@ class VerificationResult:
         for f in self.findings:
             out[f.severity] = out.get(f.severity, 0) + 1
         out["publishable"] = self.publishable
+        out["coverage"] = self.coverage.as_dict()
         return out
 
 
@@ -195,6 +217,7 @@ def verify_report(result: dict, html: Optional[str] = None,
     except Exception as e:                       # pragma: no cover — import guard
         log.warning("[verifier] cannot load invariants: %s", e)
         INVARIANTS = []
+    coverage = Coverage()
     for inv in INVARIANTS:
         try:
             f = inv.check(result, html)
@@ -202,7 +225,14 @@ def verify_report(result: dict, html: Optional[str] = None,
             findings.append(Finding(inv.id, Severity.ADVISORY,
                                     f"detector failed to run: {type(e).__name__}: {e}",
                                     inv.audit_class))
+            coverage.not_applicable += 1
+            coverage.blind_ids.append(inv.id)
             continue
+        if f.ok is None:
+            coverage.not_applicable += 1
+            coverage.blind_ids.append(inv.id)
+        else:
+            coverage.answered += 1
         if f.ok is False:
             findings.append(Finding(
                 inv.id,
@@ -227,4 +257,7 @@ def verify_report(result: dict, html: Optional[str] = None,
             log.warning("[verifier] llm review failed: %s", e)
 
     findings.sort(key=lambda f: (Severity.rank(f.severity), f.invariant))
-    return VerificationResult(findings=findings)
+    if html is None:
+        log.info("[verifier] no rendered page supplied: %d/%d invariants could not answer",
+                 coverage.not_applicable, coverage.answered + coverage.not_applicable)
+    return VerificationResult(findings=findings, coverage=coverage)
