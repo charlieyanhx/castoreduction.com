@@ -974,6 +974,17 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
                       ["SOM_obtainable", "SOM_demand"]),
         "method": p.get("method"), "figures": p.get("figures"),
         "households": p.get("households"),
+        # Carry the TRADE-AREA SCALE through to the stored report. size_hyperlocal publishes
+        # these; this mapping dropped them, so D49 — the gate guarding the measured 372x
+        # county-as-trade-area error — was N/A on all 16 stored reports while its synthetic
+        # unit tests passed. A gate that cannot see real output is not a safeguard.
+        # test_gate_reachability now enforces this for every gate.
+        "scale": (scale_decision or {}).get("scale") or "hyperlocal",
+        "trade_area_households": p.get("trade_area_households"),
+        "radius_m": p.get("radius_m"),
+        "catchment_km2": p.get("catchment_km2"),
+        "households_sourced": p.get("households_sourced"),
+        "density_geography": p.get("density_geography"),
         "competitors": p.get("competitors") or len(geo_competitors),
         "geo_competitors": geo_competitors,
         "notes": notes, "validation": val,
