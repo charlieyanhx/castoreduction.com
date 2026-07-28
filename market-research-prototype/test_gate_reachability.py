@@ -48,13 +48,21 @@ _KNOWN_UNREACHABLE: dict[str, str] = {
            "PRODUCER, asserting the mapping writes the keys and that the gate returns a "
            "real verdict on a current-shape payload. Remove this entry after the next "
            "corpus regeneration.",
+    "D54": "reconciles the ledger's PRODUCER records against the report, and the stored "
+           "corpus has none. Measured: all 16 reports carry a _trace (83 events in the "
+           "first), but 0 of those events carry a `produces` key -- they predate the "
+           "producer stamping, so recorded_producers() returns {} and there is nothing to "
+           "reconcile. run2 has 10. NOT a pass: TestTheGateCatchesItOnTheLiveRun in "
+           "test_produced_output_reaches_the_report.py proves it fires on out/live/run2.json "
+           "-- a genuine end-to-end run -- catching all 3 measured silent drops. Remove "
+           "this entry after the next corpus regeneration.",
 }
 
 
 # Corpus staleness is the one honest reason a gate can be unprovable here, and it must not
 # become a blanket excuse. A gate allowlisted for staleness has to demonstrate reachability
 # against a CURRENT-SHAPE payload instead — same guarantee, different artifact.
-_STALENESS_ALLOWLISTED = {"D49"}
+_STALENESS_ALLOWLISTED = {"D49", "D54"}
 
 
 def _load_reports():

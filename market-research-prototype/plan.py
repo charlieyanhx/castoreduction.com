@@ -946,6 +946,23 @@ def _resolve_osm_amenity(category: str) -> str | None:
     return t[1] if t else None
 
 
+def record_dropped_output(result: dict, key: str, reason: str) -> None:
+    """Record that a step produced something the report will not carry, and why.
+
+    Measured on run2: the ledger recorded `clustering` as produced by cluster_competitors
+    (clustering.py:142, ok=true) and the section appeared nowhere -- because the caller does
+    `if not clustering.get("error")` and, on error, simply moves on. Same for
+    consumer_research and price_intel. Three sections' worth of work, paid for and discarded
+    without a trace, which is indistinguishable from a section that was never meant to exist.
+
+    Deliberately does NOT create result[key]: a placeholder would be a fabricated section.
+    The reason lives in `_dropped_outputs` so both the reader and gate D54 can see it."""
+    if not key or not reason:
+        return
+    drops = result.setdefault("_dropped_outputs", {})
+    drops[str(key)] = str(reason)[:400]
+
+
 def size_by_scale(scale_decision: dict | None, description: str, profile: dict) -> dict | None:
     """For physical ventures with a location, size by trade-area (size_hyperlocal) and
     adapt to the legacy tam/sam/som shape so the report + gate work. Returns None to
@@ -1692,6 +1709,12 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         # n_input == len(roster) == competitor_density.
         cluster_input = opps
         clustering = cluster_competitors(cluster_input)
+        if clustering.get("error"):
+            # Measured: on a real OSM roster this is "need at least 4 competitors with
+            # descriptions, got 2" (n_input=30). Silence made the competitor map vanish
+            # between two runs of the same venture with nothing to explain it.
+            record_dropped_output(result, "clustering",
+                                  f"cluster_competitors: {clustering.get('error')}")
         if not clustering.get("error"):
             whitespace = find_whitespace(clustering, profile)
             # Label PCA axes (user feedback #3a + spec step 3c)

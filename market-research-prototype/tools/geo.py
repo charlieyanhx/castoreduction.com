@@ -388,6 +388,68 @@ def census_business_counts(naics: Optional[str] = None, category: Optional[str] 
     )
 
 
+def _osm_competitor_record(el: dict) -> Optional[dict]:
+    """One Overpass element -> a competitor record, keeping the tags we already paid for.
+
+    The query asks for `out tags` and the parser used to keep only `name`. Measured against
+    62 real Mission District cafes, that discarded:
+
+        cuisine 34/62    website 25/62    opening_hours 35/62    addr:street 56/62
+
+    Those 25 websites are exactly the `domain` that `enrich_competitors_batch` requires and
+    never received, and the cuisine values are description text `cluster_competitors` needs to
+    embed -- it errored with "need at least 4 competitors with descriptions, got 2" on a
+    30-venue roster, so the competitor map silently vanished from the report. The data was
+    fetched and thrown away in the parser, so keeping it recovers work rather than costing a
+    call.
+
+    Returns None for an unnamed node (nothing to attribute a rival to)."""
+    tags = el.get("tags") or {}
+    name = (tags.get("name") or "").strip()
+    if not name:
+        return None
+
+    site = (tags.get("website") or tags.get("contact:website") or "").strip()
+    domain = ""
+    if site:
+        try:
+            from urllib.parse import urlparse
+            host = urlparse(site if "//" in site else f"http://{site}").netloc.lower()
+            domain = host[4:] if host.startswith("www.") else host
+        except Exception:
+            domain = ""
+
+    # An OSM-authored description beats one we synthesise from tags.
+    desc = (tags.get("description") or "").strip()
+    if not desc:
+        bits = []
+        cuisine = (tags.get("cuisine") or "").strip()
+        if cuisine:
+            bits.append(", ".join(c.replace("_", " ").strip()
+                                  for c in cuisine.split(";") if c.strip()))
+        if tags.get("outdoor_seating") == "yes":
+            bits.append("outdoor seating")
+        if tags.get("takeaway") == "yes":
+            bits.append("takeaway")
+        if tags.get("internet_access") in ("wlan", "yes"):
+            bits.append("wifi")
+        desc = "; ".join(b for b in bits if b)
+
+    rec = {"brand": name, "name": name}
+    if domain:
+        rec["domain"] = domain
+    else:
+        rec["domain"] = ""
+    if desc:
+        rec["description"] = desc
+    for k_osm, k_out in (("addr:street", "street"), ("opening_hours", "opening_hours"),
+                         ("phone", "phone")):
+        v = (tags.get(k_osm) or "").strip()
+        if v:
+            rec[k_out] = v
+    return rec
+
+
 @tool(category="geo", returns="list[{name}] — named nearby competitors",
       args_model=OsmNamedArgs)
 def osm_named_competitors(lat: float, lng: float, radius_m: int = 3000,
@@ -408,14 +470,19 @@ def osm_named_competitors(lat: float, lng: float, radius_m: int = 3000,
     )
     data = _overpass(query, timeout=30)
     names: list[str] = []
+    records: list[dict] = []
     if isinstance(data, dict):
         seen = set()
         for el in (data.get("elements") or []):
-            nm = ((el.get("tags") or {}).get("name") or "").strip()
-            key = nm.lower()
-            if nm and key not in seen:
-                seen.add(key)
-                names.append(nm)
+            rec = _osm_competitor_record(el)
+            if not rec:
+                continue
+            key = rec["brand"].lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            names.append(rec["brand"])
+            records.append(rec)
             if len(names) >= limit:
                 break
     if not names:
@@ -425,8 +492,10 @@ def osm_named_competitors(lat: float, lng: float, radius_m: int = 3000,
     # Barber" vs "Brooklyn Barber Co", or a corporate family plotted as rival camps.
     # The RapidFuzz collapse that runs on the web set never ran on the geo set; run it.
     from sources import collapse_near_dupes
-    payload = collapse_near_dupes([{"brand": n, "name": n} for n in names],
-                                  key="name", threshold=92)
+    # Collapse the RECORDS, not a freshly rebuilt {brand, name} pair. Rebuilding threw away
+    # the website/cuisine/address this function had just parsed -- the same
+    # computed-then-discarded bug this change exists to fix, committed inside the fix itself.
+    payload = collapse_near_dupes(records, key="name", threshold=92)
     return Evidence(
         source="osm_named_competitors", category="geo", count=len(payload),
         payload=payload,
