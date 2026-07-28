@@ -169,5 +169,48 @@ class TestTheGateCatchesItOnTheLiveRun(unittest.TestCase):
         self.assertIsNone(d52(r, None).ok)
 
 
+class TestFoundOnASecondLiveRun(unittest.TestCase):
+    """Two gaps the first fresh run exposed that unit tests had not. Both are cases where the
+    fix was correct in isolation and did not survive the path that actually executes."""
+
+    def test_the_override_is_re_gated_so_the_disclosure_survives(self):
+        """plan.py gated the digital sizing, then size_by_scale REPLACED it -- discarding
+        scale_skill_ran and the disclosure note on exactly the path that runs for physical
+        ventures. Measured on run2: scale_skill_ran absent, no note naming the skill."""
+        import inspect
+        src = inspect.getsource(plan.run_plan)
+        i_override = src.find("size_by_scale(scale_decision")
+        self.assertGreater(i_override, -1)
+        after = src[i_override:i_override + 700]
+        self.assertIn("gate_and_annotate_sizing", after,
+                      "the trade-area override is not re-gated, so the disclosure added "
+                      "before it is thrown away")
+
+    def test_a_skill_that_ran_but_could_not_size_does_not_claim_measured_figures(self):
+        """THREE states, not two. On run2 size_hyperlocal computed a real 1500m/7.07km2
+        catchment and then could not finish (ACS households need a key). The success note
+        would have claimed "figures are measured from the catchment" beside zero figures and
+        no TAM -- a smaller version of the overclaim this work exists to stop."""
+        ran_but_empty = {"scale": "hyperlocal", "radius_m": 1500, "catchment_km2": 7.07,
+                         "tam": {}, "figures": []}
+        out = plan.gate_and_annotate_sizing(ran_but_empty, _HYPERLOCAL)
+        notes = " ".join(out.get("notes") or [])
+        self.assertIs(out.get("scale_skill_ran"), True, "the skill did run; say so")
+        self.assertFalse(out.get("publishable"), "an unsized report shipped as publishable")
+        self.assertNotIn("figures are measured from the catchment", notes,
+                         "claimed measured figures while carrying none")
+        self.assertIn("could not size it", notes)
+        self.assertIn("1500", notes, "the note does not report what it DID measure")
+
+    def test_a_fully_grounded_sizing_still_reads_as_success(self):
+        grounded = {"scale": "hyperlocal", "radius_m": 1500, "catchment_km2": 7.07,
+                    "trade_area_households": 8872, "tam": {"mid": 3.5e7},
+                    "figures": [{"label": "TAM", "value_usd": 3.5e7,
+                                 "formula": "8,872 x $3,944", "source": "ACS"}]}
+        out = plan.gate_and_annotate_sizing(grounded, _HYPERLOCAL)
+        self.assertTrue(out.get("publishable"))
+        self.assertIn("measured from the catchment", " ".join(out.get("notes") or []))
+
+
 if __name__ == "__main__":
     unittest.main()

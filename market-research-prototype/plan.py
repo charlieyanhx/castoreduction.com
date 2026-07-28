@@ -282,9 +282,28 @@ def gate_and_annotate_sizing(sizing: dict, scale_decision: dict | None) -> dict:
                     "below are model-narrated upper bounds, not a measured trade area. "
                     "Provide a street address for a defensible SOM."]
             else:
-                out["notes"] = list(out.get("notes") or []) + [
-                    f"Trade-area sizing via {skill or 'size_hyperlocal'}: figures are "
-                    "measured from the catchment, not national top-down."]
+                # THREE states, not two. "The skill ran" and "the skill produced numbers" are
+                # different facts: on a fresh run size_hyperlocal computed a real 1500m/
+                # 7.07km2 catchment and then could not finish, because ACS households need a
+                # CENSUS_API_KEY. Claiming "figures are measured from the catchment" beside
+                # zero figures and no TAM would be a smaller version of the same overclaim
+                # this gate exists to stop.
+                _has_numbers = bool((out.get("tam") or {}).get("mid")
+                                    or (out.get("figures") or []))
+                if _has_numbers:
+                    out["notes"] = list(out.get("notes") or []) + [
+                        f"Trade-area sizing via {skill or 'size_hyperlocal'}: figures are "
+                        "measured from the catchment, not national top-down."]
+                else:
+                    out["publishable"] = False
+                    out["notes"] = list(out.get("notes") or []) + [
+                        f"{skill or 'The trade-area model'} ran and measured the catchment "
+                        f"({out.get('radius_m')}m radius"
+                        + (f", {out.get('catchment_km2')} km2" if out.get("catchment_km2")
+                           else "")
+                        + "), but could not size it: the household and spend inputs are "
+                        "unavailable. No market size is published rather than substituting "
+                        "a national estimate for a trade area."]
     return out
 
 
@@ -2312,6 +2331,12 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     try:
         hl = size_by_scale(scale_decision, description, profile)
         if hl:
+            # The override REPLACES the sizing, so it must be re-gated. Measured on a fresh
+            # run: gate_and_annotate_sizing had already stamped scale_skill_ran and the
+            # grounded/not-grounded disclosure onto the digital sizing, and assigning `hl`
+            # here discarded both -- on exactly the path that now runs for physical ventures.
+            # The gate is idempotent, so running it again on the new payload is the fix.
+            hl = gate_and_annotate_sizing(hl, scale_decision)
             result["market_sizing"] = hl
             if "market_sizing" not in result["_steps_completed"]:
                 _step_done(result, "market_sizing")
