@@ -1420,6 +1420,44 @@ def d22_viability_reasoning_density_coherent(r: dict, html: Optional[str]) -> Fi
                    if bad else f"viability's competitor claims match real density {sorted(valid)}")
 
 
+def d51_momentum_count_measured_on_the_shown_roster(r: dict, html: str | None) -> Finding:
+    """The active-momentum count must be measured on the roster the report DISPLAYS.
+
+    Both geo-swap paths replace ranked_opportunities with real OSM rivals and resync
+    competitor_density, but `active_signal_density` kept the value computed over the
+    discarded web-discovery pool. Measured across the shipped corpus: 6 of 6 geo-sourced
+    reports published an active count over a 26-30 venue roster carrying no signal data at
+    all, and the claim was cited and load-bearing -- "Focus initial promotional efforts on
+    the 7 competitors with active web-momentum signals" named rivals from the set that had
+    been thrown away, so a reader following the advice was pointed at companies the report
+    never lists.
+
+    Fails when a published count cannot be backed by the displayed roster: either the roster
+    carries no signal data at all (nothing was measured, so no count is defensible), or the
+    count exceeds what the roster can support. N/A when no count was published, or when
+    there is no roster to check it against."""
+    disc = r.get("discover") or {}
+    active = disc.get("active_signal_density")
+    roster = ((disc.get("synthesis") or {}).get("ranked_opportunities")
+              or disc.get("ranked_opportunities") or [])
+    if active is None or not roster:
+        return Finding(None, "no published momentum count, or no roster to check it against")
+
+    observed = [o for o in roster if ("signals" in o or "_score" in o or "active_signal" in o)]
+    if not observed:
+        return Finding(False, f"claims {active} of {len(roster)} rivals show active "
+                              "web-momentum, but not one entry in the displayed roster "
+                              "carries any signal data -- the count describes a different set")
+    backed = sum(1 for o in observed
+                 if (o.get("signals") or {}) or o.get("active_signal")
+                 or (o.get("_score") or 0) > 20)
+    if active > backed:
+        return Finding(False, f"claims {active} active rivals; the displayed roster supports "
+                              f"at most {backed} of {len(observed)} measured entries")
+    return Finding(True, f"{active} active of {len(observed)} measured entries in a "
+                         f"{len(roster)}-rival roster")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -1471,6 +1509,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D48", "shipped report attributes its sections", "provenance a buyer cannot see is not provenance", "fail", d48_shipped_report_attributes_its_sections),
     Invariant("D49", "trade area matches its radius", "audit high #4: no county-scale household count as a trade area", "fail", d49_trade_area_matches_its_radius),
     Invariant("D50", "no publishable sizing without numbers", "an empty sizing passed the gate vacuously and shipped", "fail", d50_no_publishable_sizing_without_numbers),
+    Invariant("D51", "momentum count measured on the shown roster", "audit critical: 6/6 geo reports cited an active count from the discarded set", "fail", d51_momentum_count_measured_on_the_shown_roster),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

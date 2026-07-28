@@ -1070,7 +1070,12 @@ def _promote_geo_competitors(result: dict, description: str, profile: dict, geo:
             disc.setdefault("synthesis", {})["ranked_opportunities"] = geo_opps
             disc["geo_sourced"] = True
             disc["category"] = (profile or {}).get("category", "")
-            disc["competitor_density"] = len(geo_opps)  # B1/D16: keep in sync
+            # One owner for all three roster-derived numbers. Setting only the count here
+            # left active_signal_density/avg_opportunity_score describing the web set that
+            # was just discarded — 6/6 geo reports shipped a cited momentum count over a
+            # roster with no signal data.
+            from discover import _set_canonical_density
+            _set_canonical_density(disc)
             result["discover"] = disc
             log.info("[plan] M1: promoted %d geo competitors to the canonical set", len(geo_opps))
     except Exception as e:
@@ -1131,7 +1136,8 @@ def _surface_late_geo_competitors(result: dict, geo_competitors: list, category:
     disc.setdefault("synthesis", {})["ranked_opportunities"] = roster
     disc["geo_sourced"] = True
     disc["category"] = category
-    disc["competitor_density"] = len(roster)   # B1/D16/D33: one roster, one count
+    from discover import _set_canonical_density
+    _set_canonical_density(disc)   # B1/D16/D33: one roster owns every number taken from it
     result["discover"] = disc
     if "discover" not in result["_steps_completed"]:
         _step_done(result, "discover")
@@ -2382,8 +2388,11 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         profile=profile,
         four_ps=four_ps,
         density=disc.get("competitor_density") or 0,
-        active_density=disc.get("active_signal_density") or 0,
-        avg_score=disc.get("avg_opportunity_score") or 0,
+        # NOT `or 0`: an unmeasured momentum count coerced to zero reads as "no rival has
+        # any web presence", which is a finding, not a gap — and it is the finding the
+        # corpus acted on. None reaches the prompt as "not measured".
+        active_density=disc.get("active_signal_density"),
+        avg_score=disc.get("avg_opportunity_score"),
         audience_confidence=top_audience.get("confidence", 0) or 0,
         signal_count=signal_count,
         differentiators_strength=(result.get("differentiators") or {}).get("differentiation_strength"),
@@ -2471,7 +2480,21 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     # is a worse trade than one that occasionally misses.
     try:
         from report.verifier import verify_report
-        vr = verify_report(result, None, use_llm=_levers["verify_with_llm"])
+        # Render the page BEFORE verifying it. Measured: 10 invariants — every one
+        # fail-severity — can only return a verdict when they can read the rendered report
+        # (D02/D06/D24/D25/D27/D36/D41/D43/D45/D48), so verifying with html=None left the
+        # pass blind to the whole class of defects that only exist once the report is a page,
+        # while reporting a clean verdict. Best-effort: a render problem degrades coverage,
+        # it must never fail a paid run.
+        _html = None
+        try:
+            from report.render_html import render_report_html
+            _html = render_report_html(result)
+        except Exception as e:
+            log.warning("[plan] pre-verification render failed, verifying without the "
+                        "page (%d page-dependent gates will report as blind): %s",
+                        10, e)
+        vr = verify_report(result, _html, use_llm=_levers["verify_with_llm"])
         result["verification"] = {
             "summary": vr.summary(),
             "findings": [{"invariant": f.invariant, "severity": f.severity,

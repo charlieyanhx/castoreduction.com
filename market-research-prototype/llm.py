@@ -12,6 +12,7 @@ Supported backends + free tier:
 """
 from __future__ import annotations
 import json
+import re
 import os
 import time
 from dataclasses import dataclass, field
@@ -133,7 +134,8 @@ def _backend_and_model() -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 # Backend implementations
 # ---------------------------------------------------------------------------
-def _call_anthropic(system: str, user: str, max_tokens: int, model: str) -> tuple[str, int, int]:
+def _call_anthropic(system: str, user: str, max_tokens: int, model: str,
+                    json_mode: bool = True) -> tuple[str, int, int]:
     import anthropic
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     client = anthropic.Anthropic(api_key=key)
@@ -145,14 +147,18 @@ def _call_anthropic(system: str, user: str, max_tokens: int, model: str) -> tupl
     return msg.content[0].text, msg.usage.input_tokens, msg.usage.output_tokens
 
 
-def _call_groq(system: str, user: str, max_tokens: int, model: str) -> tuple[str, int, int]:
+def _call_groq(system: str, user: str, max_tokens: int, model: str,
+               json_mode: bool = True) -> tuple[str, int, int]:
     from groq import Groq
     key = os.environ.get("GROQ_API_KEY", "")
     client = Groq(api_key=key)
     resp = client.chat.completions.create(
         model=model, max_tokens=max_tokens,
         temperature=0, seed=42,  # F2: deterministic (Groq supports a seed)
-        response_format={"type": "json_object"},
+        # Only when the caller wants JSON. call_text shares these backends, so a hardcoded
+        # response_format meant the prose path was constrained to emit an object and
+        # returned that raw text to be printed.
+        **({"response_format": {"type": "json_object"}} if json_mode else {}),
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -188,7 +194,8 @@ def _gemini_client():
 _GEMINI_THINKING_OK: dict[str, bool] = {}
 
 
-def _call_gemini(system: str, user: str, max_tokens: int, model: str) -> tuple[str, int, int]:
+def _call_gemini(system: str, user: str, max_tokens: int, model: str,
+                 json_mode: bool = True) -> tuple[str, int, int]:
     global _gemini_last_call
     client = _gemini_client()
     full_prompt = f"{system}\n\n{user}"
@@ -230,7 +237,8 @@ def _call_gemini(system: str, user: str, max_tokens: int, model: str) -> tuple[s
                 # spend/households use max_tokens=60 — got eaten by thinking). Verified:
                 # with thinking off, 60 tokens emits clean JSON; with it on, even 512
                 # tokens truncates mid-object. Also faster + cheaper.
-                config={"response_mime_type": "application/json",
+                config={**({"response_mime_type": "application/json"}
+                           if json_mode else {}),
                         "max_output_tokens": max_tokens,
                         "temperature": 0,  # F2: deterministic — same input → same number
                         "seed": 42,
@@ -304,7 +312,7 @@ def _try_one_backend(backend: str, system: str, user: str, max_tokens: int,
     try:
         text, in_tok, out_tok = fn(
             system + "\n\nCRITICAL: Return valid JSON only. No markdown fences, no commentary.",
-            user, max_tokens, model,
+            user, max_tokens, model, json_mode=True,   # explicit: this chain is the JSON path
         )
         return text, in_tok, out_tok, model
     except Exception as e:
@@ -399,17 +407,72 @@ def _cache_key(system: str, user: str, response_model: Optional[type] = None,
     return f"llm_json:{digest}"
 
 
+def _truncated_value(text: str) -> str | None:
+    """Name the in-progress value this text ends inside, or None if it ends cleanly.
+
+    json_repair happily completes a value that was cut off mid-write, and the result is
+    valid JSON carrying a number the model never wrote. Measured on the installed version:
+
+        '{"households": 8872, "radius_m": 30'  -> radius_m = 30      (was writing 3000)
+        '{"tam_usd": 1234567, "sam_usd": 98'   -> sam_usd  = 98      (was writing 98000000)
+        '{"price": 12.'                        -> price    = 12.0
+        '{"tam": 2.5e'                         -> tam      = 2.5
+
+    Each returns with error=None and flows into the report as a figure. A 30 m radius in
+    place of 3,000 m is the 372x county-scale class of error by another route.
+
+    A bare trailing number CANNOT be recovered: '{"tam_usd": 1234567' is indistinguishable
+    from a complete value that lost its brace and a truncated 12345670. The text does not
+    carry the information needed to tell them apart, so the only honest move is to decline
+    and let call_json's existing retry re-ask. One extra call is a trivial price.
+
+    Structural damage AFTER a provably complete value — a missing brace following a closed
+    string, `true`/`false`/`null`, or a closed bracket, plus trailing commas — stays
+    salvageable, because nothing there is ambiguous."""
+    t = text.rstrip()
+    if not t:
+        return None
+    # An odd number of unescaped quotes means a string is still open.
+    unescaped = len(re.findall(r'(?<!\\)"', t))
+    if unescaped % 2:
+        return "an unterminated string"
+    # These must be NUMBER-aware, not character-aware. A bare trailing `e` is the last
+    # letter of `true`, and a bare trailing `.` is the end of an English sentence — treating
+    # either as a cut number reports prose and booleans as truncated.
+    if re.search(r'\d$', t):
+        # A digit at the very end: either a finished number missing its delimiter, or a
+        # number cut mid-write. Indistinguishable, therefore untrusted.
+        return "a number with no closing delimiter"
+    if re.search(r'\d\.$', t):
+        return "a number cut after its decimal point"
+    if re.search(r'\d(?:\.\d*)?[eE][-+]?$', t):
+        return "a number cut inside its exponent"
+    if re.search(r'[:\[,]\s*[-+]$', t):
+        return "a number that is only a sign"
+    if re.search(r'[:\[,]\s*(?:tru|fals|nul)$', t):
+        return "a truncated keyword"
+    return None
+
+
 def _parse_payload(text: str) -> tuple[Optional[object], Optional[str]]:
     """Fences → json.loads → json_repair salvage. Returns (obj, None) or (None, error)."""
     text = _strip_fences(text)
     try:
         return json.loads(text), None
     except json.JSONDecodeError as e:
+        cut = _truncated_value(text)
+        if cut:
+            # Refuse rather than commit a fabricated value. The caller retries.
+            log.warning("call_json: output ends in %s — refusing the json_repair salvage "
+                        "rather than publish a value the model did not write (likely a "
+                        "max_tokens cutoff)", cut)
+            return None, f"response truncated: ends in {cut} ({e})"
         try:
             import json_repair
             result = json_repair.loads(text)
             if result and isinstance(result, (dict, list)):
-                log.warning("call_json: json_repair salvaged malformed output")
+                log.warning("call_json: json_repair repaired structure after a complete "
+                            "final value")
                 return result, None
         except ImportError:
             log.debug("json_repair not installed, parse error will propagate")
@@ -518,6 +581,11 @@ def call_text(system: str, user: str, max_tokens: int = 2000,
     from model.tiering import model_for
     model = model_for(tier, backend, model)
     fn = _BACKENDS[backend]
-    text, in_tok, out_tok = fn(system, user, max_tokens, model)
+    # json_mode=False: this is the prose path. Groq and Gemini both hardcoded structured
+    # output, so every call_text caller -- agents/synthesis.py's research_brief, which the
+    # report renders verbatim -- was asking a model constrained to emit a JSON object for a
+    # paragraph. Invisible on Anthropic, which never set a response format, which is how it
+    # went unnoticed.
+    text, in_tok, out_tok = fn(system, user, max_tokens, model, json_mode=False)
     usage.add(model, in_tok, out_tok)
     return text
