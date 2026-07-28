@@ -7,8 +7,16 @@ fits — hyperlocal trade area, regional rollout, or national/global digital.
 Every path returns the same validated Evidence(produces="market_sizing"), with
 the routing decision attached for transparency.
 
-This is the seam the deterministic pipeline (`plan.py`) calls: one skill in,
-one validated sizing out, the scale decision auditable in the payload.
+This is the seam the deterministic pipeline SHOULD call: one skill in, one validated
+sizing out, the scale decision auditable in the payload.
+
+NOT WIRED YET, and the docstring used to claim otherwise. Measured 2026-07-28: `plan.py`
+never calls `size_market`. It calls `market_sizing.estimate_market_size` (LLM-based) and,
+for physical ventures with an extractable location, `plan.size_by_scale` -> `size_hyperlocal`
+directly. So this dispatcher's classify-then-route logic is duplicated inline rather than
+reused, and a claim that plan.py calls it is how that stayed invisible through several
+audits. Harness item 4 tracks consolidating the two; test_one_orchestrator.py fails if this
+sentence drifts back to the false version.
 """
 from __future__ import annotations
 

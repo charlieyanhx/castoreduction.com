@@ -47,9 +47,17 @@ class TestGateAndAnnotate(unittest.TestCase):
         self.assertNotIn("notes", out)
 
     def test_physical_scale_gets_trade_area_caveat(self):
+        """The caveat is now load-bearing rather than advisory: a hyperlocal venture whose
+        trade-area model did not run is marked unpublishable and the note names the skill.
+        Measured across the corpus + live run, 9 reports published sizing in exactly this
+        state, one of them citing Census and BLS for it."""
         out = gate_and_annotate_sizing(_legacy(5e9, 1e9, 1e8),
                                        {"scale": "hyperlocal", "sizing_skill": "size_hyperlocal"})
-        self.assertTrue(any("trade-area" in n for n in out["notes"]))
+        notes = " ".join(out["notes"])
+        self.assertIn("trade area", notes.lower())
+        self.assertIn("size_hyperlocal", notes)
+        self.assertFalse(out["publishable"])
+        self.assertIs(out["scale_skill_ran"], False)
 
     def test_handles_empty_sizing(self):
         out = gate_and_annotate_sizing({}, None)

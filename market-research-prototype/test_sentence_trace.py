@@ -63,11 +63,14 @@ class TestProducerForPath(unittest.TestCase):
     def test_a_path_resolves_via_its_first_segment(self):
         p = producer_for_path("four_ps.price.narrative")
         self.assertEqual(p["module"], "four_ps")
-        self.assertEqual(p["produced_by"], "four_ps_skill")
+        self.assertEqual(p["produced_by"], "assemble_4ps_split")
 
     def test_an_indexed_first_segment_still_resolves(self):
+        # item 4: was "skills.pipeline_steps" — the Personas section was attributed to
+        # personas_skill, which exists there but never runs. It is produced by
+        # personas.synthesize_personas.
         self.assertEqual(producer_for_path("personas[2].core_motivation")["module"],
-                         "skills.pipeline_steps")
+                         "personas")
 
     def test_an_unmapped_key_returns_none(self):
         self.assertIsNone(producer_for_path("nope.whatever"))
@@ -131,7 +134,7 @@ class TestTraceReport(unittest.TestCase):
         rows = trace_report("<p>" + "A" * 50 + "</p>", {"profile": {"summary": "A" * 50}})
         (row,) = [r for r in rows if r["kind"] == "result"]
         self.assertEqual(row["path"], "profile.summary")
-        self.assertEqual(row["module"], "profile")
+        self.assertEqual(row["module"], "company_profile")
 
     def test_a_template_block_points_at_the_template(self):
         rows = trace_report("<p>Prose written directly in the report template, static.</p>",
@@ -328,8 +331,13 @@ class TestRecordedProducers(unittest.TestCase):
         self.assertEqual(c["attribution"], "recorded")
 
     def test_the_recorded_producer_beats_the_static_map(self):
-        """The map says four_ps_skill lives in `four_ps`; the RUN says four_ps.py:412.
-        The run wins — it cannot have drifted."""
+        """The point of this test is precedence, so the expected values are the RECORDED
+        ones, not the map's. The static map now says assemble_4ps_split in `four_ps`; the
+        injected run record says four_ps_skill in skills.pipeline_steps. The record wins —
+        it cannot have drifted, because it is what actually executed.
+
+        (Corrected after an over-broad rename briefly changed this expectation to the map's
+        value, which would have asserted the opposite of the precedence rule.)"""
         from report.trace import chain_for_path
         c = chain_for_path("four_ps.price.narrative", self._result_with_record())
         self.assertEqual(c["produced_by"], "four_ps_skill")

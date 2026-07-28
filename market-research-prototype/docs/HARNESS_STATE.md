@@ -158,3 +158,109 @@ The ordering is by whether a wrong number can still reach a reader.
 Items 1–3 are the "stop using the LLM where a script exists" work. Item 4 is what makes the
 orchestrator small. Items 5–6 are what make the answer to "which script produced this
 sentence" trustworthy rather than approximately right.
+
+
+---
+
+# Status after the remediation pass (same day)
+
+Suite: **2010 passed, 6 skipped, 6 warnings.** New gates D52, D53. All six items attempted;
+one deliberately left partial, marked below.
+
+| # | item | state |
+|---|---|---|
+| 1 | scale decision binds | **done** |
+| 2 | no fabricated agency citation | **done** |
+| 3 | grounding tools wired | **partial — Census needs a free key** |
+| 4 | retire one orchestrator | **partial — deliberately; see below** |
+| 5 | provenance entries + drift-guard | **done** |
+| 6 | transcript every run | **done** |
+
+## 1. The decision binds
+
+Root cause was one regex. `extract_location("...opening in the Mission District of San
+Francisco")` returned **None** — `_PLACE_RE` required a capitalised word straight after "in",
+so the article in "in **the** Mission District" ended the match, and it chained localities on
+commas so "District **of** San Francisco" had no continuation either. That single miss gated
+BOTH the trade-area sizing and the OSM competitor roster.
+
+After: `size_hyperlocal` runs (radius 1500m, catchment 7.07km²), and a physical venture whose
+trade-area model did NOT run is now `publishable: False` with a note naming the skill, plus a
+machine-readable `scale_skill_ran: False`. **D52 fails 9 of 17 stored reports** — every
+physical venture in the corpus had published sizing its own classifier never produced.
+
+Not geocoding neighbourhoods on purpose: measured, three phrasings of "the Mission" land up to
+4km apart and only one is in the Mission. That would swap an LLM guess for a geocoder guess.
+
+## 2. Fabricated citations
+
+**14 of 15** agency-citing figures across corpus + live run had no origin proving a call.
+D53 fails 8, passes 6 — and the 6 passes are exactly the honest ones
+(`"LLM estimate (UNSOURCED — validate vs US Census ACS)"`). Failing those would have punished
+the disclosure. Every figure now ships with a `data_origin`, defaulting to `"unattributed"`
+rather than a silent absence or an invented `"llm"`.
+
+## 3. Grounding tools — what actually works
+
+Probed live, every tool called for real:
+
+| tool | result |
+|---|---|
+| `geocode_address` | **works**, keyless |
+| `poi_competition` | **works** — 197 cafes within 1500m |
+| `osm_named_competitors` | **works** — 30 real Mission venues |
+| `census_land_area` | **works** — SF County 120.913551 km² |
+| `acs_demographics` | blocked — needs key |
+| `census_business_counts` | blocked — needs key |
+| `bls_cex_spend` | broken — series won't resolve |
+
+**api.census.gov returns HTTP 200 with an HTML "Missing Key" page** for ACS, CBP *and* SUSB.
+Because it is a 200, every caller reported "returned no data" — indistinguishable from "this
+county has no data". Now raises `MissingApiKey` naming the env var and the free signup URL, and
+`.env.example` documents it. (An earlier project note recorded SUSB as keyless in bulk;
+re-measured, the *API* needs a key like the rest.)
+
+The keyless half is wired and the improvement is large. Competitor roster, same venture:
+
+    before (LLM recall):  Sightglass (SoMa), Andytown (Outer Sunset), Saint Frank (Russian
+                          Hill), Linea Caffe, ... — 8 brands, 3 outside the trade area
+    after  (OSM):         Four Barrel, Ritual, Philz, Muddy Waters, Angel Cafe & Deli,
+                          Noe Cafe, ... — 30 venues, all in the catchment
+
+Trade-area households stay `None` until a key exists — so the report now refuses to size rather
+than publishing $31M citing Census.
+
+## 4. Two orchestrators — partial, deliberately
+
+Not done, and the reason is not fatigue. Measured: six production files reference the dead
+layer's names and all ten skills are exercised by tests. Rewiring `run_plan` to call the
+declared skills is a rewrite of the pipeline's spine — larger than the other five items
+combined — and doing it in the same pass as five other fixes is how a cleanup ships a
+regression.
+
+What was done instead: **no section is attributed to inert code any more** (three still were —
+Customer universe, Feature importance, Personas), and the registered-vs-reachable gap is
+ratcheted as a number so the duplication cannot quietly grow. `dispatch.py`'s docstring claimed
+"this is the seam the deterministic pipeline (`plan.py`) calls" — it is not; corrected, with a
+test that fails if it drifts back.
+
+## 5. Provenance
+
+**22/22** entries now resolve to code that runs. The hole that let 8 drift: the guards split
+the table by `kind`, so a skill-entry was validated against `SKILL_REGISTRY` — where
+`four_ps_skill` genuinely is — and never against the module it claimed. Registry membership was
+satisfied and the attribution was still wrong. The new guard is file-based, because
+`import_module("profile")` resolves to the **stdlib profiler** and nearly hid this defect while
+I was measuring it.
+
+## 6. Transcripts
+
+`attach`/`detach` moved into `persistence.transcript`, shared by both entrypoints. Idempotent,
+and reclaims only a stale `direct-` sink — `run_plan` has many early returns, so one `finally`
+cannot cover them; self-healing beats silently unrecorded.
+
+## Still open
+
+D22's regex; the 16 audit highs; full orchestrator consolidation (item 4); `bls_cex_spend`
+series resolution; and everything gated behind `CENSUS_API_KEY` — which is free, and is now the
+single highest-leverage thing a human can do for report quality.

@@ -246,13 +246,45 @@ def gate_and_annotate_sizing(sizing: dict, scale_decision: dict | None) -> dict:
         log.warning("[plan] sizing validation failed (non-fatal): %s", e)
         out["publishable"] = out.get("publishable", True)
 
+    # Item 2: every figure ships WITH an origin key. A missing key is indistinguishable from
+    # a fetched number to everything downstream -- the trace, the gates, the reader. Measured:
+    # 14 of 15 agency-citing figures across the corpus carried no origin at all. Where the
+    # producer recorded nothing, the honest label is "unattributed" -- not "llm", which would
+    # assert a provenance we equally cannot prove, and not a silent absence.
+    _figs = out.get("figures")
+    if isinstance(_figs, list):
+        out["figures"] = [
+            ({**f, "data_origin": (f.get("data_origin") or f.get("origin") or "unattributed")}
+             if isinstance(f, dict) else f)
+            for f in _figs
+        ]
+
     if scale_decision:
         out["scale_decision"] = scale_decision
+        skill = scale_decision.get("sizing_skill") or ""
         if scale_decision.get("scale") in ("hyperlocal", "regional", "national_physical"):
-            out["notes"] = list(out.get("notes") or []) + [
-                "Physical/local venture: national TAM method is an upper bound — "
-                "trade-area sizing (size_hyperlocal) needs a specific address for "
-                "a defensible SOM."]
+            # Did the skill the classifier NAMED actually produce these numbers? Its output
+            # carries a trade-area footprint; LLM sizing has none. Measured on a real run:
+            # the classifier demanded size_hyperlocal, it never ran, and the LLM's
+            # $31,050,000 shipped as publishable citing "Census ACS & BLS QCEW" with
+            # data_origin=None and zero Census calls. A decision nothing enforces is
+            # decoration, and the silence was the whole defect.
+            ran = bool(out.get("trade_area_households") is not None or out.get("radius_m")
+                       or out.get("catchment_km2") is not None)
+            out["scale_skill_ran"] = ran
+            if not ran:
+                out["publishable"] = False
+                out["notes"] = list(out.get("notes") or []) + [
+                    f"NOT GROUNDED: this is a {scale_decision.get('scale')} venture, so its "
+                    f"sizing must come from {skill or 'the trade-area model'}, which did not "
+                    "run — no street address was available (a neighbourhood name geocodes to "
+                    "points kilometres apart, so it cannot stand in for one). The figures "
+                    "below are model-narrated upper bounds, not a measured trade area. "
+                    "Provide a street address for a defensible SOM."]
+            else:
+                out["notes"] = list(out.get("notes") or []) + [
+                    f"Trade-area sizing via {skill or 'size_hyperlocal'}: figures are "
+                    "measured from the catchment, not national top-down."]
     return out
 
 
@@ -802,9 +834,12 @@ _PLACE_RE = re.compile(
     # Capitalized localities so an ambiguous neighborhood keeps its city qualifier
     # (e.g. "Highland Park, Los Angeles" → not Highland Park, Illinois). A lowercase
     # word after a comma (", casual dinner") ends the chain.
-    r"\b(?:in|at|near|around|located in)\s+"
+    # Measured on a real run: "opening in the Mission District of San Francisco" extracted
+    # NOTHING, because the lowercase article ended the match before it began and the city was
+    # chained with "of" rather than a comma. The whole hyperlocal path hung on that miss.
+    r"\b(?:in|at|near|around|located in)\s+(?:the\s+)?"
     r"([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3}"
-    r"(?:,\s*[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,2}){0,2})")
+    r"(?:(?:,|\s+of)\s*[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,2}){0,2})")
 
 
 def extract_location(text: str) -> str | None:
@@ -1540,6 +1575,17 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     SEEDED with a killed run's outputs and every step whose evidence is intact is
     skipped rather than recomputed — Wave 3 item 4.
     """
+    # Item 6: a run outside the job system had NO ledger record at all -- measured zero
+    # transcript files for a direct plan.run_plan call -- so every provenance question about
+    # a CLI, benchmark or corpus-regeneration run was unanswerable after the fact. Those are
+    # precisely the runs a developer needs to trace. Idempotent: when the job system already
+    # attached, this is a no-op and the job's transcript keeps ownership.
+    _own_transcript = None
+    try:
+        from persistence import transcript as _tr
+        _own_transcript = _tr.attach(f"direct-{int(time.time())}")
+    except Exception:
+        pass
     t_start = time.time()
     # W6-3: the effort dial. An unknown level resolves to STANDARD inside
     # effort_config, never down to quick — a typo must not silently thin a report the
@@ -2506,6 +2552,14 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                         vr.summary().get("block", 0))
     except Exception as e:
         log.warning("[plan] verification pass failed: %s", e)
+
+    # Item 6: release the ledger on the normal path. An early return leaves it behind, which
+    # persistence.transcript.attach reclaims on the next direct run rather than going silent.
+    try:
+        from persistence import transcript as _tr_done
+        _tr_done.detach(_own_transcript)
+    except Exception:
+        pass
 
     # W6-4: what this report cost to produce. Unanswerable before now, which made
     # pricing the product a guess instead of a margin calculation.

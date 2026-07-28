@@ -196,3 +196,56 @@ def replay(path: _PathLike, run_id: str = "") -> RunLedger:
     for ev in read_events(p):
         led.restore(ev)
     return led
+
+def attach(run_id: str):
+    """Point the run ledger at `run_id`'s durable JSONL transcript, or return None if one is
+    already attached or persistence is unavailable.
+
+    Item 6. This lived only in jobs._attach_transcript, so ONLY job-system runs produced a
+    transcript. Measured on a direct plan.run_plan call: zero transcript files, so the run
+    had no ledger record at all -- and every provenance question about it ("which script
+    produced this number?") was unanswerable after the fact. A CLI run, a benchmark run and a
+    corpus-regeneration run are exactly the runs a developer most needs to trace.
+
+    Idempotent: if a sink is already installed (the job system attached first) this returns
+    None and changes nothing, so the two entrypoints cannot fight over the ledger or write
+    two transcripts for one run."""
+    try:
+        from entry import hooks as _hooks
+        from persistence.ledger import LEDGER
+
+        current = LEDGER.run_id or ""
+        if getattr(LEDGER, "_sink", None) is not None or current:
+            # A job-system attach owns the ledger: leave it alone, it will detach itself.
+            if not current.startswith("direct-"):
+                return None
+            # A previous DIRECT run left its sink behind. run_plan has many early return
+            # points (an unrecoverable profile step returns rather than raising), so a single
+            # finally cannot cover them all; reclaiming our own stale sink here makes the
+            # leak self-healing instead of permanently blocking transcripts for the process.
+            _log.debug("reclaiming stale direct transcript sink from %s", current)
+            LEDGER.set_sink(None)
+        writer = TranscriptWriter(path_for(run_id), run_id=run_id)
+        token = _hooks.BUS.subscribe(writer)
+        LEDGER.run_id = run_id
+        LEDGER.set_sink(_hooks.BUS.emit)
+        return (writer, token)
+    except Exception:
+        _log.debug("transcript unavailable for run %s", run_id, exc_info=True)
+        return None
+
+
+def detach(handle) -> None:
+    """Unsubscribe + close, so the next run in this process does not append into this file."""
+    if not handle:
+        return
+    writer, token = handle
+    try:
+        from entry import hooks as _hooks
+        from persistence.ledger import LEDGER
+        _hooks.BUS.unsubscribe(token)
+        LEDGER.set_sink(None)
+        LEDGER.run_id = ""
+        writer.close()
+    except Exception:
+        _log.debug("transcript detach failed", exc_info=True)

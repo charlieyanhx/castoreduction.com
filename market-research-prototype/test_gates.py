@@ -29,6 +29,12 @@ def clean_result() -> dict:
             "som": {"mid": 450_000},
             "validation": {"passed": True}, "publishable": True,
             "sources_to_validate": ["US Census ACS (trade-area households)"],
+            # D52: the fixture declares scale=hyperlocal, so a CLEAN report must carry the
+            # trade-area footprint its own classifier demanded. Without these the fixture
+            # modelled a report that should be flagged -- it was never clean under this
+            # invariant, it just predated it.
+            "scale": "hyperlocal", "radius_m": 1500, "catchment_km2": 7.07,
+            "trade_area_households": 8872, "households_sourced": True,
         },
         "financials": {
             "assumptions": {"som_mid_used": 450_000, "unit": "drink"},
