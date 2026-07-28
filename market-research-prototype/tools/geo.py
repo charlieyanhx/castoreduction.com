@@ -111,8 +111,19 @@ _CBP_URL = "https://api.census.gov/data/{year}/cbp"
 _NAICS_CACHE: dict[str, str] = {}
 
 
+class MissingApiKey(Exception):
+    """The endpoint answered 200 with a sign-up page instead of data."""
+
+
 def _http_json(method: str, url: str, **kwargs) -> Optional[dict | list]:
-    """Cached/throttled request → parsed JSON, or None on any failure."""
+    """Cached/throttled request → parsed JSON, or None on any failure.
+
+    Raises MissingApiKey when the response is the Census "Missing Key" HTML page. Measured
+    2026-07-28: api.census.gov returns HTTP **200** with that page for ACS, CBP and SUSB
+    alike, so the JSON parse simply failed and every caller reported "returned no data" —
+    indistinguishable from "this county genuinely has no data". A configuration problem was
+    being surfaced as an empty result, which is the same absence-read-as-answer mistake this
+    codebase keeps making. Naming it is the whole fix; the key itself is free."""
     from scrape.http import request
     resp = request(method, url, **kwargs)
     if resp is None or getattr(resp, "status_code", 500) >= 400:
@@ -120,6 +131,13 @@ def _http_json(method: str, url: str, **kwargs) -> Optional[dict | list]:
     try:
         return resp.json()
     except (ValueError, json.JSONDecodeError):
+        body = (getattr(resp, "text", "") or "")[:400].lower()
+        if "missing key" in body or "missing_key" in body or "request a key" in body:
+            raise MissingApiKey(
+                "api.census.gov requires a free API key: set CENSUS_API_KEY in .env "
+                "(sign up at https://api.census.gov/data/key_signup.html). Until then "
+                "ACS households, CBP establishment counts and SUSB payroll are unavailable "
+                "and any figure needing them must not be published as sourced.")
         return None
 
 

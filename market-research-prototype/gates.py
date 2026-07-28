@@ -1458,6 +1458,122 @@ def d51_momentum_count_measured_on_the_shown_roster(r: dict, html: str | None) -
                          f"{len(roster)}-rival roster")
 
 
+def d52_chosen_sizing_skill_actually_ran(r: dict, html: str | None) -> Finding:
+    """The sizing skill the classifier NAMED must be the one that produced the numbers.
+
+    Measured on a real end-to-end run (out/live/run1.*): the classifier returned
+    {"scale": "hyperlocal", "sizing_skill": "size_hyperlocal"} and size_hyperlocal never ran
+    -- no sizing step appears in _steps_completed at all -- yet market_sizing carried a TAM,
+    three figures and publishable=True. Every figure was model-narrated, and the bottom-up
+    one cited "Census ACS Mission District demographics & BLS QCEW NAICS 722515" while zero
+    Census/BLS calls were made and data_origin was None.
+
+    A trade-area model leaves a footprint: a radius, a catchment, a household count. LLM
+    sizing leaves none. So the presence of that footprint is the check.
+
+    N/A for national/digital ventures, which legitimately have no trade area, and when no
+    scale decision was recorded."""
+    scale_dec = r.get("market_scale") or (r.get("market_sizing") or {}).get("scale_decision")
+    if not scale_dec:
+        return Finding(None, "no scale decision recorded")
+    scale = (scale_dec.get("scale") or "").lower()
+    if scale not in ("hyperlocal", "regional", "national_physical"):
+        return Finding(None, f"scale={scale or '?'} has no trade area to measure")
+
+    ms = r.get("market_sizing") or {}
+    skill = scale_dec.get("sizing_skill") or "the trade-area model"
+    footprint = {k: ms.get(k) for k in ("radius_m", "catchment_km2", "trade_area_households")
+                 if ms.get(k) is not None}
+    if footprint:
+        return Finding(True, f"{skill} ran: {footprint}")
+
+    tam = ((ms.get("tam") or {}).get("mid"))
+    return Finding(False,
+                   f"classifier chose {skill} for this {scale} venture and it did not run -- "
+                   f"no radius, catchment or trade-area household count is present, so the "
+                   f"published TAM ({tam}) is model-narrated rather than measured"
+                   + ("" if ms.get("publishable") is False
+                      else " AND is still marked publishable"))
+
+
+# Statistical agencies whose name in a source string is an authority claim a reader will
+# trust without checking. Brand names of private research shops (Statista, Gartner) are
+# deliberately absent: they are not verifiable through a tool we call, so demanding an
+# origin for them would flag every honest secondary citation.
+_AGENCIES = re.compile(
+    r"\b(census|acs\b|cbp\b|susb|bls\b|qcew|cex\b|oes\b|eurostat|"
+    r"office for national statistics|statcan|world bank|imf\b|oecd|fred\b)", re.I)
+
+# Phrasings that DISCLOSE rather than assert. Six corpus figures already say
+# "LLM estimate (UNSOURCED - validate vs US Census ACS)", which names the agency as
+# something to check against and states plainly that the number is not sourced. Failing
+# those would punish the disclosure and teach the pipeline to stop disclosing.
+_DISCLOSED = re.compile(
+    r"unsourced|llm estimate|llm-estimate|model(?:led|ed)?\s|estimate only|"
+    r"validate\s+(?:vs|against)|compare\s+(?:to|vs|against)|to be validated|"
+    r"not\s+(?:yet\s+)?sourced|placeholder", re.I)
+
+_PROVEN_ORIGINS = {"census", "acs", "cbp", "susb", "bls", "qcew", "cex", "scrape",
+                   "stated", "osm", "api", "fetched"}
+
+
+def _origin_of(block: dict) -> str:
+    for k in ("data_origin", "origin", "count_origin", "arpu_origin"):
+        v = block.get(k)
+        if v:
+            return str(v).lower()
+    return ""
+
+
+def d53_no_fabricated_agency_citation(r: dict, html: str | None) -> Finding:
+    """A figure may not name a statistical agency that no tool actually called.
+
+    The worst defect in this codebase: a wrong number can be checked, but a number wearing a
+    real agency's name defeats checking. MEASURED across the 16-report corpus plus the live
+    run -- 14 of 15 figures naming an agency carry no origin proving a call, and the live
+    run's bottom-up TAM cites "Census ACS Mission District demographics & BLS QCEW NAICS
+    722515" with data_origin=None, zero Census/BLS calls, no transcript and no API key. One
+    figure is worse still: data_origin="llm" beside a source string claiming Census.
+
+    Honest disclosure PASSES. "LLM estimate (UNSOURCED - validate vs US Census ACS)" names
+    the agency as a check, not a source, and 6 corpus figures already phrase it that way.
+
+    N/A when no figure names an agency at all."""
+    ms = r.get("market_sizing") or {}
+    blocks: list[tuple[str, dict]] = []
+    for f in (ms.get("figures") or []):
+        if isinstance(f, dict):
+            blocks.append((str(f.get("label") or "figure"), f))
+    for name in ("method_top_down", "method_bottom_up", "method_analog"):
+        blk = (ms.get("tam") or {}).get(name)
+        if isinstance(blk, dict):
+            blocks.append((name, blk))
+
+    claimed = [(lbl, b) for lbl, b in blocks
+               if _AGENCIES.search(str(b.get("source") or ""))]
+    if not claimed:
+        return Finding(None, "no figure names a statistical agency")
+
+    bad = []
+    for lbl, b in claimed:
+        src = str(b.get("source") or "")
+        if _DISCLOSED.search(src):
+            continue                        # says outright it is not sourced
+        origin = _origin_of(b)
+        if origin in _PROVEN_ORIGINS:
+            continue
+        agency = (_AGENCIES.search(src) or [""])[0]
+        bad.append(f"{lbl} cites {agency!r} with origin="
+                   f"{origin or 'NONE'}"
+                   + (" (the pipeline recorded 'llm' and the prose claims the agency anyway)"
+                      if origin == "llm" else ""))
+    if bad:
+        return Finding(False, "; ".join(bad[:3])
+                       + (f" (+{len(bad)-3} more)" if len(bad) > 3 else ""))
+    return Finding(True, f"{len(claimed)} agency citation(s), each with a proven origin "
+                         "or an explicit unsourced disclosure")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -1510,6 +1626,8 @@ INVARIANTS: list[Invariant] = [
     Invariant("D49", "trade area matches its radius", "audit high #4: no county-scale household count as a trade area", "fail", d49_trade_area_matches_its_radius),
     Invariant("D50", "no publishable sizing without numbers", "an empty sizing passed the gate vacuously and shipped", "fail", d50_no_publishable_sizing_without_numbers),
     Invariant("D51", "momentum count measured on the shown roster", "audit critical: 6/6 geo reports cited an active count from the discarded set", "fail", d51_momentum_count_measured_on_the_shown_roster),
+    Invariant("D52", "chosen sizing skill actually ran", "harness item 1: the classifier named size_hyperlocal and the LLM sized it instead", "fail", d52_chosen_sizing_skill_actually_ran),
+    Invariant("D53", "no fabricated agency citation", "harness item 2: 14/15 agency-citing figures had no origin proving a call", "fail", d53_no_fabricated_agency_citation),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

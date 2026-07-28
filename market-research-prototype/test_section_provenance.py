@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import glob
 import json
+import pathlib
 import unittest
 
 from report.section_provenance import (
@@ -71,7 +72,7 @@ class TestBuilder(unittest.TestCase):
     def test_each_entry_carries_producer_and_module(self):
         result = {"viability": {"viability_score": 60}}
         (entry,) = build_section_provenance(result)
-        self.assertEqual(entry["produced_by"], "viability_skill")
+        self.assertEqual(entry["produced_by"], "score_viability")
         self.assertEqual(entry["module"], "four_ps")
         self.assertEqual(entry["origin"], "llm")
 
@@ -161,3 +162,40 @@ class TestModuleEntriesResolve(unittest.TestCase):
         broken = [f"{s.result_key}: {s.produced_by}" for s in SECTION_SOURCES
                   if s.kind == "skill" and s.produced_by not in SKILL_REGISTRY]
         self.assertEqual(broken, [])
+
+    def test_every_entry_resolves_in_the_MODULE_IT_NAMES(self):
+        """The hole that let 8 entries drift, and why registry membership was not enough.
+
+        The two guards above split the table by `kind`: module-entries were checked against
+        their module, skill-entries only against SKILL_REGISTRY. So an entry could name
+        `four_ps_skill` -- genuinely registered, but defined in skills/pipeline_steps.py,
+        which production never imports -- while claiming module `four_ps`, which does not
+        define it. Registry membership was satisfied and the attribution was still wrong.
+
+        MEASURED: 8 of 22 entries were in that state -- Company profile, Differentiators,
+        Competitive landscape, Decoded audiences, Pricing (PSM), Market size, 4Ps, Viability.
+        The eight most important sections of the report, each attributed to a function that
+        does not exist where claimed, while the function that does exist never runs.
+
+        This check is file-based on purpose. importlib.import_module('profile') resolves to
+        the STDLIB profiler, so an import-based guard reports success for a module this repo
+        does not even have -- it nearly hid this very defect from me while measuring it."""
+        import ast
+
+        broken = []
+        for src in SECTION_SOURCES:
+            path = pathlib.Path(src.module.replace(".", "/") + ".py")
+            if not path.exists():
+                broken.append(f"{src.section}: no such module file {path}")
+                continue
+            tree = ast.parse(path.read_text())
+            names = {n.name for n in ast.walk(tree)
+                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+            for n in ast.walk(tree):          # re-exports count as defined here
+                if isinstance(n, ast.ImportFrom):
+                    names |= {(a.asname or a.name) for a in n.names}
+            if src.produced_by not in names:
+                broken.append(f"{src.section}: {src.module}.py does not define "
+                              f"{src.produced_by}")
+        self.assertEqual(broken, [],
+                         "the section table credits code that is not in the module it names")
