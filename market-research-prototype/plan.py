@@ -1755,6 +1755,19 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     # Decode taste for TOP-3 brands (not just top-1) to enable persona synthesis.
     # Plus place + pricing scrapes — all independent.
     top_3_comps = [o for o in opps if o.get("domain")][:3]
+    # A roster with no domains silently skips FOUR sections -- audiences, personas, channels
+    # and competitor prices -- because every one of them needs something to fetch. Measured:
+    # run1 had 8/8 competitors with a domain and produced 3 taste decodes; run2 had 0/30
+    # (OSM venues carried names only) and produced nothing, not even the honest
+    # "cannot_decode" record the taste step writes when it tries and finds no voice. The
+    # absence of a refusal is what made this hard to see: it looked like the step was never
+    # meant to run.
+    if opps and not top_3_comps:
+        record_dropped_output(
+            result, "audiences",
+            f"no competitor carries a domain ({len(opps)} in the roster), so there was "
+            "nothing to fetch customer voice from; audiences, personas, channel analysis "
+            "and competitor pricing all depend on it")
     channel_data = {}
 
     def _taste_task_for(comp):
