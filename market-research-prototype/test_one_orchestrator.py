@@ -97,20 +97,43 @@ class TestTheDuplicationIsPinnedNotGrowing(unittest.TestCase):
                          f"{called}")
 
     def test_the_registered_vs_reachable_gap_does_not_widen(self):
-        """Measured 2026-07-28: 22/37 tools and 10/24 skills are called anywhere in
-        production. Ratchet, so new registrations cannot silently become decoration."""
+        """Ratchet on reachability, so new registrations cannot silently become decoration.
+
+        MEASURED 2026-07-29 by AST call sites: **22/37 tools and 10/24 skills** are called by
+        identifier anywhere in production.
+
+        THIS TEST WAS VACUOUS AS FIRST WRITTEN, in precisely the way the rest of this file
+        exists to prevent. It matched a word-boundary-plus-paren regex over the raw source, and `def
+        geocode_address(` matches that — so a DEFINITION counted as a call, every registered
+        name scored as reachable, it computed 37/37 and 24/24, and `assertGreaterEqual(37, 22)`
+        could never fail. A guard against decoration that was itself decoration.
+
+        Counting ast.Call nodes is the fix: a definition is an ast.FunctionDef, never a Call."""
+        import ast
+
         import plan  # noqa: F401  — importing populates both registries
         from skills.registry import SKILL_REGISTRY
         from tools.registry import TOOL_REGISTRY
 
-        blob = "\n".join(p.read_text() for p in _PROD_FILES)
+        called: set[str] = set()
+        for path in _PROD_FILES:
+            try:
+                tree = ast.parse(path.read_text())
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    nm = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+                    if nm:
+                        called.add(nm)
 
-        def called(name: str) -> bool:
-            return bool(re.search(rf"\b{re.escape(name)}\s*\(", blob)
-                        or re.search(rf'["\']{re.escape(name)}["\']', blob))
-
-        tools_live = sum(1 for t in TOOL_REGISTRY if called(t))
-        skills_live = sum(1 for s in SKILL_REGISTRY if called(s))
+        tools_live = sum(1 for t in TOOL_REGISTRY if t in called)
+        skills_live = sum(1 for s in SKILL_REGISTRY if s in called)
+        # Upper bounds too: if these ever equal the registry size, the measure has broken
+        # again rather than the codebase having improved that much in one step.
+        self.assertLess(tools_live, len(TOOL_REGISTRY),
+                        f"every registered tool reads as called ({tools_live}/"
+                        f"{len(TOOL_REGISTRY)}) — the measure is broken, not the code fixed")
         self.assertGreaterEqual(
             tools_live, 22,
             f"tool reachability fell to {tools_live}/{len(TOOL_REGISTRY)} — a registered "

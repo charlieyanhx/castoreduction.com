@@ -14,7 +14,7 @@ Six layers. Data flows down the page; nothing below imports anything above it.
 ```
   ENTRY        cli.py   api.py   intake.py            "a human asks for a report"
                  │
-  ORCHESTRATION  plan.py (2,619 lines — the spine)    "run these 14 steps in order"
+  ORCHESTRATION  plan.py (2,632 lines — the spine)    "run these 14 steps in order"
                  │        orchestrator/  capabilities/  harness/  agents/
                  │
   DOMAIN STEPS   discover  market_sizing  four_ps  pricing  financials  …  (39 root modules)
@@ -45,9 +45,10 @@ sees), `gates.py` (is it true), `context/` (what every prompt carries), `config/
 
 ## 2. Orchestration — the spine, and it's the biggest problem in the repo
 
-**`plan.py` (2,619 lines)** is the pipeline. `run_plan` alone is ~989 lines with **28
-`try/except` blocks and 71 `if` statements**. Every step is called inline, guarded inline,
-checkpointed inline.
+**`plan.py` (2,632 lines)** is the pipeline. `run_plan` alone is **1,033 lines** with 28
+`try/except` blocks and 71 `if` statements. Every step is called inline, guarded inline,
+checkpointed inline. It GREW during the 2026-07-28/29 fix pass — seven fixes went in and
+nothing came out — which is the clearest argument for consolidating it.
 
 It didn't have to be this way. `skills/pipeline_steps.py` declares the same 10 steps as
 registered skills *with a produces/consumes dependency graph* — and **no production module calls
@@ -101,7 +102,8 @@ These are the 39 root modules. Each computes one thing and returns a dict.
 ## 4. Skills — composition with declared contracts
 
 `@skill(produces=…, consumes=…)` registers a workflow and stamps `module/qualname/file/line`
-into the run ledger. **24 registered, ~10 reachable from production.**
+into the run ledger. **24 registered, 10 called by identifier from production** — the other 14
+include `size_market` (the documented sizing seam) and all ten of `pipeline_steps`.
 
 | module | what it does |
 |---|---|
@@ -117,7 +119,10 @@ into the run ledger. **24 registered, ~10 reachable from production.**
 
 ## 5. Tools — primitive I/O, one call each
 
-`@tool(category=…, returns=…)` with a Pydantic args model. **37 registered, ~22 reachable.**
+`@tool(category=…, returns=…)` with a Pydantic args model. **37 registered; 22 called by
+identifier, 29 with any call path including `get_tool("name")`, and 9 actually observed firing
+in three live runs.** Reachability here has three different honest answers — see
+[HARNESS_STATE.md](HARNESS_STATE.md) section 2, and do not quote one of them as the others.
 
 | module | what it does |
 |---|---|
@@ -200,12 +205,20 @@ just another opinion.
 
 ## Where the bodies are buried
 
-- `plan.py:run_plan` — 989 lines, and the declarative alternative in
-  `skills/pipeline_steps.py` is inert. Biggest outstanding refactor.
+- `plan.py:run_plan` — **1,033 lines** (it grew: seven fixes went in and none came out), and
+  the declarative alternative in `skills/pipeline_steps.py` is inert. Biggest outstanding
+  refactor.
 - `market_sizing.py:estimate_market_size` — 451 lines of LLM sizing, still the default while
   `skills/sizing/` sits beside it.
-- 15 registered tools and 14 registered skills are unreachable from production. The dead tools
-  are disproportionately the *grounding* ones.
+- **Reachability, corrected 2026-07-29.** An earlier version of this line said the dead tools
+  "are disproportionately the grounding ones". Wrong: the AST measure only sees calls by
+  identifier, and the grounding tools are dispatched by string through
+  `get_tool("name").fn(...)`. Measured three ways — 22/37 tools called by identifier, **29/37
+  with any call path**, and **9/37 actually fired in three live runs**, of which
+  `acs_demographics` and `bls_cex_spend` fail every time they are called. The grounding path
+  is wired and failing at runtime, not unwired. 14/24 skills are genuinely uncalled, including
+  `size_market` and all ten of `pipeline_steps`. See
+  [HARNESS_STATE.md](HARNESS_STATE.md) section 2 for the full breakdown.
 - `schema.py` (175) — Pydantic context models, largely superseded.
 - Anything Census-backed is dark until `CENSUS_API_KEY` is set; it is free, and it is currently
   the highest-leverage change available to a human on this project.

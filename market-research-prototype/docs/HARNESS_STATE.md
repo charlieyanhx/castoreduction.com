@@ -32,21 +32,58 @@ the declarative layer exists and is unused, so every step is hand-wired twice.
 
 ## 2. Registered vs actually reachable
 
-| | registered | called anywhere in production code |
+**CORRECTED 2026-07-29.** The first version of this section said the 15 never-called tools
+"are the grounding tools" and that everything needed for a trade area was "present and
+unreachable". **That was wrong**, and wrong in a way that pointed the remediation at the
+wrong problem. The AST measure counted only calls by identifier, and the grounding tools are
+invoked through `get_tool("name").fn(...)` string dispatch, which it could not see.
+
+There are three different questions here, with three different answers:
+
+| question | tools | skills |
 |---|---|---|
-| tools | 37 | **22** |
-| skills | 24 | **10** |
+| called by identifier anywhere (AST `ast.Call`) | 22/37 | 10/24 |
+| has *any* call path, incl. `get_tool("name")` | **29**/37 | 10/24 |
+| actually fired in 3 real end-to-end runs | **9**/37 | — |
 
-The 15 never-called tools are not a random sample. They are the grounding tools:
+The nine that actually ran, from the runs' own ledgers:
 
 ```
-acs_demographics        census_business_counts   bls_cex_spend      census_land_area
-osm_named_competitors   poi_competition          geocode_address    enrich_competitor
-enrich_competitors_batch  extract_structured     wayback_snapshot_url
-devto_mentions  lobsters_mentions  stackexchange_mentions  vertical_publication_mentions
+live    web_search x30   filter_aggregator_domains x17   fetch_page x15
+        extract_prices x14   geocode_address x6   osm_named_competitors x4
+        poi_competition x2
+FAILED  acs_demographics x4   bls_cex_spend x2
 ```
 
-Everything needed to compute a trade area from real data is present and unreachable.
+So the grounding path is **wired and failing at runtime**, not unwired. `acs_demographics`
+and `bls_cex_spend` are called on every relevant run and both fail — the first for a missing
+Census key, the second because it cannot resolve a CEX series. That is a materially different
+diagnosis, and a much cheaper fix, than "wire up the dead tools".
+
+Genuinely never invoked in any live run (28), though many are legitimately conditional — the
+Instagram and Meta tools need tokens, Trustpilot suits DTC brands, Google Trends suits
+national ventures, so a hyperlocal coffee-shop run has no reason to touch them:
+
+```
+census_business_counts  census_land_area  enrich_competitor  enrich_competitors_batch
+extract_structured  wayback_snapshot_url  fetch_via_wayback  wayback_activity
+brand_trend_slope  google_trends_rising  trustpilot_reviews  trustpilot_momentum
+reddit_mentions  hackernews_mentions  stackexchange_mentions  devto_mentions
+lobsters_mentions  vertical_publication_mentions  instagram_handle_from_domain
+instagram_profile  instagram_signal  meta_ad_library  rank_meta_advertisers
+is_parked_domain  validate_domain  probe_domain_patterns  resolve_brand_domain
+estimate_domain_age_days
+```
+
+`census_business_counts` and `census_land_area` are the two worth chasing: both have a call
+path and neither fired, so something upstream skips them.
+
+THE MEASURE ITSELF WAS BROKEN TOO. `test_one_orchestrator.py`'s reachability ratchet matched
+a word-boundary-plus-paren regex over raw source, so `def geocode_address(` counted as a call:
+it computed **37/37 and 24/24** and asserted `>= 22`, which can never fail. A guard against
+decoration that was decoration. It now counts `ast.Call` nodes, and asserts an upper bound as
+well, so "every tool reads as reachable" fails as a broken measure rather than passing as
+good news.
 
 ## 3. What that produced on the live run
 
@@ -143,7 +180,8 @@ The ordering is by whether a wrong number can still reach a reader.
    worse than a wrong number, because it defeats the reader's ability to check. A gate should
    fail any figure whose stated source names a data provider with no corresponding ledger
    event.
-3. **Wire the grounding tools that already exist**: `acs_demographics` (ACS
+3. **Fix the grounding tools' RUNTIME failures** (corrected: they are already wired and
+   called — see section 2 — they fail when invoked): `acs_demographics` (ACS
    `median_hh_income` is already fetched and read by nothing), `census_business_counts`
    (SUSB is keyless in bulk — measured earlier: CA independent coffee shops $411,543/yr
    actual vs the LLM's $280k–$2.4M range), `census_land_area`, `poi_competition` /
