@@ -47,6 +47,32 @@ _CEX_SERIES_CURATED = {
     "diner": "CXUFOODAWAYLB0101M", "food truck": "CXUFOODAWAYLB0101M",
     "fast food": "CXUFOODAWAYLB0101M", "fast-casual": "CXUFOODAWAYLB0101M",
     "food away": "CXUFOODAWAYLB0101M", "dining": "CXUFOODAWAYLB0101M",
+    # Task A: the commonest hyperlocal food venture types were all absent, so
+    # bls_cex_spend failed on every live run ("could not resolve a BLS CEX series for
+    # 'independent specialty coffee shop'") and the trade-area TAM lost its spend half.
+    # All food-away-from-home, the same series `restaurant`/`diner`/`dining` already use.
+    #
+    # EVERY KEY HERE IS >= 4 CHARS AND MOSTLY MULTI-WORD, ON PURPOSE. Matching is bare
+    # substring, so `tea` would match "TEAm analytics saas" and size a B2B SaaS venture on
+    # household restaurant spending -- hence `tea house`/`teahouse`/`tea room`, never `tea`.
+    # `juice bar`/`smoothie bar` also FIX a live bug: `bar` maps to alcohol, so a juice bar
+    # was being sized on household alcohol spend until a longer key could outrank it.
+    "coffee": "CXUFOODAWAYLB0101M", "cafe": "CXUFOODAWAYLB0101M",
+    "café": "CXUFOODAWAYLB0101M", "espresso": "CXUFOODAWAYLB0101M",
+    "roastery": "CXUFOODAWAYLB0101M", "bakery": "CXUFOODAWAYLB0101M",
+    "patisserie": "CXUFOODAWAYLB0101M", "pastry": "CXUFOODAWAYLB0101M",
+    "tea house": "CXUFOODAWAYLB0101M", "teahouse": "CXUFOODAWAYLB0101M",
+    "tea room": "CXUFOODAWAYLB0101M", "bubble tea": "CXUFOODAWAYLB0101M",
+    "juice bar": "CXUFOODAWAYLB0101M", "smoothie": "CXUFOODAWAYLB0101M",
+    "ice cream": "CXUFOODAWAYLB0101M", "gelato": "CXUFOODAWAYLB0101M",
+    "dessert": "CXUFOODAWAYLB0101M", "bistro": "CXUFOODAWAYLB0101M",
+    "brasserie": "CXUFOODAWAYLB0101M", "deli": "CXUFOODAWAYLB0101M",
+    "sandwich": "CXUFOODAWAYLB0101M", "pizzeria": "CXUFOODAWAYLB0101M",
+    "pizza": "CXUFOODAWAYLB0101M", "taqueria": "CXUFOODAWAYLB0101M",
+    "noodle": "CXUFOODAWAYLB0101M", "ramen": "CXUFOODAWAYLB0101M",
+    "sushi": "CXUFOODAWAYLB0101M", "steakhouse": "CXUFOODAWAYLB0101M",
+    "brunch": "CXUFOODAWAYLB0101M", "cafeteria": "CXUFOODAWAYLB0101M",
+    "food hall": "CXUFOODAWAYLB0101M", "catering": "CXUFOODAWAYLB0101M",
     "grocery": "CXUFOODHOMELB0101M", "supermarket": "CXUFOODHOMELB0101M",
     "bar": "CXUALCBEVGLB0101M", "pub": "CXUALCBEVGLB0101M", "brewery": "CXUALCBEVGLB0101M",
     "wine": "CXUALCBEVGLB0101M", "alcohol": "CXUALCBEVGLB0101M",
