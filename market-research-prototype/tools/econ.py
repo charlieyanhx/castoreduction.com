@@ -18,7 +18,11 @@ import os
 from typing import Optional
 
 from pydantic import BaseModel, model_validator
+
+from logger import get
 from .registry import tool, Evidence
+
+log = get("tools.econ")
 
 
 class BlsCexSpendArgs(BaseModel):
@@ -92,7 +96,11 @@ def _resolve_cex_series(category: str) -> Optional[str]:
     LLM for unmapped categories. The dollar value is NEVER asked of the LLM — always fetched live."""
     if not category:
         return None
-    key = category.lower().strip()
+    # Normalise separators before matching. The curated keys are space-separated, but callers
+    # pass machine-style names -- size_hyperlocal's own default is "food_away_from_home", and
+    # measured, `"food away" in "food_away_from_home"` is False, so the pipeline's default
+    # category resolved to nothing while a human typing "food away from home" resolved fine.
+    key = category.lower().strip().replace("_", " ").replace("-", " ")
     if key in _CEX_SERIES_CACHE:
         return _CEX_SERIES_CACHE[key]
     # Curated, verified series — longest matching keyword wins (so "wine bar" → alcohol).
@@ -141,10 +149,18 @@ def bls_cex_spend(category: Optional[str] = None,
     key = os.getenv("BLS_API_KEY")
     if key:
         payload["registrationkey"] = key
-    resp = request("POST", _BLS_API, json=payload, timeout=12)
+    # Retry once on a stall. Measured over four consecutive calls: 40.1s (hard stall), then
+    # 0.5s, 0.4s, 0.4s. BLS is normally sub-second and occasionally hangs at the connection
+    # level, and run4 lost its ENTIRE TAM to one such stall -- "BLS API unavailable for
+    # CXUFOODAWAYLB0101M" after 12.07s against a 12s timeout, while the series had resolved
+    # correctly. Trading a few seconds against publishing no market size is not a close call.
+    resp = request("POST", _BLS_API, json=payload, timeout=20)
+    if resp is None or getattr(resp, "status_code", 500) >= 400:
+        log.warning("[econ] BLS stalled for %s — retrying once", sid)
+        resp = request("POST", _BLS_API, json=payload, timeout=20)
     if resp is None or getattr(resp, "status_code", 500) >= 400:
         return Evidence(source="bls_cex_spend", category="econ", count=0, skeleton=True,
-                        error=f"BLS API unavailable for {sid}")
+                        error=f"BLS API unavailable for {sid} (two attempts)")
     try:
         data = resp.json()
         series = (data.get("Results") or {}).get("series") or []
