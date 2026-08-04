@@ -275,20 +275,57 @@ def decode_taste(brand: str, domain: str) -> dict:
     # personas and 4Ps downstream.
     MIN_REVIEWS = 5
     MIN_TOTAL = 8
-    if total_sources < MIN_TOTAL or (len(reviews) < MIN_REVIEWS and len(reddit) < 10):
+    _thin_total = total_sources < MIN_TOTAL
+    _no_first_party = len(reviews) < MIN_REVIEWS and len(reddit) < 10
+    if _thin_total or _no_first_party:
+        # STATE THE CRITERION THAT ACTUALLY FIRED. There are two, and the notice used to
+        # explain every refusal with the first one's arithmetic. Measured on out/live/run3:
+        # three real cafes refused with "total 20 signals — threshold is 8" — 20 > 8, so the
+        # sentence justified the verdict using the test it had PASSED. The refusals were
+        # right; only the explanation was wrong. A reader who checks the arithmetic concludes
+        # the pipeline cannot count, which costs more trust than the missing section does.
+        #
+        # (R4 rank 24 fixed a different self-refutation in this same sentence — "no consumer
+        # review surface" while reporting 15-21 signals. That one survived because it was
+        # patched in the prose rather than in which number the prose cites.)
+        def _n(count: int, noun: str) -> str:
+            return f"{count} {noun}{'' if count == 1 else 's'}"
+
+        if _thin_total:
+            _reason = (
+                f"Insufficient customer voice for confident taste decode: "
+                f"{_n(total_sources, 'signal')} in total against a threshold of {MIN_TOTAL} "
+                f"({_n(len(reviews), 'Trustpilot review')}, {_n(len(reddit), 'Reddit post')}, "
+                f"{_n(len(articles), 'review article')}, "
+                f"{_n(len(homepage_excerpts), 'homepage testimonial')})."
+            )
+        else:
+            _third_party = total_sources - len(reviews) - len(reddit)
+            _reason = (
+                # Both criteria share this opening on purpose: it is the invariant a
+                # long-standing integration test pins ("the notice says customer voice is
+                # insufficient"), and varying it per branch would have broken that test for
+                # a wording change rather than a behaviour change.
+                f"Insufficient customer voice for confident taste decode: no first-party "
+                f"voice — {_n(len(reviews), 'Trustpilot review')} and "
+                f"{_n(len(reddit), 'Reddit post')}, "
+                f"against a bar of {MIN_REVIEWS} reviews or 10 Reddit posts. The "
+                f"{_n(_third_party, 'other signal')} found "
+                # Itemise EVERY component, including Hacker News. A first draft of this
+                # sentence listed only articles and testimonials while claiming a total of
+                # 20 -- 5 + 0 != 20 -- which reintroduced, in miniature, the exact
+                # doesn't-add-up problem this fix exists to remove.
+                f"({_n(len(articles), 'review article')}, "
+                f"{_n(len(hn), 'Hacker News mention')}, "
+                f"{_n(len(homepage_excerpts), 'homepage testimonial')}) are third-party "
+                "commentary — useful context, but not customers describing their own purchase."
+            )
         return {
             "brand": brand,
             "domain": domain,
             "cannot_decode": True,
             "reason": (
-                f"Insufficient customer voice for confident taste decode "
-                f"(found {len(reviews)} Trustpilot reviews, {len(reddit)} Reddit posts, "
-                f"{len(articles)} review articles, {len(homepage_excerpts)} homepage testimonials; "
-                f"total {total_sources} signals — threshold is {MIN_TOTAL})."
-                # R4 rank 24: the old total_sources>0 clause said "with no consumer
-                # review surface" while the SAME sentence reported finding 15-21 signals
-                # — a self-refuting notice on 10/16 reports. When signals were found but
-                # fell below the bar, say the surface is THIN, not absent.
+                _reason
                 + (" The review surface is too thin to decode confidently — the brand "
                    "may be enterprise B2B, too new, or mostly sold through resellers." if total_sources > 0 else
                    " The brand has no scrapable presence on Trustpilot, Reddit, or owned channels.")
