@@ -1,0 +1,33 @@
+1. move "every claim has a source" up to the hero. it's the strongest
+   thing you have and right now it's buried in a bullet way down the
+   page. it's what actually separates you from someone just prompting
+   chatgpt.
+
+2. kill the "vs. prompting an AI" framing. the section header ("what
+   makes it different from just prompting an ai") concedes the fight
+   before it starts. rename to something like "what every castor report
+   guarantees" or "four things you can count on."
+
+3. the viability score needs a methodology page, or drop the number. a
+   1-100 score with no explanation of how it's calculated will get
+   eye-rolled by exactly the people you're targeting. founders and VCs
+   are the two groups most allergic to fake precision.
+
+4. put a screenshot of a real report above the fold. right now the
+   sample is a click away. it should be visible.
+
+5. pick a lane: fast or rigorous. "runs in minutes" and "research-grade"
+   pull in opposite directions. for a $29 buyer, lean into fast and
+   directional. save "rigorous" for the enterprise page.
+
+6. this line is a little smug: "you do not need to know the right
+   questions to ask. the system does." just say "the chat asks you what
+   it needs."
+
+7. no proof anywhere on the page. no logos, testimonials, or "we've
+   generated X reports." even a "used by teams at Y and Z" line lowers
+   the risk of clicking buy.
+
+8. the 5-pack pricing math is soft. $29 to $20 per report is only about
+   30% off. either widen the gap (bump single to $39, keep 5-pack at
+   $99) or drop the pack entirely.

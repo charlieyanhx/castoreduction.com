@@ -94,6 +94,14 @@ def reddit_mentions(query: str, limit: int = 25) -> list[dict]:
     params = {"q": query, "limit": str(limit), "sort": "relevance", "t": "year"}
     r = mrp_http.get(url, params=params, timeout=20, max_retries=2)
     if r.status_code != 200:
+        # Measured: reddit.com answers 403 to this client, so reddit_post_count was 0 in 36 of
+        # 36 real decodes -- not because nobody posts about these brands, but because the
+        # request never succeeds. A bare [] made a BLOCKED fetch indistinguishable from a
+        # quiet internet, and taste's cannot-decode notice then told readers "0 Reddit posts"
+        # as though it had looked. Visibility first: teaching callers to tell the two apart
+        # needs an interface change to a function with several callers.
+        log.warning("[sources] reddit search returned HTTP %s for %r — reporting 0 posts, "
+                    "which is NOT the same as finding none", r.status_code, query[:60])
         return []
     data = r.json()
     out = []
