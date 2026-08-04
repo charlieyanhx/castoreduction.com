@@ -1642,6 +1642,59 @@ def d54_produced_output_reaches_the_report(r: dict, html: str | None) -> Finding
                          f"({len(dropped)} explained drop(s))")
 
 
+# Measured across 17 stored corpus reports plus three live runs: answerable-gate coverage runs
+# 63-80% on every real report and 44-46% on the two thin ones. A floor of 55% sits in a
+# 17-point gap, so it discriminates with margin at both ends rather than being a round number
+# somebody liked.
+_MIN_COVERAGE_PCT = 55
+
+
+def d55_report_is_complete_enough_to_have_been_checked(r: dict, html: str | None) -> Finding:
+    """A report must not pass by being too empty to judge.
+
+    THE PROBLEM THIS EXISTS FOR. Every other gate answers True, False, or not-applicable, and
+    not-applicable is correct when a section is absent. But the SCORECARD then rewards absence:
+    measured, out/live/run2 scored 23 pass / 0 fail where the fuller-but-partly-fabricated run1
+    scored 35 pass / 1 fail. The emptier report looked better. A regression that guts a section
+    reads as an improvement, which is exactly backwards.
+
+    So this gate asks the one question none of the others can: how much of the rulebook could
+    ACTUALLY ANSWER on this report? Below the floor, the verdict "nothing wrong" means "almost
+    nothing was checked", and those must not look the same.
+
+    Deliberately NOT a section checklist. Sections are legitimately conditional --
+    customer_universe is B2B-only by design, and a hyperlocal cafe rightly skips it -- so
+    counting sections would fail honest reports for being the shape they should be. Coverage
+    measures what was CHECKABLE, which is the property that actually matters.
+
+    Recursion note: this gate excludes itself from the count, or a report could pass it by
+    virtue of it being answerable."""
+    answered = na = 0
+    for inv in INVARIANTS:
+        if inv.id == "D55":
+            continue
+        try:
+            f = inv.check(r, html)
+        except Exception:                        # a crashing detector checked nothing
+            na += 1
+            continue
+        if f.ok is None:
+            na += 1
+        else:
+            answered += 1
+    total = answered + na
+    if not total:
+        return Finding(None, "no invariants to measure coverage against")
+    pct = round(100 * answered / total)
+    if pct < _MIN_COVERAGE_PCT:
+        return Finding(False,
+                       f"only {answered}/{total} invariants ({pct}%) could answer on this "
+                       f"report, below the {_MIN_COVERAGE_PCT}% floor — it is too incomplete "
+                       "to have been meaningfully verified, so a clean scorecard here means "
+                       "'barely checked', not 'nothing wrong'")
+    return Finding(True, f"{answered}/{total} invariants ({pct}%) could answer")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -1697,6 +1750,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D52", "chosen sizing skill actually ran", "harness item 1: the classifier named size_hyperlocal and the LLM sized it instead", "fail", d52_chosen_sizing_skill_actually_ran),
     Invariant("D53", "no fabricated agency citation", "harness item 2: 14/15 agency-citing figures had no origin proving a call", "fail", d53_no_fabricated_agency_citation),
     Invariant("D54", "produced output reaches the report", "harness item 7: 3 sections the ledger recorded as produced vanished silently", "fail", d54_produced_output_reaches_the_report),
+    Invariant("D55", "complete enough to have been checked", "the scorecard rewarded emptiness: an empty report scored 23 pass / 0 fail", "fail", d55_report_is_complete_enough_to_have_been_checked),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

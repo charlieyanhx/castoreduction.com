@@ -1254,7 +1254,7 @@ class TestTasteCannotDecode(unittest.TestCase):
     def test_cannot_decode_when_no_signals(self):
         from unittest.mock import patch
         with patch("taste.trustpilot_reviews", return_value=[]), \
-             patch("taste.reddit_mentions", return_value=[]), \
+             patch("taste.reddit_search", return_value=([], None)), \
              patch("taste.hackernews_mentions", return_value=[]), \
              patch("taste.search_review_articles", return_value=[]), \
              patch("taste.scrape_homepage_testimonials", return_value=[]):
@@ -1272,7 +1272,7 @@ class TestTasteCannotDecode(unittest.TestCase):
         fake_reviews = [{"title": "T", "body": "ok", "stars": 5} for _ in range(6)]
         fake_reddit = [{"title": "post", "body": "x", "score": 5} for _ in range(4)]
         with patch("taste.trustpilot_reviews", return_value=fake_reviews), \
-             patch("taste.reddit_mentions", return_value=fake_reddit), \
+             patch("taste.reddit_search", return_value=(fake_reddit, None)), \
              patch("taste.search_review_articles", return_value=[]), \
              patch("taste.scrape_homepage_testimonials", return_value=[]), \
              patch("taste.call_json", return_value={"brand": "X", "purchase_motivation": "value"}):

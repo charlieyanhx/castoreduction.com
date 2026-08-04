@@ -122,6 +122,12 @@ class TestSweepSurvivesARaisingDetector(unittest.TestCase):
         original = gates.INVARIANTS[:]
         try:
             gates.INVARIANTS[idx] = dataclasses.replace(base, check=_raise)
+            # D55 out: it is a completeness floor on a real REPORT, and clean_result() is a
+            # minimal test double (41% answerable coverage vs 63-80% for every real report).
+            # Left in, blocking_failures would count the fixture's thinness and this assertion
+            # would stop measuring what it is named after — whether a RAISING warn detector
+            # gets promoted to blocking.
+            gates.INVARIANTS[:] = [i for i in gates.INVARIANTS if i.id != "D55"]
             card = gates.run_gate({"g": (clean_result(), CLEAN_HTML)}, "all")
         finally:
             gates.INVARIANTS[:] = original

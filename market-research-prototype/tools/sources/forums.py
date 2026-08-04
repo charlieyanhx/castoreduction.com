@@ -85,25 +85,39 @@ def hackernews_mentions(query: str, limit: int = 20) -> list[dict]:
     return out
 
 
-def reddit_mentions(query: str, limit: int = 25) -> list[dict]:
-    """
-    Uses the public reddit.com/search.json endpoint. Returns posts + top
-    snippets. No authentication required, but rate-limited.
-    """
+def reddit_search(query: str, limit: int = 25) -> tuple[list[dict], str | None]:
+    """Search Reddit. Returns (posts, unavailable_reason) — the reason is None on success.
+
+    THE TWO OUTCOMES ARE DIFFERENT FACTS and callers need to tell them apart. Measured four
+    ways before this was written:
+
+        www.reddit.com/search.json  -> 403 with no user-agent
+        www.reddit.com/search.json  -> 403 with a browser user-agent
+        www.reddit.com/search.json  -> 403 with a descriptive script user-agent
+        old.reddit.com/search.json  -> 200, redirected to /login/?reason=lor2 (HTML)
+
+    Reddit closed its public JSON API to unauthenticated clients, so this is not recoverable
+    by tweaking headers; it needs OAuth credentials. The old code returned a bare [] on any
+    non-200, which made a BLOCKED fetch identical to a quiet internet: reddit_post_count was 0
+    in 36 of 36 real decodes, and taste's cannot-decode notice then told readers "0 Reddit
+    posts" as though it had looked, while offering "or 10 Reddit posts" as an alternative
+    threshold that cannot be cleared.
+
+    The docstring used to say "No authentication required". It does now."""
     url = "https://www.reddit.com/search.json"
     params = {"q": query, "limit": str(limit), "sort": "relevance", "t": "year"}
     r = mrp_http.get(url, params=params, timeout=20, max_retries=2)
     if r.status_code != 200:
-        # Measured: reddit.com answers 403 to this client, so reddit_post_count was 0 in 36 of
-        # 36 real decodes -- not because nobody posts about these brands, but because the
-        # request never succeeds. A bare [] made a BLOCKED fetch indistinguishable from a
-        # quiet internet, and taste's cannot-decode notice then told readers "0 Reddit posts"
-        # as though it had looked. Visibility first: teaching callers to tell the two apart
-        # needs an interface change to a function with several callers.
-        log.warning("[sources] reddit search returned HTTP %s for %r — reporting 0 posts, "
-                    "which is NOT the same as finding none", r.status_code, query[:60])
-        return []
-    data = r.json()
+        reason = (f"HTTP {r.status_code} — Reddit's public search API requires "
+                  "authentication; set OAuth credentials to restore this signal")
+        log.warning("[sources] reddit search unavailable for %r: %s", query[:60], reason)
+        return [], reason
+    try:
+        data = r.json()
+    except Exception:
+        reason = "Reddit returned a non-JSON body (likely a login redirect)"
+        log.warning("[sources] reddit search unavailable for %r: %s", query[:60], reason)
+        return [], reason
     out = []
     for child in data.get("data", {}).get("children", []):
         d = child.get("data", {})
@@ -117,4 +131,13 @@ def reddit_mentions(query: str, limit: int = 25) -> list[dict]:
                 "url": f"https://reddit.com{d.get('permalink', '')}",
             }
         )
-    return out
+    return out, None
+
+
+def reddit_mentions(query: str, limit: int = 25) -> list[dict]:
+    """Posts only. Kept as the list-returning shim so discover.py and ~15 tests are untouched.
+
+    Prefer `reddit_search` anywhere the difference between "found nothing" and "could not
+    look" affects what the report says."""
+    posts, _unavailable = reddit_search(query, limit=limit)
+    return posts
