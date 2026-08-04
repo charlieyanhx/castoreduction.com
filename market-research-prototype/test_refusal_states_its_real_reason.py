@@ -71,13 +71,22 @@ class TestTheNoticeNamesTheCriterionThatActuallyFired(unittest.TestCase):
                          f"still self-refuting: {reason}")
 
     def test_it_names_the_first_party_voice_it_lacked(self):
+        """Which CLAUSE fires for this shape changed when task C stopped counting Hacker News
+        toward customer voice: customer_voice_total for (0 reviews, 0 reddit, 5 articles) is 5,
+        so the TOTAL criterion now fires where the first-party one used to. The verdict is
+        identical — still a refusal — and the total is the more natural explanation anyway.
+        So this asserts the property that must hold under either clause: the notice names the
+        first-party sources it looked at, and every threshold it cites is one it failed."""
         out = _decode(reviews=0, reddit=0, articles=5, hn=15)
         if not out.get("cannot_decode"):
             self.skipTest("shape no longer refuses")
-        low = out["reason"].lower()
-        self.assertTrue("trustpilot" in low and "reddit" in low)
-        self.assertIn("5", out["reason"], "the review threshold is not stated")
-        self.assertIn("10", out["reason"], "the reddit threshold is not stated")
+        reason, low = out["reason"], out["reason"].lower()
+        self.assertIn("trustpilot", low, "the notice does not say what it looked for")
+        self.assertIn("threshold of 8", reason)
+        # the second-clause wording, if that is the branch taken, must cite both bars
+        if "bar of" in reason:
+            self.assertIn("5 reviews", reason)
+            self.assertIn("10 Reddit posts", reason)
 
     def test_a_genuinely_thin_total_still_cites_the_total(self):
         """When the FIRST clause is what fired, the total IS the right explanation."""
@@ -153,12 +162,15 @@ class TestTheSentenceAddsUp(unittest.TestCase):
                              f"{out['reason']}")
 
     def test_singular_counts_read_as_singular(self):
+        """Asserts the absence of the plural bug rather than a fixed surrounding character:
+        after task C this shape takes the total-criterion branch, where the count is followed
+        by a comma instead of a space, and an earlier version of this test pinned the space."""
         out = _decode(reviews=1, reddit=0, articles=5, hn=15)
         if not out.get("cannot_decode"):
             self.skipTest("shape no longer refuses")
-        self.assertIn("1 Trustpilot review ", out["reason"],
-                      f"plural on a count of one: {out['reason']}")
-        self.assertNotIn("1 Trustpilot reviews", out["reason"])
+        self.assertIn("1 Trustpilot review", out["reason"])
+        self.assertNotIn("1 Trustpilot reviews", out["reason"],
+                         f"plural on a count of one: {out['reason']}")
 
 
 if __name__ == "__main__":

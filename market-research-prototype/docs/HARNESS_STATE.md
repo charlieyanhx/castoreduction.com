@@ -302,3 +302,76 @@ cannot cover them; self-healing beats silently unrecorded.
 D22's regex; the 16 audit highs; full orchestrator consolidation (item 4); `bls_cex_spend`
 series resolution; and everything gated behind `CENSUS_API_KEY` — which is free, and is now the
 single highest-leverage thing a human can do for report quality.
+
+
+---
+
+# Task D — why `census_business_counts` and `census_land_area` never fire
+
+Both have a call path and neither appeared in three live runs. **Traced: both are
+correct-but-blocked, not dead. No code fix is warranted.**
+
+**`census_land_area`** — `skills/sizing/hyperlocal.py`:
+
+```python
+d = acs(state_fips=..., county_fips=..., tract=_tract, year=year)
+geo_hh = (d.payload or {}).get("households") if not d.error else None
+if not geo_hh:
+    continue                     # <-- skips before land() is ever reached
+a = land(state_fips=..., county_fips=..., tract=_tract)
+```
+
+Land area is only useful *combined* with a household count — the pair becomes a density that
+the catchment is applied to. ACS fails for want of `CENSUS_API_KEY`, so the loop `continue`s
+before the land call. Correct sequencing; there is nothing to fix but the key.
+
+**`census_business_counts`** — reached only via `grounded_bottom_up`, which
+`plan.ground_sizing_bottom_up` calls only after an ARPU basis exists. Measured on run3:
+
+```
+extract_stated_price  -> None          (no "$X/mo" in the description)
+scrape_market_price   -> no recurring median for a cafe
+arpu_monthly_fallback -> PSM optimal $5.75, and business_model_kind is "transactional"
+                         so is_per_unit() is True -> early `return out`
+=> grounded_bottom_up never called => census_business_counts never called
+```
+
+That early return is the high-#6 guard: annualising a per-unit price would invent recurring
+revenue and then tag it `data_origin="census"`. It is doing its job.
+
+**One structural improvement noted and NOT built.** The establishment COUNT does not depend on
+the ARPU — only the multiplication does. Refusing the whole grounding because the price half is
+unusable discards a real Census count we could publish as local-market evidence. Worth doing,
+but it yields nothing until `CENSUS_API_KEY` exists (CBP is key-gated too), so it is
+speculative work today rather than a fix.
+
+# Task C — what counted as "customer voice" was neither
+
+Corrected diagnosis. I first reported `hn_count` as "a category-level result set counted into
+every brand's total". **Wrong** — measured live, each brand really does get its own 15 hits.
+They are 15 because `limit=15` SATURATES: the search is loose enough that every brand caps out.
+The hits for a Mission District cafe include *"SPA Hackatron (swimmers only)"* and *"A Russian
+Gains Prominence Among Fine Watchmakers"*. `hn_count` is exactly 15 in **34 of 36** decodes
+across the corpus plus three live runs.
+
+The fix is relevance, not de-duplication: Hacker News is third-party commentary, not customer
+voice, so it no longer counts toward the decision. `total_sources` still reports everything
+scraped (what the report discloses); `customer_voice_total` is what the DECISION reads.
+
+**Proven safe rather than argued.** Replayed over all 36 real decodes: **0 change verdict.**
+Every case where HN inflated the total also fails the first-party clause, which fires anyway;
+every case that decoded has ample reviews (5, 20, 50, 60). That measurement is what turned a
+judgement call into a safe change.
+
+**And a bigger finding underneath it: Reddit is 403-blocked.** `reddit_mentions` hits the public
+`search.json` endpoint and does `if r.status_code != 200: return []`. reddit.com answers **403**
+to this client, so `reddit_post_count` is 0 in **36 of 36** decodes — not because nobody posts
+about these brands, but because the request never succeeds. The refusal notice then told readers
+"0 Reddit posts" as though it had looked, and the "or 10 Reddit posts" half of the threshold is
+unreachable by construction. (An earlier guess of mine, missing `REDDIT_CLIENT_ID`, was wrong —
+this endpoint takes no auth and those vars are never read.)
+
+Fixed as far as VISIBILITY: the non-200 is logged with its status. Teaching callers to
+distinguish "blocked" from "empty" needs an interface change to a function with several callers,
+so it is tracked rather than rushed. **Until then, one of the two first-party criteria is dead,
+and the second clause reduces to `reviews < 5`.**

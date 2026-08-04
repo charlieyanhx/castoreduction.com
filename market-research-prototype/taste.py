@@ -269,13 +269,29 @@ def decode_taste(brand: str, domain: str) -> dict:
         log.info(f"  got {len(homepage_excerpts)} homepage sections")
 
     total_sources = len(reviews) + len(reddit) + len(articles) + len(hn) + len(homepage_excerpts)
+    # Hacker News is NOT customer voice, and it dominated the total. `hackernews_mentions`
+    # takes limit=15 and the search is loose enough that nearly every brand saturates it:
+    # measured, hn_count is exactly 15 in 34 of 36 real decodes, and the hits are things like
+    # "SPA Hackatron (swimmers only)" and "A Russian Gains Prominence Among Fine Watchmakers"
+    # for a Mission District cafe. Counting those toward a customer-voice bar let noise clear
+    # the threshold on its own.
+    #
+    # PROVABLY SAFE, not merely argued: replayed across all 36 decodes in the 16-report corpus
+    # plus three live runs, this changes ZERO verdicts. Every case where HN inflated the total
+    # also fails the first-party clause, which fires regardless, and every case that decoded
+    # has ample reviews (5, 20, 50, 60).
+    #
+    # total_sources stays the honest count of everything scraped -- it is what the report
+    # discloses. customer_voice_total is what the DECISION uses. Two questions, two fields.
+    customer_voice_total = (len(reviews) + len(reddit) + len(articles)
+                            + len(homepage_excerpts))
     # Iter 40 (#3c): explicit cannot-decode flag when signal is too thin —
     # better to flag honestly than to produce a fake "purchase_motivation:
     # 'cannot be determined from the provided data'" entry that pollutes the
     # personas and 4Ps downstream.
     MIN_REVIEWS = 5
     MIN_TOTAL = 8
-    _thin_total = total_sources < MIN_TOTAL
+    _thin_total = customer_voice_total < MIN_TOTAL
     _no_first_party = len(reviews) < MIN_REVIEWS and len(reddit) < 10
     if _thin_total or _no_first_party:
         # STATE THE CRITERION THAT ACTUALLY FIRED. There are two, and the notice used to
@@ -294,7 +310,8 @@ def decode_taste(brand: str, domain: str) -> dict:
         if _thin_total:
             _reason = (
                 f"Insufficient customer voice for confident taste decode: "
-                f"{_n(total_sources, 'signal')} in total against a threshold of {MIN_TOTAL} "
+                f"{_n(customer_voice_total, 'customer-voice signal')} against a "
+                f"threshold of {MIN_TOTAL} "
                 f"({_n(len(reviews), 'Trustpilot review')}, {_n(len(reddit), 'Reddit post')}, "
                 f"{_n(len(articles), 'review article')}, "
                 f"{_n(len(homepage_excerpts), 'homepage testimonial')})."
@@ -338,6 +355,7 @@ def decode_taste(brand: str, domain: str) -> dict:
                 "hn_count": len(hn),
                 "homepage_excerpts": len(homepage_excerpts),
                 "total_sources": total_sources,
+                "customer_voice_total": customer_voice_total,
             },
         }
 
@@ -410,6 +428,7 @@ def decode_taste(brand: str, domain: str) -> dict:
         "hn_count": len(hn),
         "homepage_excerpts": len(homepage_excerpts),
         "total_sources": total_sources,
+        "customer_voice_total": customer_voice_total,
     }
     # Iter 42 (issue 2): heuristic-fallback for confidence when the LLM omits it.
     if profile.get("confidence") is None:
