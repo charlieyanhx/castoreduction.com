@@ -353,8 +353,9 @@ def census_business_counts(naics: Optional[str] = None, category: Optional[str] 
 
     Pass an explicit `naics` code or any `category` (resolved generically by the
     LLM — no hardcoded category list, so any vertical works). Source: US Census
-    County Business Patterns (CBP), free, no key needed. This is the authoritative
-    unit count bottom-up TAM should use, not a hardcoded constant.
+    County Business Patterns (CBP). REQUIRES a free CENSUS_API_KEY — the docstring
+    claimed "free, no key needed" until 2026-07-29, and measured, api.census.gov
+    answers the sign-up page without one.
     Do NOT use for competitor density near a point — this is a US-national count;
     poi_competition / osm_named_competitors handle a lat/lng radius.
     """
@@ -363,12 +364,19 @@ def census_business_counts(naics: Optional[str] = None, category: Optional[str] 
         return Evidence(source="census_business_counts", category="geo", count=0,
                         skeleton=True,
                         error=f"could not resolve NAICS for category={category!r}")
-    naics_param = f"NAICS{year}" if year >= 2017 else "NAICS2017"
-    rows = _http_json(
-        "GET", _CBP_URL.format(year=year),
-        params={"get": "ESTAB,NAME", "for": "us:1", naics_param: code},
-        timeout=12,
-    )
+    # The CBP variable is NAICS2017 for every recent vintage, NOT NAICS<year>. Measured:
+    #   cbp/2022?NAICS2017=722515 -> 200, ESTAB 78856
+    #   cbp/2022?NAICS2022=722515 -> 400
+    # The old f"NAICS{year}" produced NAICS2022 and 400'd on the current default year, so this
+    # tool could not have worked even with a key.
+    naics_param = "NAICS2017"
+    _params = {"get": "ESTAB,NAME", "for": "us:1", naics_param: code}
+    # And it never attached the key at all, unlike acs_demographics right above it — so it
+    # returned the sign-up page regardless of configuration.
+    _key = os.getenv("CENSUS_API_KEY")
+    if _key:
+        _params["key"] = _key
+    rows = _http_json("GET", _CBP_URL.format(year=year), params=_params, timeout=12)
     if not isinstance(rows, list) or len(rows) < 2:
         return Evidence(source="census_business_counts", category="geo", count=0,
                         skeleton=True, error=f"CBP returned no data for NAICS {code}")

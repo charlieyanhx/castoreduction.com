@@ -143,8 +143,23 @@ def resolve_annual_spend(category: str) -> tuple[Optional[float], bool]:
         return None, False
 
 
-def _fig(value: Optional[float], label: str, source: str, formula: str) -> dict:
-    return {"value_usd": value, "label": label, "source": source, "formula": formula}
+def _fig(value: Optional[float], label: str, source: str, formula: str,
+         data_origin: Optional[str] = None) -> dict:
+    """One sizing figure, WITH its origin.
+
+    D53 caught the omission on a real run and it was worth catching: with the Census key in
+    place, TAM_local was genuinely built from ACS households x TIGERweb land area x BLS spend
+    -- all three fetched live -- and shipped with `data_origin: "unattributed"` because nothing
+    here stamped it. The gate then refused a figure whose sources were real. That is the
+    pipeline UNDER-claiming, the mirror of the fabricated-citation bug, and it is just as
+    wrong: a reader cannot tell a measured figure from a narrated one either way.
+
+    `derived` is its own origin, not a missing one -- SAM/SOM are arithmetic on the TAM, and
+    saying so is more honest than inheriting the TAM's provenance."""
+    fig = {"value_usd": value, "label": label, "source": source, "formula": formula}
+    if data_origin:
+        fig["data_origin"] = data_origin
+    return fig
 
 
 def catchment_km2(radius_m: int) -> float:
@@ -325,13 +340,20 @@ def size_hyperlocal(
         tam = households * spend
         # State the CATCHMENT the households belong to, not just the count — the count
         # alone is what let a county-scale figure pass as a trade area (audit high #4).
+        # Both halves fetched -> census. Either half modelled -> mixed, and the figure must
+        # not read as fully sourced.
+        _tam_origin = ("census" if (households_sourced and spend_is_sourced)
+                       else "mixed" if (households_sourced or spend_is_sourced)
+                       else "llm")
         figures.append(_fig(tam, "TAM_local", f"{households_src} + {spend_src}",
                              f"{households:,.0f} households within {radius_m / 1000:.1f} km "
                              f"({catchment_km2(radius_m):,.1f} km² catchment) × "
-                             f"${spend:,.0f}/hh/yr"))
+                             f"${spend:,.0f}/hh/yr",
+                             data_origin=_tam_origin))
         sam = tam * serviceable_fraction
         figures.append(_fig(sam, "SAM_local", "derived",
-                            f"TAM × {serviceable_fraction:.0%} serviceable"))
+                            f"TAM × {serviceable_fraction:.0%} serviceable",
+                            data_origin="derived"))
 
         # Demand-side fair share is a SATURATION SIGNAL, not the headline SOM. With
         # many competitors an equal split pathologically understates what one
@@ -363,7 +385,8 @@ def size_hyperlocal(
             figures.append(_fig(
                 som, "SOM_obtainable", unit_src,
                 f"min(${unit_rev:,.0f} single-unit rev × {ramp_factor:.0%} ramp, "
-                f"${sam:,.0f} SAM)"))
+                f"${sam:,.0f} SAM)",
+                data_origin="derived"))
             # Surface saturation honestly when fair share sits far below the SOM.
             # R4 rank 18: the note claimed "capacity-based" even when the SOM rests on
             # an UNSOURCED single-unit revenue estimate (no seat data) — 4/6 hyperlocal
@@ -385,7 +408,8 @@ def size_hyperlocal(
             figures.append(_fig(
                 som, "SOM_demand",
                 "OpenStreetMap Overpass + derived (fair-share fallback)",
-                f"SAM × 1/({competitors}+1) fair-share × {ramp_factor:.0%} ramp"))
+                f"SAM × 1/({competitors}+1) fair-share × {ramp_factor:.0%} ramp",
+                data_origin="osm"))
             notes.append("SOM is a fair-share fallback (no single-unit revenue anchor) "
                          "— likely understates a differentiated single store.")
         else:
