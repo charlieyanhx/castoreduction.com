@@ -18,7 +18,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from sources import (
-    trustpilot_reviews, reddit_mentions, hackernews_mentions, validate_domain,
+    trustpilot_reviews, reddit_mentions, reddit_search, hackernews_mentions,
+    validate_domain,
     resolve_brand_domain
 )
 import net as mrp_http
@@ -244,7 +245,11 @@ def decode_taste(brand: str, domain: str) -> dict:
 
     # 2. Reddit
     log.info("[taste] searching reddit...")
-    reddit = reddit_mentions(f'"{brand}"', limit=25)
+    # reddit_search, not reddit_mentions: "found nothing" and "could not look" must reach the
+    # notice as different facts. Reddit's public API is 403/login-walled for unauthenticated
+    # clients, so reddit_post_count was 0 in 36 of 36 real decodes and the notice reported that
+    # as though it had searched.
+    reddit, reddit_unavailable = reddit_search(f'"{brand}"', limit=25)
     log.info(f"  got {len(reddit)} reddit posts")
 
     # 3. DDG search for review articles (new fallback source)
@@ -291,8 +296,17 @@ def decode_taste(brand: str, domain: str) -> dict:
     # personas and 4Ps downstream.
     MIN_REVIEWS = 5
     MIN_TOTAL = 8
+    def _n(count: int, noun: str) -> str:
+        return f"{count} {noun}{'' if count == 1 else 's'}"
+
     _thin_total = customer_voice_total < MIN_TOTAL
     _no_first_party = len(reviews) < MIN_REVIEWS and len(reddit) < 10
+    # Only offer the Reddit bar when Reddit could actually be read. Citing "or 10 Reddit posts"
+    # as an alternative threshold while the API is login-walled is a promise the pipeline
+    # cannot keep, and it invites a reader to think the brand was checked there.
+    _reddit_bar = "" if reddit_unavailable else " or 10 Reddit posts"
+    _reddit_state = (f"Reddit unavailable ({reddit_unavailable})"
+                     if reddit_unavailable else _n(len(reddit), 'Reddit post'))
     if _thin_total or _no_first_party:
         # STATE THE CRITERION THAT ACTUALLY FIRED. There are two, and the notice used to
         # explain every refusal with the first one's arithmetic. Measured on out/live/run3:
@@ -304,15 +318,12 @@ def decode_taste(brand: str, domain: str) -> dict:
         # (R4 rank 24 fixed a different self-refutation in this same sentence — "no consumer
         # review surface" while reporting 15-21 signals. That one survived because it was
         # patched in the prose rather than in which number the prose cites.)
-        def _n(count: int, noun: str) -> str:
-            return f"{count} {noun}{'' if count == 1 else 's'}"
-
         if _thin_total:
             _reason = (
                 f"Insufficient customer voice for confident taste decode: "
                 f"{_n(customer_voice_total, 'customer-voice signal')} against a "
                 f"threshold of {MIN_TOTAL} "
-                f"({_n(len(reviews), 'Trustpilot review')}, {_n(len(reddit), 'Reddit post')}, "
+                f"({_n(len(reviews), 'Trustpilot review')}, {_reddit_state}, "
                 f"{_n(len(articles), 'review article')}, "
                 f"{_n(len(homepage_excerpts), 'homepage testimonial')})."
             )
@@ -325,8 +336,8 @@ def decode_taste(brand: str, domain: str) -> dict:
                 # a wording change rather than a behaviour change.
                 f"Insufficient customer voice for confident taste decode: no first-party "
                 f"voice — {_n(len(reviews), 'Trustpilot review')} and "
-                f"{_n(len(reddit), 'Reddit post')}, "
-                f"against a bar of {MIN_REVIEWS} reviews or 10 Reddit posts. The "
+                f"{_reddit_state}, "
+                f"against a bar of {MIN_REVIEWS} reviews{_reddit_bar}. The "
                 f"{_n(_third_party, 'other signal')} found "
                 # Itemise EVERY component, including Hacker News. A first draft of this
                 # sentence listed only articles and testimonials while claiming a total of
@@ -356,6 +367,8 @@ def decode_taste(brand: str, domain: str) -> dict:
                 "homepage_excerpts": len(homepage_excerpts),
                 "total_sources": total_sources,
                 "customer_voice_total": customer_voice_total,
+        "reddit_unavailable": bool(reddit_unavailable),
+                "reddit_unavailable": bool(reddit_unavailable),
             },
         }
 

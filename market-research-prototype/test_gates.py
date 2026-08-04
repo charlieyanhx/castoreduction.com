@@ -8,6 +8,7 @@ milestone claimed via gates.py rests on tested detectors, not opinion.
 """
 from __future__ import annotations
 
+import contextlib
 import copy
 import unittest
 
@@ -80,9 +81,19 @@ def run_one(det_id: str, r: dict, html=CLEAN_HTML):
 
 
 class TestCleanFixturePasses(unittest.TestCase):
+    # D55 measures whether a REPORT is complete enough to have been meaningfully verified.
+    # `clean_result()` is a minimal test double for exercising individual detectors -- measured
+    # at 41% answerable coverage, against 63-80% for every real report -- so a completeness
+    # floor is a category error here, like asserting a unit-test stub carries a full customer
+    # record. The exemption is deliberately narrow: D55 still judges every real report, and
+    # test_scorecard_does_not_reward_emptiness.py holds it to that on all 19 of them.
+    _NOT_ABOUT_FIXTURES = {"D55"}
+
     def test_all_detectors_pass_or_na_on_clean(self):
         r = clean_result()
         for inv in gates.INVARIANTS:
+            if inv.id in self._NOT_ABOUT_FIXTURES:
+                continue
             f = inv.check(r, CLEAN_HTML)
             self.assertNotEqual(f.ok, False, f"{inv.id} false-fired on clean fixture: {f.detail}")
 
@@ -168,9 +179,28 @@ class TestSeededCriticals(unittest.TestCase):
         self.assertFalse(run_one("D14", r).ok)
 
 
+@contextlib.contextmanager
+def _runner_mechanics_only():
+    """Drop D55 for tests that exercise the RUNNER, not the rulebook.
+
+    D55 is a completeness floor on a real report. `clean_result()` is a minimal test double
+    (41% answerable coverage vs 63-80% for every real report), so with D55 in the set every
+    runner-mechanics assertion — "a warn-severity failure does not block", "a clean corpus
+    passes core" — would be measuring the fixture's thinness instead of the behaviour under
+    test. Narrow by design: D55 still judges all 19 real reports in
+    test_scorecard_does_not_reward_emptiness.py."""
+    original = list(gates.INVARIANTS)
+    gates.INVARIANTS[:] = [i for i in original if i.id != "D55"]
+    try:
+        yield
+    finally:
+        gates.INVARIANTS[:] = original
+
+
 class TestGateRunner(unittest.TestCase):
     def test_clean_corpus_passes_core_gate(self):
-        card = gates.run_gate({"v1": (clean_result(), CLEAN_HTML)}, "core")
+        with _runner_mechanics_only():
+            card = gates.run_gate({"v1": (clean_result(), CLEAN_HTML)}, "core")
         self.assertEqual(card["verdict"], "PASS")
         self.assertEqual(card["blocking_failures"], 0)
 
@@ -182,7 +212,8 @@ class TestGateRunner(unittest.TestCase):
 
     def test_warn_severity_does_not_block(self):
         r = clean_result(); del r["_trace"]        # D12 is warn-severity
-        card = gates.run_gate({"v1": (r, CLEAN_HTML)}, "all")
+        with _runner_mechanics_only():
+            card = gates.run_gate({"v1": (r, CLEAN_HTML)}, "all")
         self.assertEqual(card["verdict"], "PASS")
 
     def test_deterministic(self):

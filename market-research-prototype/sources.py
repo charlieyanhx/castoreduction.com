@@ -652,7 +652,7 @@ def rank_meta_advertisers(ads: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 from tools.sources.articles import devto_mentions, lobsters_mentions  # noqa: E402,F401
 from tools.sources.forums import (  # noqa: E402,F401
-    hackernews_mentions, reddit_mentions, stackexchange_mentions,
+    hackernews_mentions, reddit_mentions, reddit_search, stackexchange_mentions,
 )
 from tools.sources.trustpilot import (  # noqa: E402,F401
     _trustpilot_via_playwright, trustpilot_momentum, trustpilot_reviews,

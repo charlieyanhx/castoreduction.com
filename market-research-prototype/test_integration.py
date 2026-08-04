@@ -277,7 +277,7 @@ class TestTasteIntegration(unittest.TestCase):
         big_reviews = list(FAKE_TP_REVIEWS) * 2  # 6 reviews, meets ≥5 threshold
         big_reddit = list(FAKE_REDDIT) * 3  # 9+ posts
         with patch("taste.trustpilot_reviews", return_value=big_reviews), \
-             patch("taste.reddit_mentions", return_value=big_reddit), \
+             patch("taste.reddit_search", return_value=(big_reddit, None)), \
              patch("taste.call_json", side_effect=fake_llm_call_json):
             profile = taste.decode_taste("Acme Skincare", "acmeskincare.com")
         self.assertEqual(profile["brand"], "Acme Skincare")
@@ -291,7 +291,7 @@ class TestTasteIntegration(unittest.TestCase):
         import taste
 
         with patch("taste.trustpilot_reviews", return_value=[]), \
-             patch("taste.reddit_mentions", return_value=[]), \
+             patch("taste.reddit_search", return_value=([], None)), \
              patch("taste.search_review_articles", return_value=[]), \
              patch("taste.scrape_homepage_testimonials", return_value=[]):
             profile = taste.decode_taste("NoData", "nodata.com")
