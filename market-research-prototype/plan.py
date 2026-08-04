@@ -742,7 +742,8 @@ def scrub_failed_psm_citations(four_ps: dict, pricing: dict | None) -> dict:
 
 def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
                             arpu_monthly_fallback: float | None = None,
-                            biz_kind: str | None = None) -> dict:
+                            biz_kind: str | None = None,
+                            result: dict | None = None) -> dict:
     """C2/F3 (audit remediation): replace the LLM's hallucinated bottom-up TAM method
     with a LIVE Census-grounded one (target-customer establishment count × ARPU).
 
@@ -768,8 +769,22 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
                 arpu_monthly = float(spe.payload["median_monthly_usd"])
                 arpu_sourced = spe.payload.get("source_label", "scraped competitor pricing")
                 arpu_origin = "scrape"
+                # PUBLISH the evidence, do not just consume it. The ledger records
+                # scrape_market_price as producing `price_intel` and the report showed no
+                # such key (D54), because plan.py took the median and dropped the rest --
+                # the source hosts, the sample size, the label. An ARPU whose grounding is
+                # invisible is barely better than an ungrounded one, so this is a publish
+                # rather than a "dropped output" note.
+                if result is not None:
+                    result["price_intel"] = dict(spe.payload)
+                    _step_done(result, "price_intel")
                 log.info("[plan] ARPU grounded from scrape: $%s/mo (%s)",
                          arpu_monthly, arpu_sourced)
+            elif result is not None:
+                record_dropped_output(
+                    result, "price_intel",
+                    f"scrape_market_price found no usable median: "
+                    f"{spe.error or 'no recurring price on any surviving page'}")
         except Exception as e:
             log.warning("[plan] price scrape failed (non-fatal): %s", e)
     if not arpu_monthly:
@@ -961,6 +976,32 @@ def record_dropped_output(result: dict, key: str, reason: str) -> None:
         return
     drops = result.setdefault("_dropped_outputs", {})
     drops[str(key)] = str(reason)[:400]
+
+
+def attach_consumer_research(result: dict, description: str, geo: str, profile: dict,
+                            opps: list, checkpoint=None) -> None:
+    """Attach the STORM-style consumer research, or record why it is absent.
+
+    Extracted from run_plan so it can be tested, and so the empty case stops being silent.
+    D54 on the latest live run: `consumer_research` was recorded by the ledger as produced
+    (skills/perspective.py:144) and appeared nowhere in the report, because the whole step was
+    `if cr_payload:` with no else. A step that evaporates is indistinguishable from a step
+    that was never meant to run.
+
+    Deliberately does not fabricate a placeholder section -- an empty consumer_research block
+    would read as "we asked and found nothing", which is a finding, not a gap."""
+    cr_payload = build_consumer_research(description, geo, profile, opps,
+                                         market_scale=result.get("market_scale"))
+    if cr_payload:
+        result["consumer_research"] = cr_payload
+        _step_done(result, "consumer_research")
+        if checkpoint:
+            checkpoint()
+        return
+    record_dropped_output(
+        result, "consumer_research",
+        "build_consumer_research returned nothing — the multi-perspective simulation "
+        "produced no usable synthesis for this venture")
 
 
 def size_by_scale(scale_decision: dict | None, description: str, profile: dict) -> dict | None:
@@ -1960,12 +2001,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             checkpoint()
 
     # --- Step 6c: STORM-style consumer research (multi-perspective) — cycle33 ---
-    cr_payload = build_consumer_research(description, geo, profile, opps,
-                                         market_scale=result.get("market_scale"))
-    if cr_payload:
-        result["consumer_research"] = cr_payload
-        _step_done(result, "consumer_research")
-        checkpoint()
+    attach_consumer_research(result, description, geo, profile, opps, checkpoint=checkpoint)
 
     if competitor_pricing_data and competitor_pricing_data.get("competitors_with_prices", 0) > 0:
         result["competitor_pricing"] = competitor_pricing_data
@@ -2354,7 +2390,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         # annualized into recurring revenue (see ground_sizing_bottom_up).
         sizing = ground_sizing_bottom_up(sizing, description, profile,
                                          arpu_monthly_fallback=_psm_price,
-                                         biz_kind=biz_kind)
+                                         biz_kind=biz_kind, result=result)
         # cycle33: real origin-independent triangulation (replaces naive averaging).
         sizing = triangulate_sizing(sizing)
         # cycle33: gate + annotate via the numbers-right engine (non-breaking).
