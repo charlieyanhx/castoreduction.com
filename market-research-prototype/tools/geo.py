@@ -548,3 +548,88 @@ def poi_competition(lat: float, lng: float, radius_m: int = 3000,
                  "category": f"{osm_key}={osm_value}"},
         cost_meta={"source": "OpenStreetMap Overpass"},
     )
+
+
+# ACS table B19001, "Household Income in the Past 12 Months": 16 brackets, _002E.._017E.
+# _017E is "$200,000 or more" and open-ended, so its mean is DERIVED from B19025 aggregate
+# household income rather than assumed (see skills/sizing/spend_index.solve_top_bracket_mean).
+_ACS_INCOME_BRACKETS = tuple(f"B19001_{i:03d}E" for i in range(2, 18))
+_ACS_AGGREGATE_INCOME = "B19025_001E"   # aggregate household income, for the open top bracket
+
+
+class AcsIncomeDistributionArgs(BaseModel):
+    state_fips: Optional[str] = None
+    county_fips: Optional[str] = None
+    tract: Optional[str] = None
+    year: int = Field(default=2022, ge=2010, le=2030)
+
+
+@tool(category="geo",
+      returns="{bracket_households, aggregate_income, households, median_hh_income, level}",
+      args_model=AcsIncomeDistributionArgs)
+def acs_income_distribution(state_fips: Optional[str] = None,
+                            county_fips: Optional[str] = None,
+                            tract: Optional[str] = None,
+                            year: int = 2022) -> Evidence:
+    """The full household income DISTRIBUTION for a geography — 16 ACS brackets, not one median.
+
+    Omit state_fips/county_fips for the NATIONAL distribution (us:1), which is the reference the
+    local one is compared against. Pass state+county for a county, plus tract for a tract.
+
+    Why the distribution and not the median: spend is a non-linear function of income, so no
+    single summary statistic determines the average spend of a geography. Measured on Mission
+    tract 06/075/022901 — evaluating at the mean income overstates food-away spend by 27%
+    against the true expectation over these brackets. Consumed by size_hyperlocal via
+    skills/sizing/spend_index.
+
+    Do NOT use for household COUNTS or median income alone — that is acs_demographics, which is
+    cheaper. This is the distribution, for spend weighting.
+    """
+    varlist = ",".join((_ACS_HOUSEHOLDS, _ACS_MEDIAN_HH_INCOME, _ACS_AGGREGATE_INCOME)
+                       + _ACS_INCOME_BRACKETS)
+    if tract and state_fips and county_fips:
+        geo, level = {"for": f"tract:{tract}",
+                      "in": f"state:{state_fips} county:{county_fips}"}, "tract"
+    elif state_fips and county_fips:
+        geo, level = {"for": f"county:{county_fips}", "in": f"state:{state_fips}"}, "county"
+    elif state_fips:
+        geo, level = {"for": f"state:{state_fips}"}, "state"
+    else:
+        geo, level = {"for": "us:1"}, "us"
+    _params = {"get": varlist, **geo}
+    _key = os.getenv("CENSUS_API_KEY")
+    if _key:
+        _params["key"] = _key
+    rows = _http_json("GET", _ACS_URL.format(year=year), params=_params, timeout=20)
+    if not isinstance(rows, list) or len(rows) < 2:
+        return Evidence(source="acs_income_distribution", category="geo", count=0,
+                        skeleton=True,
+                        error=f"ACS returned no income distribution for {level}")
+    rec = dict(zip(rows[0], rows[1]))
+
+    def _num(key):
+        try:
+            v = float(rec.get(key))
+            return v if v >= 0 else None      # ACS uses negatives as null sentinels
+        except (TypeError, ValueError):
+            return None
+
+    brackets = [_num(b) for b in _ACS_INCOME_BRACKETS]
+    if any(b is None for b in brackets):
+        # A partial distribution cannot be integrated: the missing brackets would silently
+        # count as zero households and shift the whole geography's implied income.
+        missing = [b for b, v in zip(_ACS_INCOME_BRACKETS, brackets) if v is None]
+        return Evidence(source="acs_income_distribution", category="geo", count=0,
+                        skeleton=True,
+                        error=(f"ACS {level} income distribution is incomplete — "
+                               f"{len(missing)} of 16 brackets missing ({missing[0]}...)"))
+    return Evidence(
+        source="acs_income_distribution", category="geo", count=len(brackets),
+        payload={"bracket_households": brackets,
+                 "aggregate_income": _num(_ACS_AGGREGATE_INCOME),
+                 "households": _num(_ACS_HOUSEHOLDS),
+                 "median_hh_income": _num(_ACS_MEDIAN_HH_INCOME),
+                 "level": level, "vintage": year,
+                 "source": f"US Census ACS 5-yr {year} B19001/B19025 ({level})"},
+        cost_meta={"source": f"US Census ACS 5-yr {year} B19001", "level": level},
+    )

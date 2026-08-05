@@ -197,6 +197,111 @@ def trade_area_households(geography_households: Optional[float],
     return min(area * density, float(geography_households))
 
 
+def adjust_spend_for_local_income(spend: Optional[float],
+                                  state_fips: Optional[str],
+                                  county_fips: Optional[str],
+                                  tract: Optional[str],
+                                  geo_level: Optional[str],
+                                  category: str,
+                                  address: str,
+                                  year: int = 2022) -> dict:
+    """Scale a national per-household spend figure by the LOCAL income distribution.
+
+    Returns a dict that ALWAYS records what happened — `applied` True with `adjusted_spend`,
+    `multiplier` and `source`, or `applied` False with a `reason`. It never raises and never
+    returns a silent 1.0: a multiplier that quietly became 1.0 would present the national
+    average as a locally-grounded figure, claiming grounding the report does not have.
+
+    Method (skills/sizing/spend_index): integrate the BLS CEX spend-vs-income quintile curve
+    over the geography's ACS B19001 bracket distribution, and ratio-anchor against the same
+    integral over the national distribution. A geography matching the nation returns exactly
+    1.0, so this is a no-op without signal.
+    """
+    out: dict = {"applied": False, "reason": None}
+    if spend is None or spend <= 0:
+        out["reason"] = ("spend is not a BLS-sourced national figure (caller-provided or "
+                         "unsourced estimate) — left unadjusted on purpose")
+        return out
+    if not (state_fips and county_fips):
+        out["reason"] = "no Census FIPS for the address, so no local income distribution"
+        return out
+    # ACS and BLS CEX are US-only. A Lisbon cafe must not be scaled by a US income curve.
+    try:
+        from market_sizing import is_non_us_geography
+        if is_non_us_geography(address):
+            out["reason"] = ("non-US geography — ACS/BLS CEX are US-only sources, so no local "
+                             "income adjustment is available")
+            return out
+    except Exception:                                     # pragma: no cover - import guard
+        pass
+    try:
+        from .spend_index import (IncomeDistribution, SpendCurve, local_spend_multiplier)
+        curve_ev = get_tool("cex_income_quintile_curve").fn(
+            item_code=_cex_item_code(category))
+        if curve_ev.skeleton or not (curve_ev.payload or {}).get("points"):
+            out["reason"] = f"BLS CEX quintile curve unavailable ({curve_ev.error})"
+            return out
+        dist_fn = get_tool("acs_income_distribution").fn
+        local_ev = dist_fn(state_fips=state_fips, county_fips=county_fips, tract=tract,
+                           year=year)
+        if local_ev.skeleton:
+            out["reason"] = f"local ACS income distribution unavailable ({local_ev.error})"
+            return out
+        nat_ev = dist_fn(year=year)                        # no FIPS -> us:1
+        if nat_ev.skeleton:
+            out["reason"] = f"national ACS income distribution unavailable ({nat_ev.error})"
+            return out
+
+        def _dist(p: dict) -> IncomeDistribution:
+            return IncomeDistribution(
+                bracket_households=tuple(p.get("bracket_households") or ()),
+                aggregate_income=p.get("aggregate_income"),
+                households=p.get("households") or 0.0)
+
+        curve = SpendCurve(points=tuple((float(a), float(b))
+                                        for a, b in curve_ev.payload["points"]))
+        idx = local_spend_multiplier(_dist(local_ev.payload), _dist(nat_ev.payload), curve)
+        if idx.multiplier is None:
+            out["reason"] = f"income adjustment not computable: {idx.reason}"
+            return out
+        level = local_ev.payload.get("level") or geo_level or "local"
+        out.update({
+            "applied": True,
+            "multiplier": idx.multiplier,
+            "adjusted_spend": spend * idx.multiplier,
+            "national_spend": spend,
+            "geography": level,
+            "tract": tract,
+            "median_hh_income": local_ev.payload.get("median_hh_income"),
+            "curve_vintage": curve_ev.payload.get("vintage"),
+            "curve_from_cache": bool(curve_ev.payload.get("from_cache")),
+            "detail": idx.detail,
+            "source": (f"BLS Consumer Expenditure Survey, income-adjusted to this {level} "
+                       f"({local_ev.payload.get('source')})"),
+        })
+        return out
+    except Exception as exc:                               # never cost the run its TAM
+        out["reason"] = f"income adjustment errored: {type(exc).__name__}: {exc}"
+        return out
+
+
+def _cex_item_code(category: str) -> str:
+    """CEX item code for the curve, derived from the SAME curated map bls_cex_spend uses — so
+    the curve and the national anchor it scales can never come from different item codes.
+
+    Free: _resolve_cex_series caches on the normalised category and resolve_annual_spend has
+    already resolved this one earlier in the run, so this is a cache hit, not a second LLM call.
+    """
+    try:
+        from tools.econ import _resolve_cex_series
+        sid = _resolve_cex_series(category or "") or ""
+    except Exception:                                      # pragma: no cover - import guard
+        sid = ""
+    if sid.startswith("CXU") and "LB" in sid:              # shape: CXU<ITEM>LB01xxM
+        return sid[3:sid.index("LB")]
+    return "FOODAWAY"
+
+
 @skill(produces="market_sizing", consumes=["market_scale"])
 def size_hyperlocal(
     address: str,
@@ -259,6 +364,7 @@ def size_hyperlocal(
     households_sourced = False
     geo_hh = geo_km2 = None
     geo_level = None
+    geo_tract = None          # the tract the winning density came from, or None for county
     tract = gp.get("tract")
     candidate_geographies = ([tract] if tract else []) + [None]   # tract, then county
     for _tract in candidate_geographies if (state_fips and county_fips) else []:
@@ -271,6 +377,7 @@ def size_hyperlocal(
         households = trade_area_households(geo_hh, geo_km2, radius_m)
         if households:
             geo_level = "tract" if _tract else "county"
+            geo_tract = _tract
             households_sourced = True
             households_src = (f"US Census ACS 5-yr {year} + TIGERweb land area "
                               f"({geo_level} density × catchment)")
@@ -292,14 +399,48 @@ def size_hyperlocal(
     # 4. Spend per household. C1 (audit): prefer the real BLS source; an LLM estimate
     # is labeled UNSOURCED and caps confidence (invariant #1: the LLM never invents a
     # *sourced* number).
+    # `spend_is_sourced` answers "is this a number we may treat as reliable" and drives
+    # confidence. `spend_origin` answers the DIFFERENT question of who published it, and drives
+    # data_origin. Conflating the two laundered a caller's number into Census provenance:
+    # MEASURED, before this split, size_hyperlocal(annual_spend_per_hh=99999.0) shipped
+    # TAM_local with source "US Census ACS 5-yr 2022 + TIGERweb land area + caller-provided"
+    # and data_origin "census", and D53 — the gate that exists to refuse exactly this — PASSED
+    # it, because the arbitrary input had been marked sourced two hundred lines earlier.
     spend_is_sourced = False
     if annual_spend_per_hh is not None:
         spend, spend_src = annual_spend_per_hh, "caller-provided"
-        spend_is_sourced = True
+        spend_is_sourced = True          # trusted for confidence: the caller asked for it
+        spend_origin = "caller"          # but NOT an agency figure, whatever it happens to be
     else:
         spend, spend_is_sourced = resolve_annual_spend(category)
         spend_src = ("BLS Consumer Expenditure Survey" if spend_is_sourced
                      else "LLM estimate (UNSOURCED — validate vs BLS CEX)")
+        spend_origin = "bls" if spend_is_sourced else "llm"
+
+    # 4b. Ground that NATIONAL spend figure in the LOCAL income distribution.
+    #
+    # $3,945/household is the BLS CEX *national* all-consumer-units average, so before this a
+    # cafe in a $32k-median tract and one in a $250k-median tract were sized on identical
+    # per-household spend — while acs_demographics had been fetching median_hh_income all along
+    # and nothing read it.
+    #
+    # Deliberately scoped (each of these was measured, see test_local_income_grounded_spend.py):
+    #   - only the BLS-sourced figure is adjusted. A caller-provided spend is an explicit
+    #     override and must not be second-guessed; an LLM estimate is already labelled UNSOURCED
+    #     and multiplying a guess by a real multiplier only launders it.
+    #   - the income geography MUST match the geography whose household count is being
+    #     multiplied, or a tract-derived count gets a county-derived income.
+    #   - absence NEVER silently means 1.0. When the adjustment cannot be made the reason is
+    #     recorded and the national figure is used unchanged and disclosed as national.
+    #   - a failure here must not cost the TAM. Sizing survived a geocode failure by design
+    #     (cycle36); it must equally survive an income lookup failure.
+    spend_adjustment = adjust_spend_for_local_income(
+        spend=spend if spend_is_sourced and annual_spend_per_hh is None else None,
+        state_fips=state_fips, county_fips=county_fips, tract=geo_tract,
+        geo_level=geo_level, category=category, address=matched, year=year)
+    if spend_adjustment.get("applied"):
+        spend = spend_adjustment["adjusted_spend"]
+        spend_src = spend_adjustment["source"]
 
     figures: list[dict] = []
     tam = sam = som = None
@@ -335,6 +476,18 @@ def size_hyperlocal(
         _lower("low")  # estimated catchment size is the other load-bearing input
         notes.append("Trade-area households is an LLM estimate, not census-sourced — "
                      f"validate against {_note_srcs['households']} before relying on TAM.")
+    if spend_adjustment.get("applied"):
+        # State the LIMIT of the adjustment, not just the fact of it. Measured against the one
+        # metro where BLS publishes local spend directly (CE Table 3033, San Francisco $7,143):
+        # the national average was 44.8% low, this adjustment closes 36% of that, and the
+        # remainder is metro price level, which neither income nor Census region encodes. A
+        # reader told only "income-adjusted" would reasonably assume more than that.
+        notes.append(
+            f"Spend/household is the {_note_srcs['spend']} national figure scaled "
+            f"{spend_adjustment['multiplier']:.2f}x by this {spend_adjustment['geography']}'s "
+            "own income distribution. It does NOT adjust for local price level, so in an "
+            "expensive metro this remains conservative — where BLS publishes a local figure "
+            "directly, this method landed below it.")
 
     if households and spend:
         tam = households * spend
@@ -342,13 +495,24 @@ def size_hyperlocal(
         # alone is what let a county-scale figure pass as a trade area (audit high #4).
         # Both halves fetched -> census. Either half modelled -> mixed, and the figure must
         # not read as fully sourced.
-        _tam_origin = ("census" if (households_sourced and spend_is_sourced)
-                       else "mixed" if (households_sourced or spend_is_sourced)
+        # "census" requires BOTH halves to come from an agency. A caller-provided spend makes
+        # this "mixed" — households really are Census, the spend really is not.
+        _spend_from_agency = spend_origin == "bls"
+        _tam_origin = ("census" if (households_sourced and _spend_from_agency)
+                       else "mixed" if (households_sourced or _spend_from_agency)
                        else "llm")
+        # When the spend was income-adjusted, the formula shows the national figure AND the
+        # multiplier, so the arithmetic stays auditable end to end rather than presenting an
+        # adjusted number as if BLS had published it.
+        _spend_term = f"${spend:,.0f}/hh/yr"
+        if spend_adjustment.get("applied"):
+            _spend_term = (f"${spend_adjustment['national_spend']:,.0f}/hh/yr national × "
+                           f"{spend_adjustment['multiplier']:.3f} "
+                           f"{spend_adjustment['geography']} income index "
+                           f"= ${spend:,.0f}/hh/yr")
         figures.append(_fig(tam, "TAM_local", f"{households_src} + {spend_src}",
                              f"{households:,.0f} households within {radius_m / 1000:.1f} km "
-                             f"({catchment_km2(radius_m):,.1f} km² catchment) × "
-                             f"${spend:,.0f}/hh/yr",
+                             f"({catchment_km2(radius_m):,.1f} km² catchment) × {_spend_term}",
                              data_origin=_tam_origin))
         sam = tam * serviceable_fraction
         figures.append(_fig(sam, "SAM_local", "derived",
@@ -435,6 +599,13 @@ def size_hyperlocal(
         "density_geography_households": geo_hh if households_sourced else None,
         "density_geography_land_km2": geo_km2 if households_sourced else None,
         "scale": "hyperlocal",
+        # The per-household spend and whether it was grounded in local income (D56). Recorded
+        # whether or not the adjustment fired: `applied` False carries the REASON, so a report
+        # using the national average says which national average and why, instead of leaving a
+        # reader to assume the figure was local.
+        "spend_per_hh_usd": spend,
+        "spend_per_hh_source": spend_src,
+        "spend_income_adjustment": spend_adjustment,
         "method": "trade_area_catchment", "confidence": confidence, "notes": notes,
     }
 
