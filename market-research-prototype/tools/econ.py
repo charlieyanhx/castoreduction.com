@@ -17,7 +17,7 @@ import json
 import os
 from typing import Optional
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from logger import get
 from .registry import tool, Evidence
@@ -129,6 +129,32 @@ def _resolve_cex_series(category: str) -> Optional[str]:
         return None
 
 
+def _bls_why(data: dict | None) -> str:
+    """The BLS reason for an empty result, appended to our own error text.
+
+    MEASURED: an exhausted quota returns HTTP **200** with
+    status=REQUEST_NOT_PROCESSED and "the daily threshold for total number of requests
+    allocated to the user ... has been reached". Without this, that surfaced as
+    "BLS returned no usable value for CXUFOODAWAYLB0101M" — which sends whoever is
+    debugging to look for a bad series id when the series is fine and the QUOTA is the
+    problem. The unkeyed limit is 25 requests/day per IP; a free BLS_API_KEY raises it
+    to 500/day and is the actual fix.
+    """
+    if not isinstance(data, dict):
+        return ""
+    status = data.get("status")
+    if not status or status == "REQUEST_SUCCEEDED":
+        return ""
+    msgs = data.get("message") or []
+    if isinstance(msgs, str):
+        msgs = [msgs]
+    first = str(msgs[0])[:200] if msgs else ""
+    hint = ""
+    if "threshold" in first.lower() or "daily" in first.lower():
+        hint = " — set a free BLS_API_KEY to raise the 25/day unkeyed limit to 500/day"
+    return f" [BLS {status}{': ' + first if first else ''}]{hint}"
+
+
 @tool(category="econ", returns="{annual_usd, series_id, source}",
       args_model=BlsCexSpendArgs)
 def bls_cex_spend(category: Optional[str] = None,
@@ -167,13 +193,162 @@ def bls_cex_spend(category: Optional[str] = None,
         rows = series[0].get("data") if series else []
         val = float(str(rows[0]["value"]).replace(",", "")) if rows else None
     except (ValueError, KeyError, IndexError, TypeError, json.JSONDecodeError):
-        val = None
+        data, val = {}, None
     if val is None or val <= 0:
         return Evidence(source="bls_cex_spend", category="econ", count=0, skeleton=True,
-                        error=f"BLS returned no usable value for {sid}")
+                        error=f"BLS returned no usable value for {sid}{_bls_why(data)}")
     return Evidence(
         source="bls_cex_spend", category="econ", count=1,
         payload={"annual_usd": val, "series_id": sid,
                  "source": f"BLS Consumer Expenditure Survey (series {sid})"},
         cost_meta={"annual_usd": val, "series_id": sid, "source": "BLS CEX"},
+    )
+
+
+class CexIncomeQuintileCurveArgs(BaseModel):
+    item_code: str = Field(default="FOODAWAY", min_length=3,
+                           description="CEX item code, e.g. FOODAWAY for food away from home")
+
+
+# CEX series id = CXU + <item code> + <demographic code> + M. The LB01xx family is
+# "quintiles of income before taxes": LB0101 = all consumer units, LB0102..LB0106 = lowest
+# through highest 20%. VERIFIED by probe, not assumed -- the five quintile spends average
+# $3,942.8, which reconciles with the published all-units $3,945.
+_CEX_QUINTILE_CODES = ("LB0102", "LB0103", "LB0104", "LB0105", "LB0106")
+_CEX_ALL_UNITS_CODE = "LB0101"
+_CEX_INCOME_ITEM = "INCBEFTX"        # mean income before taxes, the curve's x-axis
+
+# The curve is an ANNUAL NATIONAL CONSTANT, so refetching it per run is pure waste — and it is
+# waste that breaks things. MEASURED: scrape.http's requests_cache is configured
+# allowable_methods=("GET","HEAD") and the BLS API is POST, so BLS responses are never cached;
+# every run hits it live against an unkeyed limit of 25 requests/day per IP. Exhausting that
+# quota is not hypothetical — it happened while building this tool, and it took out the existing
+# bls_cex_spend call too, costing the whole TAM.
+#
+# So: cache to disk on success, and fall back to the cache when BLS refuses. The cache stores
+# ONLY data that was really fetched, and carries the BLS vintage plus the fetch date with it, so
+# a stale curve announces its own age instead of masquerading as fresh. There is deliberately no
+# hardcoded curve constant to fall back on.
+_CEX_CURVE_CACHE_PATH = os.environ.get("CEX_CURVE_CACHE_PATH") or str(
+    __import__("pathlib").Path(__file__).parent.parent / ".cex_curve_cache.json")
+
+
+def _utc_now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _curve_cache_read(item_code: str) -> Optional[dict]:
+    try:
+        with open(_CEX_CURVE_CACHE_PATH, "r") as fh:
+            return (json.load(fh) or {}).get(item_code)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _curve_cache_write(item_code: str, record: dict) -> None:
+    """Best-effort. A cache write failure must never fail a run that already has its data."""
+    try:
+        try:
+            with open(_CEX_CURVE_CACHE_PATH, "r") as fh:
+                blob = json.load(fh) or {}
+        except (OSError, ValueError, json.JSONDecodeError):
+            blob = {}
+        blob[item_code] = record
+        with open(_CEX_CURVE_CACHE_PATH, "w") as fh:
+            json.dump(blob, fh, indent=1, sort_keys=True)
+    except (OSError, TypeError, ValueError) as exc:
+        log.warning("[econ] could not cache the CEX curve: %s", exc)
+
+
+@tool(category="econ", returns="{points, all_units_spend, all_units_income, vintage, source}",
+      args_model=CexIncomeQuintileCurveArgs)
+def cex_income_quintile_curve(item_code: str = "FOODAWAY") -> Evidence:
+    """The BLS CEX spend-vs-income curve: mean annual spend by income quintile.
+
+    Returns `points` as [[mean_income_before_tax, mean_annual_spend], ...] ascending, plus the
+    all-consumer-units figures. This is the CURVE used to convert a local income distribution
+    into a local spend estimate; it is the reason a cafe in a $32k tract and one in a $250k
+    tract no longer get the same per-household spend.
+
+    Do NOT use for a single national spend figure -- that is bls_cex_spend. Do NOT use for
+    household counts or local income (acs_demographics / acs_income_distribution).
+    """
+    def _from_cache(why: str) -> Evidence:
+        """BLS refused. Serve the last real fetch, saying plainly that it is cached and when."""
+        rec = _curve_cache_read(item_code)
+        if not rec or len(rec.get("points") or []) < 2:
+            return Evidence(source="cex_income_quintile_curve", category="econ", count=0,
+                            skeleton=True, error=why)
+        payload = dict(rec)
+        payload["from_cache"] = True
+        payload["source"] = (f"{rec.get('source', 'BLS Consumer Expenditure Survey')} "
+                             f"[cached {rec.get('fetched_utc', 'earlier')}; BLS unavailable now]")
+        log.warning("[econ] serving the CEX curve from cache — %s", why)
+        return Evidence(source="cex_income_quintile_curve", category="econ",
+                        count=len(payload["points"]), payload=payload,
+                        cost_meta={"source": "BLS CEX (cached)",
+                                   "vintage": rec.get("vintage")})
+
+    ids = ([f"CXU{item_code}{c}M" for c in (_CEX_ALL_UNITS_CODE,) + _CEX_QUINTILE_CODES]
+           + [f"CXU{_CEX_INCOME_ITEM}{c}M"
+              for c in (_CEX_ALL_UNITS_CODE,) + _CEX_QUINTILE_CODES])
+    from scrape.http import request
+    # "latest" as the STRING "true", matching bls_cex_spend. The boolean form also works
+    # (verified live before the quota ran out) but there is no reason for two spellings of the
+    # same flag against the same API in one module.
+    payload: dict = {"seriesid": ids, "latest": "true"}
+    key = os.getenv("BLS_API_KEY")
+    if key:
+        payload["registrationkey"] = key
+    # Same stall retry as bls_cex_spend: BLS is normally sub-second and occasionally hangs at
+    # the connection level. A stall here costs the whole local adjustment.
+    resp = request("POST", _BLS_API, json=payload, timeout=20)
+    if resp is None or getattr(resp, "status_code", 500) >= 400:
+        log.warning("[econ] BLS stalled on the CEX quintile curve — retrying once")
+        resp = request("POST", _BLS_API, json=payload, timeout=20)
+    if resp is None or getattr(resp, "status_code", 500) >= 400:
+        return _from_cache("BLS API unavailable (two attempts)")
+    try:
+        data = resp.json()
+        series = (data.get("Results") or {}).get("series") or []
+    except (ValueError, AttributeError, json.JSONDecodeError):
+        return _from_cache("BLS returned unparseable JSON")
+
+    vals: dict[str, float] = {}
+    vintage = None
+    for s in series:
+        rows = s.get("data") or []
+        if not rows:
+            continue
+        try:
+            vals[s["seriesID"]] = float(str(rows[0]["value"]).replace(",", ""))
+            vintage = vintage or rows[0].get("year")
+        except (ValueError, KeyError, TypeError):
+            continue
+
+    points = []
+    for code in _CEX_QUINTILE_CODES:
+        inc = vals.get(f"CXU{_CEX_INCOME_ITEM}{code}M")
+        spend = vals.get(f"CXU{item_code}{code}M")
+        # A quintile is usable only if BOTH coordinates arrived. Keeping a half-resolved point
+        # would silently distort the curve rather than shorten it.
+        if inc and spend and inc > 0 and spend > 0:
+            points.append([inc, spend])
+    points.sort(key=lambda p: p[0])
+    if len(points) < 2:
+        return _from_cache(f"only {len(points)} usable quintile point(s) for {item_code} — "
+                           f"need at least 2 to interpolate{_bls_why(data)}")
+
+    all_spend = vals.get(f"CXU{item_code}{_CEX_ALL_UNITS_CODE}M")
+    all_income = vals.get(f"CXU{_CEX_INCOME_ITEM}{_CEX_ALL_UNITS_CODE}M")
+    record = {"points": points, "all_units_spend": all_spend,
+              "all_units_income": all_income, "item_code": item_code, "vintage": vintage,
+              "source": (f"BLS Consumer Expenditure Survey {vintage or ''} — "
+                         f"{item_code} by quintile of income before taxes").strip()}
+    _curve_cache_write(item_code, dict(record, fetched_utc=_utc_now()))
+    return Evidence(
+        source="cex_income_quintile_curve", category="econ", count=len(points),
+        payload=dict(record, from_cache=False),
+        cost_meta={"source": "BLS CEX", "points": len(points), "vintage": vintage},
     )

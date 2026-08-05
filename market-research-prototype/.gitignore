@@ -8,3 +8,4 @@ out/
 .http_cache.sqlite
 .transcripts/
 jobs.db
+.cex_curve_cache.json

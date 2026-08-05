@@ -1097,6 +1097,14 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
         "catchment_km2": p.get("catchment_km2"),
         "households_sourced": p.get("households_sourced"),
         "density_geography": p.get("density_geography"),
+        # And the SPEND half of the same TAM, for the same reason as the comment above — this
+        # allowlist is where produced numbers go to die. size_hyperlocal publishes whether the
+        # per-household spend was grounded in local income; without these three keys D56 fails
+        # on every fresh report while its unit tests pass, which is precisely the D49 story
+        # repeating one function later.
+        "spend_per_hh_usd": p.get("spend_per_hh_usd"),
+        "spend_per_hh_source": p.get("spend_per_hh_source"),
+        "spend_income_adjustment": p.get("spend_income_adjustment"),
         "competitors": p.get("competitors") or len(geo_competitors),
         "geo_competitors": geo_competitors,
         "notes": notes, "validation": val,

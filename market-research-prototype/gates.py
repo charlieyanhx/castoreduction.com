@@ -1695,6 +1695,64 @@ def d55_report_is_complete_enough_to_have_been_checked(r: dict, html: str | None
     return Finding(True, f"{answered}/{total} invariants ({pct}%) could answer")
 
 
+def d56_local_spend_is_grounded_or_says_it_is_not(r: dict, html: str | None) -> Finding:
+    """A trade-area TAM must say whether its per-household spend is LOCAL.
+
+    THE BUG. TAM_local = trade_area_households x $3,945, where $3,945 (BLS CEX
+    CXUFOODAWAYLB0101M) is the *national* all-consumer-units average. Every neighbourhood was
+    priced identically -- a $32k-median tract and a $250k-median tract got the same spend --
+    while acs_demographics had been returning median_hh_income on every run and nothing read it.
+    Measured on the real Mission District tract, grounding it in the local income distribution
+    moves spend +15.0%, and across plausible tracts the multiplier spans 0.64x to 2.23x.
+
+    WHAT THIS ENFORCES IS DISCLOSURE, NOT ADJUSTMENT. Local income is genuinely unavailable
+    sometimes -- no Census FIPS, a non-US address (ACS and BLS CEX are US-only), an ACS outage.
+    Measured: all 6 stored corpus reports predate the Census key and had no local income at all.
+    Demanding an adjustment would fail them for an honest limitation. What must never happen is
+    a report presenting the national average with NOTHING said about it, leaving a reader to
+    assume the number is local. So: adjusted and disclosed, or unadjusted and disclosed.
+
+    Also catches the self-refuting-number class this pipeline keeps producing: a record that
+    claims a multiplier whose arithmetic does not reconcile with the two figures beside it.
+
+    ok=None only when there is no local TAM to ground. That set cannot swallow the failure --
+    an absent disclosure on a PUBLISHED trade-area TAM is exactly what returns False."""
+    ms = r.get("market_sizing") or {}
+    if (ms.get("method") or "") != "trade_area_catchment":
+        return Finding(None, "not a trade-area (hyperlocal) sizing")
+    tam = ms.get("tam_usd") or (ms.get("tam") or {}).get("mid")
+    if not tam:
+        return Finding(None, "trade-area sizing published no TAM to ground")
+
+    adj = ms.get("spend_income_adjustment")
+    if not isinstance(adj, dict) or not adj:
+        return Finding(False,
+                       "a trade-area TAM was published with no record of whether its "
+                       "per-household spend was grounded in local income — a reader cannot "
+                       "tell the national average from a local one")
+    if adj.get("applied"):
+        mult, nat = adj.get("multiplier"), adj.get("national_spend")
+        got = adj.get("adjusted_spend")
+        if not isinstance(mult, (int, float)) or mult <= 0:
+            return Finding(False, f"income adjustment claims to have been applied with an "
+                                  f"unusable multiplier {mult!r}")
+        if not adj.get("geography"):
+            return Finding(False, "income adjustment applied without naming the geography "
+                                  "whose income was used")
+        if isinstance(nat, (int, float)) and isinstance(got, (int, float)):
+            if abs(got - nat * mult) > max(1.0, 0.01 * abs(got)):
+                return Finding(False,
+                               f"income-adjusted spend ${got:,.0f} does not reconcile with "
+                               f"${nat:,.0f} x {mult:.4f} = ${nat * mult:,.0f}")
+        return Finding(True, f"spend grounded in {adj.get('geography')} income "
+                             f"(x{mult:.3f})")
+    reason = (adj.get("reason") or "").strip()
+    if len(reason) < 10:
+        return Finding(False, "income adjustment was skipped without a usable reason "
+                              f"({reason!r})")
+    return Finding(True, f"national spend used and disclosed: {reason[:80]}")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -1751,6 +1809,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D53", "no fabricated agency citation", "harness item 2: 14/15 agency-citing figures had no origin proving a call", "fail", d53_no_fabricated_agency_citation),
     Invariant("D54", "produced output reaches the report", "harness item 7: 3 sections the ledger recorded as produced vanished silently", "fail", d54_produced_output_reaches_the_report),
     Invariant("D55", "complete enough to have been checked", "the scorecard rewarded emptiness: an empty report scored 23 pass / 0 fail", "fail", d55_report_is_complete_enough_to_have_been_checked),
+    Invariant("D56", "local spend is grounded or says it is not", "a trade-area TAM priced every neighbourhood at the $3,945 national average while local income sat fetched and unread", "fail", d56_local_spend_is_grounded_or_says_it_is_not),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
