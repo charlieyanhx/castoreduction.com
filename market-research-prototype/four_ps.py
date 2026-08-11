@@ -20,6 +20,102 @@ from logger import get
 log = get("four_ps")
 
 
+# ---------------------------------------------------------------------------
+# The section contract (run8's lesson)
+# ---------------------------------------------------------------------------
+# MEASURED on out/live/run8.json — a FRESH run, after the truncation guard and cache-poisoning
+# fixes, so this was not the frozen-cache defect recurring. The place section parsed CLEANLY as:
+#
+#     citations: [{"id": 1}]        one citation carrying an id and NOTHING else
+#     markers in prose: 1, 2, 3     three superscripts a reader will try to follow
+#
+# and dangling_citations rightly BLOCKED the report — the fourth consecutive run made
+# unpublishable by a citation defect, each a different hole in the same missing contract: the
+# section calls were schemaless, so "is it JSON" was the only bar. call_json has carried
+# `response_model` (schema shown to the model + corrective re-ask with the exact validation
+# error) since W1; these calls simply never used it.
+#
+# Marker parsing REUSES report/citation._marker_ids — the same function the verifier uses — so
+# the contract and the detector cannot disagree about what a marker is (a run of superscripts
+# is ONE id: ¹² is 12). Two owners for that rule is how the footnote-renderer bug happened.
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class SectionCitation(BaseModel):
+    id: int
+    source: str
+    claim: str = ""
+
+    @field_validator("source")
+    @classmethod
+    def _source_is_real(cls, v: str) -> str:
+        if len((v or "").strip()) < 3:
+            raise ValueError(
+                "citation source is empty — an id alone is not a source; name the actual "
+                "artifact this cites (e.g. 'PSM Pricing Output'), or drop the citation AND "
+                "its superscript marker from the prose")
+        return v
+
+
+class SectionPayload(BaseModel):
+    # Field order is deliberate and mirrors the prompt: narrative LAST, so a max_tokens cutoff
+    # lands in the narrative rather than silently amputating the structured fields.
+    key_takeaways: list[str] = Field(default_factory=list)
+    citations: list[SectionCitation] = Field(default_factory=list)
+    narrative: str
+
+    @model_validator(mode="after")
+    def _prose_markers_resolve(self) -> "SectionPayload":
+        if not self.narrative.strip():
+            raise ValueError("narrative is empty — write the narrative (it comes last in "
+                             "the JSON so the other fields survive a cutoff)")
+        from report.citation import _marker_ids
+        text = " ".join([self.narrative] + [str(t) for t in self.key_takeaways])
+        known = {c.id for c in self.citations}
+        missing = sorted({m for m in _marker_ids(text) if m not in known})
+        if missing:
+            raise ValueError(
+                f"the prose contains superscript citation markers {missing} with no matching "
+                f"citations[] entry — every marker must have a citation with that id and a "
+                f"real source, or remove the marker from the prose")
+        return self
+
+
+def _run_section(section_name: str, prompt_text: str) -> dict:
+    """One 4Ps section call, under the SectionPayload contract.
+
+    call_json validates against the schema and RE-ASKS with the exact error on a
+    non-conforming response (W1), which replaces the old blind second attempt — the model is
+    told what to fix instead of being asked the same question twice. A model that never
+    conforms degrades to the visible failure placeholder, never to half a payload shipped as
+    whole.
+    """
+    out = call_json(
+        system=(f"You write the {section_name.capitalize()} section of paid-grade 4Ps "
+                "plans. Return only JSON."),
+        user=prompt_text,
+        max_tokens=3500,  # iter 41: bumped 2000→3500. Narrative was truncating mid-sentence.
+        response_model=SectionPayload,
+    )
+    if "_parse_error" in out:
+        log.warning("[4Ps split] %s section failed the contract after re-asks: %s",
+                    section_name, str(out.get("_parse_error"))[:160])
+        return {"narrative": f"(Section generation failed for {section_name})",
+                "key_takeaways": [], "citations": []}
+    # Belt-and-braces fallbacks for the degraded paths (they cannot fire on a validated
+    # payload, which is the point — validation makes them dead code on the happy path).
+    if not out.get("key_takeaways"):
+        out["key_takeaways"] = _derive_takeaways_from_narrative(out.get("narrative", ""))
+    if not out.get("citations"):
+        out["citations"] = []
+    nar = out.get("narrative", "") or ""
+    if nar and not nar.rstrip().endswith((".", "!", "?", '"', "”", "’", ")", "*", ":")):
+        out["narrative"] = nar.rstrip() + " …[truncated]"
+        log.warning("[4Ps split] %s narrative appears truncated (no terminal punctuation)",
+                    section_name)
+    return out
+
+
 def model_directive(business_model_kind: str | None, economics: dict | None = None) -> str:
     """A hard guardrail injected into every 4Ps section + the viability prompt so the
     narrative layers stop inventing a monetization model the numbers spine never computed
@@ -717,53 +813,11 @@ def assemble_4ps_split(
         "powerful_quotes": ((reddit_signal or {}).get("themes") or {}).get("powerful_quotes", []),
     }, indent=2)[:900] if reddit_signal else "(no Reddit signal available)"
 
-    def _run(section_name, prompt_text):
-        # cycle36: retry once on malformed JSON. Under LLM rate-limiting (the free-tier
-        # backend throttles concurrent 4Ps calls), a single bad parse was leaving the
-        # report with a visible "(Section generation failed for product)" — two of four
-        # sections were dropping. A second attempt recovers nearly all of them.
-        out = None
-        for attempt in range(2):
-            out = call_json(
-                system=f"You write the {section_name.capitalize()} section of paid-grade 4Ps plans. Return only JSON.",
-                user=prompt_text,
-                max_tokens=3500,  # iter 41: bumped 2000→3500. Narrative was truncating mid-sentence at ~360 chars.
-            )
-            if "_parse_error" not in out:
-                break
-            log.warning("[4Ps split] %s section returned malformed JSON (attempt %d/2)",
-                        section_name, attempt + 1)
-        if "_parse_error" in out:
-            log.warning("[4Ps split] %s section failed after retry", section_name)
-            return {"narrative": f"(Section generation failed for {section_name})", "key_takeaways": [], "citations": []}
-
-        # Iter 41 (#2): if key_takeaways missing/empty (LLM truncated or skipped),
-        # synthesize from the narrative with sentence splitting. Better than blank.
-        if not out.get("key_takeaways"):
-            out["key_takeaways"] = _derive_takeaways_from_narrative(out.get("narrative", ""))
-        # Same for citations
-        if not out.get("citations"):
-            out["citations"] = []
-        # Iter 41-cycle9: SYMMETRIC fallback — if narrative is empty but takeaways
-        # exist (LLM returned them but skipped narrative — happens when JSON
-        # ordering puts takeaways first and the model decides to stop after them),
-        # synthesize a paragraph from the takeaways so the section isn't blank.
-        nar = out.get("narrative", "") or ""
-        if not nar.strip() and out.get("key_takeaways"):
-            tks = out["key_takeaways"]
-            out["narrative"] = (
-                f"This section was generated from key takeaways only — the longer "
-                f"narrative was not produced. Highlights:\n\n" +
-                "\n\n".join(f"• {t}" for t in tks)
-            )
-            log.warning("[4Ps split] %s narrative was empty — synthesized from takeaways", section_name)
-        # Truncated-narrative detector: if narrative ends mid-sentence, append a marker
-        nar = out.get("narrative", "")
-        if nar and not nar.rstrip().endswith((".", "!", "?", '"', "”", "’", ")", "*", ":")):
-            out["narrative"] = nar.rstrip() + " …[truncated]"
-            log.warning("[4Ps split] %s narrative appears truncated (no terminal punctuation)", section_name)
-        return out
-
+    # The per-section call lives at module level (_run_section) under the SectionPayload
+    # contract — see the block at the top of this file for the run8 measurement that forced
+    # it. The old nested closure here retried blindly on parse errors and then papered over
+    # missing fields (a synthesized "narrative", an empty citations list), which is exactly
+    # how a sourceless citation shipped.
     psm_ok = bool((van_westendorp or {}).get("optimal_price_point")) and not (van_westendorp or {}).get("error")
     # W5-5: the guardrails now come from one registry instead of `+ _md + _pa + _cd`
     # repeated per prompt. Adding a fifth used to mean editing four call sites and
@@ -780,7 +834,7 @@ def assemble_4ps_split(
 
     results: dict = {}
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futs = {name: pool.submit(_run, name, prompt) for name, prompt in tasks.items()}
+        futs = {name: pool.submit(_run_section, name, prompt) for name, prompt in tasks.items()}
         for name, fut in futs.items():
             try:
                 results[name] = fut.result(timeout=90)
