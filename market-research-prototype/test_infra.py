@@ -1854,7 +1854,11 @@ class TestFourPsSplit(unittest.TestCase):
         from unittest.mock import patch
         from four_ps import assemble_4ps_split
 
-        def fake_call(system, user, max_tokens):
+        def fake_call(system, user, max_tokens, response_model=None):
+            # response_model accepted since the section calls carry the SectionPayload
+            # contract; the fake bypasses real validation (that is llm.call_json's job,
+            # tested in test_four_ps_sections_have_a_contract) — this test covers the
+            # split ASSEMBLY mechanics only.
             # Return a section-specific mock narrative
             if "Product" in system:
                 return {"narrative": "Product narrative¹", "key_takeaways": ["ship MVP fast"], "citations": [{"id": 1, "source": "Max-Diff", "claim": "feat X"}]}
@@ -1896,7 +1900,7 @@ class TestFourPsSplit(unittest.TestCase):
         from unittest.mock import patch
         from four_ps import assemble_4ps_split
         captured = {}
-        def fake_call(system, user, max_tokens):
+        def fake_call(system, user, max_tokens, response_model=None):
             # Identify section by system prompt
             for name in ("Product", "Price", "Place", "Promotion"):
                 if name in system:
@@ -1923,7 +1927,7 @@ class TestFourPsSplit(unittest.TestCase):
     def test_split_handles_one_section_failure_gracefully(self):
         from unittest.mock import patch
         from four_ps import assemble_4ps_split
-        def fake_call(system, user, max_tokens):
+        def fake_call(system, user, max_tokens, response_model=None):
             if "Price" in system:
                 return {"_parse_error": "bad", "_raw": "garbage"}
             return {"narrative": "ok", "key_takeaways": ["a"], "citations": []}
