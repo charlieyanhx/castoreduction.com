@@ -98,10 +98,22 @@ def project_three_year_transactional(
     som_low: float | None = None,
     som_high: float | None = None,
     market_scale: str | None = None,
+    cost_source: str = "",
 ) -> dict:
     """Per-unit venture: revenue, annual units, monthly operating profit, break-even
     year (first year monthly revenue×margin − fixed cost turns positive). No churn,
-    no CLV, no "customers"."""
+    no CLV, no "customers".
+
+    PLACEHOLDER COSTS QUALIFY THE VERDICT (run12's mirror of run9). run9's "Not by Y3" x3
+    was manufactured by a broken SOM; fixing it produced "Y1" x3 — resting on a $5,000/mo
+    GENERIC PLACEHOLDER for total SF fixed costs, and the verdict inverts inside the
+    plausible range (at 63.6% margin and a 206/day ceiling: $15K/mo clears, $25K/mo does
+    not). Following the multi_site_withhold precedent one notch softer: the numbers stay
+    (they are correct AT the stated assumption), but the break-even claim carries
+    break_even_conditional plus fixed_cost_ceiling_usd — the monthly fixed cost at which
+    break-even-by-Y3 stops holding — so a reader can compare the ceiling to a real quote.
+    A verdict already negative is NOT marked conditional: "Not by Y3" is already the
+    conservative claim, and hedging a refusal reads as doubt about the refusal."""
     margin_frac = (contribution_margin_pct or 0) / 100.0
     monthly_fixed = monthly_fixed_cost or 0
     ceilings, basis = _y3_ceilings(som_mid, som_low, som_high)
@@ -114,6 +126,8 @@ def project_three_year_transactional(
     # and unit volumes stay (they are sound); only the profit claim is withheld.
     from business_model import multi_site_withhold_reason
     withhold = multi_site_withhold_reason(market_scale)
+    _src = (cost_source or "").lower()
+    cost_is_placeholder = "placeholder" in _src or "unsourced" in _src
     scenarios = {}
     for label, (y3_rev, tag) in ceilings.items():
         years = {}
@@ -138,9 +152,24 @@ def project_three_year_transactional(
             **years,
             "break_even_year": be_year,
         }
+        if cost_is_placeholder and be_year is not None and withhold is None:
+            scenarios[label]["break_even_conditional"] = True
+            # The fixed cost at which Y3 stops breaking even: monthly contribution at the
+            # Y3 ceiling. One dollar of fixed cost above this and the verdict dies.
+            scenarios[label]["fixed_cost_ceiling_usd"] = round(y3_rev / 12.0 * margin_frac)
+    out_extra: dict = {}
+    if cost_is_placeholder and any(sc.get("break_even_conditional")
+                                   for sc in scenarios.values()):
+        _base_ceiling = (scenarios.get("base") or {}).get("fixed_cost_ceiling_usd")
+        out_extra["cost_caveat"] = (
+            f"Break-even verdicts assume ${monthly_fixed:,.0f}/mo total fixed cost — a "
+            f"{cost_source or 'placeholder'}. The verdict holds only while real fixed costs "
+            f"stay below ~${_base_ceiling:,.0f}/mo (base scenario); obtain a real rent and "
+            f"labour quote before relying on it.")
     return {
         "model": "transactional",
         "scenarios": scenarios,
+        **out_extra,
         "assumptions": {
             "model": "transactional",
             "unit": unit,
@@ -240,7 +269,8 @@ def project_three_year(
                 som_mid=som_mid, price_per_unit=float(ppu),
                 contribution_margin_pct=float(margin_pct), monthly_fixed_cost=float(fixed),
                 unit=economics.get("unit") or "unit",
-                som_low=som_low, som_high=som_high, market_scale=market_scale)
+                som_low=som_low, som_high=som_high, market_scale=market_scale,
+                cost_source=str(economics.get("cost_source") or ""))
 
     # Subscription (and per-unit fallbacks when economics inputs were missing — the
     # model key below makes that fallback DETECTABLE, which it never was before: the
