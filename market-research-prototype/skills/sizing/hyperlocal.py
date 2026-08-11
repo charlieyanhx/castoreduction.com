@@ -194,14 +194,33 @@ def trade_area_households(geography_households: Optional[float],
 
     Returns None when the scale cannot be established (no count, or no land area), because
     an unscalable count is not a trade-area number and must not be presented as one.
-    Capped at the geography's total: a catchment wider than its own county cannot hold more
-    households than the county has.
+
+    THE CAP IS DIRECTIONAL, AND GETTING THAT WRONG COST FIVE RUNS THEIR VERDICT. The original
+    line here was `min(area * density, geography_households)`, reasoning that a catchment
+    "cannot hold more households than the county has". True when the catchment sits INSIDE the
+    geography (county path — where area x density <= households by construction, so the cap
+    never fires). INVERTED when the geography sits inside the catchment: a 7.07 km2 disc
+    CONTAINS a 0.286 km2 tract, area x density always exceeds the tract count, and the cap
+    fired on EVERY tract-sourced run — run5..run9 all shipped the raw tract count (2,142)
+    while the formula string claimed "tract density x catchment" (the true value: 52,949,
+    measured live). Downstream: TAM 25x low, SOM $25.5K/yr against the report's own $97K/yr
+    break-even, "Not by Y3" on all three scenarios — a do-not-open verdict manufactured by
+    one min(). Found by a reviewer refusing to believe the household count.
+
+    So: cap only in the containment regime (geography at least catchment-sized — there,
+    extrapolating past the geography's edge has no data behind it, and the guard also absorbs
+    a bad land area). When the CATCHMENT contains the geography, the disc covers many
+    neighbouring tracts and extrapolating the tract's density over it IS the estimate — never
+    cap it to one tract. Multi-tract integration (summing the tracts the disc actually
+    intersects) is the better future version; see the geocode-sensitivity task.
     """
     if not geography_households or not geography_land_km2 or geography_land_km2 <= 0:
         return None
     area = catchment_km2(radius_m)
     density = geography_households / geography_land_km2
-    return min(area * density, float(geography_households))
+    if geography_land_km2 >= area:
+        return min(area * density, float(geography_households))
+    return area * density
 
 
 def adjust_spend_for_local_income(spend: Optional[float],
