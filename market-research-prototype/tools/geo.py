@@ -561,6 +561,7 @@ class AcsIncomeDistributionArgs(BaseModel):
     state_fips: Optional[str] = None
     county_fips: Optional[str] = None
     tract: Optional[str] = None
+    geoids: Optional[list[str]] = None     # 11-digit tract GEOIDs -> summed "tract_union"
     year: int = Field(default=2022, ge=2010, le=2030)
 
 
@@ -570,6 +571,7 @@ class AcsIncomeDistributionArgs(BaseModel):
 def acs_income_distribution(state_fips: Optional[str] = None,
                             county_fips: Optional[str] = None,
                             tract: Optional[str] = None,
+                            geoids: Optional[list] = None,
                             year: int = 2022) -> Evidence:
     """The full household income DISTRIBUTION for a geography — 16 ACS brackets, not one median.
 
@@ -587,6 +589,63 @@ def acs_income_distribution(state_fips: Optional[str] = None,
     """
     varlist = ",".join((_ACS_HOUSEHOLDS, _ACS_MEDIAN_HH_INCOME, _ACS_AGGREGATE_INCOME)
                        + _ACS_INCOME_BRACKETS)
+    if geoids and state_fips and county_fips:
+        # TRACT-UNION mode: one bulk call for every tract in the county, summed over the
+        # tracts the catchment disc actually intersects. Motivated by measurement: the single
+        # geocoded tract is both unrepresentative (7,489 hh/km2 vs the disc's real 4,483) and
+        # punctuation-sensitive (median $96,964 vs $172,151 for two phrasings of the same
+        # neighbourhood). Summing brackets keeps the spend integral exact — a sum of
+        # distributions IS the union's distribution; no midpoint games.
+        _params = {"get": varlist, "for": "tract:*",
+                   "in": f"state:{state_fips} county:{county_fips}"}
+        _key = os.getenv("CENSUS_API_KEY")
+        if _key:
+            _params["key"] = _key
+        rows = _http_json("GET", _ACS_URL.format(year=year), params=_params, timeout=25)
+        if not isinstance(rows, list) or len(rows) < 2:
+            return Evidence(source="acs_income_distribution", category="geo", count=0,
+                            skeleton=True, error="ACS returned no tract table for the county")
+        header = rows[0]
+        try:
+            si, ci, ti = header.index("state"), header.index("county"), header.index("tract")
+        except ValueError:
+            return Evidence(source="acs_income_distribution", category="geo", count=0,
+                            skeleton=True, error="ACS tract table missing geography columns")
+        want = {str(g) for g in geoids}
+
+        def _cell(row, var):
+            try:
+                v = float(row[header.index(var)])
+                return v if v >= 0 else 0.0          # ACS negative sentinels -> 0 in a SUM
+            except (TypeError, ValueError, IndexError):
+                return 0.0
+
+        hh_sum = agg_sum = 0.0
+        brackets = [0.0] * len(_ACS_INCOME_BRACKETS)
+        matched = 0
+        for row in rows[1:]:
+            if row[si] + row[ci] + row[ti] not in want:
+                continue
+            matched += 1
+            hh_sum += _cell(row, _ACS_HOUSEHOLDS)
+            agg_sum += _cell(row, _ACS_AGGREGATE_INCOME)
+            for i, b in enumerate(_ACS_INCOME_BRACKETS):
+                brackets[i] += _cell(row, b)
+        if matched == 0 or hh_sum <= 0:
+            return Evidence(source="acs_income_distribution", category="geo", count=0,
+                            skeleton=True,
+                            error=f"none of the {len(want)} catchment tracts matched the "
+                                  "county's ACS table")
+        return Evidence(
+            source="acs_income_distribution", category="geo", count=matched,
+            payload={"bracket_households": brackets, "aggregate_income": agg_sum,
+                     "households": hh_sum, "median_hh_income": None,
+                     "level": "tract_union", "n_tracts": matched, "vintage": year,
+                     "source": f"US Census ACS 5-yr {year} B19001/B19025 "
+                               f"({matched}-tract catchment union)"},
+            cost_meta={"source": f"US Census ACS 5-yr {year} B19001", "level": "tract_union",
+                       "n_tracts": matched},
+        )
     if tract and state_fips and county_fips:
         geo, level = {"for": f"tract:{tract}",
                       "in": f"state:{state_fips} county:{county_fips}"}, "tract"
@@ -633,3 +692,50 @@ def acs_income_distribution(state_fips: Optional[str] = None,
                  "source": f"US Census ACS 5-yr {year} B19001/B19025 ({level})"},
         cost_meta={"source": f"US Census ACS 5-yr {year} B19001", "level": level},
     )
+
+
+class TractsInCatchmentArgs(BaseModel):
+    lat: float = Field(ge=-90.0, le=90.0)
+    lng: float = Field(ge=-180.0, le=180.0)
+    radius_m: int = Field(default=1500, ge=100, le=50_000)
+
+
+@tool(category="geo", returns="{geoids, land_km2, n_tracts}",
+      args_model=TractsInCatchmentArgs)
+def tracts_in_catchment(lat: float, lng: float, radius_m: int = 1500) -> Evidence:
+    """Census tracts whose polygons intersect the trade-area disc, via TIGERweb spatial query.
+
+    WHY: the trade area is a DISC, not a tract. Extrapolating one tract's density over the
+    disc inherits whatever that tract happens to be — measured on the Mission run, the single
+    geocoded tract (020300) is a dense one at 7,489 hh/km2 while the 37 tracts the 1.5 km disc
+    actually intersects average 4,483 hh/km2, a 67% overstatement; and which single tract you
+    get swings with address PUNCTUATION (median income $96,964 vs $172,151 for two phrasings
+    of "Mission District"). The union is the disc's real neighbourhood.
+
+    Do NOT use for a single tract's land area (census_land_area) or for demographics (the
+    acs_* tools consume the geoids this returns).
+    """
+    params = {"geometry": f"{lng},{lat}", "geometryType": "esriGeometryPoint", "inSR": "4326",
+              "distance": str(int(radius_m)), "units": "esriSRUnit_Meter",
+              "spatialRel": "esriSpatialRelIntersects", "outFields": "GEOID,AREALAND",
+              "returnGeometry": "false", "f": "json", "where": "1=1"}
+    d = _http_json("GET", _TIGERWEB_TRACT, params=params, timeout=25)
+    feats = (d or {}).get("features") or []
+    geoids, land_m2 = [], 0.0
+    for f in feats:
+        a = f.get("attributes") or {}
+        gid = str(a.get("GEOID") or "").strip()
+        try:
+            area = float(a.get("AREALAND") or 0)   # TIGERweb returns this as str OR int
+        except (TypeError, ValueError):
+            area = 0.0
+        if len(gid) == 11 and area > 0:
+            geoids.append(gid)
+            land_m2 += area
+    if not geoids:
+        return Evidence(source="tracts_in_catchment", category="geo", count=0, skeleton=True,
+                        error="TIGERweb returned no tracts intersecting the catchment")
+    return Evidence(source="tracts_in_catchment", category="geo", count=len(geoids),
+                    payload={"geoids": geoids, "land_km2": land_m2 / 1e6,
+                             "n_tracts": len(geoids)},
+                    cost_meta={"source": "US Census TIGERweb", "n_tracts": len(geoids)})

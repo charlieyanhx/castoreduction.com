@@ -64,21 +64,35 @@ class TestTheRun9ShapeFails(unittest.TestCase):
         f = d57(_ms(tam_mid=40_000_000.0, competitors=100), None)
         self.assertIs(f.ok, True, f.detail)
 
-    def test_every_stored_hyperlocal_live_run_fails_as_it_should(self):
-        """The standing reachability rule, and the honest record: all five live runs shipped
-        this defect, so all five must return False."""
-        seen = 0
+    def test_stored_runs_get_the_verdict_their_numbers_deserve(self):
+        """CORRECTED FROM MY OWN FIRST DRAFT, which asserted every stored live run fails —
+        true when written (run5-9 all shipped ~$82-122K/cafe), and wrong the moment the
+        trade-area cap fix produced run10, which PASSES at ~$3M/cafe. A gate test must pin
+        the INVARIANT (the verdict follows the ratio), not the historical accident that every
+        artifact happened to be broken on the day the gate was born.
+
+        The reachability rule still holds: the pre-fix runs keep exercising the False branch,
+        and any post-fix run exercises True."""
+        verdicts = {}
         for p in sorted(glob.glob("out/live/run*.json")):
             r = (json.load(open(p)) or {}).get("result") or {}
             ms = r.get("market_sizing") or {}
             if (ms.get("method") or "") != "trade_area_catchment":
                 continue
-            if not ((ms.get("tam") or {}).get("mid") or ms.get("tam_usd")):
+            tam = (ms.get("tam") or {}).get("mid") or ms.get("tam_usd")
+            comp = ms.get("competitors")
+            if not tam or not isinstance(comp, (int, float)) or not comp:
                 continue
-            seen += 1
-            self.assertIs(d57(r, None).ok, False,
-                          f"{os.path.basename(p)} shipped ~$122K/cafe and should fail")
-        self.assertGreaterEqual(seen, 4, "the stored live runs stopped exercising this gate")
+            f = d57(r, None)
+            verdicts[os.path.basename(p)] = f.ok
+            want = (tam / comp) >= 250_000
+            self.assertIs(f.ok, want,
+                          f"{os.path.basename(p)}: ${tam / comp:,.0f}/competitor should be "
+                          f"{'a pass' if want else 'a fail'}, got {f.ok}")
+        self.assertGreaterEqual(sum(1 for v in verdicts.values() if v is False), 4,
+                                "the pre-fix runs stopped exercising the False branch")
+        self.assertGreaterEqual(len(verdicts), 5,
+                                "the stored live runs stopped exercising this gate")
 
 
 class TestNotApplicableCannotSwallowTheFailure(unittest.TestCase):

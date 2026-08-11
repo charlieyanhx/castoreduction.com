@@ -230,7 +230,8 @@ def adjust_spend_for_local_income(spend: Optional[float],
                                   geo_level: Optional[str],
                                   category: str,
                                   address: str,
-                                  year: int = 2022) -> dict:
+                                  year: int = 2022,
+                                  geoids: Optional[list] = None) -> dict:
     """Scale a national per-household spend figure by the LOCAL income distribution.
 
     Returns a dict that ALWAYS records what happened — `applied` True with `adjusted_spend`,
@@ -268,8 +269,15 @@ def adjust_spend_for_local_income(spend: Optional[float],
             out["reason"] = f"BLS CEX quintile curve unavailable ({curve_ev.error})"
             return out
         dist_fn = get_tool("acs_income_distribution").fn
-        local_ev = dist_fn(state_fips=state_fips, county_fips=county_fips, tract=tract,
-                           year=year)
+        # Prefer the catchment-union distribution: the income priced into spend must belong
+        # to the SAME geography whose households are being multiplied, and the union is also
+        # what kills the single-tract punctuation sensitivity.
+        if geoids:
+            local_ev = dist_fn(state_fips=state_fips, county_fips=county_fips,
+                               geoids=geoids, year=year)
+        else:
+            local_ev = dist_fn(state_fips=state_fips, county_fips=county_fips, tract=tract,
+                               year=year)
         if local_ev.skeleton:
             out["reason"] = f"local ACS income distribution unavailable ({local_ev.error})"
             return out
@@ -392,8 +400,42 @@ def size_hyperlocal(
     geo_level = None
     geo_tract = None          # the tract the winning density came from, or None for county
     tract = gp.get("tract")
+    geo_geoids = None
+    # 2a. PREFERRED: the union of tracts the catchment disc actually intersects. The disc is
+    # the trade area — a single tract is neither representative of it nor stable under it:
+    # MEASURED on the Mission run, the geocoded tract's density is 7,489 hh/km2 while the 37
+    # tracts the 1.5 km disc intersects average 4,483 (a 67% overstatement), and WHICH single
+    # tract you get swings with address punctuation (median income $96,964 vs $172,151 for
+    # two phrasings of the same neighbourhood). Union density x catchment = 31,689 households
+    # vs 52,938 single-tract. Falls through to the single-tract/county chain on any failure.
+    if lat is not None and lng is not None and state_fips and county_fips:
+        try:
+            tc = get_tool("tracts_in_catchment").fn(lat=lat, lng=lng, radius_m=radius_m)
+            tcp = tc.payload or {}
+            if not tc.error and tcp.get("geoids") and (tcp.get("land_km2") or 0) > 0:
+                roll = get_tool("acs_income_distribution").fn(
+                    state_fips=state_fips, county_fips=county_fips,
+                    geoids=tcp["geoids"], year=year)
+                rp = roll.payload or {}
+                if not roll.error and (rp.get("households") or 0) > 0:
+                    households = trade_area_households(rp["households"], tcp["land_km2"],
+                                                       radius_m)
+                    if households:
+                        geo_level = "tract_union"
+                        geo_hh, geo_km2 = rp["households"], tcp["land_km2"]
+                        geo_geoids = tcp["geoids"]
+                        households_sourced = True
+                        households_src = (
+                            f"US Census ACS 5-yr {year} + TIGERweb "
+                            f"({len(geo_geoids)}-tract catchment-union density × catchment)")
+        except Exception:
+            # The union is an UPGRADE, never a dependency: any failure here (tool missing,
+            # TIGERweb down, malformed payload) falls through to the single-tract/county
+            # chain below — the same never-cost-the-TAM contract the income adjustment keeps.
+            pass
     candidate_geographies = ([tract] if tract else []) + [None]   # tract, then county
-    for _tract in candidate_geographies if (state_fips and county_fips) else []:
+    for _tract in (candidate_geographies
+                   if (state_fips and county_fips and not households_sourced) else []):
         d = acs(state_fips=state_fips, county_fips=county_fips, tract=_tract, year=year)
         geo_hh = (d.payload or {}).get("households") if not d.error else None
         if not geo_hh:
@@ -463,7 +505,8 @@ def size_hyperlocal(
     spend_adjustment = adjust_spend_for_local_income(
         spend=spend if spend_is_sourced and annual_spend_per_hh is None else None,
         state_fips=state_fips, county_fips=county_fips, tract=geo_tract,
-        geo_level=geo_level, category=category, address=matched, year=year)
+        geo_level=geo_level, category=category, address=matched, year=year,
+        geoids=geo_geoids)
     if spend_adjustment.get("applied"):
         spend = spend_adjustment["adjusted_spend"]
         spend_src = spend_adjustment["source"]
