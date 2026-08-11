@@ -432,3 +432,17 @@ def format_firmographic_line(firm: dict) -> str:
     if firm.get("primary_language"):
         parts.append(f"primarily {firm['primary_language']}")
     return " · ".join(parts)
+
+
+# Record DIRECT calls: these are the implementations behind the registered tools
+# `enrich_competitor` and `enrich_competitors_batch`. plan.py:1739 calls enrich_competitors
+# directly, so without this the firmographic enrichment of every competitor roster is invisible
+# to the run ledger.
+try:
+    from persistence.ledger import instrument_source as _instrument
+
+    enrich_one = _instrument(enrich_one, "enrich_competitor", "firmographic")
+    enrich_competitors = _instrument(enrich_competitors, "enrich_competitors_batch",
+                                     "firmographic")
+except Exception:                              # instrumentation must never break the module
+    pass

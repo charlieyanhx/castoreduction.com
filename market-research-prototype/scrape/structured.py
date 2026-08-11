@@ -386,3 +386,14 @@ def _extract_price(offer: dict) -> dict | None:
         return {"amount": amt, "currency": currency, "raw": str(price), "_source": "json-ld"}
     except (ValueError, TypeError):
         return None
+
+
+# Record DIRECT calls: `extract` is the implementation behind the registered tool
+# `extract_structured`, and five production sites call it directly (customer_universe.py x4,
+# firmographics.py) rather than via get_tool.
+try:
+    from persistence.ledger import instrument_source as _instrument
+
+    extract = _instrument(extract, "extract_structured", "scrape")
+except Exception:                              # instrumentation must never break the module
+    pass

@@ -59,3 +59,17 @@ def fetch_via_wayback(url: str, timeout: float = 10.0) -> str | None:
     if r is None or not r.ok:
         return None
     return r.text
+
+
+# Record DIRECT calls in the run ledger. These are the implementations behind the registered
+# tools `fetch_via_wayback` and `wayback_snapshot_url`, and production calls them straight
+# (customer_universe.py, firmographics.py, macro_anchors.py) rather than through get_tool, so
+# without this they run invisibly. The tool NAMES differ from the function names here, which is
+# why this cannot be done by name-matching in sources.py.
+try:
+    from persistence.ledger import instrument_source as _instrument
+
+    fetch_via_wayback = _instrument(fetch_via_wayback, "fetch_via_wayback", "scrape")
+    latest_snapshot_url = _instrument(latest_snapshot_url, "wayback_snapshot_url", "scrape")
+except Exception as _exc:                      # instrumentation must never break the module
+    log.warning("could not instrument wayback for the ledger: %s", _exc)
