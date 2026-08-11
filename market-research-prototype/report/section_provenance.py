@@ -126,6 +126,21 @@ def build_section_provenance(result: dict) -> list[dict]:
     the data-character refined from the payload. Ordered as SECTION_SOURCES. This is the
     data the ?debug overlay renders as per-section badges.
     """
+    # THE LEDGER BEATS THE MAP. This table is DECLARED intent, and declared intent drifts:
+    # measured on run6..run11, the shipped "How each section was produced" row credited
+    # Market size to estimate_market_size (the legacy national engine) while the run's own
+    # ledger — and gate D52 — recorded size_hyperlocal at skills/sizing/hyperlocal.py as the
+    # producer. One report, two contradictory claims about its most load-bearing section,
+    # and the reader-facing one was the wrong one. A static map cannot drift-check itself;
+    # the ledger records the module, file and line AT THE MOMENT OF PRODUCTION. Where a
+    # recorded producer exists it wins, and an overridden declaration stays visible as
+    # declared_producer rather than being silently papered over.
+    try:
+        from report.trace import recorded_producers
+        recorded = recorded_producers(result)
+    except Exception:                       # a trace failure must never break the report
+        recorded = {}
+
     out: list[dict] = []
     for s in SECTION_SOURCES:
         if not _present(result, s.result_key):
@@ -133,6 +148,16 @@ def build_section_provenance(result: dict) -> list[dict]:
         entry = asdict(s)
         entry["consumes"] = list(s.consumes)
         entry["origin"] = _refine_origin(s.result_key, result.get(s.result_key), s.origin)
+        rec = recorded.get(s.result_key)
+        if rec and rec.get("produced_by"):
+            if rec["produced_by"] != s.produced_by:
+                entry["declared_producer"] = s.produced_by
+            entry["produced_by"] = rec["produced_by"]
+            if rec.get("module"):
+                entry["module"] = rec["module"]
+            entry["attribution"] = "recorded"
+        else:
+            entry["attribution"] = "declared"
         out.append(entry)
     return out
 
