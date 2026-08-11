@@ -146,8 +146,14 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0) -> str:
         # cycle37: business model (transactional retail vs subscription) → model-aware
         # pricing / unit-economics / financials rendering.
         business_model_kind=r.get("business_model_kind"),
-        # debug: per-run data-provenance trace (which tool/source/LLM produced each piece).
-        provenance=__import__("plan").build_provenance_summary(r),
+        # DEBUG-ONLY: the raw per-run call log (every tool invocation, including failures).
+        # It was passed unconditionally, so the "🔍 Data Provenance (debug)" table — raw
+        # HTTPSConnectionPool errors, garbage discovery domains and all — shipped inside the
+        # buyer's report on every default render (measured on run9.html). The template's own
+        # comment marks it DEBUG and the sentence-annotator below already honours the flag;
+        # the wiring here just ignored it. The reader-facing "How each section was produced"
+        # table is separate and stays.
+        provenance=__import__("plan").build_provenance_summary(r) if debug else None,
     )
     if debug:
         # Sentence-level provenance: mark every result-derived run of text with the exact
