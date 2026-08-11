@@ -2287,25 +2287,40 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                 pass
 
         # --- Per-unit pricing + competitor benchmark table (user feedback #3b) ---
-        try:
-            from pricing import build_benchmark_table
-            # _unit_noun == unit_for_model(biz_kind, ...) — already correct for every
-            # kind (seat/account for subscription, booking for marketplace, the real
-            # per-unit noun for transactional/etc). The old branch hand-rolled a
-            # SEPARATE seat/account guess for "not is_transactional" that happened to
-            # diverge from it for marketplace ("$450 per account" SaaS framing on a
-            # per-booking price — R4 catch, 174ae091).
-            bench = build_benchmark_table(
-                our_tiers=psm_result.get("recommended_tiers", []),
-                competitor_pricing=competitor_pricing_data,
-                pricing_unit=_unit_noun,
-                competitor_brands=opps[:8],
-                recurring=_pricing_is_recurring(biz_kind),  # D06: only true subscriptions
-            )
-            if "error" not in bench:
-                result["pricing"]["benchmark"] = bench
-        except Exception as e:
-            log.warning(f"[plan] pricing benchmark failed (non-fatal): {e}")
+        # D13's invariant, enforced UPSTREAM: a geo-sourced venture (local competitors from
+        # OSM) gets NO scraped price benchmark. Their "pricing pages" are cafe/salon websites
+        # where the scraper grabs whatever number it finds — MEASURED on run7, a $21 figure
+        # (a bean bag or gift card) shipped as "Noe Cafe: $21 per drink, 4.0x our price".
+        # Before this guard the pipeline BUILT the bad table and relied on the gate to block
+        # the whole report; now it never builds one, and the reason is recorded instead of
+        # the table silently missing.
+        if (result.get("discover") or {}).get("geo_sourced"):
+            record_dropped_output(
+                result, "pricing_benchmark",
+                "scraped price benchmarks are skipped for geo-sourced local ventures — "
+                "venue websites rarely publish a clean per-unit price, and D13 blocks any "
+                "report that ships one (measured: a $21 'per drink' row scraped from a "
+                "cafe page)")
+        else:
+            try:
+                from pricing import build_benchmark_table
+                # _unit_noun == unit_for_model(biz_kind, ...) — already correct for every
+                # kind (seat/account for subscription, booking for marketplace, the real
+                # per-unit noun for transactional/etc). The old branch hand-rolled a
+                # SEPARATE seat/account guess for "not is_transactional" that happened to
+                # diverge from it for marketplace ("$450 per account" SaaS framing on a
+                # per-booking price — R4 catch, 174ae091).
+                bench = build_benchmark_table(
+                    our_tiers=psm_result.get("recommended_tiers", []),
+                    competitor_pricing=competitor_pricing_data,
+                    pricing_unit=_unit_noun,
+                    competitor_brands=opps[:8],
+                    recurring=_pricing_is_recurring(biz_kind),  # D06: only true subscriptions
+                )
+                if "error" not in bench:
+                    result["pricing"]["benchmark"] = bench
+            except Exception as e:
+                log.warning(f"[plan] pricing benchmark failed (non-fatal): {e}")
 
         # --- Step 10: economics — MODEL-AWARE (cycle37) ---
         # Transactional retail → contribution margin + break-even covers/day (no CLV/churn/SaaS).
