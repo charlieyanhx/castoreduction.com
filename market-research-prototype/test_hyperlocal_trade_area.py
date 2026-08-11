@@ -78,13 +78,29 @@ class TestTradeAreaScale(unittest.TestCase):
                                     geography_land_km2=59.0, radius_m=3000)
         self.assertAlmostEqual(got / 800_000, CATCHMENT_3KM_KM2 / 59.0, delta=0.01)
 
-    def test_the_catchment_never_claims_more_than_the_geography_holds(self):
-        """A catchment larger than its own county cannot contain more households than the
-        county has. Caps at the total rather than extrapolating past it."""
+    def test_a_catchment_containing_its_geography_extrapolates_density(self):
+        """UPDATED TO THE CORRECTED INVARIANT — the old assertion here WAS the bug.
+
+        This test used to demand `min(area x density, households)` for a geography smaller
+        than the catchment, on the reasoning that "a catchment cannot contain more households
+        than the county has". That reasoning only holds when the catchment sits INSIDE the
+        geography. When the DISC contains the geography (every tract, always: a 7.07 km2
+        catchment vs a ~0.3 km2 tract), the disc covers many neighbouring tracts, and capping
+        to the one measured tract shipped the raw tract count as the trade area on five
+        consecutive live runs — 2,142 households claimed within 1.5 km of central San
+        Francisco against a measured 52,949, TAM 25x low, and a do-not-open verdict
+        manufactured by the cap. See test_trade_area_cap_inversion.py for the full account.
+
+        The invariant now: density x catchment in BOTH regimes; the cap survives only where
+        the geography contains the catchment, as a guard against a bad land area (it is
+        mathematically redundant there otherwise)."""
         from skills.sizing.hyperlocal import trade_area_households
         got = trade_area_households(geography_households=800_000,
                                     geography_land_km2=10.0, radius_m=3000)
-        self.assertEqual(got, 800_000)
+        want = 800_000 / 10.0 * CATCHMENT_3KM_KM2
+        self.assertAlmostEqual(got, want, delta=1.0)
+        self.assertGreater(got, 800_000,
+                           "capped at the geography total again — the inversion is back")
 
     def test_missing_land_area_yields_no_sourced_count(self):
         """Without the geography's area the count cannot be placed on a trade-area scale,
