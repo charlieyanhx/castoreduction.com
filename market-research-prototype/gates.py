@@ -1753,6 +1753,56 @@ def d56_local_spend_is_grounded_or_says_it_is_not(r: dict, html: str | None) -> 
     return Finding(True, f"national spend used and disclosed: {reason[:80]}")
 
 
+# The floor is deliberately far below any real revenue-per-venue figure: a venue's revenue is
+# a SLICE of the addressable spend around it, so the true bar is much higher. This only
+# catches order-of-magnitude nonsense, never a tight-but-real market — measured: an honest
+# hard market at $400K/venue passes; run9's $122K/venue fails.
+_MIN_TAM_PER_COMPETITOR_USD = 250_000.0
+
+
+def d57_market_supports_its_competitors(r: dict, html: str | None) -> Finding:
+    """A trade-area market must be able to feed the competitors it says already exist.
+
+    THE MEASUREMENT. run9 published TAM $12.5M for a trade area it also said contains 102
+    operating cafes — $122,433 of total food-away spend per existing cafe, below SF rent for
+    the storefront alone. Every gate passed, because every gate checks internal CONSISTENCY
+    and the arithmetic downstream of a wrong input was exact (the input was the trade-area
+    cap inversion: households 25x low). The wrongness was only visible from OUTSIDE the
+    model: 102 real businesses were demonstrably surviving on a market the report said could
+    not sustain one.
+
+    So this is the pipeline's first EXTERNAL-plausibility invariant: if a trade-area TAM and
+    a geo competitor count are both published, TAM / competitors must clear a survival floor.
+    It is cause-agnostic on purpose — whatever upstream defect next produces an absurd
+    sizing (bad geocode, bad land area, bad spend figure), the ratio catches it, because the
+    competitor roster is measured independently of every one of those inputs.
+
+    ok=None only when there is no trade-area TAM or no competitor count — and the missing-
+    count case NAMES what was missing, so D55's coverage accounting shows a hole rather than
+    this reading as fine."""
+    ms = r.get("market_sizing") or {}
+    if (ms.get("method") or "") != "trade_area_catchment":
+        return Finding(None, "not a trade-area (hyperlocal) sizing")
+    tam = (ms.get("tam") or {}).get("mid") or ms.get("tam_usd")
+    if not tam:
+        return Finding(None, "no trade-area TAM published")
+    comp = ms.get("competitors")
+    if not isinstance(comp, (int, float)) or isinstance(comp, bool) or comp < 0:
+        return Finding(None, "trade-area TAM published but no competitor count to check it "
+                             "against — the plausibility check could not run")
+    if comp == 0:
+        return Finding(True, "no competitors in the trade area — nothing to divide by, and "
+                             "an empty market may legitimately be small")
+    per = tam / comp
+    if per < _MIN_TAM_PER_COMPETITOR_USD:
+        return Finding(False,
+                       f"TAM ${tam:,.0f} across {comp:,.0f} existing competitors is "
+                       f"${per:,.0f} each — real venues are already surviving here, so the "
+                       f"market is mis-sized, not tiny (floor: "
+                       f"${_MIN_TAM_PER_COMPETITOR_USD:,.0f})")
+    return Finding(True, f"${per:,.0f} of addressable market per existing competitor")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -1810,6 +1860,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D54", "produced output reaches the report", "harness item 7: 3 sections the ledger recorded as produced vanished silently", "fail", d54_produced_output_reaches_the_report),
     Invariant("D55", "complete enough to have been checked", "the scorecard rewarded emptiness: an empty report scored 23 pass / 0 fail", "fail", d55_report_is_complete_enough_to_have_been_checked),
     Invariant("D56", "local spend is grounded or says it is not", "a trade-area TAM priced every neighbourhood at the $3,945 national average while local income sat fetched and unread", "fail", d56_local_spend_is_grounded_or_says_it_is_not),
+    Invariant("D57", "market supports its own competitors", "run9 published $122K of market per existing cafe — 102 real venues were surviving on a TAM the report said could not sustain one", "fail", d57_market_supports_its_competitors),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
