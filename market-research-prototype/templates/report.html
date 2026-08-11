@@ -1933,11 +1933,36 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 {% if four_ps.citations %}
 <div class="citations">
   <h2 id="citations">Sources &amp; Citations</h2>
-  <ol>
-    {% for c in four_ps.citations %}
-    <li id="cite-{{ loop.index }}"><span class="source">{{ c.source }}</span>{% if c._section %} <span style="font-size:8pt;color:#9ca3af">({{ c._section }})</span>{% endif %}{% if c.claim %} — {{ c.claim }}{% endif %}</li>
+  {#- ONE ID SPACE, PER SECTION. The prose superscripts restart at 1 in every 4Ps section
+      (split mode), and report/citation.audit_sections validates them against each section's
+      OWN citation list. This block used to render one flat <ol> numbered by loop.index over
+      the POOLED list — a third id space nobody validated. Measured on run7: of 14 markers,
+      10 resolved to the WRONG footnote (price's ¹ landed on a product source), 2 dangled,
+      2 were right. Grouping by section and pinning each visible number to the section's own
+      citation id (value=) makes the reader's number space the one the LLM wrote and the
+      detector checks. value= matters: <ol> auto-numbering silently renumbers when an id is
+      missing, going off by one for every item after the gap. -#}
+  {% for sect in ["product", "price", "place", "promotion"] %}
+  {% set group = four_ps.citations | selectattr("_section", "equalto", sect) | list %}
+  {% if group %}
+  <p style="margin:10px 0 2px;font-size:9pt;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.04em">{{ sect }}</p>
+  <ol style="margin-top:2px">
+    {% for c in group %}
+    <li id="cite-{{ sect }}-{{ c.id }}" value="{{ c.id }}"><span class="source">{{ c.source }}</span>{% if c.claim %} — {{ c.claim }}{% endif %}</li>
     {% endfor %}
   </ol>
+  {% endif %}
+  {% endfor %}
+  {% set unsectioned = four_ps.citations | rejectattr("_section") | list %}
+  {#- Legacy non-split mode: one LLM call, one citation list, one global id space — a flat
+      list is correct there, but the visible number must still be the citation's own id. -#}
+  {% if unsectioned %}
+  <ol>
+    {% for c in unsectioned %}
+    <li{% if c.id %} value="{{ c.id }}"{% endif %}><span class="source">{{ c.source }}</span>{% if c.claim %} — {{ c.claim }}{% endif %}</li>
+    {% endfor %}
+  </ol>
+  {% endif %}
   {% if four_ps.citation_audit and four_ps.citation_audit._totals %}
   {% set _ca = four_ps.citation_audit._totals %}
   <p style="margin-top:12px;font-size:9pt;color:#6b7280">
