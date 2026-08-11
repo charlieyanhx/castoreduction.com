@@ -59,7 +59,60 @@ def _coerce_token(tok: str) -> Optional[float]:
         return None
 
 
-def safe_eval_formula(formula: str) -> Optional[float]:
+_ARITHMETIC_PAREN = re.compile(r"^[\s\d.,+\-*/×÷%kmbtKMBT$]+$")
+
+
+def _strip_prose_parentheses(formula: str) -> str:
+    """Drop citation parentheticals, KEEP arithmetic ones.
+
+    MEASURED BUG. Stripping every "(...)" was added so "(IBISWorld 2023)" could not inject 2023
+    as a phantom factor. But it cannot tell a citation from a divisor, so
+
+        "SAM x 1/(103+1) fair-share x 60% ramp"
+          -> "SAM x 1/  fair-share x 60% ramp"      the divisor is GONE
+          -> evaluates to 0.6
+
+    against a published 25,217 — a 2.4e-05x "mismatch" reported as a BLOCK on run5, run6 and
+    run7, on a figure whose arithmetic is exact. A fix for one false positive created another.
+
+    So: a parenthetical made only of digits and operators is arithmetic and stays (its content
+    is unwrapped into the expression); anything containing letters is prose or a citation and
+    goes. "(2,142 households)" contains letters, so it is dropped — which is correct, since the
+    2,142 is already stated outside it in every formula this pipeline writes.
+    """
+    def _repl(m: "re.Match[str]") -> str:
+        inner = m.group(1)
+        return f"({inner})" if _ARITHMETIC_PAREN.match(inner) else " "
+
+    return re.sub(r"\(([^)]*)\)", _repl, formula)
+
+
+def _eval_arithmetic_parens(norm: str) -> str:
+    """Replace a purely-arithmetic (a+b) group with its value, so the tokenizer sees one number.
+
+    Only + and - inside, which is all this pipeline writes (competitors+1). Left to right; any
+    surprise leaves the group untouched so the caller's own guards decide what to do.
+    """
+    def _repl(m: "re.Match[str]") -> str:
+        inner = m.group(1).replace(",", "").strip()
+        if not re.fullmatch(r"\d+(?:\.\d+)?(?:\s*[+\-]\s*\d+(?:\.\d+)?)*", inner):
+            return m.group(0)
+        tokens = re.findall(r"[+\-]|\d+(?:\.\d+)?", inner)
+        try:
+            acc = float(tokens[0])
+            i = 1
+            while i + 1 < len(tokens) + 1 and i < len(tokens):
+                op, nxt = tokens[i], float(tokens[i + 1])
+                acc = acc + nxt if op == "+" else acc - nxt
+                i += 2
+            return f" {acc} "
+        except (ValueError, IndexError):
+            return m.group(0)
+
+    return re.sub(r"\(([^)]*)\)", _repl, norm)
+
+
+def safe_eval_formula(formula: str, refs: Optional[dict] = None) -> Optional[float]:
     """Recompute a sizing formula's value from its numeric tokens.
 
     Handles products and divisions of numbers with k/m/b/t and % suffixes, in
@@ -74,9 +127,24 @@ def safe_eval_formula(formula: str) -> Optional[float]:
     # nums-vs-ops and made this return None on the exact headline it exists to check
     # (R2). Then keep only the LHS of "=": the RHS is the CLAIMED result being
     # reconciled against, not part of the computation.
-    stripped = re.sub(r"\([^)]*\)", " ", formula)
+    stripped = _strip_prose_parentheses(formula)
     stripped = stripped.split("=", 1)[0]
     norm = stripped.lower().replace("×", "*").replace("÷", "/").replace("·", "*")
+    norm = _eval_arithmetic_parens(norm)
+    # Resolve SYMBOLIC references to sibling figures (SAM, TAM). Without this,
+    # "TAM x 35% serviceable" tokenized to a single number, returned None, and
+    # report/verifier.py's `if computed is None ... continue` SKIPPED the figure entirely —
+    # measured: TAM_local and SAM_local went unchecked in run5, run6 AND run7. "Could not
+    # parse" was reading as "fine", inside a verifier.
+    #
+    # An UNRESOLVED symbol must abort rather than be dropped: dropping is exactly how
+    # "SAM x 1/104 x 60%" collapsed to a bare 0.6 and blocked a correct figure.
+    if refs:
+        for _name, _val in refs.items():
+            if isinstance(_val, (int, float)) and not isinstance(_val, bool):
+                norm = re.sub(rf"\b{re.escape(str(_name).lower())}\b", repr(float(_val)), norm)
+    if re.search(r"\b(?:tam|sam|som)\b", norm):
+        return None          # a sizing symbol we were given no value for
     nums: list[float] = []
     ops: list[str] = []
     expect_num = True

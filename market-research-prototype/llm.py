@@ -407,6 +407,69 @@ def _cache_key(system: str, user: str, response_model: Optional[type] = None,
     return f"llm_json:{digest}"
 
 
+def _json_tail_expectation(text: str) -> str | None:
+    """Walk the JSON and report what it is still waiting for at the end.
+
+    Returns "string" (inside an unterminated string), "value" (a value is required and absent),
+    "colon" (a key was written with no separator), "key", "comma", or None when the text is
+    structurally complete at the top level.
+
+    WHY A SCANNER RATHER THAN MORE PATTERNS. _truncated_value below used to work purely by
+    enumerating the shapes a cut VALUE can take, and a cut landing at a value POSITION was not
+    in the list -- so `{"id": 2, "source":` was declared clean and json_repair fabricated
+    `{"id": 2, "source": ""}`, dropping every field after the cut. That cost three consecutive
+    unpublishable reports. Enumerating known-bad endings will keep having holes; asking the
+    structure what it expects cannot.
+    """
+    in_str = esc = False
+    stack: list[dict] = []          # {"kind": "{"|"[", "expect": key|colon|value|comma}
+    for ch in text:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+                if stack:
+                    top = stack[-1]
+                    if top["kind"] == "{" and top["expect"] == "key":
+                        top["expect"] = "colon"      # a key just closed; ':' must follow
+                    elif top["expect"] == "value":
+                        top["expect"] = "comma"      # a string value satisfied the slot
+            continue
+        if ch == '"':
+            in_str = True
+            continue
+        if ch.isspace():
+            continue
+        if ch in "{[":
+            if stack and stack[-1]["expect"] == "value":
+                stack[-1]["expect"] = "comma"        # this container IS the awaited value
+            stack.append({"kind": ch, "expect": "key" if ch == "{" else "value"})
+            continue
+        if ch in "}]":
+            if stack:
+                stack.pop()
+            if stack and stack[-1]["expect"] == "value":
+                stack[-1]["expect"] = "comma"
+            continue
+        if ch == ":":
+            if stack and stack[-1]["kind"] == "{":
+                stack[-1]["expect"] = "value"
+            continue
+        if ch == ",":
+            if stack:
+                stack[-1]["expect"] = "key" if stack[-1]["kind"] == "{" else "value"
+            continue
+        # Any other character belongs to a number or a bare keyword, which fills a value slot.
+        if stack and stack[-1]["expect"] == "value":
+            stack[-1]["expect"] = "comma"
+    if in_str:
+        return "string"
+    return stack[-1]["expect"] if stack else None
+
+
 def _truncated_value(text: str) -> str | None:
     """Name the in-progress value this text ends inside, or None if it ends cleanly.
 
@@ -451,14 +514,33 @@ def _truncated_value(text: str) -> str | None:
         return "a number that is only a sign"
     if re.search(r'[:\[,]\s*(?:tru|fals|nul)$', t):
         return "a truncated keyword"
+    # A cut at a value POSITION: the key exists and its value does not. MEASURED — this is the
+    # hole that let run4's product payload through. It ended at `{"id": 2, "source":`, the guard
+    # said clean, and json_repair invented `"source": ""` while silently dropping `narrative`
+    # and everything after the cut. Two of the four citations the model was writing survived,
+    # orphaning two superscript markers in the prose, and THAT was the dangling_citations BLOCK
+    # on run5, run6 and run7. A trailing comma is deliberately NOT included: a comma means
+    # another pair was coming and none was written, so dropping it fabricates nothing, whereas
+    # a colon leaves a pair that exists missing its value.
+    expectation = _json_tail_expectation(t)
+    if expectation == "value":
+        return "a key with no value"
+    if expectation == "colon":
+        return "a key with no value separator"
     return None
 
 
-def _parse_payload(text: str) -> tuple[Optional[object], Optional[str]]:
-    """Fences → json.loads → json_repair salvage. Returns (obj, None) or (None, error)."""
+def _parse_payload_ex(text: str) -> tuple[Optional[object], Optional[str], bool]:
+    """Fences → json.loads → json_repair salvage. Returns (obj, error, repaired).
+
+    `repaired` is True when the object only exists because json_repair patched the text. Callers
+    must NOT persist a repaired result: MEASURED, call_json cached one and cache.py's 7-day TTL
+    replayed it into three consecutive runs, turning a single truncated response into three
+    unpublishable reports whose product section was byte-identical.
+    """
     text = _strip_fences(text)
     try:
-        return json.loads(text), None
+        return json.loads(text), None, False
     except json.JSONDecodeError as e:
         cut = _truncated_value(text)
         if cut:
@@ -466,19 +548,25 @@ def _parse_payload(text: str) -> tuple[Optional[object], Optional[str]]:
             log.warning("call_json: output ends in %s — refusing the json_repair salvage "
                         "rather than publish a value the model did not write (likely a "
                         "max_tokens cutoff)", cut)
-            return None, f"response truncated: ends in {cut} ({e})"
+            return None, f"response truncated: ends in {cut} ({e})", False
         try:
             import json_repair
             result = json_repair.loads(text)
             if result and isinstance(result, (dict, list)):
                 log.warning("call_json: json_repair repaired structure after a complete "
-                            "final value")
-                return result, None
+                            "final value — usable for this call, NOT cached")
+                return result, None, True
         except ImportError:
             log.debug("json_repair not installed, parse error will propagate")
         except Exception:
             pass
-        return None, str(e)
+        return None, str(e), False
+
+
+def _parse_payload(text: str) -> tuple[Optional[object], Optional[str]]:
+    """Two-tuple shim over _parse_payload_ex, kept for existing callers and tests."""
+    obj, error, _repaired = _parse_payload_ex(text)
+    return obj, error
 
 
 def call_json(system: str, user: str, max_tokens: int = 2000,
@@ -552,7 +640,7 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
             return {"_parse_error": f"all backends exhausted ({_why})",
                     "_raw": "", "_chain_tried": list(BACKEND_DEFAULTS)}
         text = raw
-        obj, error = _parse_payload(text)
+        obj, error, repaired = _parse_payload_ex(text)
         if obj is None:
             continue
         if response_model is not None:
@@ -564,8 +652,16 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
                 continue
         else:
             result = obj
-        if not bypass:
+        # A REPAIRED PARSE IS USABLE ONCE, NEVER PERSISTED. Caching one is how a single
+        # truncated run4 response became the dangling_citations BLOCK on run5, run6 AND run7 —
+        # the salvaged dict (missing `narrative`, carrying a json_repair-invented empty
+        # citation source) sat in .cache.sqlite under a 7-day TTL and every later run replayed
+        # it. Returning it to THIS caller is fine; freezing it for a week is not.
+        if not bypass and not repaired:
             cache_put(cache_key, result)
+        elif repaired:
+            log.warning("call_json: not caching a json_repair-salvaged result — a repaired "
+                        "parse must not be replayed by later runs")
         return result
 
     log.warning("call_json: invalid after %d attempt(s): %s", attempts, (error or "")[:200])

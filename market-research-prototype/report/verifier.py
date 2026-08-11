@@ -95,22 +95,98 @@ class VerificationResult:
 # --------------------------------------------------------------------------
 # Layer 2 — checks that live closer to the prose than gates.py reaches.
 # --------------------------------------------------------------------------
-def _check_formula_reconciliation(r: dict, html: Optional[str]):
-    """Does each sizing figure's stated formula compute to its stated value?
+def _figure_refs(figures: list) -> dict:
+    """TAM/SAM/SOM values from the figure list, for resolving symbolic formula references.
 
-    The R2 case: "$30.6B * 15% * 15% = $4.59B" — the arithmetic gives $688.5M, a
-    6.7x self-contradiction printed as a headline.
+    A hyperlocal SAM's formula is literally "TAM x 35% serviceable" — the reference is the whole
+    point of the formula, and without resolving it the figure cannot be checked at all.
+    """
+    refs: dict = {}
+    for fig in figures or []:
+        if not isinstance(fig, dict):
+            continue
+        val = fig.get("value_usd")
+        if not isinstance(val, (int, float)) or isinstance(val, bool):
+            continue
+        label = str(fig.get("label") or "")
+        stem = label.split("_", 1)[0].upper()          # TAM_local -> TAM, SOM_demand -> SOM
+        if stem in ("TAM", "SAM", "SOM") and stem not in refs:
+            refs[stem] = float(val)
+    return refs
+
+
+def _reconcilable_figures(figures: list) -> list:
+    """Labels of figures whose formula CANNOT be reconciled, i.e. silently skipped today.
+
+    MEASURED: TAM_local and SAM_local returned None — and were therefore never checked — in
+    run5, run6 AND run7. Two of the three figures in every hyperlocal report went unverified
+    because "could not parse" was treated as "fine", which is the repo's dominant bug class
+    living inside a verifier. Exposed as a function so a test can assert real reports are fully
+    reconcilable rather than trusting the silence.
     """
     from skills.sizing.validate import safe_eval_formula
-    out = []
-    for fig in ((r.get("market_sizing") or {}).get("figures") or []):
+    refs = _figure_refs(figures)
+    unreconcilable = []
+    for fig in figures or []:
         if not isinstance(fig, dict):
             continue
         val = fig.get("value_usd")
         if not isinstance(val, (int, float)) or isinstance(val, bool) or not val:
             continue
-        computed = safe_eval_formula(str(fig.get("formula") or ""))
+        if _figure_computed(fig, refs) is None:
+            unreconcilable.append(fig.get("label") or "?")
+    return unreconcilable
+
+
+def _figure_computed(fig: dict, refs: dict):
+    """Recompute a figure, preferring its machine-readable `calc` over the human `formula`.
+
+    WHY BOTH. `formula` is prose for a reader — "2,142 households within 1.5 km (7.1 km2
+    catchment) x $3,945/hh/yr" — and contains numbers that are NOT factors (the 1.5 km radius),
+    so a token-product parser cannot reconcile it and returned None. Measured: TAM_local was
+    unreconciled, and therefore unchecked, in run5, run6 and run7 — the headline number of every
+    hyperlocal report. Rather than make the reader-facing string machine-shaped, producers now
+    also emit `calc`, the pure arithmetic. `formula` stays the sentence a human reads.
+    """
+    from skills.sizing.validate import safe_eval_formula
+    calc = fig.get("calc")
+    if calc:
+        got = safe_eval_formula(str(calc), refs=refs)
+        if got is not None:
+            return got
+    return safe_eval_formula(str(fig.get("formula") or ""), refs=refs)
+
+
+def _check_formula_reconciliation(r: dict, html: Optional[str]):
+    """Does each sizing figure's stated formula compute to its stated value?
+
+    The R2 case: "$30.6B * 15% * 15% = $4.59B" — the arithmetic gives $688.5M, a
+    6.7x self-contradiction printed as a headline.
+
+    Symbolic references (TAM/SAM/SOM) are resolved from the sibling figures. Before that, a
+    hyperlocal SAM ("TAM x 35% serviceable") was unparseable and skipped, while a correct
+    SOM_demand was BLOCKED because the (competitors+1) divisor had been stripped as if it were
+    a citation. The ratio band is unchanged on purpose — it was never the problem, and widening
+    it would have hidden the 6.7x case this check exists for.
+    """
+    from skills.sizing.validate import safe_eval_formula
+    figures = (r.get("market_sizing") or {}).get("figures") or []
+    refs = _figure_refs(figures)
+    out = []
+    for fig in figures:
+        if not isinstance(fig, dict):
+            continue
+        val = fig.get("value_usd")
+        if not isinstance(val, (int, float)) or isinstance(val, bool) or not val:
+            continue
+        computed = _figure_computed(fig, refs)
         if computed is None or computed == 0:
+            # Not a pass — an unreconcilable formula means the report states arithmetic nobody
+            # verified. ADVISORY rather than BLOCK so a prose formula cannot stop a run, but it
+            # is no longer invisible.
+            out.append((Severity.ADVISORY,
+                        f"{fig.get('label', '?')}: formula could not be reconciled "
+                        f"({str(fig.get('formula') or '')[:70]!r}) — the figure is unverified"))
             continue
         ratio = computed / val
         if ratio > 2.5 or ratio < 0.4:
