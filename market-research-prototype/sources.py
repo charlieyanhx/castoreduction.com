@@ -864,3 +864,40 @@ def estimate_domain_age_days(domain: str) -> Optional[int]:
     except Exception:
         return None
     return None
+
+
+# ---------------------------------------------------------------------------
+# Make DIRECT calls to these implementations visible in the run ledger.
+# ---------------------------------------------------------------------------
+# MEASURED across 22 stored artifacts: only 13 of 39 registered tools ever reached the ledger.
+# Every tools/*.py entry is a thin @tool wrapper that delegates to an implementation exported
+# from HERE, and production imports the implementation (`from sources import
+# hackernews_mentions`) rather than going through get_tool(). run6 proved the consequence:
+# hn_signal carried hits_found=20 while run6's trace recorded ZERO hackernews_mentions calls.
+#
+# Instrumenting at this single choke point fixes every such tool at once, and cannot drift as
+# tools are added -- the loop reads TOOL_REGISTRY rather than a hand-kept list, and
+# test_source_calls_are_recorded asserts the coverage. Return shapes are untouched: the
+# recorder only observes, so the ~18 direct call sites are unchanged.
+def _instrument_source_exports() -> int:
+    """Wrap every module-level name here that is also a registered tool. Returns the count."""
+    from persistence.ledger import instrument_source
+    from tools import TOOL_REGISTRY          # deferred: registration is complete by now
+
+    g = globals()
+    n = 0
+    for _name, _meta in TOOL_REGISTRY.items():
+        _impl = g.get(_name)
+        if callable(_impl) and not getattr(_impl, "__records_to_ledger__", False):
+            g[_name] = instrument_source(_impl, _name, _meta.category)
+            n += 1
+    return n
+
+
+try:
+    _INSTRUMENTED_SOURCE_COUNT = _instrument_source_exports()
+except Exception as _exc:                     # never let instrumentation break the import
+    import logging as _logging
+    _logging.getLogger("mrp.sources").warning(
+        "could not instrument source exports for the ledger: %s", _exc)
+    _INSTRUMENTED_SOURCE_COUNT = 0

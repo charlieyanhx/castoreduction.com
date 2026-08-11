@@ -279,3 +279,120 @@ def steps() -> list[str]:
 def cogs() -> dict:
     """Cost of goods for the current run — see RunLedger.cogs()."""
     return LEDGER.cogs()
+
+
+# ---------------------------------------------------------------------------
+# Recording DIRECT implementation calls (the 58% blind spot)
+# ---------------------------------------------------------------------------
+# MEASURED across 22 stored artifacts: 13 of 39 registered tools ever reached this ledger.
+# The cause is one fact, not many bugs. Every function in tools/*.py is a thin @tool wrapper
+# that delegates to an implementation re-exported through sources.py:
+#
+#     @tool(category="customer_voice", ...)
+#     def hackernews_mentions(query, limit=20) -> Evidence:
+#         from sources import hackernews_mentions as _impl     # <- the real work
+#         return Evidence(..., payload=_impl(query, limit=limit) or [])
+#
+# @tool records, but production writes `from sources import hackernews_mentions` and calls the
+# bare implementation, which the wrapper never sees. run6 proved it: hn_signal carried
+# hits_found=20 while the trace recorded ZERO hackernews_mentions calls.
+#
+# So record at the IMPLEMENTATION, which is the one choke point both paths traverse. The
+# recorder only observes -- return shapes are untouched, so none of the ~18 direct call sites
+# change. `tool_call_in_flight` stops the @tool wrapper and the implementation both recording
+# the same call.
+_inflight = threading.local()
+
+
+class tool_call_in_flight:
+    """Mark a tool name as already being recorded by an outer @tool wrapper.
+
+    Used by tools/registry.py around its delegate call so the instrumented implementation
+    underneath stays quiet. Reentrant: only the outermost holder clears the mark.
+    """
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self._owns = False
+
+    def __enter__(self) -> "tool_call_in_flight":
+        names = getattr(_inflight, "names", None)
+        if names is None:
+            names = _inflight.names = set()
+        self._owns = self.name not in names
+        if self._owns:
+            names.add(self.name)
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        if self._owns:
+            (getattr(_inflight, "names", None) or set()).discard(self.name)
+        return False
+
+
+def _tool_call_is_in_flight(name: str) -> bool:
+    return name in (getattr(_inflight, "names", None) or set())
+
+
+def instrument_source(fn: Any, name: str, category: str) -> Any:
+    """Wrap a plain source implementation so a DIRECT call reaches the ledger.
+
+    Best-effort by construction: a ledger failure must never break a working fetch, so every
+    recording call is guarded. Idempotent -- re-wrapping a wrapped function is a no-op.
+
+    RESOLVES ITS TARGET AT CALL TIME rather than closing over the function object, because
+    closing over it silently defeats unittest.mock. MEASURED: the first version captured `fn`,
+    so `patch("tools.sources.trustpilot.trustpilot_reviews", ...)` (test_infra.py:2246) no longer
+    reached the code under test and that test started hitting the REAL Trustpilot -- the full
+    suite went from 213s to over 600s. Instrumentation that changes how mocks behave is worse
+    than no instrumentation.
+    """
+    import functools
+    import sys
+
+    if getattr(fn, "__records_to_ledger__", False):
+        return fn
+
+    original = fn
+    defining_module = getattr(fn, "__module__", "") or ""
+    attr_name = getattr(fn, "__name__", name)
+
+    def _safe(**kw) -> None:
+        try:
+            record_tool(name, category, name, **kw)
+        except Exception:                                  # never break the data path
+            pass
+
+    def _target():
+        """The function to actually call: whatever currently lives at the definition site, so a
+        patch there takes effect. Falls back to the captured original when the definition site
+        holds our own wrapper (true for implementations defined in sources.py itself, where
+        re-resolving would recurse forever)."""
+        mod = sys.modules.get(defining_module)
+        cand = getattr(mod, attr_name, None) if mod is not None else None
+        if cand is None or cand is wrapped or getattr(cand, "__records_to_ledger__", False):
+            return original
+        return cand
+
+    @functools.wraps(fn)
+    def wrapped(*args, **kwargs):
+        # The @tool wrapper is already recording this exact call — stay quiet or the trace
+        # double-counts every get_tool() invocation. A DIFFERENT tool called underneath is
+        # still recorded: nesting is real work and hiding it would be a lie.
+        impl = _target()
+        if _tool_call_is_in_flight(name):
+            return impl(*args, **kwargs)
+        t0 = time.time()
+        try:
+            out = impl(*args, **kwargs)
+        except Exception as exc:
+            _safe(ok=False, skeleton=True, duration=round(time.time() - t0, 3),
+                  error=f"{type(exc).__name__}: {exc}")
+            raise
+        empty = out is None or (isinstance(out, (list, tuple, dict, str)) and len(out) == 0)
+        _safe(ok=True, skeleton=bool(empty), duration=round(time.time() - t0, 3), payload=out)
+        return out
+
+    wrapped.__records_to_ledger__ = True
+    wrapped.__wrapped_impl__ = fn
+    return wrapped

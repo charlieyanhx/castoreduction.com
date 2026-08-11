@@ -284,7 +284,13 @@ def tool(
                     ))
 
             try:
-                result = fn(*args, **kwargs)
+                # Mark this tool as being recorded HERE, so the instrumented implementation
+                # this wrapper delegates to does not record the same call a second time.
+                # Without the mark, every get_tool(name).fn(...) would appear twice in the
+                # trace once the implementations became visible.
+                from persistence.ledger import tool_call_in_flight
+                with tool_call_in_flight(name):
+                    result = fn(*args, **kwargs)
             except Exception as e:
                 err = f"{type(e).__name__}: {e}"
                 log.warning("[tool/%s] failed: %s", name, err)
