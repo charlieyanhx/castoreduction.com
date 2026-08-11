@@ -112,3 +112,30 @@ class TestThePlaceholderClamp(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBothCompetitorCountsReachEverySection(unittest.TestCase):
+    """run12: prompts carried only the 30-venue roster, so the prose asserted "30
+    competitors" 13 times — including a "Competitor Density Census" citation false by the
+    pipeline's own 102-venue OSM census — while the SOM divided by 102. The model can only
+    write the honest pair if it is handed the honest pair."""
+
+    def test_the_density_reminder_states_the_pair(self):
+        block = section_reminders(business_model_kind="transactional",
+                                  economics=ECON, market_sizing={"competitors": 102, **MS},
+                                  competitor_density=30)
+        self.assertIn("102", block)
+        self.assertIn("30", block)
+        self.assertIn("NEVER present 30 as the total", block)
+
+    def test_equal_counts_add_no_rule(self):
+        from four_ps import _r_volume_ladder  # noqa: F401  (import guard)
+        block = section_reminders(business_model_kind="transactional",
+                                  economics=ECON, market_sizing={"competitors": 30, **MS},
+                                  competitor_density=30)
+        self.assertNotIn("COMPETITOR COUNTS — HARD RULE", block)
+
+    def test_no_catchment_count_keeps_the_old_directive(self):
+        block = section_reminders(business_model_kind="transactional",
+                                  economics=ECON, market_sizing=MS, competitor_density=30)
+        self.assertNotIn("COMPETITOR COUNTS — HARD RULE", block)
