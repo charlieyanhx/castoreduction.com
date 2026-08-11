@@ -1004,6 +1004,28 @@ def attach_consumer_research(result: dict, description: str, geo: str, profile: 
         "produced no usable synthesis for this venture")
 
 
+def _competitor_count_note(fair_share_n, roster_n) -> str | None:
+    """The sentence that reconciles the report's two competitor counts — or None if only one
+    count exists (nothing to reconcile).
+
+    MEASURED on run9: the SOM formula divided by (102+1) while the narrative said "30
+    competitors" twelve times and the exec summary put 30 in a headline bullet. 102 is the raw
+    OpenStreetMap venue count inside the catchment (the honest fair-share denominator); 30 is
+    the named roster (osm_named_competitors limit=30) the sections profile. Neither is wrong —
+    but unreconciled, the reader cannot tell which number the analysis used, and the silent
+    choice of 102 over 30 cuts the obtainable-share figure 3.4x. One sentence, published next
+    to the sizing notes, ends the ambiguity."""
+    if not isinstance(fair_share_n, (int, float)) or isinstance(fair_share_n, bool):
+        return None
+    if not roster_n or fair_share_n <= roster_n:
+        return None
+    return (f"Competitor counts: {fair_share_n:,.0f} venues of this type inside the catchment "
+            f"per OpenStreetMap — the fair-share SOM divides by this full count. The "
+            f"competitive-landscape section profiles the nearest {roster_n:,.0f} of them by "
+            f"name; narrative references to '{roster_n:,.0f} competitors' mean that profiled "
+            f"subset.")
+
+
 def size_by_scale(scale_decision: dict | None, description: str, profile: dict) -> dict | None:
     """For physical ventures with a location, size by trade-area (size_hyperlocal) and
     adapt to the legacy tam/sam/som shape so the report + gate work. Returns None to
@@ -1107,7 +1129,11 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
         "spend_income_adjustment": p.get("spend_income_adjustment"),
         "competitors": p.get("competitors") or len(geo_competitors),
         "geo_competitors": geo_competitors,
-        "notes": notes, "validation": val,
+        # One sentence reconciling the OSM fair-share denominator with the profiled roster —
+        # run9 divided SOM by (102+1) while the prose said "30 competitors" twelve times.
+        "notes": notes + ([n] if (n := _competitor_count_note(
+            p.get("competitors"), len(geo_competitors))) else []),
+        "validation": val,
         "publishable": val.get("passed", True),
         # Surface the engine's honest confidence + caveats in the template's existing
         # "data quality" and "weakest assumptions" slots (otherwise they read "unknown").
@@ -1349,9 +1375,22 @@ def build_integrity_summary(result: dict) -> dict:
     # naming Census/BLS for numbers no fetch produced.
     methods = [tam.get(k) or {} for k in ("method_top_down", "method_bottom_up", "method_analog")]
     methods = [m for m in methods if isinstance(m.get("value_usd"), (int, float))]
+    if not methods and (ms.get("method") or "") == "trade_area_catchment":
+        # HYPERLOCAL SIZING HAS NO method_* TRIPLE — its sourcing lives in figures[].data_origin.
+        # This branch was missing, so the trust box on every hyperlocal report rendered
+        # "Sourced: 0/0 — no sources at all · Model-estimated origins: llm" DIRECTLY ABOVE TAM
+        # math that was genuinely Census ACS x TIGERweb x BLS (run9, figures stamped
+        # census/derived/osm). The one panel titled "how to trust these numbers" told a
+        # skeptical buyer to trust nothing — the D53 under-claiming class in the UI layer.
+        methods = [f for f in (ms.get("figures") or [])
+                   if isinstance(f, dict) and isinstance(f.get("value_usd"), (int, float))]
     n_cited = sum(1 for m in methods if str(m.get("source") or "").strip())
+    # 'derived' is arithmetic on a sibling figure (SAM = TAM x 35%): it counts toward the
+    # total but NOT as grounded — claiming arithmetic as a fetch would be the OVER-claiming
+    # mirror of the bug this branch fixes.
     n_grounded = sum(1 for m in methods
-                     if str(m.get("data_origin") or "").strip().lower() not in ("", "llm"))
+                     if str(m.get("data_origin") or "").strip().lower()
+                     not in ("", "llm", "derived", "unattributed", "caller"))
 
     # Distinct data origins that actually fired (census/bls/llm…).
     origins = sorted({str(m.get("data_origin") or "llm") for m in methods}) if methods else []
