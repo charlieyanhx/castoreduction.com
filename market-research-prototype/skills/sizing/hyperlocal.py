@@ -144,7 +144,7 @@ def resolve_annual_spend(category: str) -> tuple[Optional[float], bool]:
 
 
 def _fig(value: Optional[float], label: str, source: str, formula: str,
-         data_origin: Optional[str] = None) -> dict:
+         data_origin: Optional[str] = None, calc: Optional[str] = None) -> dict:
     """One sizing figure, WITH its origin.
 
     D53 caught the omission on a real run and it was worth catching: with the Census key in
@@ -159,6 +159,13 @@ def _fig(value: Optional[float], label: str, source: str, formula: str,
     fig = {"value_usd": value, "label": label, "source": source, "formula": formula}
     if data_origin:
         fig["data_origin"] = data_origin
+    # `calc` is the same arithmetic with the prose removed, for the reconciler. `formula` is the
+    # sentence a reader sees and contains numbers that are NOT factors ("within 1.5 km"), so a
+    # token-product parser cannot check it -- measured, TAM_local went unreconciled and therefore
+    # UNVERIFIED in run5, run6 and run7, the headline number of every hyperlocal report. Keeping
+    # two strings is better than bending the reader-facing one into machine shape.
+    if calc:
+        fig["calc"] = calc
     return fig
 
 
@@ -513,11 +520,13 @@ def size_hyperlocal(
         figures.append(_fig(tam, "TAM_local", f"{households_src} + {spend_src}",
                              f"{households:,.0f} households within {radius_m / 1000:.1f} km "
                              f"({catchment_km2(radius_m):,.1f} km² catchment) × {_spend_term}",
-                             data_origin=_tam_origin))
+                             data_origin=_tam_origin,
+                             calc=f"{households:.6f} × {spend:.6f}"))
         sam = tam * serviceable_fraction
         figures.append(_fig(sam, "SAM_local", "derived",
                             f"TAM × {serviceable_fraction:.0%} serviceable",
-                            data_origin="derived"))
+                            data_origin="derived",
+                            calc=f"TAM × {serviceable_fraction:.6f}"))
 
         # Demand-side fair share is a SATURATION SIGNAL, not the headline SOM. With
         # many competitors an equal split pathologically understates what one
@@ -573,7 +582,8 @@ def size_hyperlocal(
                 som, "SOM_demand",
                 "OpenStreetMap Overpass + derived (fair-share fallback)",
                 f"SAM × 1/({competitors}+1) fair-share × {ramp_factor:.0%} ramp",
-                data_origin="osm"))
+                data_origin="osm",
+                calc=f"SAM × {1.0 / (competitors + 1):.12f} × {ramp_factor:.6f}"))
             notes.append("SOM is a fair-share fallback (no single-unit revenue anchor) "
                          "— likely understates a differentiated single store.")
         else:
