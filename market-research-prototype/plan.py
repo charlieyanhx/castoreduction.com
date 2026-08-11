@@ -108,16 +108,32 @@ def _validation_gate(result: dict) -> dict:
         flags.append("Place analysis incomplete")
         confidence -= 0.05
 
-    # cycle30 NEW: customer-voice source breadth — flag if <3 sources actually returned data
+    # cycle30 NEW: customer-voice source breadth — flag if too few sources returned data.
+    # cycle38 follow-up (#70): the denominator counts only sources actually QUERIED. The dev
+    # forums are deliberately skipped for non-tech ventures, and their zeros used to sit in
+    # `counts` indistinguishable from real empty results — run9 (a cafe) was flagged "Only 1
+    # customer-voice sources returned data" and docked 0.10 confidence for having no Stack
+    # Overflow presence. The expectation bar scales with how many sources were queried, so a
+    # venture is never penalised for a source the pipeline chose not to ask.
     sources_with_data = 0
+    sources_queried = 2          # reddit_signal + hn_signal are always attempted
     if (result.get("reddit_signal") or {}).get("threads_found", 0) > 0:
         sources_with_data += 1
     if (result.get("hn_signal") or {}).get("hits_found", 0) > 0:
         sources_with_data += 1
-    ms_counts = (result.get("multi_source_signal") or {}).get("counts") or {}
-    sources_with_data += sum(1 for v in ms_counts.values() if (v or 0) > 0)
-    if sources_with_data < 3:
-        flags.append(f"Only {sources_with_data} customer-voice sources returned data — opinion signals are thin")
+    _mss = result.get("multi_source_signal") or {}
+    ms_counts = _mss.get("counts") or {}
+    ms_queried = _mss.get("queried") or {k: True for k in ms_counts}   # legacy artifacts
+    for name, v in ms_counts.items():
+        if not ms_queried.get(name, True):
+            continue             # skipped by design — not evidence of thin signal
+        sources_queried += 1
+        if (v or 0) > 0:
+            sources_with_data += 1
+    _voice_bar = min(3, max(1, sources_queried - 1))
+    if sources_with_data < _voice_bar:
+        flags.append(f"Only {sources_with_data} of {sources_queried} queried customer-voice "
+                     f"sources returned data — opinion signals are thin")
         confidence -= 0.10
 
     # cycle30 NEW: TAM 3-method completion check. cycle36: ONLY applies to the national
@@ -2004,6 +2020,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     # cycle27: persist Stack Exchange + DEV.to + Lobsters
     # cycle31-r2: + vertical_pubs for non-tech verticals
     if multisrc_data:
+        _is_tech_run = bool(multisrc_data.get("_tech"))
         result["multi_source_signal"] = {
             "query": target_for_voice,
             "stackoverflow": (multisrc_data.get("stackoverflow") or [])[:8],
@@ -2015,6 +2032,19 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                 "devto": len(multisrc_data.get("devto") or []),
                 "lobsters": len(multisrc_data.get("lobsters") or []),
                 "vertical_pubs": len(multisrc_data.get("vertical_pubs") or []),
+            },
+            # Which sources were actually ASKED. _multisrc_task deliberately skips the dev
+            # forums for non-tech ventures (cycle38) and recorded that as _tech — which this
+            # allowlist then DROPPED, so a cafe's report showed "devto: 0, lobsters: 0,
+            # stackoverflow: 0" for sources never queried, and the thin-signal flag below
+            # docked its confidence for having no Stack Overflow presence. "Skipped as
+            # irrelevant" and "asked and found nothing" must never be the same value —
+            # the third instance of exactly this allowlist bug in this file.
+            "queried": {
+                "stackoverflow": _is_tech_run,
+                "devto": _is_tech_run,
+                "lobsters": _is_tech_run,
+                "vertical_pubs": True,
             },
         }
         _step_done(result, "multi_source_signal")
@@ -2397,6 +2427,10 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             business_model_kind=biz_kind,  # M4: forbid model bleed in the 4Ps narrative
             competitor_density=disc.get("competitor_density"),  # D22: anchor competitor counts
             active_signal_density=disc.get("active_signal_density"),
+            # Volume ladder: SOM/day + break-even/day computed ONCE, injected into every
+            # section — run9's 4Ps stated five incompatible daily targets (400/300/200/33
+            # vs a 13.5/day sizing ceiling) because each section invented its own.
+            market_sizing=result.get("market_sizing"),
         )
 
     # cycle33: classify market scale (numbers-right engine). Non-breaking — the

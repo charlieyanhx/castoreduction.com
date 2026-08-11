@@ -601,8 +601,38 @@ def _r_density(facts: dict) -> str:
                                          facts.get("active_signal_density"))
 
 
+@reminder("volume_ladder", requires=("economics",), order=40)
+def _r_volume_ladder(facts: dict) -> str:
+    """ONE volume ladder for every section. MEASURED on run9: the report stated FIVE
+    incompatible daily-volume targets — sizing ceiling 13.5/day, break-even 51/day, Product
+    'target 400 units daily', Place 200/day (enshrined as a critical assumption), Promotion
+    ~33/day — and the viability verdict straddled the contradiction. A buyer cannot act on a
+    report whose plan and market model live in different universes. The pipeline computes the
+    ladder once, in Python; the sections write prose around it, never their own volumes."""
+    econ = facts.get("economics") or {}
+    unit = econ.get("unit") or "unit"
+    parts = []
+    be_day = econ.get("break_even_units_per_day")
+    if isinstance(be_day, (int, float)) and not isinstance(be_day, bool) and be_day > 0:
+        parts.append(f"break-even ≈ {be_day:g} {unit}s/day")
+    ms = facts.get("market_sizing") or {}
+    som = (ms.get("som") or {}).get("mid") or ms.get("som_usd")
+    price = econ.get("price_per_unit")
+    if (isinstance(som, (int, float)) and som > 0
+            and isinstance(price, (int, float)) and price > 0):
+        parts.append(f"obtainable ceiling (SOM) ≈ {som / price / 365:,.0f} {unit}s/day")
+    if not parts:
+        return ""
+    return ("CANONICAL DAILY-VOLUME LADDER — " + " · ".join(parts) + ". HARD RULE: any "
+            "daily/monthly volume target you state MUST be consistent with this ladder "
+            "(between break-even and the obtainable ceiling, or explicitly labelled as "
+            "requiring share beyond the fair-share model). NEVER invent a volume target — "
+            "the five contradictory targets a prior report shipped made it unusable.")
+
+
 def section_reminders(business_model_kind=None, economics=None, van_westendorp=None,
-                      competitor_density=None, active_signal_density=None) -> str:
+                      competitor_density=None, active_signal_density=None,
+                      market_sizing=None) -> str:
     """The guardrail block every 4Ps section prompt carries."""
     return Reminders.assemble({
         "business_model_kind": business_model_kind,
@@ -610,6 +640,7 @@ def section_reminders(business_model_kind=None, economics=None, van_westendorp=N
         "van_westendorp": van_westendorp,
         "competitor_density": competitor_density,
         "active_signal_density": active_signal_density,
+        "market_sizing": market_sizing,
     })
 
 
@@ -729,6 +760,7 @@ def assemble_4ps_split(
     business_model_kind: str | None = None,
     competitor_density: int | None = None,
     active_signal_density: int | None = None,
+    market_sizing: dict | None = None,
 ) -> dict:
     """
     Iter 35 step 6: run the 4Ps as 4 parallel focused prompts instead of one
@@ -824,7 +856,8 @@ def assemble_4ps_split(
     # hoping none was missed — and a missed site is exactly the contradiction these
     # exist to prevent. test_reminders pins that every section carries every one.
     reminders = section_reminders(business_model_kind, economics, van_westendorp,
-                                  competitor_density, active_signal_density)
+                                  competitor_density, active_signal_density,
+                                  market_sizing=market_sizing)
     tasks = build_section_prompts({
         "product": _product_prompt(profile_blob, features_blob, competitors_blob, audience_celebrated),
         "price": _price_prompt(profile_blob, pricing_blob, benchmark_blob, economics_blob, psm_ok=psm_ok),
@@ -1028,6 +1061,12 @@ def _section_text(section) -> str:
     return str(section or "")
 
 
+# Ceiling for unit_economics_health while the cost structure is a placeholder: below the
+# 50 midpoint (it cannot read as a strength), above the floor (a placeholder is uncertainty,
+# not evidence of BAD economics).
+_PLACEHOLDER_COST_SCORE_CAP = 45
+
+
 def score_viability(
     profile: dict,
     four_ps: dict,
@@ -1139,6 +1178,28 @@ def score_viability(
     )
     if "_parse_error" in result:
         return {"error": "Viability scoring returned malformed JSON", "_raw": result.get("_raw", "")[:500]}
+
+    # A PLACEHOLDER COST STRUCTURE CANNOT SCORE "STRONG". MEASURED on run9: the verdict's #1
+    # strength was unit_economics_health 82/100 — the largest slice of the 54/100 composite —
+    # resting entirely on an admitted "$5,000/mo generic placeholder" for TOTAL fixed costs,
+    # in a city where rent alone commonly exceeds it (realistic SF costs put break-even at
+    # 200-350 drinks/day, not 51). The fine print disclosed the placeholder; the headline,
+    # the strengths list and a fifth of the composite promoted it to established fact.
+    # Disclosure in a footnote does not license the headline. Deterministic clamp, applied to
+    # the LLM's sub-score before composition, with the reason written into the dimension's
+    # own reasoning so the report says WHY the score is capped.
+    _cost_src = str((economics or {}).get("cost_source") or "").lower()
+    if "placeholder" in _cost_src or "unsourced" in _cost_src:
+        _ue = (result.get("scores") or {}).get("unit_economics_health")
+        if (isinstance(_ue, dict) and isinstance(_ue.get("score"), (int, float))
+                and not isinstance(_ue.get("score"), bool)
+                and _ue["score"] > _PLACEHOLDER_COST_SCORE_CAP):
+            _ue["reasoning"] = (
+                f"capped at {_PLACEHOLDER_COST_SCORE_CAP}: the cost structure is "
+                f"'{(economics or {}).get('cost_source')}' — unit economics cannot be a "
+                f"strength until real costs replace it. LLM had scored "
+                f"{_ue['score']:.0f}: " + str(_ue.get("reasoning") or ""))
+            _ue["score"] = _PLACEHOLDER_COST_SCORE_CAP
 
     # Iter 40: compose final viability_score deterministically from per-dimension scores.
     # The LLM gives 5 anchored sub-scores; we weight + sum. Same input → same output.
