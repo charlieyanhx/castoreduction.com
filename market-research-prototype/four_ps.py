@@ -597,8 +597,27 @@ def _r_price(facts: dict) -> str:
 
 @reminder("competitive_density", requires=("competitor_density",), order=30)
 def _r_density(facts: dict) -> str:
-    return competitive_density_directive(facts.get("competitor_density"),
+    base = competitive_density_directive(facts.get("competitor_density"),
                                          facts.get("active_signal_density"))
+    # BOTH competitor counts, or the prose lies by omission. MEASURED on run12: the prompts
+    # carried only the 30-venue profiled roster, so the narrative asserted "30 competitors"
+    # THIRTEEN times — including a "Competitor Density Census" citation that is false by the
+    # pipeline's own census — while the SOM quietly divided by the real catchment count
+    # (102, OSM). The sizing note reconciling the two was one sentence against thirteen.
+    # The model can only write the honest pair if every section is handed the honest pair.
+    ms = facts.get("market_sizing") or {}
+    catchment_n = ms.get("competitors")
+    roster_n = facts.get("competitor_density")
+    if (isinstance(catchment_n, (int, float)) and not isinstance(catchment_n, bool)
+            and roster_n and catchment_n > roster_n):
+        base += (f"\nCOMPETITOR COUNTS — HARD RULE: there are {catchment_n:,.0f} venues of "
+                 f"this type in the trade area (OpenStreetMap census; the market-share math "
+                 f"divides by this full count). The {roster_n:,.0f} profiled in this report "
+                 f"are the strongest subset. NEVER present {roster_n:,.0f} as the total "
+                 f"competition — say '{catchment_n:,.0f} venues in the trade area' for "
+                 f"density/saturation claims, and '{roster_n:,.0f} profiled competitors' "
+                 f"only for the named roster.")
+    return base
 
 
 @reminder("volume_ladder", requires=("economics",), order=40)
