@@ -885,8 +885,14 @@ def assemble_4ps_split(
     }, reminders)
 
     results: dict = {}
+    # copy_context() so the ledger's current-step ContextVar survives into the pool threads.
+    # MEASURED on run13: all 4Ps LLM events traced as step=None, which is why the cache-hit
+    # forensics took byte-identity comparison instead of one trace query.
+    import contextvars
+    _ctx = contextvars.copy_context()
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futs = {name: pool.submit(_run_section, name, prompt) for name, prompt in tasks.items()}
+        futs = {name: pool.submit(_ctx.copy().run, _run_section, name, prompt)
+                for name, prompt in tasks.items()}
         for name, fut in futs.items():
             try:
                 results[name] = fut.result(timeout=90)
@@ -925,6 +931,23 @@ def assemble_4ps_split(
         "promotion": results.get("promotion", {}),
         "citations": all_citations,
         "_mode": "split",  # for debugging / auditing
+        # WHAT THE PROMPTS ACTUALLY CARRIED, in the artifact. run13's paired-count rule
+        # silently never reached the prompts, and proving that took byte-identity forensics
+        # against run12 because nothing recorded the assembled reminder block. A prompt-side
+        # fix is invisible under LLM-cache replay unless the artifact states what fired.
+        "_reminders_fired": {
+            "volume_ladder": "CANONICAL DAILY-VOLUME LADDER" in reminders,
+            "competitor_counts_pair": "COMPETITOR COUNTS — HARD RULE" in reminders,
+            "competitive_density": "competitor" in reminders.lower(),
+            "monetization_model": "MONETIZATION MODEL" in reminders,
+        },
+        "_reminder_facts": {
+            "competitor_density": competitor_density,
+            "active_signal_density": active_signal_density,
+            "ms_competitors": (market_sizing or {}).get("competitors"),
+            "ms_som_mid": ((market_sizing or {}).get("som") or {}).get("mid")
+                          or (market_sizing or {}).get("som_usd"),
+        },
     }
     plan["citation_audit"] = _audit_citations(plan)
     return plan
