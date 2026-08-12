@@ -139,10 +139,12 @@ class TestHyperlocalRestaurantInLA(unittest.TestCase):
         # Every figure carries a source.
         for fig in p["figures"]:
             self.assertTrue(str(fig["source"]).strip(), f"no source on {fig['label']}")
-        # cycle36: SOM is capacity-anchored — single-unit revenue (the seats model)
-        # ramped, then capped by SAM. NOT the bare fair-share, which now only informs
-        # the saturation note.
-        self.assertEqual(p["som_usd"], min(p["som_supply_usd"] * 0.6, p["sam_usd"]))
+        # cycle36 (UPDATED for the single-ramp fix): SOM is capacity-anchored — the
+        # single-unit STEADY-STATE revenue capped by SAM. The x0.6 ramp that used to
+        # live here was ALSO applied by the scenarios table (y1=60% of this ceiling),
+        # compounding to 36% and putting Year 1 below the SOM band's own floor. The
+        # scenarios now own all ramping; this figure is the ceiling they climb toward.
+        self.assertEqual(p["som_usd"], min(p["som_supply_usd"], p["sam_usd"]))
         self.assertTrue(p["validation"]["passed"])
         self.assertEqual(p["confidence"], "high")
 

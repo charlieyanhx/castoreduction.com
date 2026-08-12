@@ -1120,7 +1120,11 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
     return {
         "tam": _block(p.get("tam_usd"), "Total trade-area market", ["TAM_local"]),
         "sam": _block(p.get("sam_usd"), "Serviceable (reachable demand)", ["SAM_local"]),
-        "som": _block(p.get("som_usd"), "Obtainable Year 1–3 (one location)",
+        # "steady state", not "Year 1-3": the SOM is now the UNRAMPED ceiling the scenario
+        # table climbs toward (the ramp was being applied twice — measured on run12, base
+        # Year 1 landed at 36% of fair share and below this band's own floor while the label
+        # claimed the band covered years 1-3).
+        "som": _block(p.get("som_usd"), "Obtainable at steady state (one location)",
                       ["SOM_obtainable", "SOM_demand"]),
         "method": p.get("method"), "figures": p.get("figures"),
         "households": p.get("households"),

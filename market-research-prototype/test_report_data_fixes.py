@@ -85,9 +85,12 @@ class TestSomCapacityAnchor(unittest.TestCase):
              patch("skills.sizing.hyperlocal._estimate_unit_revenue", return_value=450000.0):
             e = size_hyperlocal(address="cafe in Silver Lake", category="coffee", osm_value="cafe")
         p = e.payload
-        # TAM 50k×600=$30M, SAM 35%=$10.5M, SOM = min(450k×0.6, 10.5M) = $270k.
-        self.assertEqual(p["som_usd"], 450000.0 * 0.6)
-        # NOT the fair-share ÷61 (~$103k here, and ~$5k in the live case) — capacity wins.
+        # UPDATED for the single-ramp fix: SOM is the STEADY-STATE single-unit ceiling
+        # capped by SAM — min(450k, 10.5M) = $450k. The x0.6 that used to live here was
+        # also applied by the scenario table (y1=60% of this ceiling), compounding to 36%
+        # and putting Year 1 below the SOM band's own floor. Scenarios own all ramping now.
+        self.assertEqual(p["som_usd"], 450000.0)
+        # NOT the fair-share ÷61 (~$172k here at steady state) — capacity wins.
         self.assertGreater(p["som_usd"], p["som_demand_usd"])
         som_fig = next(f for f in p["figures"] if f["label"] == "SOM_obtainable")
         self.assertIn("single-unit", som_fig["formula"])
