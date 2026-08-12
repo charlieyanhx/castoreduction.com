@@ -596,7 +596,13 @@ def size_hyperlocal(
         # neighborhood coffee spend), so it must not drive the headline number.
         fair_share_usd = None
         if competitors is not None:
-            fair_share_usd = sam * (1.0 / (competitors + 1)) * ramp_factor
+            # STEADY-STATE fair share — no ramp here. The ramp was applied TWICE: once in
+            # this figure (x0.6) and again by the scenarios table (y1=60%, y2=85%, y3=100%
+            # of this pre-shrunk ceiling), so base Year 1 landed at 36% of the model's own
+            # fair share and BELOW the floor of the band the report labelled "Obtainable
+            # Year 1-3" (measured on run12: Y1 $247.5K vs band floor $288.8K). One owner
+            # for the ramp: the scenarios table ramps toward this steady-state figure.
+            fair_share_usd = sam * (1.0 / (competitors + 1))
             som_demand = fair_share_usd  # retained for triangulation/back-compat
 
         # Capacity-side SOM — what ONE premise can realistically earn, ramped, then
@@ -616,12 +622,13 @@ def size_hyperlocal(
 
         if unit_rev:
             som_supply = unit_rev  # mature single-unit ceiling
-            som = min(unit_rev * ramp_factor, sam)
+            som = min(unit_rev, sam)   # steady state — the scenarios own the ramp
             figures.append(_fig(
                 som, "SOM_obtainable", unit_src,
-                f"min(${unit_rev:,.0f} single-unit rev × {ramp_factor:.0%} ramp, "
+                f"min(${unit_rev:,.0f} single-unit revenue at steady state, "
                 f"${sam:,.0f} SAM)",
-                data_origin="derived"))
+                data_origin="derived",
+                calc=f"{min(unit_rev, sam):.6f}"))
             # Surface saturation honestly when fair share sits far below the SOM.
             # R4 rank 18: the note claimed "capacity-based" even when the SOM rests on
             # an UNSOURCED single-unit revenue estimate (no seat data) — 4/6 hyperlocal
@@ -642,10 +649,10 @@ def size_hyperlocal(
             _lower("low")
             figures.append(_fig(
                 som, "SOM_demand",
-                "OpenStreetMap Overpass + derived (fair-share fallback)",
-                f"SAM × 1/({competitors}+1) fair-share × {ramp_factor:.0%} ramp",
+                "OpenStreetMap Overpass + derived (fair-share fallback, steady state)",
+                f"SAM × 1/({competitors}+1) fair-share at steady state",
                 data_origin="osm",
-                calc=f"SAM × {1.0 / (competitors + 1):.12f} × {ramp_factor:.6f}"))
+                calc=f"SAM × {1.0 / (competitors + 1):.12f}"))
             notes.append("SOM is a fair-share fallback (no single-unit revenue anchor) "
                          "— likely understates a differentiated single store.")
         else:
