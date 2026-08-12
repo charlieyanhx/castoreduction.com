@@ -2440,8 +2440,15 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             economics=result.get("economics"),
             reddit_signal=reddit_data,
             business_model_kind=biz_kind,  # M4: forbid model bleed in the 4Ps narrative
-            competitor_density=disc.get("competitor_density"),  # D22: anchor competitor counts
-            active_signal_density=disc.get("active_signal_density"),
+            # RE-READ result["discover"] AT CALL TIME. `disc` is a local bound at the
+            # discover step; the geo-roster promotion that sets competitor_density=30 and
+            # geo_sourced runs later, and whether the local sees it depends on
+            # mutation-vs-replacement semantics three functions away. run13's paired-count
+            # rule never reached the prompts while the FINAL artifact carried the right
+            # values — a call site must never depend on a stale binding when the source of
+            # truth is one dict lookup away.
+            competitor_density=(result.get("discover") or {}).get("competitor_density"),
+            active_signal_density=(result.get("discover") or {}).get("active_signal_density"),
             # Volume ladder: SOM/day + break-even/day computed ONCE, injected into every
             # section — run9's 4Ps stated five incompatible daily targets (400/300/200/33
             # vs a 13.5/day sizing ceiling) because each section invented its own.
