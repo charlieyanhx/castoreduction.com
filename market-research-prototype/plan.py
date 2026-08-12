@@ -2476,16 +2476,19 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         except Exception as e:
             log.warning("[plan] scale classification failed (non-fatal): %s", e)
 
-    # W5 close-out: same cosmetic-timeout fix as the PSM/place join above. This is
-    # the pipeline's most expensive pair (sizing 90s, 4Ps synthesis 120s), so a hung
-    # call here was the difference between a report in minutes and one in tens of them.
-    _joined2 = run_labeled({"sizing": (_sizing_task, 90),
-                            "four_ps": (_four_ps_task, 120)})
-    sizing = _joined2["sizing"]
-    four_ps = _joined2["four_ps"]
-    for _k, _label in (("sizing", "market sizing"), ("four_ps", "4Ps synthesis")):
-        if isinstance(_joined2[_k], dict) and _joined2[_k].get("error"):
-            log.warning("[plan] %s failed: %s", _label, _joined2[_k]["error"][:160])
+    # SIZING BEFORE 4PS — SEQUENCED ON PURPOSE, at a measured wall-clock cost. These two
+    # used to run in parallel as "the pipeline's most expensive pair", and the overlap made
+    # the narrative run AHEAD of the numbers it narrates: _four_ps_task reads
+    # result["market_sizing"] at execution time, which was EMPTY mid-join, and the
+    # hyperlocal override (the sizing that carries competitors + som) landed after the join
+    # entirely. run14's _reminder_facts proved it: ms_competitors=null, ms_som_mid=null —
+    # the volume ladder's SOM rung and the paired-competitor-count rule never once reached
+    # a prompt. Sequencing costs the sizing's runtime (~30-90s, mostly cache-warm Census
+    # calls) and buys every downstream narrative claim its inputs; it also hands the 4Ps
+    # the geo roster and promoted density, which is what D22 wanted from the start.
+    sizing = run_labeled({"sizing": (_sizing_task, 90)})["sizing"]
+    if isinstance(sizing, dict) and sizing.get("error"):
+        log.warning("[plan] market sizing failed: %s", sizing["error"][:160])
 
     if sizing and not sizing.get("error"):
         # C2: ground the bottom-up TAM in a live Census count BEFORE the gate, so
@@ -2527,6 +2530,12 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         log.warning("[plan] hyperlocal override failed (non-fatal): %s", e)
         _step_done(result, "market_sizing")
         checkpoint()
+
+    # 4Ps runs AFTER the sizing (including the hyperlocal override above) is in `result`,
+    # so the section prompts carry the real SOM ladder and both competitor counts.
+    four_ps = run_labeled({"four_ps": (_four_ps_task, 120)})["four_ps"]
+    if isinstance(four_ps, dict) and four_ps.get("error"):
+        log.warning("[plan] 4Ps synthesis failed: %s", four_ps["error"][:160])
 
     # Honesty gate: never credit a PSM simulation that didn't actually run (audit cycle36).
     four_ps = scrub_failed_psm_citations(four_ps, result.get("pricing"))
