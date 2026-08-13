@@ -152,5 +152,69 @@ class TestClusteringStep(unittest.TestCase):
         self.assertNotIn("axis_labels", result["clustering"])
 
 
+class TestCustomerUniverseStep(unittest.TestCase):
+    def _opps(self, n=7):
+        return [{"brand": f"B{i}", "domain": f"b{i}.com"} for i in range(n)]
+
+    def test_b2b_universe_lands_and_marks_done_when_populated(self):
+        from orchestrator.steps.customer_universe import run_customer_universe_step
+
+        result = {"_steps_completed": []}
+        cp, calls = _checkpoint_counter()
+        opps = self._opps()
+        with patch("customer_universe.build_customer_universe",
+                   return_value={"count": 12, "segments": ["mid-market"]}) as m:
+            run_customer_universe_step(result, {"business_model": "B2B services"}, opps,
+                                       checkpoint=cp)
+        m.assert_called_once_with(profile={"business_model": "B2B services"},
+                                  competitors=opps[:5], target_count=30)
+        self.assertEqual(result["customer_universe"]["count"], 12)
+        self.assertIn("customer_universe", result["_steps_completed"])
+        self.assertEqual(calls["n"], 1)
+
+    def test_saas_without_the_word_b2b_also_qualifies(self):
+        from orchestrator.steps.customer_universe import run_customer_universe_step
+
+        result = {"_steps_completed": []}
+        with patch("customer_universe.build_customer_universe",
+                   return_value={"count": 3}):
+            run_customer_universe_step(result, {"business_model": "SaaS platform"},
+                                       self._opps())
+        self.assertIn("customer_universe", result)
+
+    def test_an_empty_universe_still_lands_but_is_not_marked_done(self):
+        """The inline semantics: count==0 keeps the honest empty payload in the result
+        (a finding), while leaving the step unrecorded so resume recomputes it."""
+        from orchestrator.steps.customer_universe import run_customer_universe_step
+
+        result = {"_steps_completed": []}
+        with patch("customer_universe.build_customer_universe",
+                   return_value={"count": 0, "companies": []}):
+            run_customer_universe_step(result, {"business_model": "b2b saas"},
+                                       self._opps())
+        self.assertIn("customer_universe", result)
+        self.assertNotIn("customer_universe", result["_steps_completed"])
+
+    def test_dtc_skips_entirely(self):
+        from orchestrator.steps.customer_universe import run_customer_universe_step
+
+        result = {"_steps_completed": []}
+        with patch("customer_universe.build_customer_universe") as m:
+            run_customer_universe_step(result, {"business_model": "DTC subscription"},
+                                       self._opps())
+        m.assert_not_called()
+        self.assertNotIn("customer_universe", result)
+
+    def test_failure_is_non_fatal_and_writes_nothing(self):
+        from orchestrator.steps.customer_universe import run_customer_universe_step
+
+        result = {"_steps_completed": []}
+        with patch("customer_universe.build_customer_universe",
+                   side_effect=RuntimeError("provider down")):
+            run_customer_universe_step(result, {"business_model": "b2b"}, self._opps())
+        self.assertNotIn("customer_universe", result)
+        self.assertNotIn("customer_universe", result["_steps_completed"])
+
+
 if __name__ == "__main__":
     unittest.main()

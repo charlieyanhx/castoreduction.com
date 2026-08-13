@@ -49,6 +49,7 @@ from orchestrator.steps import (record_dropped_output, skip_step as _skip_step,
                                 step_done as _step_done)
 from orchestrator.steps.clustering import run_clustering_step
 from orchestrator.steps.competitors import run_discover_step
+from orchestrator.steps.customer_universe import run_customer_universe_step
 from orchestrator.steps.firmographics import run_firmographics_step
 from orchestrator.steps.profile import run_profile_step
 
@@ -1779,25 +1780,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     # --- Step 3c: Clustering + whitespace --- (→ orchestrator/steps/clustering.py)
     run_clustering_step(result, profile, opps, checkpoint=checkpoint)
 
-    # --- Step 5: Customer universe (real B2B companies, iter 36) ---
-    # Run in parallel with the taste decode below — independent I/O.
-    # Only for B2B mode (DTC plans don't need a company universe).
-    biz_model = (profile.get("business_model") or "").lower()
-    if "b2b" in biz_model or "saas" in biz_model:
-        try:
-            from customer_universe import build_customer_universe
-            log.info("[plan] Step 5: building B2B customer universe")
-            universe = build_customer_universe(
-                profile=profile,
-                competitors=opps[:5],
-                target_count=30,
-            )
-            result["customer_universe"] = universe
-            if universe.get("count", 0) > 0:
-                _step_done(result, "customer_universe")
-            checkpoint()
-        except Exception as e:
-            log.warning(f"[plan] customer universe failed (non-fatal): {e}")
+    # --- Step 5: Customer universe (B2B only) --- (→ orchestrator/steps/customer_universe.py)
+    run_customer_universe_step(result, profile, opps, checkpoint=checkpoint)
 
     # --- PARALLEL PHASE: Steps that can run concurrently after discover ---
     # Decode taste for TOP-3 brands (not just top-1) to enable persona synthesis.
