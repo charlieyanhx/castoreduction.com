@@ -1032,6 +1032,14 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
                       ["SOM_obtainable", "SOM_demand"]),
         "method": p.get("method"), "figures": p.get("figures"),
         "households": p.get("households"),
+        # The SOM's PROVENANCE, for the same reason as the scale and spend keys below:
+        # size_hyperlocal computes two independent SOM estimates and how the headline was
+        # anchored, and this allowlist dropped all three — measured None on run14/run15,
+        # so the report showed a single confident number (which moved 67% between those
+        # two runs) with no way to inspect it. Third time this mapping ate produced output.
+        "som_anchor": p.get("som_anchor"),
+        "som_demand_usd": p.get("som_demand_usd"),
+        "som_supply_usd": p.get("som_supply_usd"),
         # Carry the TRADE-AREA SCALE through to the stored report. size_hyperlocal publishes
         # these; this mapping dropped them, so D49 — the gate guarding the measured 372x
         # county-as-trade-area error — was N/A on all 16 stored reports while its synthetic

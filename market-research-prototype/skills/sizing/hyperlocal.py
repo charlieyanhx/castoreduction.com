@@ -100,6 +100,50 @@ def _estimate_unit_revenue(category: str, location: str) -> Optional[float]:
         return None
 
 
+def som_anchor_block(*, som, unit_revenue, fair_share, sourced: bool) -> dict:
+    """State HOW the headline SOM was anchored, and what the other method said.
+
+    MEASURED on the stored runs — same venture, same trade area, same competitor census:
+    run14 SOM $390,000, run15 SOM $650,000. A 67% swing in the most decision-relevant
+    number in the report, driven entirely by _estimate_unit_revenue, an explicitly
+    UNSOURCED LLM estimate. This function computes a second, independent estimate beside
+    it (fair share of SAM across the census) and the mapping downstream dropped BOTH, so
+    the report showed one confident number and no way to inspect it.
+
+    This does not ground the anchor — that needs operator seat/turn inputs (the supply_*
+    parameters exist and are never passed) or published per-store revenue benchmarks. It
+    makes the ungroundedness visible and the disagreement available, which is the
+    difference between a number a reader can discount and one they cannot.
+    """
+    def _n(v):
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else None
+
+    som, unit_revenue, fair_share = _n(som), _n(unit_revenue), _n(fair_share)
+    if som is None:
+        return {}
+    if unit_revenue is not None:
+        method = "capacity_model" if sourced else "single_unit_revenue_estimate"
+        note = ("seats x turns x check x days, from operator-supplied capacity"
+                if sourced else
+                "single-unit annual revenue, UNSOURCED model estimate — it moved 67% "
+                "between two runs of the same venture; treat the headline SOM as an "
+                "order of magnitude, not a forecast")
+        alt, alt_method = fair_share, ("fair_share_of_sam" if fair_share else None)
+    else:
+        method, alt, alt_method = "fair_share_of_sam", None, None
+        note = ("equal split of serviceable demand across the competitor census — no "
+                "capacity anchor available; likely understates a differentiated store")
+    block = {"method": method, "sourced": bool(sourced and unit_revenue is not None),
+             "som_usd": som, "note": note,
+             "alternative_usd": alt, "alternative_method": alt_method}
+    if alt:
+        # The spread IS the finding: two defensible methods disagreeing by 5x is the
+        # honest uncertainty, and it is wider than the +/-30% modelling band the report
+        # draws around the point.
+        block["spread_x"] = round(max(som, alt) / min(som, alt), 1)
+    return block
+
+
 def resolve_annual_spend(category: str) -> tuple[Optional[float], bool]:
     """Annual household spend ($/yr) for a category.
 
@@ -665,6 +709,10 @@ def size_hyperlocal(
     sizing = {
         "tam_usd": tam, "sam_usd": sam, "som_usd": som,
         "som_demand_usd": som_demand, "som_supply_usd": som_supply,
+        # HOW the headline SOM was anchored, and what the other method said (#83).
+        "som_anchor": som_anchor_block(som=som, unit_revenue=som_supply,
+                                       fair_share=som_demand,
+                                       sourced=bool(supply_seats)),
         "trade_area_spend_usd": tam,  # catchment ceiling
         "figures": figures,
         "households": households, "competitors": competitors,
