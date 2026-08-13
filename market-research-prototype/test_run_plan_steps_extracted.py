@@ -346,5 +346,134 @@ class TestEvidencePhaseStep(unittest.TestCase):
         self.assertNotIn("competitor_pricing", result)
 
 
+class TestPersonasStep(unittest.TestCase):
+    def test_personas_synthesize_from_taste_profiles(self):
+        from orchestrator.steps.personas import run_personas_step
+
+        result = {"_steps_completed": []}
+        tastes = [{"brand": "B0"}, {"brand": "B1"}]
+        cp, calls = _checkpoint_counter()
+        with patch("personas.synthesize_personas",
+                   return_value={"personas": [{"name": "The Regular"}]}) as m:
+            run_personas_step(result, {"summary": "espresso bar"}, tastes, checkpoint=cp)
+        self.assertEqual(m.call_args.kwargs["taste_profiles"], tastes)
+        self.assertEqual(m.call_args.kwargs["product_summary"], "espresso bar")
+        self.assertIn("personas", result)
+        self.assertIn("personas", result["_steps_completed"])
+        self.assertEqual(calls["n"], 1)
+
+    def test_no_taste_profiles_means_no_synthesis(self):
+        from orchestrator.steps.personas import run_personas_step
+
+        result = {"_steps_completed": []}
+        with patch("personas.synthesize_personas") as m:
+            run_personas_step(result, {}, [])
+        m.assert_not_called()
+        self.assertNotIn("personas", result)
+
+    def test_a_failed_synthesis_is_not_persisted(self):
+        from orchestrator.steps.personas import run_personas_step
+
+        result = {"_steps_completed": []}
+        with patch("personas.synthesize_personas", side_effect=RuntimeError("LLM down")):
+            run_personas_step(result, {}, [{"brand": "B0"}])
+        self.assertNotIn("personas", result)
+        self.assertNotIn("personas", result["_steps_completed"])
+
+
+class TestDifferentiatorsStep(unittest.TestCase):
+    def _evidence_inputs(self):
+        pricing = {"per_domain": [{"domain": "a.com", "median": 5.5, "count": 3},
+                                  {"domain": "b.com", "median": None, "count": 0}]}
+        reddit = {"themes": ["speed", "price", "vibe", "wifi", "seats", "milk", "extra"]}
+        channels = {"channels": [{"channel": "seo"}, {"channel": "social"}, "junk"]}
+        return pricing, reddit, channels
+
+    def test_the_evidence_dict_is_built_from_what_the_phase_produced(self):
+        """R4 rank 6's whole point: differentiators run AFTER evidence and receive it.
+        The evidence shape is the contract the prompt depends on."""
+        from orchestrator.steps.differentiators import run_differentiators_step
+
+        pricing, reddit, channels = self._evidence_inputs()
+        result = {"_steps_completed": [], "clustering": {"n_input": 5}}
+        opps = [{"brand": "A", "domain": "a.com"}]
+        with patch("differentiators.extract_differentiators",
+                   return_value={"differentiators": [{"claim": "x"}]}) as m:
+            run_differentiators_step(result, {"core_features": ["f1"]}, opps,
+                                     competitor_pricing_data=pricing,
+                                     reddit_data=reddit, channel_data=channels)
+        ev = m.call_args.kwargs["evidence"]
+        self.assertEqual(ev["competitor_pricing"],
+                         {"a.com": {"price": 5.5, "unit": "unit", "n": 3}})
+        self.assertEqual(len(ev["review_themes"]), 6)  # capped at 6
+        self.assertEqual(ev["channels"], ["seo", "social"])  # dicts only
+        self.assertEqual(m.call_args.kwargs["clustering"], {"n_input": 5})
+        self.assertIn("differentiators", result["_steps_completed"])
+
+    def test_an_error_payload_is_not_persisted(self):
+        from orchestrator.steps.differentiators import run_differentiators_step
+
+        result = {"_steps_completed": []}
+        with patch("differentiators.extract_differentiators",
+                   return_value={"error": "no features"}):
+            run_differentiators_step(result, {}, [], competitor_pricing_data={},
+                                     reddit_data={}, channel_data={})
+        self.assertNotIn("differentiators", result)
+
+    def test_a_crash_is_non_fatal(self):
+        from orchestrator.steps.differentiators import run_differentiators_step
+
+        result = {"_steps_completed": []}
+        with patch("differentiators.extract_differentiators",
+                   side_effect=RuntimeError("boom")):
+            run_differentiators_step(result, {}, [], competitor_pricing_data={},
+                                     reddit_data={}, channel_data={})
+        self.assertNotIn("differentiators", result)
+
+
+class TestMaxDiffStep(unittest.TestCase):
+    def test_ranks_only_extracted_features_never_taglines(self):
+        """cycle22: features come from the PROFILE step only — competitor taglines
+        crashed through max-diff as garbage entries."""
+        from orchestrator.steps.max_diff import run_max_diff_step
+
+        result = {"_steps_completed": []}
+        profile = {"core_features": ["grinder", "oat milk", "wifi", "grinder"],
+                   "category": "cafe"}
+        with patch("pricing.simulate_max_diff",
+                   return_value={"ranked_features": [{"feature": "wifi"}]}) as m:
+            out = run_max_diff_step(result, profile,
+                                    segment_summary="morning ritual Audience: commuters")
+        feats = m.call_args.kwargs["features"]
+        self.assertEqual(feats, ["grinder", "oat milk", "wifi"])  # deduped, ordered
+        self.assertIn("morning ritual", m.call_args.kwargs["segment_summary"])
+        self.assertEqual(result["max_diff"], out)
+        self.assertIn("max_diff", result["_steps_completed"])
+
+    def test_fewer_than_three_features_skips_the_simulation(self):
+        from orchestrator.steps.max_diff import run_max_diff_step
+
+        result = {"_steps_completed": []}
+        with patch("pricing.simulate_max_diff") as m:
+            out = run_max_diff_step(result, {"core_features": ["a", "b"],
+                                             "category": "cafe"}, segment_summary="")
+        m.assert_not_called()
+        self.assertEqual(out, {})
+        self.assertNotIn("max_diff", result)
+
+    def test_an_error_result_is_persisted_but_not_marked_done(self):
+        """The inline semantics: result['max_diff'] carries the error payload (the
+        report can say why), but the step stays unrecorded."""
+        from orchestrator.steps.max_diff import run_max_diff_step
+
+        result = {"_steps_completed": []}
+        profile = {"core_features": ["a", "b", "c"], "category": "cafe"}
+        with patch("pricing.simulate_max_diff", side_effect=RuntimeError("timeout")):
+            out = run_max_diff_step(result, profile, segment_summary="s")
+        self.assertIn("error", result["max_diff"])
+        self.assertNotIn("max_diff", result["_steps_completed"])
+        self.assertEqual(out, result["max_diff"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -99,3 +99,28 @@ def record_dropped_output(result: dict, key: str, reason: str) -> None:
         return
     drops = result.setdefault("_dropped_outputs", {})
     drops[str(key)] = str(reason)[:400]
+
+
+def run_with_timeout(fn, *args, timeout_s: int = 180, label: str = "", **kwargs):
+    """Run a step with a hard timeout. Returns {} on timeout or error, logs warning.
+
+    Moved from plan.py with the personas extraction — steps need it, and steps cannot
+    import plan. plan.py re-imports it under the old _run_with_timeout name.
+    """
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+
+    from logger import get
+    log = get("plan")
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(fn, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout_s)
+        except FutureTimeoutError:
+            log.warning(f"[plan] {label} exceeded {timeout_s}s timeout — returning partial")
+            return {"error": f"timed out after {timeout_s}s"}
+        except Exception as e:
+            # Log full traceback so future debugging isn't blind
+            import traceback
+            log.warning(f"[plan] {label} failed: {type(e).__name__}: {e}")
+            log.debug(traceback.format_exc())
+            return {"error": f"{type(e).__name__}: {e}"}
