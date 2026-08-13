@@ -115,9 +115,13 @@ class TestPriceIntelEvidenceIsPublished(unittest.TestCase):
         self.assertIsInstance(out, dict)
 
     def test_the_real_caller_passes_result_through(self):
-        """The plumbing: an optional parameter nothing supplies is the same as no fix."""
+        """The plumbing: an optional parameter nothing supplies is the same as no fix.
+
+        Anchor moved from run_plan to run_sizing_stage — the sizing orchestration was
+        extracted there (wave 10) so scale_decision/sizing/hl stop being run_plan locals
+        that later blocks can read stale. The invariant is untouched."""
         import inspect
-        src = inspect.getsource(plan.run_plan)
+        src = inspect.getsource(plan.run_sizing_stage)
         i = src.find("ground_sizing_bottom_up(")
         self.assertGreater(i, -1)
         self.assertIn("result=result", src[i:i + 300],

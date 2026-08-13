@@ -644,5 +644,277 @@ class TestNonPricedEconomicsFallback(unittest.TestCase):
         self.assertNotIn("economics", result)
 
 
+class TestSizingStage(unittest.TestCase):
+    """Wave 10 is a plan-LOCAL stage, not an orchestrator/steps module: four of its five
+    helpers live in plan.py and moving them drags 513 lines plus 7 transitive deps
+    (task #87). The bug class the extraction targets — sibling blocks sharing run_plan's
+    locals — is fixed either way, because scale_decision/sizing/hl stop being run_plan
+    locals and become the stage's parameters and returns."""
+
+    def _stage(self, result=None, *, hl=None, hl_raises=False, sizing=None,
+               scale=None, in_result_scale=None):
+        import plan
+
+        result = result if result is not None else {"_steps_completed": []}
+        if in_result_scale is not None:
+            result["market_scale"] = in_result_scale
+        calls = []
+
+        def _gate(s, sd):
+            calls.append("gate")
+            return dict(s or {}, _gated=calls.count("gate"))
+
+        with patch.object(plan, "estimate_market_size",
+                          return_value=sizing if sizing is not None
+                          else {"tam": {"value_usd": 1e6}}), \
+             patch.object(plan, "ground_sizing_bottom_up",
+                          side_effect=lambda s, *a, **k: (calls.append("ground"), s)[1]), \
+             patch.object(plan, "triangulate_sizing",
+                          side_effect=lambda s: (calls.append("tri"), s)[1]), \
+             patch.object(plan, "gate_and_annotate_sizing", side_effect=_gate), \
+             patch.object(plan, "size_by_scale",
+                          side_effect=RuntimeError("geo down") if hl_raises
+                          else (lambda *a, **k: hl)), \
+             patch.object(plan, "_surface_late_geo_competitors") as surf, \
+             patch("skills.sizing.classify.classify_market_scale",
+                   return_value=type("E", (), {"payload": scale or {"scale": "national"}})()):
+            plan.run_sizing_stage(
+                result, {"category": "cafe"}, description="a cafe in SF", geo="US",
+                opps=[{"brand": "A"}], top_audience={}, competitor_pricing_data={},
+                psm_result={"optimal_price_point": 5.5}, biz_kind="transactional")
+        return result, calls, surf
+
+    def test_the_pipeline_runs_ground_then_triangulate_then_gate(self):
+        result, calls, _ = self._stage()
+        self.assertEqual(calls, ["ground", "tri", "gate"])
+        self.assertEqual(result["market_sizing"]["_gated"], 1)
+
+    def test_the_scale_is_classified_when_absent(self):
+        result, _, _ = self._stage(scale={"scale": "hyperlocal"})
+        self.assertEqual(result["market_scale"]["scale"], "hyperlocal")
+        self.assertIn("market_scale", result["_steps_completed"])
+
+    def test_an_already_classified_scale_is_reused_not_double_recorded(self):
+        """cycle37: computing it twice would double-append to _steps_completed, and D01
+        counts that list's length."""
+        result, _, _ = self._stage(in_result_scale={"scale": "regional"})
+        self.assertEqual(result["market_scale"]["scale"], "regional")
+        self.assertEqual(result["_steps_completed"].count("market_scale"), 0)
+
+    def test_the_hyperlocal_override_replaces_and_RE_GATES(self):
+        """The measured bug: assigning `hl` discarded the gate's scale_skill_ran and
+        grounded/not-grounded stamps. The gate is idempotent, so it must run again on
+        the new payload — twice total on an override run."""
+        result, calls, _ = self._stage(hl={"som": {"mid": 5e5},
+                                           "_hyperlocal_location": "Mission, SF"})
+        self.assertEqual(calls.count("gate"), 2)
+        self.assertEqual(result["market_sizing"]["_hyperlocal_location"], "Mission, SF")
+        self.assertEqual(result["market_sizing"]["_gated"], 2)
+        self.assertIn("market_sizing", result["_steps_completed"])
+
+    def test_a_digital_venture_keeps_the_digital_sizing(self):
+        result, calls, surf = self._stage(hl=None)
+        self.assertEqual(calls.count("gate"), 1)
+        self.assertEqual(result["market_sizing"]["tam"]["value_usd"], 1e6)
+        surf.assert_not_called()
+
+    def test_the_override_surfaces_late_geo_competitors(self):
+        _, _, surf = self._stage(hl={"geo_competitors": [{"brand": "Ritual"}],
+                                     "_hyperlocal_location": "Mission"})
+        surf.assert_called_once()
+
+    def test_a_failing_override_is_non_fatal_and_keeps_the_digital_sizing(self):
+        result, _, _ = self._stage(hl_raises=True)
+        self.assertEqual(result["market_sizing"]["tam"]["value_usd"], 1e6,
+                         "a geo failure destroyed the digital sizing that had succeeded")
+
+    def test_a_failed_estimate_does_not_overwrite_market_sizing(self):
+        result, calls, _ = self._stage(sizing={"error": "sizing LLM down"})
+        self.assertNotIn("ground", calls)
+        self.assertNotIn("market_sizing", result)
+
+
+class TestSegmentRankingStep(unittest.TestCase):
+    def _run(self, result=None, segments=None, ranking=None, weights=None):
+        from orchestrator.steps.segments import run_segment_ranking_step
+
+        result = result if result is not None else {"_steps_completed": []}
+        result["customer_universe"] = {"segments": segments if segments is not None
+                                       else [{"name": "mid-market"}]}
+        if weights:
+            result["operator_weights"] = weights
+        with patch("segment_scoring.rank_segments",
+                   return_value=ranking if ranking is not None
+                   else {"ranked": [{"name": "mid-market"}]}) as m:
+            run_segment_ranking_step(result, {"summary": "s"}, [{"brand": "A"}])
+        return result, m
+
+    def test_a_single_segment_is_enough_to_rank(self):
+        """Iter 41 lowered the floor 2 -> 1: one segment scored on the 5 metrics beats
+        no prioritization section at all."""
+        result, m = self._run(segments=[{"name": "only"}])
+        m.assert_called_once()
+        self.assertIn("segment_ranking", result)
+        self.assertIn("segment_ranking", result["_steps_completed"])
+
+    def test_no_segments_means_no_call(self):
+        result, m = self._run(segments=[])
+        m.assert_not_called()
+        self.assertNotIn("segment_ranking", result)
+
+    def test_operator_weights_beat_the_defaults(self):
+        custom = {"market_size": 0.9}
+        _, m = self._run(weights=custom)
+        self.assertEqual(m.call_args.kwargs["weights"], custom)
+
+    def test_the_default_weights_are_used_when_none_given(self):
+        from segment_scoring import DEFAULT_WEIGHTS
+        _, m = self._run()
+        self.assertEqual(m.call_args.kwargs["weights"], DEFAULT_WEIGHTS)
+
+    def test_the_competition_context_names_real_competitors(self):
+        _, m = self._run()
+        ctx = m.call_args.kwargs["competition_context"]
+        self.assertIn("1 competitors discovered", ctx)
+        self.assertIn("A", ctx)
+
+    def test_an_error_ranking_is_persisted_but_not_marked_done(self):
+        result, _ = self._run(ranking={"error": "scoring failed"})
+        self.assertIn("segment_ranking", result)
+        self.assertNotIn("segment_ranking", result["_steps_completed"])
+
+    def test_a_crash_is_non_fatal(self):
+        from orchestrator.steps.segments import run_segment_ranking_step
+
+        result = {"_steps_completed": [], "customer_universe": {"segments": [{"n": 1}]}}
+        with patch("segment_scoring.rank_segments", side_effect=RuntimeError("boom")):
+            run_segment_ranking_step(result, {}, [])
+        self.assertNotIn("segment_ranking", result)
+
+
+class TestFinancialsStep(unittest.TestCase):
+    def _run(self, result=None, *, som=630_000.0, price=5.25, econ=None, proj=None,
+             biz_kind="transactional", withheld=False):
+        from orchestrator.steps.financials_step import run_financials_step
+
+        result = result if result is not None else {"_steps_completed": []}
+        result.setdefault("market_sizing", {"som": {"mid": som, "low": som * 0.7,
+                                                    "high": som * 1.3}} if som else {})
+        result.setdefault("market_scale", {"scale": "hyperlocal"})
+        result.setdefault("economics", econ if econ is not None
+                          else {"unit_economics": {"typical_cac_usd": 40.0}})
+        result.setdefault("pricing", {"break_even": {"break_even_customers": 173}})
+        with patch("financials.project_three_year",
+                   return_value=proj if proj is not None
+                   else {"years": [1, 2, 3]}) as mp, \
+             patch("financials.mark_derived_from_withheld",
+                   side_effect=lambda p, ms: dict(p, _withheld=withheld)) as mw, \
+             patch("orchestrator.steps.financials_step._enrich_economics_at_som",
+                   side_effect=lambda e, *a, **k: dict(e, _enriched=True)) as me:
+            run_financials_step(result, {"category": "cafe", "business_model": "DTC"},
+                                psm_result={"optimal_price_point": price},
+                                biz_kind=biz_kind)
+        return result, mp, mw, me
+
+    def test_the_som_comes_from_the_final_market_sizing_not_a_stale_local(self):
+        """M3: financials once read the pre-override `sizing` local, so a hyperlocal
+        venture got a different SOM than its own headline — two contradictory SOMs."""
+        result, mp, _, _ = self._run(som=630_000.0)
+        self.assertEqual(mp.call_args.kwargs["som_mid"], 630_000.0)
+        self.assertEqual(mp.call_args.kwargs["som_low"], 441_000.0)
+        self.assertEqual(mp.call_args.kwargs["som_high"], 819_000.0)
+
+    def test_economics_are_enriched_at_som_before_projection(self):
+        result, _, _, me = self._run()
+        me.assert_called_once()
+        self.assertTrue(result["economics"]["_enriched"])
+
+    def test_the_published_cac_reaches_the_projection(self):
+        """R4 rank 2: a break-even year whose acquisition spend exceeds that year's
+        revenue is not claimable."""
+        _, mp, _, _ = self._run()
+        self.assertEqual(mp.call_args.kwargs["cac_usd"], 40.0)
+
+    def test_a_zero_or_missing_cac_is_passed_as_none_not_zero(self):
+        _, mp, _, _ = self._run(econ={"unit_economics": {"typical_cac_usd": 0}})
+        self.assertIsNone(mp.call_args.kwargs["cac_usd"])
+
+    def test_revenue_only_models_need_no_price(self):
+        """W4-1: gating marketplace/ad_supported on optimal_price starved a sized
+        venture of ANY projection (SOM $2.5M, no financials at all)."""
+        result, mp, _, _ = self._run(price=None, biz_kind="marketplace")
+        mp.assert_called_once()
+        self.assertIn("financials", result["_steps_completed"])
+
+    def test_a_priced_model_without_a_price_is_skipped(self):
+        result, mp, _, _ = self._run(price=None, biz_kind="subscription")
+        mp.assert_not_called()
+        self.assertNotIn("financials", result)
+
+    def test_no_som_means_no_projection(self):
+        result, mp, _, _ = self._run(som=None)
+        mp.assert_not_called()
+        self.assertNotIn("financials", result)
+
+    def test_a_withheld_som_carries_the_withhold_into_the_projection(self):
+        """R4 rank 5: the data-layer decision the template banner renders."""
+        result, _, mw, _ = self._run(withheld=True)
+        mw.assert_called_once()
+        self.assertTrue(result["financials"]["_withheld"])
+
+    def test_an_errored_projection_is_not_persisted(self):
+        result, _, _, _ = self._run(proj={"error": "bad inputs"})
+        self.assertNotIn("financials", result)
+
+
+class TestViabilityStep(unittest.TestCase):
+    def _run(self, result=None, *, scores=None, retry_scores=None):
+        from orchestrator.steps.viability import run_viability_step
+
+        result = result if result is not None else {"_steps_completed": []}
+        result.setdefault("discover", {"competitor_density": 30,
+                                       "active_signal_density": None,
+                                       "avg_opportunity_score": 0.62,
+                                       "steps": {"signals": [{"_score": 1}, {"_score": 0}]}})
+        rets = [scores if scores is not None else {"viability_score": 54}]
+        if retry_scores is not None:
+            rets.append(retry_scores)
+        with patch("four_ps.score_viability", side_effect=rets) as m:
+            run_viability_step(result, {"name": "A"}, four_ps={}, top_audience={},
+                               biz_kind="transactional")
+        return result, m
+
+    def test_an_unmeasured_momentum_count_reaches_the_prompt_as_none_not_zero(self):
+        """`or 0` reads as 'no rival has any web presence' — a FINDING, not a gap, and
+        it is the finding the corpus acted on."""
+        _, m = self._run()
+        self.assertIsNone(m.call_args.kwargs["active_density"])
+        self.assertEqual(m.call_args.kwargs["density"], 30)
+        self.assertEqual(m.call_args.kwargs["avg_score"], 0.62)
+
+    def test_only_scored_signals_are_counted(self):
+        _, m = self._run()
+        self.assertEqual(m.call_args.kwargs["signal_count"], 1)
+
+    def test_a_successful_score_is_persisted_and_recorded(self):
+        result, _ = self._run()
+        self.assertEqual(result["viability"]["viability_score"], 54)
+        self.assertIn("viability", result["_steps_completed"])
+
+    def test_a_first_try_error_is_retried_with_a_longer_timeout(self):
+        """cycle30: viability is critical — better to take +90s than silently skip."""
+        result, m = self._run(scores={"error": "timed out after 90s"},
+                              retry_scores={"viability_score": 61})
+        self.assertEqual(m.call_count, 2)
+        self.assertEqual(result["viability"]["viability_score"], 61)
+        self.assertIn("viability", result["_steps_completed"])
+
+    def test_failing_twice_surfaces_the_error_unrecorded(self):
+        result, m = self._run(scores={"error": "down"}, retry_scores={"error": "down"})
+        self.assertEqual(m.call_count, 2)
+        self.assertIn("error", result["viability"])
+        self.assertNotIn("viability", result["_steps_completed"])
+
+
 if __name__ == "__main__":
     unittest.main()

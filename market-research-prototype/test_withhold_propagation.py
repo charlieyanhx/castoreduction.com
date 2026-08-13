@@ -98,9 +98,12 @@ class TestFinancialsCarryTheWithhold(unittest.TestCase):
         self.assertEqual(mark_derived_from_withheld({}, None), {})
 
     def test_the_pipeline_calls_it(self):
+        """Anchor follows the code into the financials step (wave 12)."""
         import inspect
-        import plan
-        self.assertIn("mark_derived_from_withheld", inspect.getsource(plan.run_plan))
+
+        from orchestrator.steps import financials_step
+        self.assertIn("mark_derived_from_withheld",
+                      inspect.getsource(financials_step.run_financials_step))
 
 
 class TestTemplateBanner(unittest.TestCase):
