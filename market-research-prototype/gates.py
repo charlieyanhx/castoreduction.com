@@ -1803,6 +1803,66 @@ def d57_market_supports_its_competitors(r: dict, html: str | None) -> Finding:
     return Finding(True, f"${per:,.0f} of addressable market per existing competitor")
 
 
+
+def d58_psm_tiers_disclose_their_own_range(r: dict, html: str | None) -> Finding:
+    """A recommended tier outside the PSM's own acceptable range must say so.
+
+    MEASURED on runs 12-15, identically every time: acceptable range $4.25-$6.75, then
+    tiers at Value $3.85 (below the floor, which is also the point of marginal cheapness)
+    and Premium $9.50 (above the ceiling, above the too-expensive MEDIAN of $8.25, above
+    that band's q3 of $9.00 — so appreciably more than half the simulated panel rejects
+    it). Both shipped with flat "PSM PRICING OUTPUT" citations, in a report whose kill
+    criterion elsewhere treats the $4.25 floor as meaningful.
+
+    This gate does NOT require tiers to be in range. An out-of-range tier can be sound
+    strategy — a loss-leader, a halo SKU — and clamping one would destroy a real
+    recommendation. It requires only that the report SAY the instrument disagrees, so a
+    reader can tell a deliberate halo SKU from a number the model drifted into. That is
+    the same disclosure-not-obedience shape as D09.
+
+    ok=None when there is no PSM or no usable range: unchecked, which D55 counts against
+    coverage, rather than a silent pass."""
+    psm = (r.get("pricing") or {}).get("psm") or {}
+    tiers = psm.get("recommended_tiers")
+    rng = psm.get("acceptable_range")
+    if not isinstance(tiers, list) or not tiers:
+        return Finding(None, "no PSM tiers to check")
+    if not isinstance(rng, (list, tuple)) or len(rng) != 2:
+        return Finding(None, "PSM published tiers but no acceptable range to check "
+                             "them against — the disclosure check could not run")
+    try:
+        lo, hi = float(rng[0]), float(rng[1])
+    except (TypeError, ValueError):
+        return Finding(None, "PSM acceptable range is not numeric")
+    if lo > hi:
+        return Finding(None, "PSM acceptable range is inverted — the instrument is at "
+                             "fault, not the tiers")
+
+    naked = []
+    outside = 0
+    for tier in tiers:
+        if not isinstance(tier, dict):
+            continue
+        try:
+            p = float(tier.get("price"))
+        except (TypeError, ValueError):
+            continue
+        if lo <= p <= hi:
+            continue
+        outside += 1
+        if not str(tier.get("range_note") or "").strip():
+            naked.append(f"{tier.get('name') or '?'} ${p:g}")
+    if naked:
+        return Finding(False,
+                       f"tier(s) outside the PSM's own ${lo:g}-${hi:g} acceptable range "
+                       f"carry no qualification: {', '.join(naked)} — a reader cannot "
+                       f"tell a deliberate halo/loss-leader from a drifted number")
+    if outside:
+        return Finding(True, f"{outside} tier(s) outside the ${lo:g}-${hi:g} range, each "
+                             f"disclosed as such")
+    return Finding(True, f"all tiers within the ${lo:g}-${hi:g} acceptable range")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -1861,6 +1921,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D55", "complete enough to have been checked", "the scorecard rewarded emptiness: an empty report scored 23 pass / 0 fail", "fail", d55_report_is_complete_enough_to_have_been_checked),
     Invariant("D56", "local spend is grounded or says it is not", "a trade-area TAM priced every neighbourhood at the $3,945 national average while local income sat fetched and unread", "fail", d56_local_spend_is_grounded_or_says_it_is_not),
     Invariant("D57", "market supports its own competitors", "run9 published $122K of market per existing cafe — 102 real venues were surviving on a TAM the report said could not sustain one", "fail", d57_market_supports_its_competitors),
+    Invariant("D58", "PSM tiers disclose when they fall outside their own acceptable range", "run12-15 recommended $3.85 and $9.50 against a $4.25-$6.75 range, flat and unqualified", "fail", d58_psm_tiers_disclose_their_own_range),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.

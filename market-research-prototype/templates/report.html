@@ -1531,6 +1531,13 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
        "Prices stated per booking." line directly above it. #}
     <div class="price">${{ t.price }}{% if pricing_benchmark %}<span style="font-size:10pt;font-weight:400;color:#6b7280">{% if pricing_benchmark.recurring %}/mo {% endif %}per {{ pricing_benchmark.pricing_unit }}</span>{% endif %}</div>
     <div class="for-whom">{{ t.for_whom or '' }}</div>
+    {# A tier outside the PSM's OWN acceptable range shipped here unqualified on runs
+       12-15 ($3.85 against a $4.25 floor, $9.50 against a $6.75 ceiling and an $8.25
+       too-expensive median). Not clamped — an out-of-range tier can be deliberate
+       strategy — but a reader must be able to tell a halo SKU from a drifted number. #}
+    {% if t.range_note %}
+    <div style="margin-top:8px;padding:6px 8px;background:#fffbeb;border:1px solid #fde68a;border-radius:4px;font-size:8.5pt;color:#92400e">{{ t.range_note }}</div>
+    {% endif %}
   </div>
   {% endfor %}
 </div>

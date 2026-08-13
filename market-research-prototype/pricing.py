@@ -110,6 +110,82 @@ def simulate_max_diff(features: list[str], segment_summary: str, category: str, 
     return result
 
 
+def _num(v):
+    """A finite float, or None. Prices arrive as strings, nulls and "ask us"."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f and abs(f) != float("inf") else None
+
+
+def annotate_tiers_against_range(psm: dict) -> dict:
+    """Mark each recommended tier against the instrument's OWN acceptable range.
+
+    MEASURED on runs 12-15, identical every time: the PSM reports an acceptable range of
+    $4.25-$6.75, then recommends Value $3.85 (below its own floor, which is also the point
+    of marginal cheapness) and Premium $9.50 (above the ceiling, above the too-expensive
+    MEDIAN of $8.25, and above that band's q3 of $9.00 — so appreciably more than half the
+    simulated panel would call it too expensive). Both shipped with flat "PSM PRICING
+    OUTPUT" citations, while the kill criterion elsewhere in the same report treated the
+    $4.25 floor as meaningful.
+
+    ANNOTATE, NEVER CLAMP. An out-of-range tier can be sound strategy — a loss-leader that
+    pulls commuter traffic, a halo SKU that anchors the menu and rarely sells. Dragging
+    $9.50 down to the ceiling would destroy a real recommendation and hide that the
+    instrument disagrees with it. What cannot be defended is showing it unqualified, so a
+    reader cannot tell a deliberate halo SKU from a number the model drifted into.
+
+    Degrades quietly: no range, a malformed range, an inverted range or a non-numeric price
+    leaves the tier untouched rather than inventing a verdict.
+    """
+    if not isinstance(psm, dict):
+        return psm
+    tiers = psm.get("recommended_tiers")
+    rng = psm.get("acceptable_range")
+    if not isinstance(tiers, list) or not isinstance(rng, (list, tuple)) or len(rng) != 2:
+        return psm
+    lo, hi = _num(rng[0]), _num(rng[1])
+    # An inverted range would mark every tier out-of-range, turning a broken instrument
+    # into a page of alarms about the tiers, which are not the thing at fault.
+    if lo is None or hi is None or lo > hi:
+        return psm
+
+    too_exp = (psm.get("too_expensive") or {}) if isinstance(psm.get("too_expensive"), dict) else {}
+    too_exp_median = _num(too_exp.get("median"))
+    too_cheap = (psm.get("too_cheap") or {}) if isinstance(psm.get("too_cheap"), dict) else {}
+    too_cheap_median = _num(too_cheap.get("median"))
+
+    for tier in tiers:
+        if not isinstance(tier, dict):
+            continue
+        p = _num(tier.get("price"))
+        if p is None:
+            continue
+        if lo <= p <= hi:
+            tier["range_status"] = "within"
+            continue
+        if p < lo:
+            tier["range_status"] = "below_floor"
+            note = (f"${p:,.2f} sits BELOW the panel's acceptable floor of ${lo:,.2f} "
+                    f"(its point of marginal cheapness)")
+            if too_cheap_median is not None and p <= too_cheap_median:
+                note += (f" and at or under the too-cheap median of ${too_cheap_median:,.2f}, "
+                         "where buyers start doubting quality")
+            note += (" — treat as a deliberate loss-leader, not a core price point, and "
+                     "expect it to dilute blended margin.")
+        else:
+            tier["range_status"] = "above_ceiling"
+            note = (f"${p:,.2f} sits ABOVE the panel's acceptable ceiling of ${hi:,.2f}")
+            if too_exp_median is not None and p >= too_exp_median:
+                note += (f", and above the too-expensive median of ${too_exp_median:,.2f} — "
+                         "more than half the simulated panel would reject it outright")
+            note += (" — treat as a low-volume halo SKU, not a core price point, and do "
+                     "not size volume from it.")
+        tier["range_note"] = note
+    return psm
+
+
 def simulate_van_westendorp(
     segment_summary: str,
     product_summary: str,
@@ -212,7 +288,10 @@ def simulate_van_westendorp(
                 result["notes"] = (existing + "  Sanity check: " + "; ".join(warnings))[:600]
                 log.warning("[pricing] tier sanity-check applied: %s", warnings)
 
-    return result
+    # LAST, deliberately: the sanity check above rewrites prices (the ÷12 annual
+    # correction) and drops tiers, so annotating before it would leave a tier labelled
+    # against a price it no longer carries.
+    return annotate_tiers_against_range(result)
 
 
 try:  # provenance: record that this function produced a report key
