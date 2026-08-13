@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 from capabilities.scheduler import run_labeled
 
-from pricing import simulate_max_diff, simulate_van_westendorp, compute_break_even
+from pricing import simulate_van_westendorp, compute_break_even
 from place import recommend_place
 from four_ps import assemble_4ps, assemble_4ps_split, score_viability
 from market_sizing import estimate_market_size, validation_sources_for
@@ -50,6 +50,7 @@ from orchestrator.steps.customer_universe import run_customer_universe_step
 from orchestrator.steps.differentiators import run_differentiators_step
 from orchestrator.steps.evidence import run_evidence_step
 from orchestrator.steps.firmographics import run_firmographics_step
+from orchestrator.steps.max_diff import run_max_diff_step
 from orchestrator.steps.profile import run_profile_step
 
 
@@ -1773,33 +1774,16 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                              reddit_data=reddit_data, channel_data=channel_data,
                              checkpoint=checkpoint)
 
-    # --- Step 9a: Max-Diff feature ranking (needs audience + profile) ---
-    # cycle22: stop polluting features_to_rank with raw competitor descriptions —
-    # those are taglines, not features, and they crash through max-diff as
-    # garbage entries like "unmind supports your people, develops your leaders".
-    # Use only product features explicitly extracted by the profile step.
-    features_to_rank = list(dict.fromkeys(profile.get("core_features", []) or []))[:15]
-
+    # segment_summary feeds max_diff, the PSM task and subscription economics — built
+    # once here, passed explicitly to each.
     segment_summary = (
         (top_audience.get("purchase_motivation", "") + " ")
         + " Audience: " + (profile.get("apparent_target_customer") or "")
     )[:1000]
 
-    max_diff_result = {}
-    if len(features_to_rank) >= 3:
-        log.info(f"[plan] Step 9a: Max-Diff on {len(features_to_rank)} features")
-        max_diff_result = _run_with_timeout(
-            simulate_max_diff,
-            features=features_to_rank,
-            segment_summary=segment_summary,
-            category=profile["category"],
-            timeout_s=90,
-            label="max_diff",
-        )
-        result["max_diff"] = max_diff_result
-        if not max_diff_result.get("error"):
-            _step_done(result, "max_diff")
-            checkpoint()
+    # --- Step 9a: Max-Diff feature ranking --- (→ orchestrator/steps/max_diff.py)
+    max_diff_result = run_max_diff_step(result, profile, segment_summary,
+                                        checkpoint=checkpoint)
 
     # --- Step 9b + Step 11 LLM recommendation in parallel (both need max_diff-ish inputs, but independent of each other) ---
     top_features = [f["feature"] for f in max_diff_result.get("ranked_features", [])[:5] if isinstance(f, dict)]
