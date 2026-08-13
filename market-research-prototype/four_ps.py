@@ -13,6 +13,7 @@ Output: Product / Price / Place / Promotion writeups + Viability score 0-100.
 from __future__ import annotations
 import json
 
+from context.blobs import json_blob
 from context.reminders import Reminders, reminder
 from llm import call_json
 from logger import get
@@ -462,7 +463,7 @@ def assemble_4ps(
     """Synthesize the 4Ps marketing plan from all pipeline outputs."""
 
     # Build compact blobs
-    profile_blob = json.dumps({
+    profile_blob = json_blob({
         "name": profile.get("name"),
         "summary": profile.get("summary"),
         "category": profile.get("category"),
@@ -470,7 +471,7 @@ def assemble_4ps(
         "target_pain_points": profile.get("target_pain_points", [])[:6],
         "apparent_target_customer": profile.get("apparent_target_customer"),
         "business_model": profile.get("business_model"),
-    }, indent=2)[:2000]
+    }, 2000)
 
     # web-momentum, not competitive strength — see the note in market_sizing's comp_blob.
     competitors_blob = ("\n".join(
@@ -480,7 +481,7 @@ def assemble_4ps(
     ) + "\n  (score = public-signal momentum 0-100; low = thin public footprint,"
         "\n   not a weak rival)")[:2000]
 
-    audience_blob = json.dumps({
+    audience_blob = json_blob({
         "brand": top_audience.get("brand"),
         "confidence": top_audience.get("confidence"),
         "purchase_motivation": top_audience.get("purchase_motivation"),
@@ -488,20 +489,24 @@ def assemble_4ps(
         "complained": top_audience.get("emotional_triggers", {}).get("complained", [])[:5],
         "life_context": top_audience.get("life_context", [])[:4],
         "hook_angles": top_audience.get("hook_angles_that_would_work", [])[:3],
-    }, indent=2)[:2000]
+    }, 2000)
 
-    features_blob = json.dumps(max_diff.get("ranked_features", [])[:10], indent=2)[:1000]
-    pricing_blob = json.dumps({
+    features_blob = json_blob(max_diff.get("ranked_features", [])[:10], 1000)
+    # 1600, not 1000: the tier out-of-range annotations (#80) took this payload to a
+    # measured 1,228 characters, and the qualification on a tier is the part a buyer most
+    # needs. json_blob would now shrink it honestly rather than corrupt it, but shrinking
+    # a decision-critical payload when the budget is the arbitrary part is the wrong trade.
+    pricing_blob = json_blob({
         "optimal_price_point": van_westendorp.get("optimal_price_point"),
         "acceptable_range": van_westendorp.get("acceptable_range"),
         "recommended_tiers": van_westendorp.get("recommended_tiers", []),
-    }, indent=2)[:1000]
-    place_blob = json.dumps({
+    }, 1600)
+    place_blob = json_blob({
         "primary_channel": place.get("primary_channel"),
         "secondary_channels": place.get("secondary_channels", []),
         "gtm_motion": place.get("gtm_motion"),
         "whitespace_opportunity": place.get("whitespace_opportunity"),
-    }, indent=2)[:1000]
+    }, 1000)
 
     plan = call_json(
         system="You write sharp, founder-grade marketing plans. No fluff.",
@@ -852,31 +857,31 @@ def assemble_4ps_split(
     from concurrent.futures import ThreadPoolExecutor
 
     # Build compact shared blobs once
-    profile_blob = json.dumps({
+    profile_blob = json_blob({
         "name": profile.get("name"),
         "summary": profile.get("summary"),
         "category": profile.get("category"),
         "business_model": profile.get("business_model"),
         "apparent_target_customer": profile.get("apparent_target_customer"),
-    }, indent=2)[:900]
+    }, 900)
 
     competitors_blob = "\n".join(
         f"  - {c.get('brand')} ({c.get('domain')}): {(c.get('thesis') or '')[:100]}"
         for c in (competitors or [])[:5]
     )[:1200]
 
-    features_blob = json.dumps([
+    features_blob = json_blob([
         {"feature": f.get("feature"), "importance": f.get("importance_score")}
         for f in (max_diff or {}).get("ranked_features", [])[:8]
-    ], indent=2)[:700]
+    ], 700)
 
-    pricing_blob = json.dumps({
+    pricing_blob = json_blob({
         "optimal_price_point": (van_westendorp or {}).get("optimal_price_point"),
         "acceptable_range": (van_westendorp or {}).get("acceptable_range"),
         "recommended_tiers": (van_westendorp or {}).get("recommended_tiers", []),
-    }, indent=2)[:700]
+    }, 700)
 
-    benchmark_blob = json.dumps({
+    benchmark_blob = json_blob({
         "pricing_unit": (pricing_benchmark or {}).get("pricing_unit"),
         "our_pro_price_label": (pricing_benchmark or {}).get("our_pro_price_label"),
         "vs_category_median_pct": (pricing_benchmark or {}).get("vs_category_median_pct"),
@@ -885,30 +890,30 @@ def assemble_4ps_split(
              "multiple_of_pro": r.get("multiple_of_pro"), "verdict": r.get("cheaper_or_pricier")}
             for r in ((pricing_benchmark or {}).get("rows") or [])[:5]
         ],
-    }, indent=2)[:700] if pricing_benchmark else "(not yet computed)"
+    }, 700) if pricing_benchmark else "(not yet computed)"
 
-    economics_blob = json.dumps({
+    economics_blob = json_blob({
         "clv_usd": (economics or {}).get("clv", {}).get("clv_usd"),
         "max_sustainable_cac_usd": (economics or {}).get("cac_target", {}).get("max_sustainable_cac_usd"),
         "evc_verdict": (economics or {}).get("evc", {}).get("verdict"),
         "price_as_pct_of_evc": (economics or {}).get("evc", {}).get("price_as_pct_of_evc"),
         "customer_annual_roi_usd": (economics or {}).get("evc", {}).get("customer_annual_roi_usd"),
         "differentiation_reasoning": (economics or {}).get("evc", {}).get("differentiation_reasoning"),
-    }, indent=2)[:700] if economics else "(not yet computed)"
+    }, 700) if economics else "(not yet computed)"
 
-    place_blob = json.dumps({
+    place_blob = json_blob({
         "primary_channel": (place or {}).get("primary_channel"),
         "secondary_channels": (place or {}).get("secondary_channels", []),
         "gtm_motion": (place or {}).get("gtm_motion"),
         "whitespace_opportunity": (place or {}).get("whitespace_opportunity"),
-    }, indent=2)[:700]
+    }, 700)
 
-    audience_blob = json.dumps({
+    audience_blob = json_blob({
         "purchase_motivation": top_audience.get("purchase_motivation"),
         "celebrated": (top_audience.get("emotional_triggers") or {}).get("celebrated", [])[:5],
         "complained": (top_audience.get("emotional_triggers") or {}).get("complained", [])[:5],
         "hook_angles": top_audience.get("hook_angles_that_would_work", [])[:3],
-    }, indent=2)[:900]
+    }, 900)
 
     audience_celebrated = ", ".join(
         (top_audience.get("emotional_triggers") or {}).get("celebrated", [])[:4]
@@ -918,11 +923,11 @@ def assemble_4ps_split(
         (top_audience.get("life_context") or [])[:4]
     ) or "(unknown)"
 
-    reddit_themes_blob = json.dumps({
+    reddit_themes_blob = json_blob({
         "complaint_themes": ((reddit_signal or {}).get("themes") or {}).get("complaint_themes", []),
         "praise_themes": ((reddit_signal or {}).get("themes") or {}).get("praise_themes", []),
         "powerful_quotes": ((reddit_signal or {}).get("themes") or {}).get("powerful_quotes", []),
-    }, indent=2)[:900] if reddit_signal else "(no Reddit signal available)"
+    }, 900) if reddit_signal else "(no Reddit signal available)"
 
     # The per-section call lives at module level (_run_section) under the SectionPayload
     # contract — see the block at the top of this file for the run8 measurement that forced
@@ -1061,35 +1066,35 @@ def regenerate_section(
     if section_name not in ("product", "price", "place", "promotion"):
         return {"error": f"Invalid section '{section_name}'. Must be one of: product, price, place, promotion."}
 
-    profile_blob = json.dumps({
+    profile_blob = json_blob({
         "name": profile.get("name"),
         "summary": profile.get("summary"),
         "category": profile.get("category"),
         "business_model": profile.get("business_model"),
-    }, indent=2)[:1200]
+    }, 1200)
     competitors_blob = "\n".join(
         f"  - {c.get('brand')} ({c.get('domain')}) — {c.get('thesis', '')[:100]}"
         for c in (competitors or [])[:5]
     )[:1500]
-    audience_blob = json.dumps({
+    audience_blob = json_blob({
         "brand": top_audience.get("brand"),
         "purchase_motivation": top_audience.get("purchase_motivation"),
         "celebrated": (top_audience.get("emotional_triggers") or {}).get("celebrated", [])[:5],
         "complained": (top_audience.get("emotional_triggers") or {}).get("complained", [])[:5],
-    }, indent=2)[:1500]
-    features_blob = json.dumps((max_diff or {}).get("ranked_features", [])[:8], indent=2)[:800]
-    pricing_blob = json.dumps({
+    }, 1500)
+    features_blob = json_blob((max_diff or {}).get("ranked_features", [])[:8], 800)
+    pricing_blob = json_blob({
         "optimal_price_point": (van_westendorp or {}).get("optimal_price_point"),
         "acceptable_range": (van_westendorp or {}).get("acceptable_range"),
         "recommended_tiers": (van_westendorp or {}).get("recommended_tiers", []),
-    }, indent=2)[:800]
-    place_blob = json.dumps({
+    }, 800)
+    place_blob = json_blob({
         "primary_channel": (place or {}).get("primary_channel"),
         "secondary_channels": (place or {}).get("secondary_channels", []),
         "gtm_motion": (place or {}).get("gtm_motion"),
-    }, indent=2)[:800]
+    }, 800)
 
-    current_blob = json.dumps(current_section or {}, indent=2)[:1500]
+    current_blob = json_blob(current_section or {}, 1500)
 
     revised = call_json(
         system="You revise marketing-plan sections sharply, taking operator steering seriously. Return only JSON.",
@@ -1110,7 +1115,7 @@ def regenerate_section(
         return {"error": "Section regeneration returned malformed JSON", "_raw": revised.get("_raw", "")[:500]}
     # Make sure the shape is right
     if "narrative" not in revised:
-        return {"error": "Regenerated section missing 'narrative' field", "_raw": json.dumps(revised)[:500]}
+        return {"error": "Regenerated section missing 'narrative' field", "_raw": json_blob(revised, 500)}
     if "key_takeaways" not in revised or not isinstance(revised.get("key_takeaways"), list):
         revised["key_takeaways"] = []
     return revised
