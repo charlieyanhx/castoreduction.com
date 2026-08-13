@@ -1625,11 +1625,10 @@ def run_sizing_stage(result: dict, profile: dict, *, description: str, geo: str,
     have to import plan and invert the layering the package forbids. Task #87
     migrates that family to skills/sizing/ and unblocks the move.
 
-    KNOWN DEFECT, preserved deliberately (task #88): market_sizing is recorded
-    complete only on the hyperlocal-override path and inside the except branch, so
-    an ordinary successful digital run never records it. Changing that alters
-    _steps_completed, which D01 counts — it needs its own commit and its own
-    measurement, not a silent ride on a pure move.
+    Records market_sizing once, on the success path, covering both the digital and
+    hyperlocal-override routes (#88 — it used to record only inside `if hl:` and inside
+    the except handler, so a successful digital run recorded nothing and a FAILED
+    override recorded a completion).
     """
     checkpoint = checkpoint or (lambda: None)
     # --- Step 7b: Market sizing (TAM/SAM/SOM) — parallel with 4Ps ---
@@ -1706,15 +1705,25 @@ def run_sizing_stage(result: dict, profile: dict, *, description: str, geo: str,
             # The gate is idempotent, so running it again on the new payload is the fix.
             hl = gate_and_annotate_sizing(hl, scale_decision)
             result["market_sizing"] = hl
-            if "market_sizing" not in result["_steps_completed"]:
-                _step_done(result, "market_sizing")
             log.info("[plan] hyperlocal sizing override (%s @ %s)",
                      (scale_decision or {}).get("scale"), hl.get("_hyperlocal_location"))
             _surface_late_geo_competitors(result, hl.get("geo_competitors") or [],
                                           category=(profile or {}).get("category", ""))
     except Exception as e:
+        # Non-fatal: a geo failure leaves the digital sizing that already succeeded.
+        # It deliberately does NOT record the step here — see below.
         log.warning("[plan] hyperlocal override failed (non-fatal): %s", e)
-        _step_done(result, "market_sizing")
+
+    # ONE recording site, on the success path, covering both routes (#88). It used to sit
+    # inside `if hl:` and inside the `except`, so an ordinary digital venture — sizing
+    # computed, grounded, triangulated, gated and sitting in result — finished with the
+    # step UNRECORDED, while a FAILED override recorded it. Gate D01 counts the length of
+    # _steps_completed and the plan artifact reports it, so the run under-reported work it
+    # had really done and credited work it had not. Recording from an exception handler
+    # also inverts the convention every extracted step follows: failure leaves a step
+    # unrecorded so a resume recomputes it instead of skipping a hole.
+    if result.get("market_sizing"):
+        _step_done(result, "market_sizing")   # idempotent
         checkpoint()
 
 
