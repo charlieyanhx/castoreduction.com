@@ -47,6 +47,7 @@ from orchestrator.steps import (record_dropped_output, run_with_timeout as _run_
 from orchestrator.steps.clustering import run_clustering_step
 from orchestrator.steps.competitors import run_discover_step
 from orchestrator.steps.customer_universe import run_customer_universe_step
+from orchestrator.steps.differentiators import run_differentiators_step
 from orchestrator.steps.evidence import run_evidence_step
 from orchestrator.steps.firmographics import run_firmographics_step
 from orchestrator.steps.profile import run_profile_step
@@ -1766,39 +1767,11 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         _step_done(result, "competitor_pricing")
         checkpoint()
 
-    # --- Step 3d (MOVED, R4 rank 6): Differentiators + market gaps ---
-    # This ran right after clustering — BEFORE competitor pricing, review themes, or
-    # any scrape existed — under a prompt that mandated production. Name + 120-char
-    # blobs in, ten "differentiators" out, asserting competitor pricing as unhedged
-    # fact; strength pinned "high" on 16/16 and anchored the viability score. It now
-    # runs HERE, after the evidence phase, and receives what that phase produced.
-    try:
-        from differentiators import extract_differentiators
-        log.info("[plan] Step 3d (post-evidence): extracting differentiators + market gaps")
-        _diff_evidence = {
-            "competitor_pricing": {
-                (d.get("domain") or "?"): {"price": d.get("median"), "unit": "unit",
-                                            "n": d.get("count")}
-                for d in (competitor_pricing_data.get("per_domain") or [])
-                if isinstance(d, dict) and d.get("median") is not None
-            },
-            "review_themes": list((reddit_data or {}).get("themes") or [])[:6],
-            "channels": [c.get("channel") for c in (channel_data.get("channels") or [])[:4]
-                         if isinstance(c, dict)] if isinstance(channel_data, dict) else [],
-        }
-        diffs = extract_differentiators(
-            profile=profile,
-            our_features=profile.get("core_features", []),
-            clustering=result.get("clustering") or {},
-            competitors=opps,
-            evidence=_diff_evidence,
-        )
-        if "error" not in diffs:
-            result["differentiators"] = diffs
-            _step_done(result, "differentiators")
-            checkpoint()
-    except Exception as e:
-        log.warning(f"[plan] differentiators failed (non-fatal): {e}")
+    # --- Step 3d: Differentiators, post-evidence (R4 rank 6) --- (→ orchestrator/steps/differentiators.py)
+    run_differentiators_step(result, profile, opps,
+                             competitor_pricing_data=competitor_pricing_data,
+                             reddit_data=reddit_data, channel_data=channel_data,
+                             checkpoint=checkpoint)
 
     # --- Step 9a: Max-Diff feature ranking (needs audience + profile) ---
     # cycle22: stop polluting features_to_rank with raw competitor descriptions —

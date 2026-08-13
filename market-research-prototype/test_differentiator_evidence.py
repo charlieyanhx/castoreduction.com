@@ -153,21 +153,29 @@ class TestUnevidencedPriceClaimsAreStripped(unittest.TestCase):
 
 class TestPipelineSequencing(unittest.TestCase):
     def test_step_3d_runs_after_the_evidence_join(self):
+        """Anchor updated for the wave-6 extraction: run_plan now calls
+        run_differentiators_step; the ordering invariant is unchanged."""
         import inspect
         import plan
         src = inspect.getsource(plan.run_plan)
         self.assertLess(src.index('result["competitor_pricing"]'),
-                        src.index("extract_differentiators"),
+                        src.index("run_differentiators_step"),
                         "step 3d still runs before competitor pricing exists")
 
     def test_the_evidence_is_passed(self):
+        """Was a source pin on the evidence= kwarg; the extraction made it structural —
+        the step's signature REQUIRES the three evidence inputs (keyword-only), so a
+        call site cannot silently omit them. The step's own unit test proves the
+        evidence dict reaches extract_differentiators."""
         import inspect
-        import plan
-        src = inspect.getsource(plan.run_plan)
-        # Anchor on the CALL, not the import — the evidence dict is built between
-        # them, and a window measured from the import missed the kwarg entirely.
-        call_at = src.index("diffs = extract_differentiators(")
-        self.assertIn("evidence=", src[call_at:call_at + 400])
+
+        from orchestrator.steps.differentiators import run_differentiators_step
+        params = inspect.signature(run_differentiators_step).parameters
+        for name in ("competitor_pricing_data", "reddit_data", "channel_data"):
+            self.assertIn(name, params)
+            self.assertEqual(params[name].kind, inspect.Parameter.KEYWORD_ONLY,
+                             f"{name} must be keyword-only so a call site cannot "
+                             "positionally shuffle the evidence")
 
     def test_customer_universe_no_longer_waits_on_differentiators(self):
         """Pre-evidence fabricated diffs were its search hints — garbage hints. It
@@ -184,7 +192,7 @@ class TestPipelineSequencing(unittest.TestCase):
         from orchestrator.steps.customer_universe import run_customer_universe_step
         src = inspect.getsource(plan.run_plan)
         self.assertLess(src.index("run_customer_universe_step"),
-                        src.index("extract_differentiators"),
+                        src.index("run_differentiators_step"),
                         "the universe moved after differentiators again")
         params = inspect.signature(run_customer_universe_step).parameters
         self.assertNotIn("differentiators", params)
