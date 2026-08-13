@@ -530,5 +530,119 @@ class TestPricingSimStep(unittest.TestCase):
         self.assertNotIn("place", result)
 
 
+class TestEconomicsStep(unittest.TestCase):
+    def _run(self, result=None, *, biz_kind="subscription", opt=29.0,
+             price_per_unit=None, is_transactional=False, geo_sourced=False,
+             cost=None, econ=None, bench=None, pricing_data=None):
+        from orchestrator.steps.economics_step import run_economics_step
+
+        result = result if result is not None else {"_steps_completed": [],
+                                                    "pricing": {"psm": {}}}
+        if geo_sourced:
+            result["discover"] = {"geo_sourced": True}
+        cost = cost if cost is not None else {"monthly_fixed_cost": 5000.0,
+                                              "variable_cost_per_customer": 2.0,
+                                              "source": "category estimate"}
+        with patch("pricing.estimate_cost_structure", return_value=cost), \
+             patch("pricing.compute_break_even",
+                   return_value={"break_even_customers": 173}) as mbe, \
+             patch("pricing.build_benchmark_table",
+                   return_value=bench if bench is not None else {"rows": [1]}) as mbt, \
+             patch("business_model.retail_unit_economics",
+                   return_value={"model": "retail", "unit": "drink"}) as mret, \
+             patch("economics.full_economics",
+                   return_value=econ if econ is not None else {"clv": {"clv_usd": 900}}) as mfull:
+            run_economics_step(
+                result, {"category": "cafe", "summary": "s", "business_model": "DTC"},
+                psm_result={"optimal_price_point": opt, "recommended_tiers": [1, 2]},
+                biz_kind=biz_kind, opt=opt,
+                price_per_unit=price_per_unit if price_per_unit is not None else opt,
+                is_transactional=is_transactional, unit_noun="drink",
+                benchmark_recurring=(biz_kind == "subscription"),
+                segment_summary="commuters",
+                competitor_pricing_data=pricing_data or {},
+                opps=[{"brand": "A"}])
+        return result, mbe, mbt, mret, mfull
+
+    def test_subscription_gets_break_even_and_full_economics(self):
+        result, mbe, _, mret, mfull = self._run(biz_kind="subscription")
+        self.assertEqual(result["pricing"]["break_even"]["break_even_customers"], 173)
+        self.assertEqual(mbe.call_args.kwargs["cost_source"], "category estimate")
+        mfull.assert_called_once()
+        mret.assert_not_called()
+        self.assertEqual(result["economics"], {"clv": {"clv_usd": 900}})
+        self.assertIn("economics", result["_steps_completed"])
+
+    def test_transactional_gets_retail_economics_and_no_subscription_break_even(self):
+        result, mbe, _, mret, mfull = self._run(biz_kind="transactional",
+                                                is_transactional=True,
+                                                price_per_unit=5.5)
+        mbe.assert_not_called()
+        self.assertNotIn("break_even", result["pricing"])
+        self.assertEqual(mret.call_args.kwargs["price_per_unit"], 5.5)
+        self.assertEqual(mret.call_args.kwargs["kind"], "transactional")
+        mfull.assert_not_called()
+
+    def test_geo_sourced_ventures_get_no_scraped_benchmark_with_the_reason_recorded(self):
+        """D13 enforced upstream: run7 shipped 'Noe Cafe: $21 per drink' scraped from a
+        gift-card page. The guard must move WITH the block."""
+        result, _, mbt, _, _ = self._run(geo_sourced=True)
+        mbt.assert_not_called()
+        self.assertIn("pricing_benchmark", result.get("_dropped_outputs") or {})
+        self.assertNotIn("benchmark", result["pricing"])
+
+    def test_non_geo_ventures_get_the_benchmark(self):
+        result, _, mbt, _, _ = self._run()
+        self.assertEqual(result["pricing"]["benchmark"], {"rows": [1]})
+        self.assertTrue(mbt.call_args.kwargs["recurring"])
+
+    def test_marketplace_gets_the_honest_take_rate_object_not_saas_clv(self):
+        result, _, _, mret, mfull = self._run(biz_kind="marketplace",
+                                              is_transactional=False)
+        mret.assert_not_called()
+        mfull.assert_not_called()
+        self.assertEqual(result["economics"]["model"], "marketplace")
+        self.assertIn("take-rate", result["economics"]["revenue_basis"])
+
+    def test_an_economics_crash_is_non_fatal(self):
+        from orchestrator.steps.economics_step import run_economics_step
+
+        result = {"_steps_completed": [], "pricing": {"psm": {}}}
+        with patch("pricing.estimate_cost_structure", return_value=None), \
+             patch("pricing.build_benchmark_table", return_value={"error": "x"}), \
+             patch("economics.full_economics", side_effect=RuntimeError("boom")):
+            run_economics_step(result, {"category": "cafe"},
+                               psm_result={}, biz_kind="subscription", opt=29.0,
+                               price_per_unit=29.0, is_transactional=False,
+                               unit_noun="account", benchmark_recurring=True,
+                               segment_summary="s", competitor_pricing_data={}, opps=[])
+        self.assertNotIn("economics", result)
+
+
+class TestNonPricedEconomicsFallback(unittest.TestCase):
+    def test_an_unpriced_ad_supported_venture_still_gets_honest_economics(self):
+        from orchestrator.steps.economics_step import ensure_nonpriced_economics
+
+        result = {"_steps_completed": []}
+        ensure_nonpriced_economics(result, "ad_supported")
+        self.assertEqual(result["economics"]["model"], "ad_supported")
+        self.assertIn("eCPM", result["economics"]["needs_operator_input"])
+        self.assertIn("economics", result["_steps_completed"])
+
+    def test_existing_economics_are_never_overwritten(self):
+        from orchestrator.steps.economics_step import ensure_nonpriced_economics
+
+        result = {"_steps_completed": [], "economics": {"model": "retail"}}
+        ensure_nonpriced_economics(result, "marketplace")
+        self.assertEqual(result["economics"]["model"], "retail")
+
+    def test_priced_kinds_get_no_fallback(self):
+        from orchestrator.steps.economics_step import ensure_nonpriced_economics
+
+        result = {"_steps_completed": []}
+        ensure_nonpriced_economics(result, "subscription")
+        self.assertNotIn("economics", result)
+
+
 if __name__ == "__main__":
     unittest.main()
