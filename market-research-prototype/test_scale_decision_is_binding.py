@@ -178,7 +178,9 @@ class TestFoundOnASecondLiveRun(unittest.TestCase):
         scale_skill_ran and the disclosure note on exactly the path that runs for physical
         ventures. Measured on run2: scale_skill_ran absent, no note naming the skill."""
         import inspect
-        src = inspect.getsource(plan.run_plan)
+        # Anchor follows the code: the sizing orchestration moved to run_sizing_stage
+        # (wave 10). Same invariant, same window.
+        src = inspect.getsource(plan.run_sizing_stage)
         i_override = src.find("size_by_scale(scale_decision")
         self.assertGreater(i_override, -1)
         after = src[i_override:i_override + 700]

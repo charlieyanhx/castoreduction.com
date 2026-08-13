@@ -28,9 +28,8 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 from capabilities.scheduler import run_labeled
 
-from four_ps import assemble_4ps, assemble_4ps_split, score_viability
+from four_ps import assemble_4ps, assemble_4ps_split
 from market_sizing import estimate_market_size, validation_sources_for
-from financials import project_three_year, Y3_CAPTURE
 from logger import get
 
 log = get("plan")
@@ -48,10 +47,16 @@ from orchestrator.steps.customer_universe import run_customer_universe_step
 from orchestrator.steps.differentiators import run_differentiators_step
 from orchestrator.steps.economics_step import ensure_nonpriced_economics, run_economics_step
 from orchestrator.steps.evidence import run_evidence_step
+# _enrich_economics_at_som moved to the financials step with its only caller; re-exported
+# here because ~9 tests and any future caller reach for plan._enrich_economics_at_som.
+from orchestrator.steps.financials_step import (_enrich_economics_at_som,  # noqa: F401
+                                                run_financials_step)
 from orchestrator.steps.firmographics import run_firmographics_step
 from orchestrator.steps.max_diff import run_max_diff_step
 from orchestrator.steps.pricing_sim import run_pricing_sim_step
 from orchestrator.steps.profile import run_profile_step
+from orchestrator.steps.segments import run_segment_ranking_step
+from orchestrator.steps.viability import run_viability_step
 
 
 def _validation_gate(result: dict) -> dict:
@@ -617,59 +622,6 @@ def wtp_unit_for(description: str, profile: dict | None = None,
     if kind in ("subscription", "ad_supported"):
         return "/mo"  # recurring (or upsell) willingness is per month
     return "/" + unit_for_model(kind, description, profile)
-
-
-def _enrich_economics_at_som(econ: dict, som_mid, som_high=None, category: str = "",
-                             business_model: str = "", market_scale: str = "",
-                             som_low=None) -> dict:
-    """cycle37 + G3 (D08): once SOM is known, recompute transactional unit economics with
-    the at-SOM-volume profitability — sizing runs after economics, so this can't happen at
-    economics time. Pure recompute, no LLM.
-
-    The claim is computed at the AGGRESSIVE scenario ceiling (Y3_CAPTURE, 60% of SOM),
-    never at 100% capture: 2/16 baseline reports said "profitable at SOM" while every
-    scenario row — including aggressive — lost money (D08 contradiction). Returns econ
-    unchanged when not applicable (wrong model, no SOM, already enriched, or bad inputs)."""
-    from business_model import is_per_unit as _ipu
-    if not _ipu(econ.get("model")) or not som_mid or econ.get("at_som_volume"):
-        return econ
-    from business_model import retail_unit_economics
-    from financials import _y3_ceilings
-    _base_ceiling = _y3_ceilings(float(som_mid), som_low, som_high)[0]["base"][0]
-    try:
-        return retail_unit_economics(
-            price_per_unit=econ["price_per_unit"],
-            variable_cost_per_unit=econ["variable_cost_per_unit"],
-            monthly_fixed_cost=econ["monthly_fixed_cost"],
-            unit=econ.get("unit", "unit"),
-            # The claim is pinned to the BASE scenario row, read from the SAME
-            # function financials uses to build that row (_y3_ceilings) rather than
-            # re-derived here. Two Python paths computing one quantity is how they
-            # drift, and they did: W4-1 computed this at som.high to be bit-identical
-            # with the AGGRESSIVE row. Agreeing was right; agreeing on the OPTIMISTIC
-            # row was not. The R4 panel found it on 12/16 ventures — Unit Economics
-            # read "profitable at the obtainable SOM volume" off a volume the table
-            # called "130% of SOM, aggressive", overstating profit 44%-2.2x, and two
-            # ventures claimed profitable when the base case loses money.
-            #
-            # Reading the shared ceiling also keeps the no-band case coherent: without
-            # a usable SOM band financials falls back to the 20% ladder, and a flat
-            # som.mid here would contradict it by 5x.
-            # Decomposed, not multiplied twice: retail_unit_economics computes
-            # obtainable = annual_revenue_usd x som_capture_frac, so the BASE ceiling
-            # is expressed as the FRACTION of som.mid, and som_capture_pct then
-            # reports the true share of SOM (100% with a band, 20% on the ladder).
-            annual_revenue_usd=float(som_mid),
-            som_capture_frac=_base_ceiling / float(som_mid),
-            cost_source=econ.get("cost_source", ""),
-            category=category,
-            business_model=business_model,
-            kind=econ.get("model", "transactional"),
-            market_scale=market_scale,
-        )
-    except Exception as e:
-        log.warning("[plan] at-SOM economics enrich failed (non-fatal): %s", e)
-        return econ
 
 
 def build_consumer_research(description: str, geo: str, profile: dict,
@@ -1656,6 +1608,117 @@ def refine_pipeline_result(result: dict, description: str, geo: str, profile: di
         return result
 
 
+def run_sizing_stage(result: dict, profile: dict, *, description: str, geo: str,
+                     opps: list, top_audience: dict, competitor_pricing_data: dict,
+                     psm_result: dict, biz_kind: str, checkpoint=None) -> None:
+    """Steps 7a/7b: classify scale, size the market, then override with the
+    hyperlocal trade-area model when the venture has a location.
+
+    Extracted from run_plan (wave 10) so scale_decision/sizing/hl stop being
+    run_plan locals that later blocks can read stale — the bug class behind the
+    dual-SOM and mid-join-empty-read incidents.
+
+    NOT in orchestrator/steps/ like its siblings: four of the five helpers it calls
+    (ground_sizing_bottom_up, triangulate_sizing, gate_and_annotate_sizing,
+    size_by_scale, _surface_late_geo_competitors) are defined in this module —
+    513 lines with 7 transitive plan-local dependencies — so a step module would
+    have to import plan and invert the layering the package forbids. Task #87
+    migrates that family to skills/sizing/ and unblocks the move.
+
+    KNOWN DEFECT, preserved deliberately (task #88): market_sizing is recorded
+    complete only on the hyperlocal-override path and inside the except branch, so
+    an ordinary successful digital run never records it. Changing that alters
+    _steps_completed, which D01 counts — it needs its own commit and its own
+    measurement, not a silent ride on a pure move.
+    """
+    checkpoint = checkpoint or (lambda: None)
+    # --- Step 7b: Market sizing (TAM/SAM/SOM) — parallel with 4Ps ---
+    # This uses profile + competitors + audience + pricing, all of which are already computed.
+    # Run in parallel with 4Ps synthesis to save wall-clock time.
+    def _sizing_task():
+        log.info("[plan] Step 7b: Market sizing (TAM/SAM/SOM)")
+        return estimate_market_size(
+            profile=profile,
+            competitors=opps[:6],
+            audience=top_audience,
+            competitor_pricing=competitor_pricing_data,
+            psm_result=psm_result,
+        )
+
+    # cycle33: classify market scale (numbers-right engine). Non-breaking — the
+    # legacy estimate_market_size shape is preserved downstream; we annotate the
+    # result with the scale decision and route physical ventures' caveats.
+    # cycle37: reuse the scale already classified early (above). Only compute here if the early
+    # pass failed, so we never double-append "market_scale" to _steps_completed.
+    scale_decision = result.get("market_scale")
+    if scale_decision is None:
+        try:
+            from skills.sizing.classify import classify_market_scale
+            scale_decision = classify_market_scale(description, geo).payload
+            result["market_scale"] = scale_decision
+            _step_done(result, "market_scale")
+            log.info("[plan] Step 7a: market scale = %s → %s",
+                     scale_decision.get("scale"), scale_decision.get("sizing_skill"))
+        except Exception as e:
+            log.warning("[plan] scale classification failed (non-fatal): %s", e)
+
+    # SIZING BEFORE 4PS — SEQUENCED ON PURPOSE, at a measured wall-clock cost. These two
+    # used to run in parallel as "the pipeline's most expensive pair", and the overlap made
+    # the narrative run AHEAD of the numbers it narrates: _four_ps_task reads
+    # result["market_sizing"] at execution time, which was EMPTY mid-join, and the
+    # hyperlocal override (the sizing that carries competitors + som) landed after the join
+    # entirely. run14's _reminder_facts proved it: ms_competitors=null, ms_som_mid=null —
+    # the volume ladder's SOM rung and the paired-competitor-count rule never once reached
+    # a prompt. Sequencing costs the sizing's runtime (~30-90s, mostly cache-warm Census
+    # calls) and buys every downstream narrative claim its inputs; it also hands the 4Ps
+    # the geo roster and promoted density, which is what D22 wanted from the start.
+    sizing = run_labeled({"sizing": (_sizing_task, 90)})["sizing"]
+    if isinstance(sizing, dict) and sizing.get("error"):
+        log.warning("[plan] market sizing failed: %s", sizing["error"][:160])
+
+    if sizing and not sizing.get("error"):
+        # C2: ground the bottom-up TAM in a live Census count BEFORE the gate, so
+        # the report uses the real establishment count, not the LLM's guess.
+        # F3: ARPU basis = stated price, else the modeled PSM optimal price, so the
+        # Census-grounded bottom-up fires for most digital ventures (not only typed $/mo).
+        _psm_price = (psm_result or {}).get("optimal_price_point")
+        # biz_kind gates the modeled-price fallback: a per-unit price must not be
+        # annualized into recurring revenue (see ground_sizing_bottom_up).
+        sizing = ground_sizing_bottom_up(sizing, description, profile,
+                                         arpu_monthly_fallback=_psm_price,
+                                         biz_kind=biz_kind, result=result)
+        # cycle33: real origin-independent triangulation (replaces naive averaging).
+        sizing = triangulate_sizing(sizing)
+        # cycle33: gate + annotate via the numbers-right engine (non-breaking).
+        sizing = gate_and_annotate_sizing(sizing, scale_decision)
+        result["market_sizing"] = sizing
+
+    # F3 (location path): for a PHYSICAL venture with a location, override the digital
+    # sizing with a real trade-area model (Census households × BLS spend, OSM competitor
+    # density). Falls back silently to the digital sizing if no location / unavailable.
+    try:
+        hl = size_by_scale(scale_decision, description, profile)
+        if hl:
+            # The override REPLACES the sizing, so it must be re-gated. Measured on a fresh
+            # run: gate_and_annotate_sizing had already stamped scale_skill_ran and the
+            # grounded/not-grounded disclosure onto the digital sizing, and assigning `hl`
+            # here discarded both -- on exactly the path that now runs for physical ventures.
+            # The gate is idempotent, so running it again on the new payload is the fix.
+            hl = gate_and_annotate_sizing(hl, scale_decision)
+            result["market_sizing"] = hl
+            if "market_sizing" not in result["_steps_completed"]:
+                _step_done(result, "market_sizing")
+            log.info("[plan] hyperlocal sizing override (%s @ %s)",
+                     (scale_decision or {}).get("scale"), hl.get("_hyperlocal_location"))
+            _surface_late_geo_competitors(result, hl.get("geo_competitors") or [],
+                                          category=(profile or {}).get("category", ""))
+    except Exception as e:
+        log.warning("[plan] hyperlocal override failed (non-fatal): %s", e)
+        _step_done(result, "market_sizing")
+        checkpoint()
+
+
+
 def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progress=None,
              operator_weights: dict | None = None, refine: bool = False,
              resume_from: dict | None = None, effort: str | None = None) -> dict:
@@ -1898,19 +1961,6 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     _step_done(result, "validation")
     checkpoint()
 
-    # --- Step 7b: Market sizing (TAM/SAM/SOM) — parallel with 4Ps ---
-    # This uses profile + competitors + audience + pricing, all of which are already computed.
-    # Run in parallel with 4Ps synthesis to save wall-clock time.
-    def _sizing_task():
-        log.info("[plan] Step 7b: Market sizing (TAM/SAM/SOM)")
-        return estimate_market_size(
-            profile=profile,
-            competitors=opps[:6],
-            audience=top_audience,
-            competitor_pricing=competitor_pricing_data,
-            psm_result=psm_result,
-        )
-
     def _four_ps_task():
         log.info("[plan] Step 13: assembling 4Ps plan (split into 4 focused prompts)")
         return assemble_4ps_split(
@@ -1939,77 +1989,11 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
             market_sizing=result.get("market_sizing"),
         )
 
-    # cycle33: classify market scale (numbers-right engine). Non-breaking — the
-    # legacy estimate_market_size shape is preserved downstream; we annotate the
-    # result with the scale decision and route physical ventures' caveats.
-    # cycle37: reuse the scale already classified early (above). Only compute here if the early
-    # pass failed, so we never double-append "market_scale" to _steps_completed.
-    scale_decision = result.get("market_scale")
-    if scale_decision is None:
-        try:
-            from skills.sizing.classify import classify_market_scale
-            scale_decision = classify_market_scale(description, geo).payload
-            result["market_scale"] = scale_decision
-            _step_done(result, "market_scale")
-            log.info("[plan] Step 7a: market scale = %s → %s",
-                     scale_decision.get("scale"), scale_decision.get("sizing_skill"))
-        except Exception as e:
-            log.warning("[plan] scale classification failed (non-fatal): %s", e)
-
-    # SIZING BEFORE 4PS — SEQUENCED ON PURPOSE, at a measured wall-clock cost. These two
-    # used to run in parallel as "the pipeline's most expensive pair", and the overlap made
-    # the narrative run AHEAD of the numbers it narrates: _four_ps_task reads
-    # result["market_sizing"] at execution time, which was EMPTY mid-join, and the
-    # hyperlocal override (the sizing that carries competitors + som) landed after the join
-    # entirely. run14's _reminder_facts proved it: ms_competitors=null, ms_som_mid=null —
-    # the volume ladder's SOM rung and the paired-competitor-count rule never once reached
-    # a prompt. Sequencing costs the sizing's runtime (~30-90s, mostly cache-warm Census
-    # calls) and buys every downstream narrative claim its inputs; it also hands the 4Ps
-    # the geo roster and promoted density, which is what D22 wanted from the start.
-    sizing = run_labeled({"sizing": (_sizing_task, 90)})["sizing"]
-    if isinstance(sizing, dict) and sizing.get("error"):
-        log.warning("[plan] market sizing failed: %s", sizing["error"][:160])
-
-    if sizing and not sizing.get("error"):
-        # C2: ground the bottom-up TAM in a live Census count BEFORE the gate, so
-        # the report uses the real establishment count, not the LLM's guess.
-        # F3: ARPU basis = stated price, else the modeled PSM optimal price, so the
-        # Census-grounded bottom-up fires for most digital ventures (not only typed $/mo).
-        _psm_price = (psm_result or {}).get("optimal_price_point")
-        # biz_kind gates the modeled-price fallback: a per-unit price must not be
-        # annualized into recurring revenue (see ground_sizing_bottom_up).
-        sizing = ground_sizing_bottom_up(sizing, description, profile,
-                                         arpu_monthly_fallback=_psm_price,
-                                         biz_kind=biz_kind, result=result)
-        # cycle33: real origin-independent triangulation (replaces naive averaging).
-        sizing = triangulate_sizing(sizing)
-        # cycle33: gate + annotate via the numbers-right engine (non-breaking).
-        sizing = gate_and_annotate_sizing(sizing, scale_decision)
-        result["market_sizing"] = sizing
-
-    # F3 (location path): for a PHYSICAL venture with a location, override the digital
-    # sizing with a real trade-area model (Census households × BLS spend, OSM competitor
-    # density). Falls back silently to the digital sizing if no location / unavailable.
-    try:
-        hl = size_by_scale(scale_decision, description, profile)
-        if hl:
-            # The override REPLACES the sizing, so it must be re-gated. Measured on a fresh
-            # run: gate_and_annotate_sizing had already stamped scale_skill_ran and the
-            # grounded/not-grounded disclosure onto the digital sizing, and assigning `hl`
-            # here discarded both -- on exactly the path that now runs for physical ventures.
-            # The gate is idempotent, so running it again on the new payload is the fix.
-            hl = gate_and_annotate_sizing(hl, scale_decision)
-            result["market_sizing"] = hl
-            if "market_sizing" not in result["_steps_completed"]:
-                _step_done(result, "market_sizing")
-            log.info("[plan] hyperlocal sizing override (%s @ %s)",
-                     (scale_decision or {}).get("scale"), hl.get("_hyperlocal_location"))
-            _surface_late_geo_competitors(result, hl.get("geo_competitors") or [],
-                                          category=(profile or {}).get("category", ""))
-    except Exception as e:
-        log.warning("[plan] hyperlocal override failed (non-fatal): %s", e)
-        _step_done(result, "market_sizing")
-        checkpoint()
+    # --- Steps 7a/7b: market scale + sizing + hyperlocal override --- (→ run_sizing_stage)
+    run_sizing_stage(result, profile, description=description, geo=geo, opps=opps,
+                     top_audience=top_audience,
+                     competitor_pricing_data=competitor_pricing_data,
+                     psm_result=psm_result, biz_kind=biz_kind, checkpoint=checkpoint)
 
     # 4Ps runs AFTER the sizing (including the hyperlocal override above) is in `result`,
     # so the section prompts carry the real SOM ladder and both competitor counts.
@@ -2024,136 +2008,16 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         _step_done(result, "four_ps")
         checkpoint()
 
-    # --- Steps 7-8: Per-segment scoring + weighting (iter 36, spec 7-8) ---
-    # Requires customer_universe.segments to exist. Uses operator_weights if provided.
-    cu = result.get("customer_universe") or {}
-    segs = cu.get("segments", [])
-    # Iter 41: lowered from 2 → 1. Even a single segment scored on the 5 metrics
-    # is more useful than no segment-prioritization section at all.
-    if segs and len(segs) >= 1:
-        try:
-            from segment_scoring import rank_segments, DEFAULT_WEIGHTS
-            weights = result.get("operator_weights") or DEFAULT_WEIGHTS
-            competition_ctx = f"{len(opps)} competitors discovered; top: " + ", ".join(
-                o.get("brand", "?") for o in opps[:5]
-            )
-            log.info("[plan] Steps 7-8: scoring %d segments on 5 metrics", len(segs))
-            ranking = rank_segments(
-                segments=segs,
-                product_summary=profile.get("summary", ""),
-                competition_context=competition_ctx,
-                weights=weights,
-            )
-            result["segment_ranking"] = ranking
-            if "error" not in ranking:
-                _step_done(result, "segment_ranking")
-            checkpoint()
-        except Exception as e:
-            log.warning(f"[plan] segment ranking failed (non-fatal): {e}")
+    # --- Steps 7-8: Segment scoring --- (→ orchestrator/steps/segments.py)
+    run_segment_ranking_step(result, profile, opps, checkpoint=checkpoint)
 
-    # --- Step 10b: Financial projections (deterministic, no LLM) ---
-    # M3 fix (audit): consume the SINGLE canonical SOM from the FINAL market_sizing, not the
-    # stale local `sizing` var. For physical ventures `result["market_sizing"]` was replaced by
-    # the hyperlocal trade-area model AFTER `sizing` was computed, so reading `sizing` here made
-    # financials + at-SOM economics use a different SOM than the report's headline → two
-    # contradictory SOMs ("profitable at SOM" vs "every scenario loses money"). One source now.
-    _som_blk = (result.get("market_sizing") or {}).get("som") or {}
-    som_mid = _som_blk.get("mid")
-    # W4-1: the scenarios ride the SOM BAND (low/mid/high) — the sizing model's own
-    # venture-specific uncertainty — not a universal capture ladder on mid.
-    som_low, som_high = _som_blk.get("low"), _som_blk.get("high")
-    _mkt_scale = ((result.get("market_scale") or {}).get("scale") or "")
-    optimal_price = psm_result.get("optimal_price_point")
-    be = (result.get("pricing", {}) or {}).get("break_even", {}) or {}
-    be_customers = be.get("break_even_customers")
+    # --- Step 10b: Financial projections --- (→ orchestrator/steps/financials_step.py)
+    run_financials_step(result, profile, psm_result=psm_result, biz_kind=biz_kind,
+                        checkpoint=checkpoint)
 
-    # cycle37 + G3: now that SOM is known, enrich transactional unit economics with the
-    # at-SOM-volume profitability, pinned to the BASE scenario row so the claim can never
-    # contradict the scenario table (D08/D23). See _enrich_economics_at_som.
-    _econ = result.get("economics") or {}
-    if _econ:
-        result["economics"] = _enrich_economics_at_som(
-            _econ, som_mid, som_high=som_high, som_low=som_low,
-            category=profile.get("category", ""),
-            business_model=profile.get("business_model", ""),
-            market_scale=_mkt_scale)
-
-    # W4-1: revenue-only models (marketplace, ad_supported) need no per-customer
-    # price — gating them on optimal_price starved a sized venture of ANY financials
-    # (3219f4db: SOM $2.5M, no projection at all).
-    _fin_model = ("transactional" if is_per_unit(biz_kind)
-                 else biz_kind if biz_kind in ("marketplace", "ad_supported")
-                 else "subscription")
-    _needs_price = _fin_model not in ("marketplace", "ad_supported")
-    if som_mid and (optimal_price or not _needs_price):
-        log.info("[plan] Step 10b: 3-year financial projections")
-        # R4 rank 2: the venture's own published CAC feeds the break-even
-        # feasibility check — a break-even year whose acquisition spend exceeds
-        # that year's revenue is not claimable.
-        _cac = (((result.get("economics") or {}).get("unit_economics") or {})
-                .get("typical_cac_usd"))
-        proj = project_three_year(
-            som_mid=float(som_mid),
-            optimal_price=float(optimal_price) if optimal_price else None,
-            break_even_customers=be_customers,
-            break_even_costs=be,  # cycle36: surface the cost assumptions in the report
-            model=_fin_model,  # cycle37/38 + C3 + W4-1
-            economics=result.get("economics"),
-            som_low=som_low, som_high=som_high,
-            market_scale=_mkt_scale,
-            cac_usd=float(_cac) if isinstance(_cac, (int, float)) and _cac > 0 else None,
-        )
-        if not proj.get("error"):
-            # R4 rank 5: a projection computed from a withheld SOM carries the
-            # withhold with it — the data-layer decision the template banner renders.
-            from financials import mark_derived_from_withheld
-            result["financials"] = mark_derived_from_withheld(
-                proj, result.get("market_sizing"))
-            _step_done(result, "financials")
-            checkpoint()
-
-    # --- Step 14: Viability score ---
-    log.info("[plan] Step 14: scoring viability")
-    signal_count = sum(
-        1 for s in (disc.get("steps", {}) or {}).get("signals", [])
-        if s.get("_score", 0) > 0
-    )
-    # Iter 43 (issue I): pass actual differentiators_strength + universe_count +
-    # economics into viability so its 5-dim scoring uses the REAL pipeline data
-    # instead of the LLM's own guesses.
-    # cycle30: viability is critical — if it errors/times out on first try, retry
-    # once with a longer timeout. Better to take +90s than silently skip.
-    viability_kwargs = dict(
-        profile=profile,
-        four_ps=four_ps,
-        density=disc.get("competitor_density") or 0,
-        # NOT `or 0`: an unmeasured momentum count coerced to zero reads as "no rival has
-        # any web presence", which is a finding, not a gap — and it is the finding the
-        # corpus acted on. None reaches the prompt as "not measured".
-        active_density=disc.get("active_signal_density"),
-        avg_score=disc.get("avg_opportunity_score"),
-        audience_confidence=top_audience.get("confidence", 0) or 0,
-        signal_count=signal_count,
-        differentiators_strength=(result.get("differentiators") or {}).get("differentiation_strength"),
-        differentiators_count=len((result.get("differentiators") or {}).get("differentiators", [])),
-        customer_universe_count=(result.get("customer_universe") or {}).get("count"),
-        economics_evc=(result.get("economics") or {}).get("evc", {}).get("verdict"),
-        economics_clv=(result.get("economics") or {}).get("clv", {}).get("clv_usd"),
-        market_sizing=result.get("market_sizing"),  # cycle36: score opportunity on the real TAM/scale
-        business_model_kind=biz_kind,  # M4: forbid subscription/MRR bleed in viability narrative
-        economics=result.get("economics"),
-    )
-    viability = _run_with_timeout(score_viability, timeout_s=90, label="viability", **viability_kwargs)
-    if viability.get("error"):
-        log.warning("[plan] viability errored on first try (%s) — retrying with 180s timeout",
-                    viability.get("error"))
-        viability = _run_with_timeout(score_viability, timeout_s=180, label="viability(retry)", **viability_kwargs)
-    result["viability"] = viability
-    if not viability.get("error"):
-        _step_done(result, "viability")
-        checkpoint()
-    else:
-        log.warning("[plan] viability FAILED twice — surfacing as validation flag")
+    # --- Step 14: Viability score --- (→ orchestrator/steps/viability.py)
+    run_viability_step(result, profile, four_ps=four_ps, top_audience=top_audience,
+                       biz_kind=biz_kind, checkpoint=checkpoint)
 
     # cycle30: re-run validation gate at end so viability/segment/source flags
     # surface — the early gate ran before downstream signals existed.

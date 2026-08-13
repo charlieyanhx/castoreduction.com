@@ -118,11 +118,22 @@ class TestSubscriptionCacFeasibility(unittest.TestCase):
         self.assertIn("excludes acquisition", proj["assumptions"]["break_even_caveat"].lower())
 
     def test_the_pipeline_passes_the_published_cac(self):
-        import inspect
-        import plan
-        src = inspect.getsource(plan.run_plan)
-        self.assertIn("typical_cac_usd", src)
-        self.assertIn("cac_usd=", src)
+        """Was a getsource pin on run_plan; the projection moved to the financials step
+        (wave 12). Executing the step is the stronger check — it proves the venture's own
+        published CAC actually ARRIVES at project_three_year, not merely that two strings
+        appear somewhere in a source dump."""
+        from unittest.mock import patch
+
+        from orchestrator.steps.financials_step import run_financials_step
+        result = {"_steps_completed": [],
+                  "market_sizing": {"som": {"mid": 500_000.0}},
+                  "economics": {"unit_economics": {"typical_cac_usd": 37.5}}}
+        with patch("financials.project_three_year", return_value={"years": []}) as m, \
+             patch("financials.mark_derived_from_withheld", side_effect=lambda p, ms: p):
+            run_financials_step(result, {"category": "saas"},
+                                psm_result={"optimal_price_point": 29.0},
+                                biz_kind="subscription")
+        self.assertEqual(m.call_args.kwargs["cac_usd"], 37.5)
 
 
 class TestCostStructureIsScaleAware(unittest.TestCase):
