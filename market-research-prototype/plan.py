@@ -1763,6 +1763,12 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     except Exception:
         pass
     t_start = time.time()
+    # Per-run counter: a throttled run must be distinguishable from a thin-data venture.
+    try:
+        from llm import reset_exhaustion as _reset_exh
+        _reset_exh()
+    except Exception:
+        pass
     # W6-3: the effort dial. An unknown level resolves to STANDARD inside
     # effort_config, never down to quick — a typo must not silently thin a report the
     # operator paid extra for. `max_candidates` stays honoured when the caller passed
@@ -2134,6 +2140,21 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         _tr_done.detach(_own_transcript)
     except Exception:
         pass
+
+    # If every LLM backend refused a call at any point, SAY SO on the result. Steps that
+    # failed that way (market scale, customer voice, the 4Ps sections) leave the report
+    # looking like a venture with thin signal, when in fact the pipeline could not look.
+    # MEASURED cause: free-tier limits (Groq 30 RPM, Gemini 15 RPM) against a run that
+    # calls in bursts.
+    try:
+        from llm import exhaustion_summary as _exh
+        _e = _exh()
+        if _e:
+            result["_llm_exhaustion"] = _e
+            log.warning("[plan] %d LLM call(s) exhausted every backend — sections may be "
+                        "missing for that reason, not for lack of signal", _e["count"])
+    except Exception as e:
+        log.debug("[plan] exhaustion summary unavailable: %s", e)
 
     # W6-4: what this report cost to produce. Unanswerable before now, which made
     # pricing the product a guess instead of a margin calculation.
