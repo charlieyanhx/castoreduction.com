@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
@@ -129,6 +130,38 @@ def _resolve_cex_series(category: str) -> Optional[str]:
         return None
 
 
+# A BLS key is 32 hex characters, and BLS quotes it back at you when it rejects one.
+# Matched by SHAPE as well as by configured value so a rotated key, a second account's
+# key, or a colleague's key in a shared log is covered without editing this file.
+_KEY_SHAPED = re.compile(r"(?i)\bkey\s*[:=]?\s*([0-9a-f]{16,})")
+
+
+def _redact_secrets(text: str) -> str:
+    """Strip anything key-shaped out of a provider message before we keep it.
+
+    MEASURED LIVE (2026-08-12), the first time a real BLS_API_KEY was configured: BLS
+    rejected it with HTTP 200 and `message: ["The key:<32-hex-secret> provided by the
+    User is invalid..."]`. _bls_why appends that to our error text, and error text is
+    PERSISTED — persistence/ledger.py:153 writes `(error or "")[:140]` onto the tool
+    event, so the secret would have gone into the append-only ledger and the per-run
+    transcript. For bls_cex_spend's phrasing the whole 32-char key fits inside that
+    140-char slice; on the quintile-curve path it merely gets cut at 27 of 32 chars.
+    Truncation is a coincidence, not a control.
+
+    Redaction lives here, at the single point where a BLS message becomes our text —
+    not in the ledger, because a secret must never reach the component whose entire job
+    is to remember things forever.
+    """
+    if not text:
+        return text
+    key = os.getenv("BLS_API_KEY")
+    # The `len >= 8` guard matters: str.replace("") splices the marker between every
+    # character, so an unset or stub key would corrupt every message it touched.
+    if key and len(key) >= 8:
+        text = text.replace(key, "<REDACTED>")
+    return _KEY_SHAPED.sub(lambda m: m.group(0).replace(m.group(1), "<REDACTED>"), text)
+
+
 def _bls_why(data: dict | None) -> str:
     """The BLS reason for an empty result, appended to our own error text.
 
@@ -139,6 +172,9 @@ def _bls_why(data: dict | None) -> str:
     debugging to look for a bad series id when the series is fine and the QUOTA is the
     problem. The unkeyed limit is 25 requests/day per IP; a free BLS_API_KEY raises it
     to 500/day and is the actual fix.
+
+    The message is redacted before it is truncated: cutting first would leave a partial
+    secret in place of a hidden one.
     """
     if not isinstance(data, dict):
         return ""
@@ -148,7 +184,7 @@ def _bls_why(data: dict | None) -> str:
     msgs = data.get("message") or []
     if isinstance(msgs, str):
         msgs = [msgs]
-    first = str(msgs[0])[:200] if msgs else ""
+    first = _redact_secrets(str(msgs[0]))[:200] if msgs else ""
     hint = ""
     if "threshold" in first.lower() or "daily" in first.lower():
         hint = " — set a free BLS_API_KEY to raise the 25/day unkeyed limit to 500/day"
