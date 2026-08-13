@@ -48,6 +48,7 @@ log = get("plan")
 # wave calls for, so existing callers and tests keep working untouched.
 from orchestrator.steps import skip_step as _skip_step, step_done as _step_done
 from orchestrator.steps.competitors import run_discover_step
+from orchestrator.steps.firmographics import run_firmographics_step
 from orchestrator.steps.profile import run_profile_step
 
 
@@ -1788,23 +1789,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         # Degraded but not fatal — skip downstream steps that need competitors
         log.warning("[plan] no competitors found — proceeding with profile-only plan")
 
-    # --- Step 3e: Firmographic enrichment (B2B mode only) ---
-    # B2B buyers want to know "is this competitor a 50-person Series A or a 500-person
-    # public co?" — DTC competitors don't need this. Skip for DTC to save time.
-    if "b2b" in (profile.get("business_model") or "").lower() and opps:
-        try:
-            log.info(f"[plan] Step 3e: firmographic enrichment for top {min(6, len(opps))} B2B competitors")
-            from firmographics import enrich_competitors
-            enriched = enrich_competitors(opps, max_to_enrich=6)
-            # Write back into the discover result so downstream steps see it
-            disc["synthesis"]["ranked_opportunities"] = enriched
-            result["discover"] = disc
-            hits = sum(1 for o in enriched[:6] if (o.get("firmographics") or {}).get("sources"))
-            log.info(f"[plan] firmographics: {hits}/{min(6, len(enriched))} competitors enriched")
-            _step_done(result, "firmographics")
-            checkpoint()
-        except Exception as e:
-            log.warning(f"[plan] firmographic enrichment failed (non-fatal): {e}")
+    # --- Step 3e: Firmographics (B2B only) --- (→ orchestrator/steps/firmographics.py)
+    run_firmographics_step(result, profile, disc, opps, checkpoint=checkpoint)
 
     # --- Step 3c: Cluster competitors + detect whitespace (sklearn) ---
     if len(opps) >= 4:
