@@ -216,5 +216,135 @@ class TestCustomerUniverseStep(unittest.TestCase):
         self.assertNotIn("customer_universe", result["_steps_completed"])
 
 
+def _evidence_patches(taste=None, channels=None, prices=None, reddit=None, hn=None,
+                      stackexchange=None, devto=None, lobsters=None, vertical=None):
+    """One contextmanager stack for the whole evidence fan-out — every external
+    source stubbed, zero network."""
+    from contextlib import ExitStack
+
+    stack = ExitStack()
+    stack.enter_context(patch("taste.decode_taste", side_effect=taste or (lambda b, d: {})))
+    stack.enter_context(patch("place.analyze_competitor_channels",
+                              return_value=channels if channels is not None else {}))
+    stack.enter_context(patch("competitor_pricing.gather_competitor_prices",
+                              return_value=prices if prices is not None else {}))
+    stack.enter_context(patch("reddit_signal.fetch_signal",
+                              return_value=reddit if reddit is not None else {}))
+    stack.enter_context(patch("sources.hackernews_mentions",
+                              return_value=hn if hn is not None else []))
+    stack.enter_context(patch("sources.stackexchange_mentions",
+                              return_value=stackexchange if stackexchange is not None else []))
+    stack.enter_context(patch("sources.devto_mentions",
+                              return_value=devto if devto is not None else []))
+    stack.enter_context(patch("sources.lobsters_mentions",
+                              return_value=lobsters if lobsters is not None else []))
+    stack.enter_context(patch("sources.vertical_publication_mentions",
+                              return_value=vertical if vertical is not None else []))
+    return stack
+
+
+class TestEvidencePhaseStep(unittest.TestCase):
+    """The ~200-line parallel scrape fan-out — the biggest single block in run_plan.
+    Extracted, it finally answers unit questions the inline pool never could."""
+
+    def _opps(self, domains=True, n=5):
+        return [{"brand": f"B{i}", "domain": f"b{i}.com" if domains else None}
+                for i in range(n)]
+
+    def test_a_domainless_roster_records_the_four_section_drop(self):
+        from orchestrator.steps.evidence import run_evidence_step
+
+        result = {"_steps_completed": []}
+        with _evidence_patches():
+            run_evidence_step(result, {"category": "cafe"}, self._opps(domains=False))
+        drop = (result.get("_dropped_outputs") or {}).get("audiences", "")
+        self.assertIn("no competitor carries a domain", drop)
+
+    def test_taste_decodes_land_with_the_undecodable_kept_apart(self):
+        from orchestrator.steps.evidence import run_evidence_step
+
+        def fake_taste(brand, domain):
+            if brand == "B1":
+                return {"cannot_decode": True, "brand": brand}
+            return {"brand": brand, "confidence": 0.7}
+
+        result = {"_steps_completed": []}
+        with _evidence_patches(taste=fake_taste):
+            out = run_evidence_step(result, {"category": "cafe"}, self._opps())
+        self.assertEqual(result["audience"]["brand"], "B0")
+        self.assertEqual(len(result["audiences"]), 2)
+        self.assertEqual(len(result["audiences_undecodable"]), 1)
+        self.assertIn("audience", result["_steps_completed"])
+        self.assertEqual(out["top_audience"]["brand"], "B0")
+
+    def test_reddit_with_threads_persists_and_marks_done(self):
+        from orchestrator.steps.evidence import run_evidence_step
+
+        result = {"_steps_completed": []}
+        with _evidence_patches(reddit={"threads_found": 4, "themes": ["speed"]}):
+            out = run_evidence_step(result, {"category": "cafe"}, self._opps())
+        self.assertEqual(result["reddit_signal"]["threads_found"], 4)
+        self.assertIn("reddit_signal", result["_steps_completed"])
+        self.assertEqual(out["reddit"]["threads_found"], 4)
+
+    def test_reddit_with_zero_threads_persists_without_done(self):
+        """The inline semantics: an empty signal is kept (honest) but unrecorded."""
+        from orchestrator.steps.evidence import run_evidence_step
+
+        result = {"_steps_completed": []}
+        with _evidence_patches(reddit={"threads_found": 0}):
+            run_evidence_step(result, {"category": "cafe"}, self._opps())
+        self.assertIn("reddit_signal", result)
+        self.assertNotIn("reddit_signal", result["_steps_completed"])
+
+    def test_hn_hits_cap_at_15_but_count_the_full_find(self):
+        from orchestrator.steps.evidence import run_evidence_step
+
+        result = {"_steps_completed": []}
+        with _evidence_patches(hn=[{"title": f"t{i}"} for i in range(20)]):
+            run_evidence_step(result, {"category": "cafe"}, self._opps())
+        self.assertEqual(result["hn_signal"]["hits_found"], 20)
+        self.assertEqual(len(result["hn_signal"]["hits"]), 15)
+
+    def test_a_cafe_is_not_judged_by_dev_forums(self):
+        """cycle38's queried-map: 'skipped as irrelevant' and 'asked and found nothing'
+        must never be the same value — the third instance of that allowlist bug."""
+        from orchestrator.steps.evidence import run_evidence_step
+
+        result = {"_steps_completed": []}
+        with _evidence_patches(vertical=[{"title": "trade press"}]) as _s, \
+             patch("sources.stackexchange_mentions") as se:
+            run_evidence_step(result, {"category": "cafe", "summary": "espresso bar"},
+                              self._opps())
+        se.assert_not_called()
+        q = result["multi_source_signal"]["queried"]
+        self.assertFalse(q["stackoverflow"])
+        self.assertTrue(q["vertical_pubs"])
+
+    def test_a_saas_venture_is(self):
+        from orchestrator.steps.evidence import run_evidence_step
+
+        result = {"_steps_completed": []}
+        with _evidence_patches(stackexchange=[{"title": "so"}]):
+            run_evidence_step(result, {"category": "devops",
+                                       "business_model": "b2b saas",
+                                       "summary": "API monitoring"}, self._opps())
+        q = result["multi_source_signal"]["queried"]
+        self.assertTrue(q["stackoverflow"])
+
+    def test_channels_and_prices_return_in_the_bundle_unpersisted(self):
+        """competitor_pricing persists LATER in run_plan (after consumer research) —
+        the move must not reorder result-key insertion."""
+        from orchestrator.steps.evidence import run_evidence_step
+
+        result = {"_steps_completed": []}
+        with _evidence_patches(channels={"channels": [{"channel": "seo"}]},
+                               prices={"competitors_with_prices": 2}):
+            out = run_evidence_step(result, {"category": "cafe"}, self._opps())
+        self.assertEqual(out["channel_data"], {"channels": [{"channel": "seo"}]})
+        self.assertEqual(out["competitor_pricing"], {"competitors_with_prices": 2})
+        self.assertNotIn("competitor_pricing", result)
+
+
 if __name__ == "__main__":
     unittest.main()
