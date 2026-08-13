@@ -231,10 +231,36 @@ def _check_dangling_citations(r: dict, html: Optional[str]):
     return out
 
 
+def _check_unsupported_footnotes(r: dict, html: Optional[str]):
+    """A resolving marker on a number nothing measured — one level below dangling.
+
+    _check_dangling_citations asks whether the marker RESOLVES; this asks whether the
+    thing it resolves to supports the number standing next to it. MEASURED across runs
+    12-15: 28 of 190 footnoted 4Ps sentences (15%) carried a figure absent from every
+    deterministic input the section was handed — "150 drinks/day", "500 local workers",
+    "$0.45 per click" — each sitting beside a real computed number whose authority it
+    borrowed.
+
+    ADVISORY, unlike dangling. This one reads prose with a regex, which is unsound in
+    both directions: it cannot see a fabricated non-numeric attribute, and it will
+    occasionally flag honest derived arithmetic. A check that can be wrong must annotate
+    a report, never block one.
+    """
+    from report.claim_support import unsupported_citations
+    out = []
+    for row in unsupported_citations(r):
+        out.append((Severity.ADVISORY,
+                    f"{row['section']}: {row['number']:g} carries citation "
+                    f"{row['citation_ids']} but appears in no source or computed input — "
+                    f"\"{row['sentence'][:120]}\""))
+    return out
+
+
 _DETERMINISTIC: list[tuple[str, Callable]] = [
     ("formula_reconciliation", _check_formula_reconciliation),
     ("uncited_claims", _check_uncited_claims),
     ("dangling_citations", _check_dangling_citations),
+    ("unsupported_footnotes", _check_unsupported_footnotes),
 ]
 
 

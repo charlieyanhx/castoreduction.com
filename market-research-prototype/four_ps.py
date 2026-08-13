@@ -649,6 +649,37 @@ def _r_volume_ladder(facts: dict) -> str:
             "the five contradictory targets a prior report shipped made it unusable.")
 
 
+@reminder("citation_discipline", requires=("economics",), order=45)
+def _r_citation_discipline(facts: dict) -> str:
+    """A footnote may only sit on a number we actually have.
+
+    MEASURED across runs 12-15: 28 of 190 footnoted 4Ps sentences carried a figure that
+    appears in NO deterministic input — "150 drinks/day", "500 local workers within 0.5
+    miles", "$0.45 per click", "150 monthly high-intent searches".
+
+    The volume_ladder reminder already forbade inventing volume targets — and the model
+    was OBEYING it. run15's break-even is 47.7/day and its ceiling 324/day, so "150
+    drinks/day" sits inside the permitted band. The rule bounded the MAGNITUDE and said
+    nothing about the MARKER, so the model wrote "Target 150 drinks per day, sitting
+    above the 47.7 break-even threshold at a $5.50 price anchor ³" — one invented number
+    and two computed ones under a single footnote, the invented one inheriting the
+    others' authority. A footnote's entire value is letting a reader tell those apart.
+
+    So this rule is about markers, and it supplies the alternative form: propose freely,
+    just do it uncited and say who owns the number. A prohibition with no permitted
+    phrasing only moves the invention somewhere else.
+    """
+    unit = ((facts.get("economics") or {}).get("unit")) or "unit"
+    return (
+        "CITATION DISCIPLINE — HARD RULE: a ¹ marker may ONLY sit on a sentence whose "
+        "numbers appear in the facts given to you above or in the cited source itself. "
+        "Any target, quota, radius, headcount or spend you are PROPOSING is a "
+        f"recommendation, not a measurement: write it WITHOUT a footnote and name it as "
+        f"one — e.g. \"we recommend an opening target of N {unit}s/day (operator "
+        "decision)\" — never \"N {unit}s/day ¹\". Do not attach a marker to an invented "
+        "figure merely because a real figure sits beside it in the same sentence.")
+
+
 def section_reminders(business_model_kind=None, economics=None, van_westendorp=None,
                       competitor_density=None, active_signal_density=None,
                       market_sizing=None) -> str:
@@ -940,6 +971,7 @@ def assemble_4ps_split(
             "competitor_counts_pair": "COMPETITOR COUNTS — HARD RULE" in reminders,
             "competitive_density": "competitor" in reminders.lower(),
             "monetization_model": "MONETIZATION MODEL" in reminders,
+            "citation_discipline": "CITATION DISCIPLINE" in reminders,
         },
         "_reminder_facts": {
             "competitor_density": competitor_density,
