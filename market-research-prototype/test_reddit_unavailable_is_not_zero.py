@@ -44,6 +44,22 @@ class TestTheFetchReportsItsOwnUnavailability(unittest.TestCase):
         self.assertTrue(unavailable, "a 403 still reads as 'no posts found'")
         self.assertIn("403", unavailable)
 
+    def test_a_transport_failure_is_unavailable_not_a_crash(self):
+        """MEASURED in the 2026-08-12 full-suite run: Reddit refused the connection,
+        tenacity exhausted its retries, and the ConnectionError sailed straight out of
+        reddit_search — crashing decode_taste (taste.py:252) and failing five tests that
+        had nothing to do with transport. The function's own docstring promises
+        (posts, unavailable_reason); a dead socket is the STRONGEST form of unavailable,
+        and it was the one outcome that raised instead."""
+        import requests
+
+        with patch.object(forums.mrp_http, "get",
+                          side_effect=requests.ConnectionError("connection refused")):
+            posts, unavailable = forums.reddit_search("anything", limit=5)
+        self.assertEqual(posts, [])
+        self.assertTrue(unavailable, "a transport failure must read as unavailable")
+        self.assertIn("connection", unavailable.lower())
+
     def test_a_genuine_empty_result_is_not_unavailable(self):
         """Zero posts and no way to look are different facts."""
         resp = MagicMock(status_code=200)

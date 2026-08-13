@@ -106,7 +106,16 @@ def reddit_search(query: str, limit: int = 25) -> tuple[list[dict], str | None]:
     The docstring used to say "No authentication required". It does now."""
     url = "https://www.reddit.com/search.json"
     params = {"q": query, "limit": str(limit), "sort": "relevance", "t": "year"}
-    r = mrp_http.get(url, params=params, timeout=20, max_retries=2)
+    try:
+        r = mrp_http.get(url, params=params, timeout=20, max_retries=2)
+    except Exception as e:
+        # A dead socket is the STRONGEST form of unavailable, and it was the one outcome
+        # that raised instead of reporting. Measured 2026-08-12: a refused connection
+        # (tenacity retries exhausted) escaped here, crashed decode_taste mid-suite, and
+        # in production would have killed the taste future for a transport blip.
+        reason = f"connection failed ({type(e).__name__}: {str(e)[:120]})"
+        log.warning("[sources] reddit search unavailable for %r: %s", query[:60], reason)
+        return [], reason
     if r.status_code != 200:
         reason = (f"HTTP {r.status_code} — Reddit's public search API requires "
                   "authentication; set OAuth credentials to restore this signal")
