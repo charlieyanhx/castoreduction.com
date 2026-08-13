@@ -250,35 +250,121 @@ def _call_groq(system: str, user: str, max_tokens: int, model: str,
 # decide "4s have passed" at the same instant and fire together, which is how a 15 RPM
 # tier is exhausted in one breath — and why the LLM-dependent steps (market scale
 # classification, customer voice) degraded while deterministic ones came through.
-_GEMINI_MIN_INTERVAL = 4.0          # seconds between call STARTS (15 RPM free tier)
-_gemini_last_call = 0.0             # guarded by _gemini_rate_lock
+_GEMINI_MIN_INTERVAL = 4.0          # seconds between call STARTS, PER MODEL (15 RPM tier)
+_gemini_next_free: dict = {}        # model -> earliest permitted start; guarded by the lock
 _gemini_rate_lock = threading.Lock()
 
 
 def _gemini_reset_rate_state() -> None:
-    """Test seam: forget the last call so a case starts from a clean budget."""
-    global _gemini_last_call
+    """Test seam: forget reservations so a case starts from a clean budget."""
     with _gemini_rate_lock:
-        _gemini_last_call = 0.0
+        _gemini_next_free.clear()
 
 
-def _gemini_rate_gate() -> None:
-    """Block until this thread may START a Gemini call, then claim the slot.
+def _gemini_rate_gate(model: str = "") -> None:
+    """Block until this thread may START a call to `model`, then claim that slot.
 
-    The lock is held across BOTH the wait and the stamp, deliberately:
-      - without it, concurrent threads read one timestamp and all pass the check;
-      - stamping AFTER the API call (the previous behaviour) let every caller that
-        arrived mid-flight measure its wait from the last call's END, so spacing
-        collapsed exactly when the pipeline was busiest.
-    Holding it serializes Gemini calls, which is correct — with one free provider at
-    15 RPM there is no parallelism available, and pretending otherwise loses sections.
+    PER MODEL, deliberately. Google meters these separately — measured on run12, one run
+    spread 39 calls across gemini-flash-latest and gemini-flash-lite-latest — and
+    _call_gemini already walks a fallback list for exactly that reason. A single global
+    interval would serialize models that do not share a quota, throwing away throughput
+    the fallback list exists to provide, and with GROQ empty (Gemini is the whole chain)
+    that throughput is the difference between a slow run and a broken one.
+
+    RESERVE UNDER THE LOCK, SLEEP OUTSIDE IT. The lock only covers the arithmetic that
+    hands out a slot, so two different models proceed concurrently while calls to the SAME
+    model stay spaced. Sleeping while holding it would serialize everything again.
+
+    The reservation is what makes it safe under the pipeline's ~8 ThreadPoolExecutor
+    fan-outs: each caller claims a distinct future start time instead of N threads reading
+    one timestamp, all concluding the interval has passed, and firing together — the burst
+    that exhausted a 15 RPM tier and degraded the LLM-dependent steps.
     """
-    global _gemini_last_call
+    key = model or "_default"
     with _gemini_rate_lock:
-        elapsed = time.time() - _gemini_last_call
-        if _gemini_last_call and elapsed < _GEMINI_MIN_INTERVAL:
-            time.sleep(_GEMINI_MIN_INTERVAL - elapsed)
-        _gemini_last_call = time.time()
+        now = time.time()
+        start = max(now, _gemini_next_free.get(key, 0.0))
+        _gemini_next_free[key] = start + _GEMINI_MIN_INTERVAL
+    wait = start - time.time()
+    if wait > 0:
+        time.sleep(wait)
+
+
+def _detect_backend() -> str:
+    """Auto-detect from available API keys. Priority: groq > gemini > anthropic."""
+    explicit = os.environ.get("LLM_BACKEND", "").lower()
+    if explicit and explicit in BACKEND_DEFAULTS:
+        return explicit
+    for name, cfg in BACKEND_DEFAULTS.items():
+        key = os.environ.get(cfg["key_env"], "").strip()
+        if key and not key.endswith("..."):
+            return name
+    from errors import AuthError
+    raise AuthError(
+        "No LLM API key found. Set one of:\n"
+        "  GROQ_API_KEY      (free at https://console.groq.com)\n"
+        "  GEMINI_API_KEY    (free at https://aistudio.google.com)\n"
+        "  ANTHROPIC_API_KEY (paid at https://console.anthropic.com)"
+    )
+
+
+def _backend_and_model() -> tuple[str, str]:
+    backend = _detect_backend()
+    model_override = os.environ.get("CLAUDE_MODEL") or os.environ.get("LLM_MODEL")
+    model = model_override or BACKEND_DEFAULTS[backend]["model"]
+    return backend, model
+
+
+# ---------------------------------------------------------------------------
+# Backend implementations
+# ---------------------------------------------------------------------------
+def _call_anthropic(system: str, user: str, max_tokens: int, model: str,
+                    json_mode: bool = True) -> tuple[str, int, int]:
+    import anthropic
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    client = anthropic.Anthropic(api_key=key)
+    msg = client.messages.create(
+        model=model, max_tokens=max_tokens,
+        temperature=0,  # F2: deterministic — same input → same number
+        system=system, messages=[{"role": "user", "content": user}],
+    )
+    return msg.content[0].text, msg.usage.input_tokens, msg.usage.output_tokens
+
+
+def _call_groq(system: str, user: str, max_tokens: int, model: str,
+               json_mode: bool = True) -> tuple[str, int, int]:
+    from groq import Groq
+    key = os.environ.get("GROQ_API_KEY", "")
+    client = Groq(api_key=key)
+    resp = client.chat.completions.create(
+        model=model, max_tokens=max_tokens,
+        temperature=0, seed=42,  # F2: deterministic (Groq supports a seed)
+        # Only when the caller wants JSON. call_text shares these backends, so a hardcoded
+        # response_format meant the prose path was constrained to emit an object and
+        # returned that raw text to be printed.
+        **({"response_format": {"type": "json_object"}} if json_mode else {}),
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+    )
+    text = resp.choices[0].message.content or ""
+    in_tok = getattr(resp.usage, "prompt_tokens", 0) or 0
+    out_tok = getattr(resp.usage, "completion_tokens", 0) or 0
+    return text, in_tok, out_tok
+
+
+# Free-tier pacing. MEASURED on this machine: GROQ_API_KEY is empty, so the chain is
+# Gemini ALONE at 15 RPM with no second free provider to absorb a throttle — the interval
+# below is the entire rate budget, and the pipeline calls from ~8 ThreadPoolExecutor
+# fan-outs (4Ps sections, evidence phase, place, discover, differentiators,
+# competitor_pricing, run_labeled). A bare global read by N threads let every one of them
+# decide "4s have passed" at the same instant and fire together, which is how a 15 RPM
+# tier is exhausted in one breath — and why the LLM-dependent steps (market scale
+# classification, customer voice) degraded while deterministic ones came through.
+_GEMINI_MIN_INTERVAL = 4.0          # seconds between call STARTS (15 RPM free tier)
+_gemini_rate_lock = threading.Lock()
+
 
 # Recent non-transient backend failures, so an exhausted chain can say WHY (see
 # _record_backend_failure). Bounded — this is a diagnostic, not a log.
@@ -304,12 +390,11 @@ _GEMINI_THINKING_OK: dict[str, bool] = {}
 
 def _call_gemini(system: str, user: str, max_tokens: int, model: str,
                  json_mode: bool = True) -> tuple[str, int, int]:
-    # (no `global _gemini_last_call` — the timestamp is owned by _gemini_rate_gate now,
-    # which claims the slot under a lock BEFORE the call rather than after it.)
+    # (rate slots are owned by _gemini_rate_gate, claimed per MODEL inside the loop
+    # below rather than once per call here.)
     client = _gemini_client()
     full_prompt = f"{system}\n\n{user}"
 
-    _gemini_rate_gate()
 
     # Try multiple models on 429 — different models have separate quota pools.
     # cycle36: these are the models VERIFIED available for this key tier (gemini-2.0-flash
@@ -326,6 +411,9 @@ def _call_gemini(system: str, user: str, max_tokens: int, model: str,
     # faster. Was burning ~20s × N-calls per plan.
     last_err = None
     for m in models_to_try:
+      # Claim this MODEL's rate slot. Per model because Google meters them separately —
+      # which is the reason the fallback list exists at all.
+      _gemini_rate_gate(m)
       # Try the thinking-disabled form first unless this model has already rejected it.
       # `thinking_budget: 0` is load-bearing where supported (see cycle36 note below), so
       # it is dropped per model on evidence, never pre-emptively.

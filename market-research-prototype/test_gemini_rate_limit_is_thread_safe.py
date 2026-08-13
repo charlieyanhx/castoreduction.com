@@ -29,10 +29,14 @@ on it degrade — which is exactly the reported production symptom: a run "break
 market scale classification and customer voice", the LLM-dependent steps, while the
 deterministic ones came through fine.
 
-The fix is a lock held across the wait AND the stamp, so the interval is enforced between
-call STARTS globally. That serializes Gemini calls, which is the point: with one free
-provider at 15 RPM there is no parallelism to be had, and pretending otherwise is what
-loses the sections.
+THE FIX reserves a slot PER MODEL under a lock and sleeps outside it. Per model because
+Google meters them separately — measured on run12, one run spread 39 calls across
+gemini-flash-latest and gemini-flash-lite-latest, which is the reason _call_gemini walks a
+fallback list at all. A single global interval would serialize models that do not share a
+quota and throw away the throughput that list exists to provide; with GROQ empty and
+Gemini the whole chain, that throughput is the difference between a slow run and a broken
+one. Reserving under the lock (rather than sleeping under it) is what lets two models
+proceed at once while calls to the SAME model stay spaced.
 """
 from __future__ import annotations
 
@@ -51,7 +55,7 @@ class TestTheLimiterSerialisesAcrossThreads(unittest.TestCase):
         lock = threading.Lock()
 
         def one():
-            llm._gemini_rate_gate()
+            llm._gemini_rate_gate("m1")
             with lock:
                 starts.append(time.time())
 
@@ -80,7 +84,7 @@ class TestTheLimiterSerialisesAcrossThreads(unittest.TestCase):
         with patch.object(llm, "_GEMINI_MIN_INTERVAL", 5.0):
             llm._gemini_reset_rate_state()
             t0 = time.time()
-            llm._gemini_rate_gate()
+            llm._gemini_rate_gate("m1")
             self.assertLess(time.time() - t0, 0.5)
 
     def test_the_stamp_is_taken_when_the_call_STARTS(self):
@@ -90,14 +94,43 @@ class TestTheLimiterSerialisesAcrossThreads(unittest.TestCase):
 
         with patch.object(llm, "_GEMINI_MIN_INTERVAL", 0.30):
             llm._gemini_reset_rate_state()
-            llm._gemini_rate_gate()
+            llm._gemini_rate_gate("m1")
             time.sleep(0.05)          # stand in for a slow API call
             t0 = time.time()
-            llm._gemini_rate_gate()   # must still wait out the remaining ~0.25s
+            llm._gemini_rate_gate("m1")   # same model — must wait out the remaining ~0.25s
             waited = time.time() - t0
         self.assertGreater(waited, 0.15,
                            "the second caller was let through early — the stamp is being "
                            "taken after the call instead of before it")
+
+
+class TestDifferentModelsDoNotBlockEachOther(unittest.TestCase):
+    """Google meters these separately — measured on run12, one run spread 39 calls across
+    gemini-flash-latest and gemini-flash-lite-latest, and _call_gemini walks a fallback
+    list for exactly that reason. A single global interval would serialize models that do
+    not share a quota, throwing away the throughput the fallback list exists to provide.
+    With GROQ empty and Gemini the whole chain, that throughput is the difference between
+    a slow run and a broken one."""
+
+    def test_two_models_proceed_concurrently(self):
+        import llm
+
+        with patch.object(llm, "_GEMINI_MIN_INTERVAL", 0.40):
+            llm._gemini_reset_rate_state()
+            llm._gemini_rate_gate("model-a")
+            t0 = time.time()
+            llm._gemini_rate_gate("model-b")   # different quota pool — must not wait
+            self.assertLess(time.time() - t0, 0.15)
+
+    def test_the_same_model_still_waits(self):
+        import llm
+
+        with patch.object(llm, "_GEMINI_MIN_INTERVAL", 0.40):
+            llm._gemini_reset_rate_state()
+            llm._gemini_rate_gate("model-a")
+            t0 = time.time()
+            llm._gemini_rate_gate("model-a")
+            self.assertGreater(time.time() - t0, 0.25)
 
 
 class TestTheChainReflectsTheRealConfiguration(unittest.TestCase):
