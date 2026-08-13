@@ -257,3 +257,76 @@ class TestThePromptCarriesTheRule(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheAllowedAttributeRule(unittest.TestCase):
+    """#79 fix direction (1), and the half report/claim_support.py cannot cover.
+
+    The measured case: "pour-overs served in under 3 minutes" drove Differentiation
+    Strength (22% of the viability composite) and became a critical assumption, while
+    profile.core_features carried no speed claim and differentiators returned 0/5. A
+    numeric check cannot see a fabricated ATTRIBUTE — it has no number, or borrows one
+    handed elsewhere.
+
+    A detector is not the answer here and the measurement says so: on the four stored runs
+    a bag-of-words takeaway/narrative divergence check flags 25% with obvious false
+    positives (a fair summary in different words), and a proper-noun variant flags 2% and
+    misses the panel's own example. Both are worse than nothing as a gate. So the fix
+    constrains the GENERATOR, where a wrong guess costs nothing.
+    """
+
+    def test_the_rule_lists_the_ventures_real_attributes(self):
+        from four_ps import _r_allowed_attributes
+
+        text = _r_allowed_attributes({"core_features": [
+            "Specialty coffee brewing and service", "Small pastry selection"]})
+        self.assertIn("PRODUCT ATTRIBUTES — HARD RULE", text)
+        self.assertIn("Specialty coffee brewing", text)
+        self.assertIn("Small pastry selection", text)
+
+    def test_it_names_the_invented_property_classes_to_avoid(self):
+        from four_ps import _r_allowed_attributes
+
+        text = _r_allowed_attributes({"core_features": ["Coffee"]})
+        self.assertIn("speed", text.lower())
+
+    def test_it_permits_a_recommendation_form(self):
+        """A prohibition with no allowed phrasing moves the invention elsewhere."""
+        from four_ps import _r_allowed_attributes
+
+        self.assertIn("recommend", _r_allowed_attributes(
+            {"core_features": ["Coffee"]}).lower())
+
+    def test_no_features_means_no_rule(self):
+        from four_ps import _r_allowed_attributes
+
+        self.assertEqual(_r_allowed_attributes({"core_features": []}), "")
+        self.assertEqual(_r_allowed_attributes({}), "")
+
+    def test_it_reaches_every_section_and_is_recorded(self):
+        from unittest.mock import patch
+
+        import four_ps as F
+        captured = {}
+
+        def fake(system, user, max_tokens, response_model=None):
+            for n in ("Product", "Price", "Place", "Promotion"):
+                if n in system:
+                    captured[n.lower()] = user
+                    break
+            return {"narrative": "n.", "key_takeaways": ["t"], "citations": []}
+
+        with patch.object(F, "call_json", side_effect=fake):
+            out = F.assemble_4ps_split(
+                profile={"name": "A", "summary": "s",
+                         "core_features": ["Specialty coffee brewing"]},
+                competitors=[], top_audience={}, max_diff={}, van_westendorp={},
+                place={}, pricing_benchmark=None,
+                economics={"unit": "drink", "price_per_unit": 5.5},
+                reddit_signal={}, business_model_kind="transactional",
+                competitor_density=30, active_signal_density=None,
+                market_sizing={"som": {"mid": 650_000.0}})
+        self.assertEqual(len(captured), 4)
+        for name, prompt in captured.items():
+            self.assertIn("PRODUCT ATTRIBUTES — HARD RULE", prompt, name)
+        self.assertTrue((out.get("_reminders_fired") or {}).get("allowed_attributes"))
