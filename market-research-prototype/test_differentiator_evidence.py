@@ -171,13 +171,23 @@ class TestPipelineSequencing(unittest.TestCase):
 
     def test_customer_universe_no_longer_waits_on_differentiators(self):
         """Pre-evidence fabricated diffs were its search hints — garbage hints. It
-        now runs without them rather than moving the whole universe later."""
+        now runs without them rather than moving the whole universe later.
+
+        Anchor updated for the extraction: run_plan now calls
+        run_customer_universe_step (orchestrator/steps/customer_universe.py), and the
+        step's signature is the stronger guarantee — it does not even accept
+        differentiators, so it cannot consume them. Both are pinned: the call still
+        precedes the differentiators block, and the signature stays diff-free."""
         import inspect
+
         import plan
+        from orchestrator.steps.customer_universe import run_customer_universe_step
         src = inspect.getsource(plan.run_plan)
-        universe_at = src.index("build_customer_universe")
-        self.assertNotIn('result.get("differentiators")',
-                         src[universe_at:universe_at + 400])
+        self.assertLess(src.index("run_customer_universe_step"),
+                        src.index("extract_differentiators"),
+                        "the universe moved after differentiators again")
+        params = inspect.signature(run_customer_universe_step).parameters
+        self.assertNotIn("differentiators", params)
 
 
 class TestGateD30(unittest.TestCase):
