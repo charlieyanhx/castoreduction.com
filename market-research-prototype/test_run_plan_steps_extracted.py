@@ -475,5 +475,60 @@ class TestMaxDiffStep(unittest.TestCase):
         self.assertEqual(out, result["max_diff"])
 
 
+class TestPricingSimStep(unittest.TestCase):
+    def _run(self, result=None, psm=None, place_rec=None, pricing_data=None,
+             channels=None, **kw):
+        from orchestrator.steps.pricing_sim import run_pricing_sim_step
+
+        result = result if result is not None else {"_steps_completed": []}
+        with patch("pricing.simulate_van_westendorp",
+                   return_value=psm if psm is not None else {"optimal_price_point": 5.5}) as mv, \
+             patch("place.recommend_place",
+                   return_value=place_rec if place_rec is not None else {"rec": "seo"}) as mp:
+            psm_result, place_result = run_pricing_sim_step(
+                result, {"summary": "espresso bar", "category": "cafe"},
+                segment_summary="commuters", top_features=["wifi"],
+                competitor_pricing_data=pricing_data or {},
+                channel_data=channels if channels is not None else {"channels": [1]},
+                psm_unit=kw.get("psm_unit", "drink"),
+                psm_recurring=kw.get("psm_recurring", False))
+        return result, psm_result, place_result, mv, mp
+
+    def test_scraped_prices_anchor_the_simulation_when_a_median_exists(self):
+        pricing_data = {"category_median": 6.0,
+                        "per_domain": [{"median": 5.0}, {"median": None}, {"median": 7.0}]}
+        _, _, _, mv, _ = self._run(pricing_data=pricing_data)
+        self.assertEqual(mv.call_args.kwargs["competitor_prices"], [5.0, 7.0])
+        self.assertEqual(mv.call_args.kwargs["unit"], "drink")
+        self.assertFalse(mv.call_args.kwargs["recurring"])
+
+    def test_no_category_median_means_no_anchor(self):
+        _, _, _, mv, _ = self._run(pricing_data={"per_domain": [{"median": 5.0}]})
+        self.assertIsNone(mv.call_args.kwargs["competitor_prices"])
+
+    def test_psm_persists_and_marks_done_on_success(self):
+        result, psm_result, _, _, _ = self._run()
+        self.assertEqual(result["pricing"], {"psm": {"optimal_price_point": 5.5}})
+        self.assertIn("pricing", result["_steps_completed"])
+        self.assertEqual(psm_result["optimal_price_point"], 5.5)
+
+    def test_a_failed_psm_is_persisted_but_not_marked_done(self):
+        result, _, _, _, _ = self._run(psm={"error": "LLM down"})
+        self.assertIn("error", result["pricing"]["psm"])
+        self.assertNotIn("pricing", result["_steps_completed"])
+
+    def test_no_channel_data_skips_the_place_recommendation(self):
+        _, _, place_result, _, mp = self._run(channels={})
+        mp.assert_not_called()
+        self.assertEqual(place_result, {})
+
+    def test_place_result_is_returned_not_persisted(self):
+        """place lands in result much later in run_plan (after economics) — the move
+        must not reorder result-key insertion."""
+        result, _, place_result, _, _ = self._run()
+        self.assertEqual(place_result, {"rec": "seo"})
+        self.assertNotIn("place", result)
+
+
 if __name__ == "__main__":
     unittest.main()

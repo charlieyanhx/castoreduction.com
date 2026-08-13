@@ -28,8 +28,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 from capabilities.scheduler import run_labeled
 
-from pricing import simulate_van_westendorp, compute_break_even
-from place import recommend_place
+from pricing import compute_break_even
 from four_ps import assemble_4ps, assemble_4ps_split, score_viability
 from market_sizing import estimate_market_size, validation_sources_for
 from financials import project_three_year, Y3_CAPTURE
@@ -51,6 +50,7 @@ from orchestrator.steps.differentiators import run_differentiators_step
 from orchestrator.steps.evidence import run_evidence_step
 from orchestrator.steps.firmographics import run_firmographics_step
 from orchestrator.steps.max_diff import run_max_diff_step
+from orchestrator.steps.pricing_sim import run_pricing_sim_step
 from orchestrator.steps.profile import run_profile_step
 
 
@@ -1810,47 +1810,11 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     _psm_recurring = (biz_kind == "subscription")
     log.info("[plan] business model = %s (psm unit=%s, recurring=%s)", biz_kind, _psm_unit, _psm_recurring)
 
-    def _psm_task():
-        log.info("[plan] Step 9b: Van Westendorp PSM")
-        # Use real scraped competitor prices to anchor the simulation
-        comp_prices = None
-        if competitor_pricing_data and competitor_pricing_data.get("category_median"):
-            comp_prices = [d["median"] for d in competitor_pricing_data.get("per_domain", []) if d.get("median")]
-        return simulate_van_westendorp(
-            segment_summary=segment_summary,
-            product_summary=profile.get("summary", ""),
-            top_features=top_features,
-            competitor_prices=comp_prices,
-            unit=_psm_unit,
-            recurring=_psm_recurring,
-        )
-
-    def _place_llm_task():
-        if not channel_data:
-            return {}
-        log.info("[plan] Step 11: LLM channel recommendation")
-        return recommend_place(
-            product_summary=profile.get("summary", ""),
-            segment_summary=segment_summary,
-            competitor_analysis=channel_data,
-        )
-
-    # W5 close-out: was a hand-rolled join whose timeout was COSMETIC. The
-    # `future.result(timeout=90)` fired and set the degraded value, but exiting the
-    # `with ThreadPoolExecutor(...)` calls shutdown(wait=True) — so the block waited
-    # out the hung task anyway. A stalled provider call cost its full wall clock and
-    # the log line claimed the pipeline had moved on. run_labeled releases the batch.
-    _joined = run_labeled({"psm": (_psm_task, 90), "place": (_place_llm_task, 90)})
-    psm_result = _joined["psm"]
-    place_result = _joined["place"]
-    for _k, _label in (("psm", "PSM"), ("place", "place recommendation")):
-        if isinstance(_joined[_k], dict) and _joined[_k].get("error"):
-            log.warning("[plan] %s failed: %s", _label, _joined[_k]["error"][:160])
-
-    result["pricing"] = {"psm": psm_result}
-    if not psm_result.get("error"):
-        _step_done(result, "pricing")
-        checkpoint()
+    # --- Steps 9b + 11: PSM + place recommendation, parallel --- (→ orchestrator/steps/pricing_sim.py)
+    psm_result, place_result = run_pricing_sim_step(
+        result, profile, segment_summary=segment_summary, top_features=top_features,
+        competitor_pricing_data=competitor_pricing_data, channel_data=channel_data,
+        psm_unit=_psm_unit, psm_recurring=_psm_recurring, checkpoint=checkpoint)
 
     # C5 (Manus-parity): the user's stated price must not be silently dropped.
     # Reconcile it against the model's recommended optimal price, visibly.
