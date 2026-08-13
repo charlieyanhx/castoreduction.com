@@ -683,6 +683,41 @@ def _r_tier_range(facts: dict) -> str:
             "point, and never size volume from it.")
 
 
+@reminder("allowed_attributes", requires=("core_features",), order=15)
+def _r_allowed_attributes(facts: dict) -> str:
+    """The venture's actual feature set, so sections stop inventing product specs.
+
+    THE MEASURED CASE (#79's finding a): "pour-overs served in under 3 minutes" appeared
+    in Product, drove the Differentiation Strength reasoning — 22% of the viability
+    composite — and became one of two critical assumptions, while profile.core_features
+    contained no speed claim at all and the differentiators step had returned 0 of 5. A
+    fabricated product spec circulating through three load-bearing sections.
+
+    The numeric claim-support check (report/claim_support.py) cannot see this class: a
+    fabricated ATTRIBUTE carries no number, or borrows one that happens to be handed
+    elsewhere. And a deterministic detector over prose is not defensible — MEASURED on the
+    four stored runs, a bag-of-words takeaway/narrative divergence check flags 25% with
+    obvious false positives (a fair summary in different words), while a proper-noun
+    variant flags 2% and misses the panel's own example. Both are worse than nothing as a
+    gate, because noise buries real findings.
+
+    So this constrains the GENERATOR, where being wrong costs nothing: the model is handed
+    the real attribute set and told that anything outside it is a proposal, not a property.
+    """
+    feats = [f for f in (facts.get("core_features") or []) if isinstance(f, str) and f.strip()]
+    if not feats:
+        return ""
+    listed = "; ".join(f.strip() for f in feats[:12])
+    return (
+        "PRODUCT ATTRIBUTES — HARD RULE: the venture's established attributes are exactly "
+        f"[{listed}]. Do NOT assert any other product property — speed, provenance, "
+        "temperature, grade, capacity, certification — as a fact about this business. If "
+        "you are RECOMMENDING one, write it as a recommendation the operator has not yet "
+        "committed to, never as a current capability, and never with a citation marker. A "
+        "prior report invented a 3-minute service standard that then drove its "
+        "differentiation score and two critical assumptions.")
+
+
 @reminder("citation_discipline", requires=("economics",), order=45)
 def _r_citation_discipline(facts: dict) -> str:
     """A footnote may only sit on a number we actually have.
@@ -716,7 +751,7 @@ def _r_citation_discipline(facts: dict) -> str:
 
 def section_reminders(business_model_kind=None, economics=None, van_westendorp=None,
                       competitor_density=None, active_signal_density=None,
-                      market_sizing=None) -> str:
+                      market_sizing=None, core_features=None) -> str:
     """The guardrail block every 4Ps section prompt carries."""
     return Reminders.assemble({
         "business_model_kind": business_model_kind,
@@ -725,6 +760,7 @@ def section_reminders(business_model_kind=None, economics=None, van_westendorp=N
         "competitor_density": competitor_density,
         "active_signal_density": active_signal_density,
         "market_sizing": market_sizing,
+        "core_features": core_features,
     })
 
 
@@ -941,7 +977,8 @@ def assemble_4ps_split(
     # exist to prevent. test_reminders pins that every section carries every one.
     reminders = section_reminders(business_model_kind, economics, van_westendorp,
                                   competitor_density, active_signal_density,
-                                  market_sizing=market_sizing)
+                                  market_sizing=market_sizing,
+                                  core_features=(profile or {}).get("core_features"))
     tasks = build_section_prompts({
         "product": _product_prompt(profile_blob, features_blob, competitors_blob, audience_celebrated),
         "price": _price_prompt(profile_blob, pricing_blob, benchmark_blob, economics_blob, psm_ok=psm_ok),
@@ -1007,6 +1044,7 @@ def assemble_4ps_split(
             "monetization_model": "MONETIZATION MODEL" in reminders,
             "citation_discipline": "CITATION DISCIPLINE" in reminders,
             "tier_range": "TIER RANGE — HARD RULE" in reminders,
+            "allowed_attributes": "PRODUCT ATTRIBUTES — HARD RULE" in reminders,
         },
         "_reminder_facts": {
             "competitor_density": competitor_density,
