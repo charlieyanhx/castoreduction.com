@@ -728,6 +728,35 @@ class TestSizingStage(unittest.TestCase):
         self.assertEqual(result["market_sizing"]["tam"]["value_usd"], 1e6,
                          "a geo failure destroyed the digital sizing that had succeeded")
 
+    def test_a_successful_digital_run_records_the_step(self):
+        """#88. Recording lived at exactly two sites: inside `if hl:` and inside the
+        `except`. So an ordinary digital venture — sizing computed, grounded,
+        triangulated, gated, sitting in result["market_sizing"] — finished with the step
+        UNRECORDED, and gate D01 counts the length of that list. The plan artifact
+        under-reported a step that ran."""
+        result, _, _ = self._stage(hl=None)
+        self.assertIn("market_sizing", result["market_sizing"] and
+                      result["_steps_completed"],
+                      "a successful digital sizing still records nothing")
+
+    def test_the_override_path_still_records_exactly_once(self):
+        result, _, _ = self._stage(hl={"som": {"mid": 5e5}})
+        self.assertEqual(result["_steps_completed"].count("market_sizing"), 1)
+
+    def test_a_failed_override_does_not_claim_the_step_finished(self):
+        """Recording from inside an exception handler is backwards, and contradicts the
+        convention every extracted step follows: failure leaves the step unrecorded so a
+        resume recomputes it rather than skipping a hole. The digital sizing that DID
+        succeed is still what gets recorded here — via the success path above, not the
+        handler."""
+        result, _, _ = self._stage(hl_raises=True)
+        self.assertEqual(result["market_sizing"]["tam"]["value_usd"], 1e6)
+        self.assertEqual(result["_steps_completed"].count("market_sizing"), 1)
+
+    def test_a_failed_estimate_records_nothing(self):
+        result, _, _ = self._stage(sizing={"error": "sizing LLM down"})
+        self.assertNotIn("market_sizing", result["_steps_completed"])
+
     def test_a_failed_estimate_does_not_overwrite_market_sizing(self):
         result, calls, _ = self._stage(sizing={"error": "sizing LLM down"})
         self.assertNotIn("ground", calls)
