@@ -802,13 +802,79 @@ def get_job_trace(job_id: str):
     return HTMLResponse("<!doctype html><meta charset=utf-8>" + head + "".join(body))
 
 
+def _blocking_list_html(blocking: list) -> str:
+    """The findings, as list items. Shared by the withhold page and the forced banner so
+    the two surfaces can never disagree about what is wrong."""
+    from html import escape as esc
+    return "".join(
+        f"<li style=\"margin:.35rem 0\"><strong>{esc(str(f.get('invariant') or '?'))}</strong>"
+        f" — {esc(str(f.get('detail') or ''))}</li>"
+        for f in blocking)
+
+
+def _withheld_page(job_id: str, blocking: list) -> str:
+    """Shown instead of a report the verifier declared unpublishable.
+
+    It NAMES every blocking finding: a report withheld without a reason is unusable to the
+    operator, who then has nothing to act on and no way to judge whether to override."""
+    n = len(blocking)
+    return (
+        "<!doctype html><meta charset=utf-8><title>Report withheld</title>"
+        "<div style=\"font:16px/1.6 -apple-system,system-ui,sans-serif;max-width:46rem;"
+        "margin:12vh auto;padding:0 1.5rem;color:#1f2937\">"
+        "<div style=\"font-size:13px;letter-spacing:.08em;text-transform:uppercase;"
+        "color:#9ca3af\">Castor Advisories</div>"
+        "<h1 style=\"font-size:1.6rem;margin:.4rem 0 .6rem\">This report was withheld</h1>"
+        f"<p style=\"color:#4b5563\">Verification found <strong>{n} blocking "
+        f"issue{'s' if n != 1 else ''}</strong>. A report that fails its own invariants is "
+        "not delivered by default — the findings below have to be resolved, or the run "
+        "regenerated.</p>"
+        f"<ul style=\"color:#4b5563\">{_blocking_list_html(blocking)}</ul>"
+        "<p style=\"font-size:13px;color:#9ca3af\">Job "
+        f"{job_id}</p>"
+        "<p><a href=\"?force=1\" style=\"display:inline-block;margin-top:.5rem;padding:.55rem 1rem;"
+        "background:#b45309;color:#fff;border-radius:8px;text-decoration:none\">"
+        "Show it anyway (records the override)</a> "
+        "<a href=\"/\" style=\"display:inline-block;margin-top:.5rem;margin-left:.5rem;"
+        "padding:.55rem 1rem;background:#1f2937;color:#fff;border-radius:8px;"
+        "text-decoration:none\">Start a new report</a></p></div>")
+
+
+def _inject_forced_banner(html: str, blocking: list) -> str:
+    """Stamp the override onto the page, above the report.
+
+    Injected at the serving layer rather than threaded through render_report_html, which
+    is documented pure (no DB, no request) — whether a given READER forced delivery is a
+    property of the request, not of the report."""
+    n = len(blocking)
+    banner = (
+        "<div style=\"font:14px/1.5 -apple-system,system-ui,sans-serif;background:#fffbeb;"
+        "border-bottom:2px solid #f59e0b;color:#92400e;padding:12px 18px\">"
+        f"<strong>Served over verification: {n} blocking "
+        f"issue{'s' if n != 1 else ''} outstanding.</strong> This report did not pass its "
+        "own checks and was displayed at an operator's explicit request."
+        f"<ul style=\"margin:.5rem 0 0\">{_blocking_list_html(blocking)}</ul></div>")
+    lowered = html.lower()
+    i = lowered.find("<body")
+    if i != -1:
+        j = html.find(">", i)
+        if j != -1:
+            return html[:j + 1] + banner + html[j + 1:]
+    return banner + html
+
+
 @app.get("/jobs/{job_id}/report.html", response_class=HTMLResponse)
-def get_job_report_html(job_id: str, debug: int = 0):
+def get_job_report_html(job_id: str, debug: int = 0, force: int = 0):
     """Polished HTML report (print-friendly, Cmd+P → Save as PDF). For 'plan' jobs only.
 
     `?debug=1` renders the section→script provenance overlay (which module produced each
     section, the evidence it consumed, and its data character) so a wrong sentence points
-    straight at the script that owns it."""
+    straight at the script that owns it.
+
+    `?force=1` serves a report the verifier declared unpublishable. Blocking findings
+    WITHHOLD by default (see below); force exists because there are real cases — a demo, a
+    known-cosmetic failure, a buyer who wants the draft with its faults — where shipping is
+    the right call. It never hides the verdict: a forced page carries the banner."""
     j = jobs.get(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
@@ -850,9 +916,28 @@ def get_job_report_html(job_id: str, debug: int = 0):
     if j["kind"] != "plan":
         raise HTTPException(status_code=400, detail="HTML report only available for /plan jobs")
 
+    # The verifier's verdict becomes BINDING here. It used to be advisory all the way to
+    # the reader: run_plan logged "verification found N blocking issue(s)" and this
+    # endpoint rendered the report anyway, so a report the pipeline's own invariants
+    # declared unpublishable reached a buyer looking exactly like a clean one.
+    from report.verifier import blocking_findings
+    _blocking = blocking_findings(j["result"] or {})
+    if _blocking and not force:
+        log.warning("[api] withholding report %s — %d blocking finding(s)",
+                    job_id, len(_blocking))
+        return HTMLResponse(content=_withheld_page(job_id, _blocking), status_code=409)
+
     from report.render_html import render_report_html
-    return HTMLResponse(content=render_report_html(j["result"] or {}, job_id=job_id,
-                                                  debug=debug))
+    html = render_report_html(j["result"] or {}, job_id=job_id, debug=debug)
+    if _blocking:
+        # Forced. An override that leaves no mark is indistinguishable from a clean pass,
+        # which would be worse than having no gate — so it is recorded in the log AND on
+        # the page itself, above the report, where the reader cannot miss it.
+        log.warning("[api] report %s force-served over %d blocking finding(s): %s",
+                    job_id, len(_blocking),
+                    "; ".join(f.get("invariant", "?") for f in _blocking))
+        html = _inject_forced_banner(html, _blocking)
+    return HTMLResponse(content=html)
 
 
 @app.get("/jobs/{job_id}/report.pdf")

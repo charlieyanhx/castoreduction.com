@@ -231,6 +231,30 @@ def _check_dangling_citations(r: dict, html: Optional[str]):
     return out
 
 
+def blocking_findings(result: dict) -> list:
+    """The blocking findings a stored report carries, read back from its own artifact.
+
+    verify_report runs inside the pipeline and its verdict is stored on the result; this
+    reads that verdict at SERVING time, so delivery can act on it. MEASURED before this
+    existed: run_plan computed vr.publishable and, on False, emitted one log line — the
+    serving path rendered the report regardless. Fifty-eight invariants reduced to a
+    warning nobody reads.
+
+    A MISSING or malformed verification block returns [], deliberately. No verdict means
+    the pass did not run (it is wrapped in a best-effort try), and treating "unknown" as
+    "blocked" would let an unrelated verifier crash take delivery down with it — the exact
+    trade the verifier's own docstring refuses.
+    """
+    v = (result or {}).get("verification")
+    if not isinstance(v, dict):
+        return []
+    findings = v.get("findings")
+    if not isinstance(findings, list):
+        return []
+    return [f for f in findings
+            if isinstance(f, dict) and f.get("severity") == Severity.BLOCK]
+
+
 def _check_unsupported_footnotes(r: dict, html: Optional[str]):
     """A resolving marker on a number nothing measured — one level below dangling.
 
