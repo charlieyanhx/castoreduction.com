@@ -1863,6 +1863,56 @@ def d58_psm_tiers_disclose_their_own_range(r: dict, html: str | None) -> Finding
     return Finding(True, f"all tiers within the ${lo:g}-${hi:g} acceptable range")
 
 
+
+def d59_som_anchor_discloses_its_method(r: dict, html: str | None) -> Finding:
+    """A hyperlocal SOM must say how it was anchored, and an unsourced anchor must show
+    the other method's figure.
+
+    THE MEASUREMENT. Same venture, same trade area, same competitor census: run14 SOM
+    $390,000, run15 SOM $650,000. A 67% swing in the number every downstream verdict
+    hangs off, driven entirely by _estimate_unit_revenue — an explicitly UNSOURCED LLM
+    estimate of one premise's annual revenue. size_hyperlocal computes an independent
+    second estimate beside it (fair share of SAM across the census); the size_by_scale
+    mapping dropped both, so the report published one confident figure and no way to
+    inspect it.
+
+    This gate does NOT require the anchor to be sourced — until operator seat/turn inputs
+    or published per-store benchmarks exist, an estimate is the only anchor available, and
+    refusing to size would serve nobody. It requires the report to SAY the anchor is an
+    estimate and to publish the alternative, so a reader can see two defensible methods
+    disagreeing rather than one number that looks measured. Disclosure, not obedience —
+    the D09 shape again.
+
+    ok=None for non-hyperlocal sizings and for reports with no SOM: unchecked, which D55
+    counts against coverage, rather than a silent pass."""
+    ms = r.get("market_sizing") or {}
+    if (ms.get("method") or "") != "trade_area_catchment":
+        return Finding(None, "not a trade-area (hyperlocal) sizing")
+    som = (ms.get("som") or {}).get("mid") or ms.get("som_usd")
+    if not som:
+        return Finding(None, "no SOM published")
+    anchor = ms.get("som_anchor")
+    if not isinstance(anchor, dict) or not anchor.get("method"):
+        return Finding(False,
+                       "the report publishes a SOM with no statement of how it was "
+                       "anchored — a reader cannot tell a capacity model from an "
+                       "unsourced single-unit revenue guess")
+    if anchor.get("sourced"):
+        return Finding(True, f"SOM anchored on {anchor.get('method')} (sourced)")
+    if anchor.get("method") == "fair_share_of_sam":
+        return Finding(True, "SOM is the fair-share fallback, and says so")
+    if not anchor.get("alternative_usd"):
+        return Finding(False,
+                       f"SOM is anchored on {anchor.get('method')} (unsourced) and the "
+                       f"report shows no alternative estimate beside it — the "
+                       f"disagreement between the two methods is the honest uncertainty "
+                       f"and it is being hidden")
+    return Finding(True,
+                   f"unsourced {anchor.get('method')} anchor, disclosed, with the "
+                   f"{anchor.get('alternative_method')} alternative "
+                   f"(${anchor.get('alternative_usd'):,.0f}) published beside it")
+
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -1922,6 +1972,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D56", "local spend is grounded or says it is not", "a trade-area TAM priced every neighbourhood at the $3,945 national average while local income sat fetched and unread", "fail", d56_local_spend_is_grounded_or_says_it_is_not),
     Invariant("D57", "market supports its own competitors", "run9 published $122K of market per existing cafe — 102 real venues were surviving on a TAM the report said could not sustain one", "fail", d57_market_supports_its_competitors),
     Invariant("D58", "PSM tiers disclose when they fall outside their own acceptable range", "run12-15 recommended $3.85 and $9.50 against a $4.25-$6.75 range, flat and unqualified", "fail", d58_psm_tiers_disclose_their_own_range),
+    Invariant("D59", "SOM anchor discloses its method", "run14 $390K vs run15 $650K for the same venture — an unsourced single-unit revenue guess published as the headline with no alternative beside it", "fail", d59_som_anchor_discloses_its_method),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
