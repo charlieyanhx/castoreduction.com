@@ -33,7 +33,6 @@ from place import recommend_place
 from four_ps import assemble_4ps, assemble_4ps_split, score_viability
 from market_sizing import estimate_market_size, validation_sources_for
 from financials import project_three_year, Y3_CAPTURE
-from personas import synthesize_personas
 from logger import get
 
 log = get("plan")
@@ -43,31 +42,14 @@ log = get("plan")
 # step can use it without importing plan (plan imports the steps — the reverse
 # would be a cycle). Re-exported under the old private names: the "+shim" the
 # wave calls for, so existing callers and tests keep working untouched.
-from orchestrator.steps import (record_dropped_output, skip_step as _skip_step,
-                                step_done as _step_done)
+from orchestrator.steps import (record_dropped_output, run_with_timeout as _run_with_timeout,
+                                skip_step as _skip_step, step_done as _step_done)
 from orchestrator.steps.clustering import run_clustering_step
 from orchestrator.steps.competitors import run_discover_step
 from orchestrator.steps.customer_universe import run_customer_universe_step
 from orchestrator.steps.evidence import run_evidence_step
 from orchestrator.steps.firmographics import run_firmographics_step
 from orchestrator.steps.profile import run_profile_step
-
-
-def _run_with_timeout(fn, *args, timeout_s: int = 180, label: str = "", **kwargs):
-    """Run a step with a hard timeout. Returns {} on timeout or error, logs warning."""
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(fn, *args, **kwargs)
-        try:
-            return future.result(timeout=timeout_s)
-        except FutureTimeoutError:
-            log.warning(f"[plan] {label} exceeded {timeout_s}s timeout — returning partial")
-            return {"error": f"timed out after {timeout_s}s"}
-        except Exception as e:
-            # Log full traceback so future debugging isn't blind
-            import traceback
-            log.warning(f"[plan] {label} failed: {type(e).__name__}: {e}")
-            log.debug(traceback.format_exc())
-            return {"error": f"{type(e).__name__}: {e}"}
 
 
 def _validation_gate(result: dict) -> dict:
@@ -1773,20 +1755,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     reddit_data = _ev["reddit"]
     top_audience = _ev["top_audience"]
 
-    # --- Step 6b: Synthesize personas from multiple decoded audiences ---
-    if len(taste_results) >= 1:
-        log.info(f"[plan] Step 6b: synthesizing personas from {len(taste_results)} taste profiles")
-        personas_result = _run_with_timeout(
-            synthesize_personas,
-            taste_profiles=taste_results,
-            product_summary=profile.get("summary", ""),
-            timeout_s=90,
-            label="personas",
-        )
-        if not personas_result.get("error"):
-            result["personas"] = personas_result
-            _step_done(result, "personas")
-            checkpoint()
+    # --- Step 6b: Personas --- (→ orchestrator/steps/personas.py)
+    run_personas_step(result, profile, taste_results, checkpoint=checkpoint)
 
     # --- Step 6c: STORM-style consumer research (multi-perspective) — cycle33 ---
     attach_consumer_research(result, description, geo, profile, opps, checkpoint=checkpoint)
