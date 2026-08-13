@@ -649,6 +649,35 @@ def _r_volume_ladder(facts: dict) -> str:
             "the five contradictory targets a prior report shipped made it unusable.")
 
 
+@reminder("tier_range", requires=("van_westendorp",), order=25)
+def _r_tier_range(facts: dict) -> str:
+    """Tell every section which recommended tiers the instrument itself disagrees with.
+
+    The annotation lands on the tier dicts (pricing.annotate_tiers_against_range), and the
+    price prompt does json.dumps them — but MEASURED on run15 the annotated blob is 1,228
+    characters against a [:1000] slice, so two of three notes were cut and the JSON in the
+    prompt was left mid-structure. A guardrail delivered by truncation is not delivered.
+
+    The registry is the reliable channel: byte-stable, every section, and recorded in
+    _reminders_fired so the artifact can attest it. Kept short for exactly that reason.
+    """
+    tiers = (facts.get("van_westendorp") or {}).get("recommended_tiers") or []
+    flagged = [t for t in tiers
+               if isinstance(t, dict) and str(t.get("range_note") or "").strip()]
+    if not flagged:
+        return ""
+    parts = []
+    for t in flagged:
+        where = ("below the acceptable floor" if t.get("range_status") == "below_floor"
+                 else "above the acceptable ceiling")
+        parts.append(f"{t.get('name') or '?'} ${t.get('price')} is {where}")
+    return ("TIER RANGE — HARD RULE: " + "; ".join(parts) + ". Whenever you state one of "
+            "these prices, say in the same sentence that it falls outside the PSM's own "
+            "acceptable range and what that means (a loss-leader below the floor, a "
+            "low-volume halo SKU above the ceiling). Never present it as a core price "
+            "point, and never size volume from it.")
+
+
 @reminder("citation_discipline", requires=("economics",), order=45)
 def _r_citation_discipline(facts: dict) -> str:
     """A footnote may only sit on a number we actually have.
@@ -972,6 +1001,7 @@ def assemble_4ps_split(
             "competitive_density": "competitor" in reminders.lower(),
             "monetization_model": "MONETIZATION MODEL" in reminders,
             "citation_discipline": "CITATION DISCIPLINE" in reminders,
+            "tier_range": "TIER RANGE — HARD RULE" in reminders,
         },
         "_reminder_facts": {
             "competitor_density": competitor_density,
