@@ -85,5 +85,72 @@ class TestFirmographicsStep(unittest.TestCase):
         self.assertNotIn("discover", result)
 
 
+class TestClusteringStep(unittest.TestCase):
+    def _opps(self, n=5):
+        return [{"brand": f"B{i}", "description": "long enough description"} for i in range(n)]
+
+    def test_a_small_roster_never_clusters(self):
+        from orchestrator.steps.clustering import run_clustering_step
+
+        result = {"_steps_completed": []}
+        with patch("clustering.cluster_competitors") as m:
+            run_clustering_step(result, {}, self._opps(3))
+        m.assert_not_called()
+        self.assertNotIn("clustering", result)
+
+    def test_happy_path_lands_map_whitespace_and_axis_labels(self):
+        from orchestrator.steps.clustering import run_clustering_step
+
+        result = {"_steps_completed": []}
+        opps = self._opps(5)
+        cp, calls = _checkpoint_counter()
+        with patch("clustering.cluster_competitors",
+                   return_value={"n_input": 5, "clusters": [[0, 1], [2, 3, 4]]}) as mc, \
+             patch("clustering.find_whitespace", return_value={"gaps": ["quiet corner"]}), \
+             patch("clustering.label_pca_axes", return_value={"x": "price", "y": "breadth"}):
+            run_clustering_step(result, {"category": "cafe"}, opps, checkpoint=cp)
+        mc.assert_called_once_with(opps)  # the CANONICAL roster, never the signals pool
+        self.assertEqual(result["clustering"]["axis_labels"], {"x": "price", "y": "breadth"})
+        self.assertEqual(result["whitespace"], {"gaps": ["quiet corner"]})
+        self.assertIn("clustering", result["_steps_completed"])
+        self.assertEqual(calls["n"], 1)
+
+    def test_a_clustering_error_is_recorded_as_a_drop_not_silence(self):
+        """The measured run2 case: cluster_competitors errored, the section vanished,
+        and the ledger still said 'produced'. Reason beats silence."""
+        from orchestrator.steps.clustering import run_clustering_step
+
+        result = {"_steps_completed": []}
+        with patch("clustering.cluster_competitors",
+                   return_value={"error": "need at least 4 with descriptions, got 2"}):
+            run_clustering_step(result, {}, self._opps(5))
+        self.assertNotIn("clustering", result)
+        self.assertNotIn("whitespace", result)
+        self.assertIn("descriptions", (result.get("_dropped_outputs") or {}).get("clustering", ""))
+        self.assertNotIn("clustering", result["_steps_completed"])
+
+    def test_axis_labeling_failure_is_non_fatal(self):
+        from orchestrator.steps.clustering import run_clustering_step
+
+        result = {"_steps_completed": []}
+        with patch("clustering.cluster_competitors", return_value={"n_input": 5}), \
+             patch("clustering.find_whitespace", return_value={}), \
+             patch("clustering.label_pca_axes", side_effect=RuntimeError("LLM down")):
+            run_clustering_step(result, {}, self._opps(5))
+        self.assertIn("clustering", result)
+        self.assertNotIn("axis_labels", result["clustering"])
+        self.assertIn("clustering", result["_steps_completed"])
+
+    def test_an_axis_label_error_payload_adds_no_labels(self):
+        from orchestrator.steps.clustering import run_clustering_step
+
+        result = {"_steps_completed": []}
+        with patch("clustering.cluster_competitors", return_value={"n_input": 5}), \
+             patch("clustering.find_whitespace", return_value={}), \
+             patch("clustering.label_pca_axes", return_value={"error": "no signal"}):
+            run_clustering_step(result, {}, self._opps(5))
+        self.assertNotIn("axis_labels", result["clustering"])
+
+
 if __name__ == "__main__":
     unittest.main()

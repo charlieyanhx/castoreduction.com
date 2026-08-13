@@ -78,3 +78,24 @@ def step_done(result: dict, name: str) -> None:
         _p.record_step(name, status="complete")
     except Exception:
         pass
+
+
+def record_dropped_output(result: dict, key: str, reason: str) -> None:
+    """Record that a step produced something the report will not carry, and why.
+
+    Measured on run2: the ledger recorded `clustering` as produced by cluster_competitors
+    (clustering.py:142, ok=true) and the section appeared nowhere -- because the caller does
+    `if not clustering.get("error")` and, on error, simply moves on. Same for
+    consumer_research and price_intel. Three sections' worth of work, paid for and discarded
+    without a trace, which is indistinguishable from a section that was never meant to exist.
+
+    Deliberately does NOT create result[key]: a placeholder would be a fabricated section.
+    The reason lives in `_dropped_outputs` so both the reader and gate D54 can see it.
+
+    Lives here (not plan.py) since the clustering extraction: steps need it, and steps
+    cannot import plan — plan imports the steps. plan.py re-exports it under the old name.
+    """
+    if not key or not reason:
+        return
+    drops = result.setdefault("_dropped_outputs", {})
+    drops[str(key)] = str(reason)[:400]
