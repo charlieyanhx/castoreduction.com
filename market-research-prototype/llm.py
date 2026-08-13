@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 
@@ -106,6 +107,77 @@ BACKEND_DEFAULTS = {
 }
 
 
+# Which backends cost money. A fallback that silently reaches one of these turns a
+# throttle into a bill — see fallback_chain().
+PAID_BACKENDS = frozenset({"anthropic"})
+
+
+def _configured(backend: str) -> bool:
+    key = os.environ.get(BACKEND_DEFAULTS[backend]["key_env"], "").strip()
+    return bool(key) and not key.endswith("...")
+
+
+def fallback_chain() -> list:
+    """The backends _chain_text may try, in order.
+
+    MEASURED PROBLEM: the chain used to be `[primary] + every other backend`. With GROQ,
+    GEMINI and ANTHROPIC keys all present that is groq -> gemini -> anthropic, so the
+    moment both free tiers throttle — Groq 30 RPM, Gemini 15 RPM, and a full run makes
+    LLM calls in bursts (four 4Ps sections in parallel, multi-perspective consumer
+    research) — the run quietly continues on the PAID key and bills for it. Spending
+    someone's money as a side effect of throttling is a surprise, not a fallback.
+
+    So a paid backend is only in the chain when the operator has said so: explicitly via
+    LLM_BACKEND, via LLM_ALLOW_PAID=1, or by configuring no free backend at all (where
+    excluding it would turn a working setup into no LLM).
+
+    Backends with no key are dropped: trying one burns an attempt and a whole-chain
+    backoff for a call that cannot succeed.
+    """
+    primary, _ = _backend_and_model()
+    allow_paid = (os.environ.get("LLM_ALLOW_PAID", "").strip().lower()
+                  in ("1", "true", "yes"))
+    explicit = os.environ.get("LLM_BACKEND", "").strip().lower()
+    chain = [primary]
+    for name in BACKEND_DEFAULTS:
+        if name == primary or not _configured(name):
+            continue
+        if name in PAID_BACKENDS and not (allow_paid or explicit == name):
+            continue
+        chain.append(name)
+    return chain
+
+
+_EXHAUSTED: dict = {"count": 0, "reason": ""}
+
+
+def reset_exhaustion() -> None:
+    _EXHAUSTED["count"] = 0
+    _EXHAUSTED["reason"] = ""
+
+
+def note_exhaustion(reason: str) -> None:
+    """Record that every backend refused one call.
+
+    Callers turn an exhausted chain into a failed step, and a failed step degrades the
+    report — a missing market scale, no customer voice. Without this the artifact cannot
+    tell "we could not look" from "we looked and found nothing", which is the distinction
+    this pipeline keeps having to relearn.
+    """
+    _EXHAUSTED["count"] += 1
+    _EXHAUSTED["reason"] = reason or _EXHAUSTED["reason"]
+
+
+def exhaustion_summary() -> dict:
+    if not _EXHAUSTED["count"]:
+        return {}
+    return {"count": _EXHAUSTED["count"], "reason": _EXHAUSTED["reason"],
+            "note": ("one or more steps failed because every configured LLM backend "
+                     "refused the call (free-tier rate limits). Sections derived from "
+                     "those steps are absent because they could not be COMPUTED, not "
+                     "because the venture lacks signal.")}
+
+
 def _detect_backend() -> str:
     """Auto-detect from available API keys. Priority: groq > gemini > anthropic."""
     explicit = os.environ.get("LLM_BACKEND", "").lower()
@@ -170,7 +242,43 @@ def _call_groq(system: str, user: str, max_tokens: int, model: str,
     return text, in_tok, out_tok
 
 
-_gemini_last_call = 0  # rate limiter timestamp
+# Free-tier pacing. MEASURED on this machine: GROQ_API_KEY is empty, so the chain is
+# Gemini ALONE at 15 RPM with no second free provider to absorb a throttle — the interval
+# below is the entire rate budget, and the pipeline calls from ~8 ThreadPoolExecutor
+# fan-outs (4Ps sections, evidence phase, place, discover, differentiators,
+# competitor_pricing, run_labeled). A bare global read by N threads let every one of them
+# decide "4s have passed" at the same instant and fire together, which is how a 15 RPM
+# tier is exhausted in one breath — and why the LLM-dependent steps (market scale
+# classification, customer voice) degraded while deterministic ones came through.
+_GEMINI_MIN_INTERVAL = 4.0          # seconds between call STARTS (15 RPM free tier)
+_gemini_last_call = 0.0             # guarded by _gemini_rate_lock
+_gemini_rate_lock = threading.Lock()
+
+
+def _gemini_reset_rate_state() -> None:
+    """Test seam: forget the last call so a case starts from a clean budget."""
+    global _gemini_last_call
+    with _gemini_rate_lock:
+        _gemini_last_call = 0.0
+
+
+def _gemini_rate_gate() -> None:
+    """Block until this thread may START a Gemini call, then claim the slot.
+
+    The lock is held across BOTH the wait and the stamp, deliberately:
+      - without it, concurrent threads read one timestamp and all pass the check;
+      - stamping AFTER the API call (the previous behaviour) let every caller that
+        arrived mid-flight measure its wait from the last call's END, so spacing
+        collapsed exactly when the pipeline was busiest.
+    Holding it serializes Gemini calls, which is correct — with one free provider at
+    15 RPM there is no parallelism available, and pretending otherwise loses sections.
+    """
+    global _gemini_last_call
+    with _gemini_rate_lock:
+        elapsed = time.time() - _gemini_last_call
+        if _gemini_last_call and elapsed < _GEMINI_MIN_INTERVAL:
+            time.sleep(_GEMINI_MIN_INTERVAL - elapsed)
+        _gemini_last_call = time.time()
 
 # Recent non-transient backend failures, so an exhausted chain can say WHY (see
 # _record_backend_failure). Bounded — this is a diagnostic, not a log.
@@ -196,14 +304,12 @@ _GEMINI_THINKING_OK: dict[str, bool] = {}
 
 def _call_gemini(system: str, user: str, max_tokens: int, model: str,
                  json_mode: bool = True) -> tuple[str, int, int]:
-    global _gemini_last_call
+    # (no `global _gemini_last_call` — the timestamp is owned by _gemini_rate_gate now,
+    # which claims the slot under a lock BEFORE the call rather than after it.)
     client = _gemini_client()
     full_prompt = f"{system}\n\n{user}"
 
-    # Rate limiter — at least 4s between calls (free tier = 15 RPM)
-    elapsed = time.time() - _gemini_last_call
-    if elapsed < 4:
-        time.sleep(4 - elapsed)
+    _gemini_rate_gate()
 
     # Try multiple models on 429 — different models have separate quota pools.
     # cycle36: these are the models VERIFIED available for this key tier (gemini-2.0-flash
@@ -225,7 +331,6 @@ def _call_gemini(system: str, user: str, max_tokens: int, model: str,
       # it is dropped per model on evidence, never pre-emptively.
       for _use_thinking in ([True, False] if _GEMINI_THINKING_OK.get(m, True) else [False]):
         try:
-            _gemini_last_call = time.time()
             response = client.models.generate_content(
                 model=m,
                 contents=full_prompt,
@@ -355,7 +460,7 @@ def _chain_text(system: str, user: str, max_tokens: int,
     majority of these transient free-tier failures.
     """
     primary, _ = _backend_and_model()
-    chain = [primary] + [b for b in BACKEND_DEFAULTS.keys() if b != primary]
+    chain = fallback_chain()
 
     _CHAIN_BACKOFF = (0.0, 3.0, 8.0, 15.0)  # backoff before attempts 1-4; free Gemini tier
     # can be unreachable for ~10s stretches, so a 4th attempt past that window matters
@@ -383,7 +488,8 @@ def _chain_text(system: str, user: str, max_tokens: int,
         if attempt < len(_CHAIN_BACKOFF) - 1:
             log.info("[llm] chain exhausted (attempt %d/%d) — backing off %.0fs and retrying",
                      attempt + 1, len(_CHAIN_BACKOFF), _CHAIN_BACKOFF[attempt + 1])
-    log.warning("[llm] ALL backends exhausted after %d attempts", len(_CHAIN_BACKOFF))
+    log.warning("[llm] ALL backends exhausted after %d attempts (chain: %s)",
+                len(_CHAIN_BACKOFF), ", ".join(chain))
     return None
 
 
@@ -637,8 +743,9 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
                     if any("INVALID_ARGUMENT" in str(x) or "400" in str(x)
                            for x in _LAST_CHAIN_ERRORS)
                     else "rate-limited or unavailable")
+            note_exhaustion(_why)
             return {"_parse_error": f"all backends exhausted ({_why})",
-                    "_raw": "", "_chain_tried": list(BACKEND_DEFAULTS)}
+                    "_raw": "", "_chain_tried": fallback_chain()}
         text = raw
         obj, error, repaired = _parse_payload_ex(text)
         if obj is None:
