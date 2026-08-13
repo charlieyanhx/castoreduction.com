@@ -169,3 +169,60 @@ class TestTheOperatorOverride(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestThePdfHonoursTheSameVerdict(unittest.TestCase):
+    """FOUND BY A ROUTE SWEEP after the HTML gate went in: report.pdf returned 200 on a
+    report whose HTML was being withheld with 409.
+
+    It did NOT leak — the PDF endpoint reuses get_job_report_html, so it rendered the
+    withhold NOTICE and the report content never reached the page (verified against a real
+    stored job: the bytes contain "withheld" and contain neither "Viability" nor "TAM").
+    The gate held by accident rather than by design.
+
+    That is still wrong in two ways a buyer would notice: a 200 with a PDF whose body says
+    the report was withheld, wrapped in cover-page chrome, reads as a broken export rather
+    than a decision; and there was no way to obtain the PDF of a report the operator had
+    deliberately chosen to release. One verdict, both formats, same override.
+    """
+
+    def _client(self):
+        from fastapi.testclient import TestClient
+
+        import api
+        return TestClient(api.app)
+
+    def _job(self, blocking):
+        return {"kind": "plan", "state": "complete", "result": _result(blocking=blocking)}
+
+    def test_a_blocking_report_is_withheld_from_the_pdf_too(self):
+        from unittest.mock import patch
+
+        import api
+        with patch.object(api.jobs, "get", return_value=self._job(1)):
+            r = self._client().get("/jobs/j1/report.pdf")
+        self.assertEqual(r.status_code, 409)
+        self.assertNotIn(b"%PDF", r.content[:8],
+                         "a PDF of a withhold notice is not a withhold")
+
+    def test_force_releases_the_pdf_as_well(self):
+        from unittest.mock import patch
+
+        import api
+        with patch.object(api.jobs, "get", return_value=self._job(1)), \
+             patch("report.pdf.available_engine", return_value="weasyprint"), \
+             patch("report.pdf.render_pdf", return_value=b"%PDF-1.7 forced"):
+            r = self._client().get("/jobs/j1/report.pdf?force=1")
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.content.startswith(b"%PDF"))
+
+    def test_a_clean_report_still_exports(self):
+        from unittest.mock import patch
+
+        import api
+        with patch.object(api.jobs, "get", return_value=self._job(0)), \
+             patch("report.pdf.available_engine", return_value="weasyprint"), \
+             patch("report.pdf.render_pdf", return_value=b"%PDF-1.7 clean"):
+            r = self._client().get("/jobs/j1/report.pdf")
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.content.startswith(b"%PDF"))

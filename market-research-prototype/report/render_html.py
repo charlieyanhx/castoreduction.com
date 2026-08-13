@@ -37,7 +37,9 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0) -> str:
     from jinja2 import Environment, FileSystemLoader
     from datetime import datetime
 
-    env = Environment(loader=FileSystemLoader("templates"), autoescape=True, undefined=SafeUndefined)
+    from api import TEMPLATES_DIR       # module-relative; see api.py
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=True,
+                      undefined=SafeUndefined)
     tpl = env.get_template("report.html")
 
     r = j["result"] or {}
