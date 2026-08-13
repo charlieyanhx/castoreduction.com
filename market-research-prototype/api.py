@@ -140,6 +140,12 @@ WEB_DIR = Path(__file__).parent / "web"
 WEB_DIR.mkdir(exist_ok=True)
 # Legacy compat
 STATIC_DIR = Path(__file__).parent / "static"
+# Templates resolve from the MODULE, like WEB_DIR/STATIC_DIR above — never from the
+# process cwd. FOUND IN THE BROWSER: uvicorn started outside the project directory made
+# every HTML report 500 with TemplateNotFound, while the JSON API, the workspace UI and
+# the entire test suite kept working — pytest runs with the project as cwd, so the
+# relative path always resolved there.
+TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
 # ---------------------------------------------------------------------------
@@ -601,7 +607,7 @@ def compare_plans(left: str, right: str):
         raise HTTPException(status_code=400, detail="both must be /plan jobs")
 
     from jinja2 import Environment, FileSystemLoader
-    env = Environment(loader=FileSystemLoader("templates"), autoescape=True, undefined=SafeUndefined)
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=True, undefined=SafeUndefined)
     tpl = env.get_template("compare.html")
 
     # Helpful: ensure all expected nested keys exist with safe defaults
@@ -641,7 +647,7 @@ def get_job_onepager(job_id: str):
     from datetime import datetime
     from market_sizing import format_currency
 
-    env = Environment(loader=FileSystemLoader("templates"), autoescape=True, undefined=SafeUndefined)
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=True, undefined=SafeUndefined)
     tpl = env.get_template("onepager.html")
 
     r = j["result"] or {}
@@ -941,7 +947,7 @@ def get_job_report_html(job_id: str, debug: int = 0, force: int = 0):
 
 
 @app.get("/jobs/{job_id}/report.pdf")
-def get_job_report_pdf(job_id: str):
+def get_job_report_pdf(job_id: str, force: int = 0):
     """
     W4-3: print-grade PDF export via report/pdf.py.
 
@@ -955,8 +961,20 @@ def get_job_report_pdf(job_id: str):
     if (_why := halt_reason(j)):
         raise HTTPException(status_code=404, detail=f"no report to render: {_why}")
 
+    # The verifier's verdict binds on BOTH formats. Without this the PDF reused the HTML
+    # endpoint and rendered the WITHHOLD NOTICE into a cover-paged document returned as
+    # 200 — no leak (the report content never reached the page), but a broken-looking
+    # export instead of a decision, and no way to release the PDF of a report the operator
+    # had deliberately forced. One verdict, both formats, same override.
+    from report.verifier import blocking_findings
+    _blocking = blocking_findings(j["result"] or {})
+    if _blocking and not force:
+        log.warning("[api] withholding PDF %s — %d blocking finding(s)",
+                    job_id, len(_blocking))
+        return HTMLResponse(content=_withheld_page(job_id, _blocking), status_code=409)
+
     # Reuse the HTML endpoint by calling its function directly
-    html_response = get_job_report_html(job_id)
+    html_response = get_job_report_html(job_id, force=force)
     html_body = html_response.body.decode() if hasattr(html_response, "body") else str(html_response)
 
     from report.pdf import available_engine, render_pdf
