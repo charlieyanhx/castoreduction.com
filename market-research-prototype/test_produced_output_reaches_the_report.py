@@ -120,14 +120,22 @@ class TestADroppedOutputIsRecordedNotSilent(unittest.TestCase):
                          "recording a drop must not fabricate the missing section")
 
     def test_the_clustering_step_records_its_drop(self):
-        """The measured case: cluster_competitors errored and nothing said so."""
-        import inspect
+        """The measured case: cluster_competitors errored and nothing said so.
 
-        import plan
-        src = inspect.getsource(plan.run_plan)
-        i = src.find("cluster_competitors(")
-        self.assertGreater(i, -1)
-        self.assertIn("record_dropped_output", src[i:i + 900],
+        Was a getsource pin on run_plan's inline block; since the extraction to
+        orchestrator/steps/clustering.py it EXECUTES the step — the invariant is
+        behavior (an error leaves a reason), not a string in a source dump."""
+        from unittest.mock import patch
+
+        from orchestrator.steps.clustering import run_clustering_step
+        result = {"_steps_completed": []}
+        opps = [{"brand": f"B{i}", "description": "x"} for i in range(5)]
+        with patch("clustering.cluster_competitors",
+                   return_value={"error": "Need at least 4 competitors with "
+                                          "descriptions to cluster, got 2"}):
+            run_clustering_step(result, {}, opps)
+        self.assertIn("descriptions",
+                      (result.get("_dropped_outputs") or {}).get("clustering", ""),
                       "clustering still drops its output with no reason recorded")
 
 

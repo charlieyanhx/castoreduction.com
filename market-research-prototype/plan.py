@@ -32,7 +32,6 @@ from taste import decode_taste
 from pricing import simulate_max_diff, simulate_van_westendorp, compute_break_even
 from place import analyze_competitor_channels, recommend_place
 from four_ps import assemble_4ps, assemble_4ps_split, score_viability
-from clustering import cluster_competitors, find_whitespace
 from competitor_pricing import gather_competitor_prices
 from market_sizing import estimate_market_size, validation_sources_for
 from financials import project_three_year, Y3_CAPTURE
@@ -46,7 +45,9 @@ log = get("plan")
 # step can use it without importing plan (plan imports the steps — the reverse
 # would be a cycle). Re-exported under the old private names: the "+shim" the
 # wave calls for, so existing callers and tests keep working untouched.
-from orchestrator.steps import skip_step as _skip_step, step_done as _step_done
+from orchestrator.steps import (record_dropped_output, skip_step as _skip_step,
+                                step_done as _step_done)
+from orchestrator.steps.clustering import run_clustering_step
 from orchestrator.steps.competitors import run_discover_step
 from orchestrator.steps.firmographics import run_firmographics_step
 from orchestrator.steps.profile import run_profile_step
@@ -978,23 +979,6 @@ def _resolve_osm_amenity(category: str) -> str | None:
     return t[1] if t else None
 
 
-def record_dropped_output(result: dict, key: str, reason: str) -> None:
-    """Record that a step produced something the report will not carry, and why.
-
-    Measured on run2: the ledger recorded `clustering` as produced by cluster_competitors
-    (clustering.py:142, ok=true) and the section appeared nowhere -- because the caller does
-    `if not clustering.get("error")` and, on error, simply moves on. Same for
-    consumer_research and price_intel. Three sections' worth of work, paid for and discarded
-    without a trace, which is indistinguishable from a section that was never meant to exist.
-
-    Deliberately does NOT create result[key]: a placeholder would be a fabricated section.
-    The reason lives in `_dropped_outputs` so both the reader and gate D54 can see it."""
-    if not key or not reason:
-        return
-    drops = result.setdefault("_dropped_outputs", {})
-    drops[str(key)] = str(reason)[:400]
-
-
 def attach_consumer_research(result: dict, description: str, geo: str, profile: dict,
                             opps: list, checkpoint=None) -> None:
     """Attach the STORM-style consumer research, or record why it is absent.
@@ -1792,38 +1776,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     # --- Step 3e: Firmographics (B2B only) --- (→ orchestrator/steps/firmographics.py)
     run_firmographics_step(result, profile, disc, opps, checkpoint=checkpoint)
 
-    # --- Step 3c: Cluster competitors + detect whitespace (sklearn) ---
-    if len(opps) >= 4:
-        log.info("[plan] Step 3c: clustering competitors + PCA whitespace detection")
-        # R4 rank 9: cluster the CANONICAL roster (the competitors the report displays),
-        # never the larger `signals` pool. Clustering national ventures on `signals`
-        # plotted ~20 dots for a roster of 9 — a third competitor count on a third
-        # surface. The roster entries carry the same scraped descriptions, so the map
-        # now positions exactly the competitors the report lists, and clustering's
-        # n_input == len(roster) == competitor_density.
-        cluster_input = opps
-        clustering = cluster_competitors(cluster_input)
-        if clustering.get("error"):
-            # Measured: on a real OSM roster this is "need at least 4 competitors with
-            # descriptions, got 2" (n_input=30). Silence made the competitor map vanish
-            # between two runs of the same venture with nothing to explain it.
-            record_dropped_output(result, "clustering",
-                                  f"cluster_competitors: {clustering.get('error')}")
-        if not clustering.get("error"):
-            whitespace = find_whitespace(clustering, profile)
-            # Label PCA axes (user feedback #3a + spec step 3c)
-            try:
-                from clustering import label_pca_axes
-                axis_labels = label_pca_axes(clustering, opps)
-                if "error" not in axis_labels:
-                    clustering["axis_labels"] = axis_labels
-            except Exception as e:
-                log.warning(f"[plan] PCA axis labeling failed (non-fatal): {e}")
-            result["clustering"] = clustering
-            result["whitespace"] = whitespace
-            _step_done(result, "clustering")
-            checkpoint()
-
+    # --- Step 3c: Clustering + whitespace --- (→ orchestrator/steps/clustering.py)
+    run_clustering_step(result, profile, opps, checkpoint=checkpoint)
 
     # --- Step 5: Customer universe (real B2B companies, iter 36) ---
     # Run in parallel with the taste decode below — independent I/O.
