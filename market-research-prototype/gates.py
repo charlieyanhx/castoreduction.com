@@ -2012,6 +2012,108 @@ def d60_area_average_is_labelled(r: dict, html: Optional[str]) -> Finding:
     return Finding(True, "the SOM is disclosed as an area average, with its geography, "
                          "its establishment count and its statistic")
 
+
+# Volume phrasings the sections actually write. Built from the two measured runs:
+# "targeting 250 drinks per day", "150 drinks/day", "reach 150 daily drinks",
+# "120.4 drinks per day", "targeting 150 daily transactions".
+_VOLUME_CLAIM = re.compile(
+    r"(\d[\d,]*(?:\.\d+)?)\s*(?:\w+\s+)?"
+    r"(?:drinks?|units?|transactions?|customers?|covers?|orders?|visits?)\s*"
+    r"(?:per day|/\s*day|a day|daily)"
+    r"|(?:reach|target(?:ing)?|hit)\s+(\d[\d,]*(?:\.\d+)?)\s+daily",
+    re.I)
+
+
+def _stated_daily_volumes(four_ps: dict) -> list[tuple[str, float]]:
+    """(section, number) for every daily-volume figure the 4Ps prose states."""
+    out: list[tuple[str, float]] = []
+    for section in ("product", "price", "place", "promotion"):
+        body = four_ps.get(section)
+        if body is None:
+            continue
+        text = body if isinstance(body, str) else json.dumps(body)
+        for m in _VOLUME_CLAIM.finditer(text):
+            raw = m.group(1) or m.group(2)
+            try:
+                out.append((section, float(str(raw).replace(",", ""))))
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def d61_volume_targets_match_the_ladder(r: dict, html: Optional[str]) -> Finding:
+    """Every daily volume in the 4Ps must be a rung of the ladder, not a section's invention.
+
+    MEASURED, same venture, two runs, the volume_ladder reminder confirmed fired on both:
+
+      run17  price "targeting 250 drinks per day"; place and promotion "150 drinks per day"
+             -- 67% apart, in one report, and BOTH inside the range the rule demanded
+      run18  every figure in all four sections is 120.4 (break-even) or 320 (the ceiling)
+             -- no operating target stated at all
+
+    The old rule pinned a RANGE ("between break-even and the obtainable ceiling"), so a
+    section could obey it and still contradict its neighbour. #76 fixed "targets outside the
+    model"; this fixes "different targets inside it". The ladder now carries a third rung --
+    the base-case year-1 volume, computed in financials.py beside the ramp it depends on --
+    and this gate enforces that the prose quotes a rung rather than picking a number.
+
+    Tolerance is 3%: prose reasonably writes 195 for 194.9, and a gate that cries wolf on
+    good writing is a gate somebody switches off. It is NOT a range check -- 200/day sits
+    comfortably between break-even and the ceiling and still fails, which is the whole point.
+    """
+    fp = r.get("four_ps") or {}
+    stated = _stated_daily_volumes(fp)
+    if not stated:
+        return Finding(None, "no section states a daily volume")
+
+    econ = r.get("economics") or {}
+    ms = r.get("market_sizing") or {}
+    som = (ms.get("som") or {}).get("mid") or ms.get("som_usd")
+    price = econ.get("price_per_unit")
+    rungs: dict[str, float] = {}
+    be = econ.get("break_even_units_per_day")
+    if isinstance(be, (int, float)) and be > 0:
+        rungs["break-even"] = float(be)
+    target = fp.get("_volume_target_units_per_day")
+    if not target:
+        try:
+            from financials import planning_target_units_per_day
+            t = planning_target_units_per_day(
+                som_usd=som, price_per_unit=price, market_scale=ms.get("scale"),
+                model=(r.get("business_model") or {}).get("kind") or "transactional")
+            target = (t or {}).get("units_per_day")
+        except Exception:                                    # noqa: BLE001
+            target = None
+    if isinstance(target, (int, float)) and target > 0:
+        rungs["planning target"] = float(target)
+    if (isinstance(som, (int, float)) and som > 0
+            and isinstance(price, (int, float)) and price > 0):
+        rungs["obtainable ceiling"] = som / price / 365.0
+    if not rungs:
+        return Finding(None, "no ladder available to check the stated volumes against")
+
+    def _is_rung(value: float, rung: float) -> bool:
+        """Prose may ROUND a rung; it may not re-estimate it.
+
+        A flat percentage tolerance does not express that. 3% of 194.9 is +/-5.8, which
+        admits 200 — a number a section chose for itself, and exactly what this gate exists
+        to catch. The allowance is instead "rounds to the same figure": half a unit, widened
+        to 0.5% so a four-digit volume can be written to three significant figures.
+        """
+        return abs(value - rung) <= max(0.51, 0.005 * rung)
+
+    bad = []
+    for section, value in stated:
+        if not any(_is_rung(value, v) for v in rungs.values()):
+            bad.append(f"{section} states {value:g}/day")
+    if bad:
+        rung_txt = ", ".join(f"{k} {v:,.1f}" for k, v in rungs.items())
+        return Finding(False,
+                       f"{'; '.join(bad[:4])} — none of which is a rung of the ladder "
+                       f"({rung_txt}). A volume a section chose for itself is how one "
+                       f"report came to recommend 150/day and 250/day at the same time")
+    return Finding(True, f"{len(stated)} stated volume(s), every one a ladder rung")
+
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -2072,6 +2174,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D57", "market supports its own competitors", "run9 published $122K of market per existing cafe — 102 real venues were surviving on a TAM the report said could not sustain one", "fail", d57_market_supports_its_competitors),
     Invariant("D58", "PSM tiers disclose when they fall outside their own acceptable range", "run12-15 recommended $3.85 and $9.50 against a $4.25-$6.75 range, flat and unqualified", "fail", d58_psm_tiers_disclose_their_own_range),
     Invariant("D59", "SOM anchor discloses its method", "run14 $390K vs run15 $650K for the same venture — an unsourced single-unit revenue guess published as the headline with no alternative beside it", "fail", d59_som_anchor_discloses_its_method),
+    Invariant("D61", "4Ps volume targets are ladder rungs, not inventions", "run17 recommended 250 drinks/day in Price and 150/day in Place and Promotion — 67% apart, both obeying a rule that only pinned a range", "fail", d61_volume_targets_match_the_ladder),
     Invariant("D60", "area-average SOM is labelled as one", "the sourced anchor is a mean across 525 county establishments; rendered under the old 'single-unit revenue' label it reads as this one store, now carrying a Census citation", "fail", d60_area_average_is_labelled),
 ]
 

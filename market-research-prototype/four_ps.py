@@ -642,16 +642,39 @@ def _r_volume_ladder(facts: dict) -> str:
     ms = facts.get("market_sizing") or {}
     som = (ms.get("som") or {}).get("mid") or ms.get("som_usd")
     price = econ.get("price_per_unit")
+    # THE TARGET RUNG. A range is not a plan: MEASURED, run17's price section targeted 250
+    # /day while place and promotion targeted 150 — 67% apart and BOTH obeying the old
+    # "between break-even and the ceiling" rule — and run18's sections, declining to invent
+    # one, left the operator with a floor and a roof and nothing in between. The model
+    # already knows the answer; it was simply never handed over. Computed in financials.py
+    # beside the ramp it depends on, so there is one owner rather than two.
+    target = None
+    try:
+        from financials import planning_target_units_per_day
+        target = planning_target_units_per_day(
+            som_usd=som, price_per_unit=price, market_scale=ms.get("scale"),
+            model=facts.get("business_model_kind") or "transactional")
+    except Exception:                                        # noqa: BLE001
+        target = None
+    if target:
+        parts.append(f"PLANNING TARGET ≈ {target['units_per_day']:,.0f} {unit}s/day "
+                     f"({target['basis']})")
     if (isinstance(som, (int, float)) and som > 0
             and isinstance(price, (int, float)) and price > 0):
         parts.append(f"obtainable ceiling (SOM) ≈ {som / price / 365:,.0f} {unit}s/day")
     if not parts:
         return ""
-    return ("CANONICAL DAILY-VOLUME LADDER — " + " · ".join(parts) + ". HARD RULE: any "
-            "daily/monthly volume target you state MUST be consistent with this ladder "
-            "(between break-even and the obtainable ceiling, or explicitly labelled as "
-            "requiring share beyond the fair-share model). NEVER invent a volume target — "
-            "the five contradictory targets a prior report shipped made it unusable.")
+    rule = ("HARD RULE: the ONLY daily volumes you may state are the ones above. Quote the "
+            "PLANNING TARGET when you need an operating number — never a figure of your "
+            "own, and never a different one from another section's. "
+            if target else
+            "HARD RULE: any daily/monthly volume target you state MUST be consistent with "
+            "this ladder (between break-even and the obtainable ceiling, or explicitly "
+            "labelled as requiring share beyond the fair-share model). ")
+    return ("CANONICAL DAILY-VOLUME LADDER — " + " · ".join(parts) + ". " + rule
+            + "NEVER invent a volume target — the five contradictory targets a prior "
+              "report shipped made it unusable, and two sections of a later one still "
+              "disagreed by 67% while each obeyed a range.")
 
 
 @reminder("tier_range", requires=("van_westendorp",), order=25)
@@ -747,6 +770,22 @@ def _r_citation_discipline(facts: dict) -> str:
         f"one — e.g. \"we recommend an opening target of N {unit}s/day (operator "
         "decision)\" — never \"N {unit}s/day ¹\". Do not attach a marker to an invented "
         "figure merely because a real figure sits beside it in the same sentence.")
+
+
+def _volume_target_for_artifact(economics, market_sizing, business_model_kind):
+    """The planning target as the ladder computed it, or None. Same call, same inputs, so
+    the artifact cannot disagree with the prompt."""
+    econ, ms = economics or {}, market_sizing or {}
+    try:
+        from financials import planning_target_units_per_day
+        t = planning_target_units_per_day(
+            som_usd=(ms.get("som") or {}).get("mid") or ms.get("som_usd"),
+            price_per_unit=econ.get("price_per_unit"),
+            market_scale=ms.get("scale"),
+            model=business_model_kind or "transactional")
+        return (t or {}).get("units_per_day")
+    except Exception:                                        # noqa: BLE001
+        return None
 
 
 def section_reminders(business_model_kind=None, economics=None, van_westendorp=None,
@@ -1037,6 +1076,13 @@ def assemble_4ps_split(
         # silently never reached the prompts, and proving that took byte-identity forensics
         # against run12 because nothing recorded the assembled reminder block. A prompt-side
         # fix is invisible under LLM-cache replay unless the artifact states what fired.
+        # THE NUMBER THE SECTIONS WERE TOLD TO PLAN AROUND, in the artifact. D61 checks
+        # every volume the prose states against the ladder's rungs, and a gate that has to
+        # re-derive the target would be a second owner of it — the failure this whole fix
+        # is about. Recording what was actually handed over also makes a prompt-side
+        # regression visible without byte-identity forensics, the way _reminders_fired does.
+        "_volume_target_units_per_day": (
+            _volume_target_for_artifact(economics, market_sizing, business_model_kind)),
         "_reminders_fired": {
             "volume_ladder": "CANONICAL DAILY-VOLUME LADDER" in reminders,
             "competitor_counts_pair": "COMPETITOR COUNTS — HARD RULE" in reminders,
