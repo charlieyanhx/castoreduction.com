@@ -112,6 +112,77 @@ def _eval_arithmetic_parens(norm: str) -> str:
     return re.sub(r"\(([^)]*)\)", _repl, norm)
 
 
+_MIN_MAX = re.compile(r"^\s*(min|max)\s*\((.*)\)\s*$", re.S)
+
+
+def _eval_min_max(norm: str, refs=None):
+    """Evaluate a whole-formula min(a, b) / max(a, b), or None.
+
+    Each side is reconciled by the ordinary machinery, so "min($320,000 x 60% ramp,
+    $18,056,068 SAM)" resolves to min(192000, 18056068). BOTH sides must reconcile: if one
+    is prose or an unresolved symbol the answer is unknown, and half a computation reported
+    as a whole one is how a verifier starts lying. A side that is a lone number is fine here
+    — inside min() it is an operand being compared, not a claim standing in for its own
+    proof.
+
+    Only the outermost call, and only a two-argument one. That is the entire shape this
+    pipeline writes; anything richer returns None and the caller's guards decide.
+    """
+    m = _MIN_MAX.match(norm.strip())
+    if not m:
+        return None
+    fn, inner = m.group(1), m.group(2)
+    if "(" in inner or ")" in inner:
+        return None                      # nested calls: out of scope, stay honest
+    # Split on the ARGUMENT comma only. A plain inner.split(",") tears "$680,000" into
+    # "$680" and "000" — every figure this pipeline writes uses thousands separators, so
+    # the naive split turns a two-argument min() into five and returns None on all of them.
+    parts = [p.strip() for p in re.split(r",(?!\d)", inner) if p.strip()]
+    if len(parts) != 2:
+        return None
+    vals = []
+    for part in parts:
+        v = safe_eval_formula(part, refs=refs)
+        if v is None:
+            # A bare operand is legitimate INSIDE min(); parse it directly rather than
+            # through safe_eval_formula, which rejects lone numbers on purpose.
+            v = _lone_number(part, refs)
+        if v is None:
+            return None
+        vals.append(v)
+    return min(vals) if fn == "min" else max(vals)
+
+
+def _lone_number(text: str, refs=None):
+    """The single numeric token in `text`, or None if there is not exactly one.
+
+    Deliberately strict: "$52,622,389 SAM" is one number with a trailing label and resolves;
+    "TAM x 35%" is not, and must not silently become 35.
+    """
+    # AN OPERAND HAS NO OPERATOR. Without this, "tam * 35%" finds exactly one numeric token
+    # (35%) and returns 0.35 — the unresolved symbol silently dropped, which is precisely
+    # how "SAM x 1/104 x 60%" once collapsed to a bare 0.6 and blocked a correct figure.
+    # Anything with arithmetic in it belongs to safe_eval_formula, which knows to abort on
+    # a symbol it was given no value for.
+    if re.search(r"[*/](?=\s*\$?\s*\d)", text):
+        return None
+    # THE LITERAL WINS WHEN IT IS ALREADY THERE. This pipeline writes "$52,622,389 SAM" —
+    # the value AND its label. Substituting refs first turns that into two numbers and the
+    # side stops resolving, which is what kept every SOM figure unverified even after min()
+    # was understood. Symbol resolution is the FALLBACK, for a bare "SAM".
+    toks = [t for t in _FORMULA_TOKEN.finditer(text) if t.group("num") is not None]
+    if len(toks) == 1:
+        return _coerce_token(toks[0].group("num"))
+    if toks:
+        return None                      # more than one number: not a lone operand
+    for name, val in (refs or {}).items():
+        if not isinstance(val, (int, float)) or isinstance(val, bool):
+            continue
+        if re.fullmatch(rf"\s*{re.escape(str(name).lower())}\s*", text, flags=re.I):
+            return float(val)
+    return None
+
+
 def safe_eval_formula(formula: str, refs: Optional[dict] = None) -> Optional[float]:
     """Recompute a sizing formula's value from its numeric tokens.
 
@@ -127,6 +198,22 @@ def safe_eval_formula(formula: str, refs: Optional[dict] = None) -> Optional[flo
     # nums-vs-ops and made this return None on the exact headline it exists to check
     # (R2). Then keep only the LHS of "=": the RHS is the CLAIMED result being
     # reconciled against, not part of the computation.
+    # min()/max() BEFORE anything else touches the string, and the order is the whole fix.
+    # _strip_prose_parentheses drops any "(...)" containing letters, so it deletes the
+    # min(...) group itself; and the `split("=")` below truncates run18's
+    # "min(= $643,243: ...)" to "min(". Both run before the tokenizer, so a min() formula
+    # arrived pre-destroyed no matter what the tokenizer could parse.
+    #
+    # MEASURED across the corpus plus run17/run18: of 24 figures carrying a value, 8 did not
+    # reconcile, and all 8 were the same figure — SOM_obtainable, on every report that has
+    # one. The SOM is min(supply, demand) BY CONSTRUCTION, that being what a
+    # binding-constraint model means, so the reconciler was structurally blind to exactly
+    # one figure and it happened to be the headline.
+    raw_norm = formula.lower().replace("×", "*").replace("÷", "/").replace("·", "*")
+    picked = _eval_min_max(raw_norm, refs)
+    if picked is not None:
+        return picked
+
     stripped = _strip_prose_parentheses(formula)
     stripped = stripped.split("=", 1)[0]
     norm = stripped.lower().replace("×", "*").replace("÷", "/").replace("·", "*")
