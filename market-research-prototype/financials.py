@@ -356,3 +356,58 @@ def mark_derived_from_withheld(proj: dict, market_sizing: dict | None) -> dict:
             "Derived from figures that failed the integrity gate — the market-sizing "
             "numbers beneath this table were withheld; do not rely on these projections.")
     return proj
+
+
+# The days-per-year the units_per_day figures in this module already use (line ~141).
+_DAYS_PER_YEAR = 360.0
+
+
+def planning_target_units_per_day(*, som_usd, price_per_unit, market_scale=None,
+                                  model: str = "transactional") -> dict | None:
+    """The ONE daily volume the plan is actually built around, or None.
+
+    THE GAP THIS FILLS. The 4Ps volume ladder published a floor (break-even) and a roof
+    (the obtainable ceiling) and no target, plus a rule that any stated target must fall
+    "between break-even and the obtainable ceiling". MEASURED, same venture, two runs, the
+    reminder confirmed fired on both:
+
+      run17  price "targeting 250 drinks per day" / place and promotion "150 drinks per day"
+             — 67% apart, and BOTH obey the range rule
+      run18  every volume figure in all four sections is either 120.4 (break-even) or 320
+             (the ceiling) — no operating target stated anywhere
+
+    Two shapes, one cause: a range is not a plan. The sections either invent a number or
+    decline to, and neither is useful to an operator.
+
+    IT LIVES HERE BECAUSE THE RAMP LIVES HERE. Base-case year 1 is `_ramp_for(...)[1]` of
+    the year-3 ceiling and the base ceiling IS som_mid. Recomputing that 0.60 inside
+    four_ps.py would make two modules owners of one fact — the bug this codebase keeps
+    relearning — and four_ps runs BEFORE financials in run_plan, so the reminder cannot
+    just read the scenarios table it would otherwise agree with by construction.
+
+    Verified against the shipped table on run18: 643,243 x 0.60 = $385,946 year-1 revenue,
+    194.9 drinks/day at $5.50 over 360 days — the exact figures the report published.
+
+    Do NOT use this as a forecast or a ceiling: it is the BASE case, one of three, and the
+    conservative and aggressive columns are equally real. It is what to build the operating
+    plan around, not what the venture will earn.
+    """
+    def _pos(v):
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else None
+
+    som, price = _pos(som_usd), _pos(price_per_unit)
+    if som is None or price is None:
+        return None
+    ramp, ramp_note = _ramp_for(market_scale, model)
+    y1_fraction = ramp.get(1)
+    if not y1_fraction:
+        return None
+    revenue = som * y1_fraction
+    return {
+        "units_per_day": round(revenue / price / _DAYS_PER_YEAR, 1),
+        "revenue_usd": revenue,
+        "y1_fraction": y1_fraction,
+        "basis": (f"base-case year 1: {y1_fraction:.0%} of the obtainable SOM "
+                  f"(${som:,.0f}) at ${price:,.2f} over {int(_DAYS_PER_YEAR)} days"),
+        "ramp_note": ramp_note,
+    }
