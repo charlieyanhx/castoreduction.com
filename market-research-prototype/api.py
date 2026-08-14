@@ -19,12 +19,15 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import auth
 import jobs
+import quota
+from contextvars import ContextVar
 from logger import get
 from llm import get_usage
 import scrape  # noqa: F401 — installs requests-cache globally on import
@@ -97,16 +100,37 @@ def halt_reason(job: dict | None) -> str | None:
     return str(err) if err else None
 
 
-def _current_owner(request: Request = None) -> str:
-    """Who is asking.
+SESSION_COOKIE = "castor_session"
 
-    A STUB, deliberately and visibly. Ownership had to land in the data model before auth
-    (task #93): a login screen over a store with no owner column proves who you are while
-    the query still returns everyone's rows. Until #94 supplies a real session this returns
-    the legacy owner, so behaviour is unchanged for a single local user — but every read
-    path is already scoped, so switching this one function to a session lookup is the whole
-    of the change.
+# The request, stashed per-task so _current_owner() can reach it without every endpoint
+# having to declare `request: Request` and pass it down. Threading it through ~10
+# signatures would work until the eleventh endpoint forgot, and a forgotten request means
+# a silent fall back to the legacy owner — auth that looks present and is not. Middleware
+# sets this for every request, including ones added later by someone who never read this.
+_REQUEST: ContextVar = ContextVar("castor_request", default=None)
+
+
+
+
+def _current_owner(request: Request = None) -> str:
+    """Who is asking — the signed session's account, or the legacy owner.
+
+    #93 scoped every read path against this one function while it returned a constant.
+    This is that switch. A request carrying a valid session cookie owns its own jobs; a
+    request without one falls back to LEGACY_OWNER, which keeps a single-user local
+    install working exactly as before and keeps Charlie's existing library visible.
+
+    THAT FALLBACK IS A DEVELOPMENT AFFORDANCE, NOT A PRODUCTION POSTURE. With
+    CASTOR_ENV=production an unauthenticated request gets a fresh anonymous owner instead,
+    so a stranger can never land in the legacy account by simply not presenting a cookie.
     """
+    request = request or _REQUEST.get()
+    if request is not None:
+        acct = auth.read_session_token(request.cookies.get(SESSION_COOKIE))
+        if acct:
+            return acct
+    if os.environ.get("CASTOR_ENV", "").lower() == "production":
+        return "anonymous"
     return jobs.LEGACY_OWNER
 
 
@@ -154,6 +178,15 @@ app = FastAPI(
     version="0.1.0",
     description="Discover rising DTC brands, decode their audiences, and match product ideas.",
 )
+
+
+@app.middleware("http")
+async def _bind_request(request: Request, call_next):
+    token = _REQUEST.set(request)
+    try:
+        return await call_next(request)
+    finally:
+        _REQUEST.reset(token)
 
 
 @app.on_event("startup")
@@ -380,17 +413,33 @@ def post_plan(req: PlanRequest):
 
     job_id = jobs.create("plan", params, owner_id=_owner)
 
+    # The cost gate. A report is ~6 minutes and ~39 LLM calls, so POST /plan is the abuse
+    # surface — and on the shared free chain one busy account degrades everyone's runs.
+    # Claimed AFTER the row exists so the slot can name its job and be freed by that job
+    # reaching a terminal state, rather than depending on release alone.
+    try:
+        quota.claim_run_slot(_owner, job_id=job_id)
+    except quota.QuotaExceeded as e:
+        jobs.update(job_id, state="error", error=str(e))
+        raise HTTPException(status_code=429, detail=str(e))
+
     def work(progress=None):
         # Forward the progress callback so jobs.run_async checkpoint plumbing works
-        result = run_plan(
-            description=req.description,
-            geo=req.geo,
-            max_candidates=req.max_candidates,
-            progress=progress,
-            operator_weights=req.operator_weights.model_dump(),
-            refine=req.refine,
-            effort=req.effort,
-        )
+        try:
+            result = run_plan(
+                description=req.description,
+                geo=req.geo,
+                max_candidates=req.max_candidates,
+                progress=progress,
+                operator_weights=req.operator_weights.model_dump(),
+                refine=req.refine,
+                effort=req.effort,
+            )
+        finally:
+            # finally, not the happy path: a run that raised would otherwise hold its
+            # concurrency slot until the hour sweep, locking the account out of the
+            # product because one report crashed.
+            quota.release_run_slot(_owner)
         # Embed previous_job_id + computed deltas in the final result
         if previous_job_id and not result.get("error"):
             from history import compute_deltas
@@ -450,6 +499,56 @@ def post_research_crew(req: CrewRequest):
 
     jobs.run_async(job_id, work)
     return {"job_id": job_id}
+
+
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+
+
+def _set_session(resp: Response, account_id: str) -> None:
+    """httponly so script cannot read it; samesite=lax so a cross-site form post cannot
+    ride the session; secure whenever we are not on plain local http."""
+    resp.set_cookie(
+        SESSION_COOKIE, auth.make_session_token(account_id),
+        max_age=auth.SESSION_MAX_AGE_S, httponly=True, samesite="lax",
+        secure=os.environ.get("CASTOR_ENV", "").lower() == "production", path="/")
+
+
+@app.post("/auth/signup")
+def auth_signup(req: AuthRequest, response: Response):
+    try:
+        acct = auth.create_account(req.email, req.password)
+    except auth.PasswordTooWeak as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError:
+        # Deliberately the same 400 as any other invalid signup: "account already exists"
+        # tells a stranger which addresses are registered.
+        raise HTTPException(status_code=400, detail="could not create that account")
+    _set_session(response, acct)
+    return {"ok": True}
+
+
+@app.post("/auth/login")
+def auth_login(req: AuthRequest, response: Response):
+    acct = auth.authenticate(req.email, req.password)
+    if not acct:
+        # One message for an unknown email AND a wrong password — see auth.authenticate.
+        raise HTTPException(status_code=401, detail="invalid email or password")
+    _set_session(response, acct)
+    return {"ok": True}
+
+
+@app.post("/auth/logout")
+def auth_logout(response: Response):
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"ok": True}
+
+
+@app.get("/auth/me")
+def auth_me():
+    owner = _current_owner()
+    return {"owner": owner, "authenticated": owner not in (jobs.LEGACY_OWNER, "anonymous")}
 
 
 @app.get("/jobs")
