@@ -17,6 +17,7 @@ lower confidence instead of crashing.
 from __future__ import annotations
 
 import json
+import re
 import os
 import time
 from typing import Optional
@@ -315,34 +316,89 @@ def census_land_area(state_fips: str, county_fips: str,
                     cost_meta={"source": "US Census TIGERweb"})
 
 
-def resolve_naics(category: str) -> Optional[str]:
-    """Map ANY business category to a US NAICS code — generically, via the LLM.
+_NAICS_DIGITS = 6
 
-    No hardcoded category list: the LLM resolves whatever vertical it's given, so
-    the system works out-of-sample by construction. An optional `_NAICS_CACHE`
-    (config-supplied, empty by default) short-circuits repeat lookups; the resolver
-    is correct with it empty. Returns a digit string or None (never a guess).
+
+def _naics_from_reply(raw) -> Optional[str]:
+    """Pull a 6-digit code out of whatever the model actually returned.
+
+    MEASURED: replies arrive as {"naics": "722515"}, as a bare int 722515, and as
+    "NAICS 812910". The old `str(raw.get(...))` raised AttributeError on the int and the
+    bare `except Exception` turned a perfectly usable answer into None — and every None
+    here costs a venture its grounded benchmark and falls back to the LLM revenue guess.
+    """
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        raw = {"naics": raw}
+    if not isinstance(raw, dict):
+        return None
+    val = raw.get("naics")
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        val = f"{int(val)}"
+    if not isinstance(val, str):
+        return None
+    m = re.search(r"\d{%d}" % _NAICS_DIGITS, val)
+    return m.group(0) if m else None
+
+
+def resolve_naics(category: str, is_valid=None) -> Optional[str]:
+    """Map ANY business category to a SIX-DIGIT US NAICS code — generically, via the LLM.
+
+    No hardcoded category list: the LLM resolves whatever vertical it's given, so the
+    system works out-of-sample by construction. Returns a 6-digit string or None, never
+    a guess. `_NAICS_CACHE` (config-supplied, empty by default) short-circuits repeats.
+
+    SIX DIGITS, NOT `2 <= len <= 6`. The old guard let sector aggregates through, and the
+    model really does return them — MEASURED, "mobile dog grooming" -> 81. The Economic
+    Census answers a 2-digit code with HTTP 200 and a real row, so the number reaches the
+    report wearing a genuine citation:
+
+        NAICS 81      "Other services (except public administration)"  $3,158,226/estab
+        NAICS 812910  "Pet Care (except Veterinary) Services"          $1,286,805/estab
+
+    A 2.45x overstatement that a reader cannot spot, because everything about it looks
+    sourced. Partial codes are no gentler: on the SF county cell, 722515 is $884,029 and
+    72251/7225 are both $1,368,562 (+55%), 722 is +58%, 72 is +119%.
+
+    `is_valid` is the seam for callers that HAVE a vocabulary. A well-formed code can
+    still be from the wrong NAICS vintage — MEASURED, "bookstore" -> 451110 (NAICS 2017),
+    which the 2022 Economic Census answers with an EMPTY response, while the 2022 code
+    459210 returns 37 establishments. No regex can see that; only the dataset knows its
+    own vocabulary. Callers pass a predicate, a rejected code triggers one re-ask naming
+    it, and callers without a vocabulary are unaffected.
     """
     if not category:
         return None
     key = category.lower().strip()
     if key in _NAICS_CACHE:
         return _NAICS_CACHE[key]
-    try:
-        from llm import call_json
-        raw = call_json(
-            system=("Return the single most-specific US NAICS 2022 code for the "
-                    "business. Reply ONLY JSON: {\"naics\": \"######\"} (digits only)."),
-            user=f"Business: {category}",
-            max_tokens=60,
-        ) or {}
-        code = str(raw.get("naics") or "").strip()
-        if code.isdigit() and 2 <= len(code) <= 6:
-            _NAICS_CACHE[key] = code  # memoize for the session
-            return code
-        return None
-    except Exception:
-        return None
+
+    system = ("Return the single most-specific US NAICS 2022 code for the business. It "
+              "MUST be a full six-digit code — never a 2/3/4/5-digit sector or subsector "
+              "aggregate. Reply ONLY JSON: {\"naics\": \"######\"} (digits only).")
+    rejected: Optional[str] = None
+    # Two attempts, hard-bounded. The first covers a truncated or malformed reply (the
+    # logs name this verbatim: "output ends in an unterminated string ... likely a
+    # max_tokens cutoff"); the second covers a code the caller's dataset does not carry.
+    # More than two would burn the shared Gemini rate budget for a classifier.
+    for attempt in range(2):
+        user = f"Business: {category}"
+        if rejected:
+            user += (f"\n{rejected} is not a code in the dataset being queried. Return a "
+                     f"different, valid six-digit NAICS 2022 code.")
+        try:
+            from llm import call_json
+            # 60 tokens truncated real replies; 120 is still trivial for one JSON object.
+            code = _naics_from_reply(call_json(system=system, user=user, max_tokens=120))
+        except Exception:
+            return None
+        if code is None:
+            continue
+        if is_valid is not None and not is_valid(code):
+            rejected = code
+            continue
+        _NAICS_CACHE[key] = code  # memoize the ANSWER only, never a rejection
+        return code
+    return None
 
 
 @tool(category="geo", returns="{establishments, naics, year, source}",
