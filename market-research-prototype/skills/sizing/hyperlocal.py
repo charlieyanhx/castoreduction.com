@@ -801,6 +801,7 @@ def size_hyperlocal(
         # is; none of them is allowed to borrow another's language.
         anchor_method = None
         anchor = None
+        unit_expr = ""
         if supply_seats:
             unit_rev = (supply_seats * supply_turns_per_day
                         * supply_avg_check * supply_days_per_year)
@@ -808,6 +809,8 @@ def size_hyperlocal(
                         f"{supply_turns_per_day}/day × ${supply_avg_check} × "
                         f"{supply_days_per_year}d")
             unit_calc = unit_src
+            unit_expr = (f"{supply_seats} * {supply_turns_per_day} * "
+                         f"{supply_avg_check} * {supply_days_per_year}")
         else:
             anchor = _fetch_area_receipts_anchor(category, state_fips, county_fips)
             if anchor:
@@ -816,6 +819,13 @@ def size_hyperlocal(
                 unit_src = (f"{anchor['benchmark'].get('dataset')} — area average receipts "
                             f"per establishment, adjusted to single-unit firms")
                 unit_calc = anchor["chain"]
+                # The reader gets the chain in prose; the VERIFIER gets the same
+                # arithmetic as an expression. Without it the headline SOM reconciles to
+                # nothing and ships "the figure is unverified" on every run.
+                _b = anchor["benchmark"].get("receipts_per_establishment_usd")
+                _r = anchor["ratio"].get("ratio")
+                _c = (anchor.get("cpi") or {}).get("factor") or 1.0
+                unit_expr = f"{_b:.4f} * {_r:.6f} * {_c:.6f}"
                 # NOT raised. A citation is not accuracy for THIS address: the figure is a
                 # mean across every establishment in the county. See area_receipts_anchor.
                 _lower("low")
@@ -832,6 +842,7 @@ def size_hyperlocal(
                 unit_src = "single-unit revenue benchmark (LLM estimate, UNSOURCED)"
                 unit_calc = (f"${unit_rev:,.0f} single-unit revenue"
                              if unit_rev else "")
+                unit_expr = f"{unit_rev:.4f}" if unit_rev else ""
                 if unit_rev:
                     _lower("low")  # estimated capacity is load-bearing for SOM
 
@@ -846,7 +857,11 @@ def size_hyperlocal(
                 som, "SOM_obtainable", unit_src,
                 f"min({unit_calc}, ${sam:,.0f} SAM)",
                 data_origin="derived",
-                calc=f"{min(unit_rev, sam):.6f}"))
+                # NOT `f"{min(unit_rev, sam)}"`. A calc that restates the printed value
+                # reconciles to value/value = 1.0 and reports "verified" for a number
+                # nobody checked — a vacuous pass, worse than the honest advisory it
+                # replaces. This is the arithmetic, so the check has something to do.
+                calc=(f"min({unit_expr}, {sam:.4f})" if unit_expr else "")))
             # Surface saturation honestly when fair share sits far below the SOM.
             # R4 rank 18: the note claimed "capacity-based" even when the SOM rests on
             # an UNSOURCED single-unit revenue estimate (no seat data) — 4/6 hyperlocal
