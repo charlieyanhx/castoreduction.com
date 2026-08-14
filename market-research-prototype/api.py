@@ -97,9 +97,38 @@ def halt_reason(job: dict | None) -> str | None:
     return str(err) if err else None
 
 
+def _current_owner(request: Request = None) -> str:
+    """Who is asking.
+
+    A STUB, deliberately and visibly. Ownership had to land in the data model before auth
+    (task #93): a login screen over a store with no owner column proves who you are while
+    the query still returns everyone's rows. Until #94 supplies a real session this returns
+    the legacy owner, so behaviour is unchanged for a single local user — but every read
+    path is already scoped, so switching this one function to a session lookup is the whole
+    of the change.
+    """
+    return jobs.LEGACY_OWNER
+
+
+def _owned_job(job_id: str, request: Request = None) -> dict:
+    """The ONE way an HTTP handler may look up a job.
+
+    Nine endpoints expose a job (list, detail, events, feedback, onepager, trace,
+    report.html, report.pdf, report JSON). Scoping them individually guarantees the tenth
+    forgets, so this is the choke point and a test fails if anything else calls jobs.get().
+
+    404, never 403: a 403 confirms the id exists, which tells an attacker iterating ids
+    exactly which ones belong to real users.
+    """
+    j = jobs.get(job_id, owner_id=_current_owner(request))
+    if not j:
+        raise HTTPException(status_code=404, detail="job not found")
+    return j
+
+
 def _find_existing_job(kind: str, match_params: dict, max_age_hours: int = 24) -> str | None:
     """Check if a completed job of this kind with matching params exists recently."""
-    recent = jobs.list_recent(limit=50)
+    recent = jobs.list_recent(limit=50, owner_id=_current_owner())
     cutoff = _time.time() - max_age_hours * 3600
     for j in recent:
         if j["kind"] != kind or j["state"] != "complete":
@@ -107,7 +136,7 @@ def _find_existing_job(kind: str, match_params: dict, max_age_hours: int = 24) -
         if j["created_at"] < cutoff:
             continue
         # Load full job to check params
-        full = jobs.get(j["id"])
+        full = jobs.get(j["id"], owner_id=_current_owner())
         if not full:
             continue
         # list_recent carries no result, so the halt check needs the full record: a run that
@@ -283,7 +312,8 @@ def post_discover(req: DiscoverRequest):
         log.info("discover dedup hit for %s/%s → %s", req.category, req.geo, existing)
         return {"job_id": existing, "cached": True}
 
-    job_id = jobs.create("discover", req.model_dump())
+    job_id = jobs.create("discover", req.model_dump(),
+                         owner_id=_current_owner())
 
     def work():
         return discover_fn(req.category, geo=req.geo, max_candidates=req.max_candidates)
@@ -300,7 +330,7 @@ def post_taste(req: TasteRequest):
     # BUT only if it was a successful (non-error) result
     existing = _find_existing_job("taste", {"brand": req.brand, "domain": req.domain})
     if existing:
-        existing_job = jobs.get(existing)
+        existing_job = jobs.get(existing, owner_id=_current_owner())
         # Only reuse if the cached result doesn't have an error field
         if existing_job and existing_job.get("result") and not existing_job["result"].get("error"):
             log.info("taste dedup hit for %s/%s → %s", req.brand, req.domain, existing)
@@ -335,6 +365,10 @@ def post_plan(req: PlanRequest):
     from plan import run_plan
     from history import find_previous_plan
 
+    # Bound once, here: the worker closure below runs on a background thread where no
+    # request context exists, so the owner must be captured at submit time.
+    _owner = _current_owner()
+
     # Look for previous run of same description (for delta tracking)
     previous_job_id = find_previous_plan(req.description)
 
@@ -344,7 +378,7 @@ def post_plan(req: PlanRequest):
         params["previous_job_id"] = previous_job_id
         log.info("plan job linked to previous %s for delta tracking", previous_job_id[:8])
 
-    job_id = jobs.create("plan", params)
+    job_id = jobs.create("plan", params, owner_id=_owner)
 
     def work(progress=None):
         # Forward the progress callback so jobs.run_async checkpoint plumbing works
@@ -360,7 +394,9 @@ def post_plan(req: PlanRequest):
         # Embed previous_job_id + computed deltas in the final result
         if previous_job_id and not result.get("error"):
             from history import compute_deltas
-            prev_job = jobs.get(previous_job_id)
+            # USER-SUPPLIED id: resuming from someone else's job would inherit their
+            # data into this report. Scoped.
+            prev_job = jobs.get(previous_job_id, owner_id=_owner)
             if prev_job and prev_job.get("result"):
                 result["_previous_job_id"] = previous_job_id
                 try:
@@ -419,9 +455,9 @@ def post_research_crew(req: CrewRequest):
 @app.get("/jobs")
 def get_jobs(limit: int = 50):
     """Recent jobs. Enriched with a short `params_title` for the workspace sidebar."""
-    recent = jobs.list_recent(limit=limit)
+    recent = jobs.list_recent(limit=limit, owner_id=_current_owner())
     for j in recent:
-        full = jobs.get(j["id"]) or {}
+        full = jobs.get(j["id"], owner_id=_current_owner()) or {}
         desc = ((full.get("params") or {}).get("description")
                 or (full.get("result") or {}).get("profile", {}).get("summary") or "")
         if desc:
@@ -431,7 +467,7 @@ def get_jobs(limit: int = 50):
 
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str):
-    j = jobs.get(job_id)
+    j = _owned_job(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
     # The console polls this to decide whether to show a report link. A run that returned
@@ -495,7 +531,7 @@ def post_regenerate_section(job_id: str, req: RegenSectionRequest):
     """
     from four_ps import regenerate_section
 
-    job = jobs.get(job_id)
+    job = _owned_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
     if job.get("kind") != "plan":
@@ -570,7 +606,7 @@ def post_regenerate_section(job_id: str, req: RegenSectionRequest):
 def post_feedback(job_id: str, req: FeedbackRequest):
     """Operator submits thumbs-up/down/comment on a plan section."""
     import feedback as fb_mod
-    j = jobs.get(job_id)
+    j = _owned_job(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
     fid = fb_mod.submit(job_id, req.rating, req.section, req.comment)
@@ -594,8 +630,11 @@ def get_feedback_stats():
 @app.get("/compare", response_class=HTMLResponse)
 def compare_plans(left: str, right: str):
     """Side-by-side comparison of two completed plan jobs."""
-    left_job = jobs.get(left)
-    right_job = jobs.get(right)
+    # USER-SUPPLIED ids on a public endpoint — unscoped, this rendered any two reports
+    # side by side for anyone who could guess a pair of ids.
+    _owner = _current_owner()
+    left_job = jobs.get(left, owner_id=_owner)
+    right_job = jobs.get(right, owner_id=_owner)
     if not left_job or not right_job:
         raise HTTPException(status_code=404, detail="job not found")
     if halt_reason(left_job) or halt_reason(right_job):
@@ -635,7 +674,7 @@ def compare_plans(left: str, right: str):
 @app.get("/jobs/{job_id}/onepager.html", response_class=HTMLResponse)
 def get_job_onepager(job_id: str):
     """Compact one-page investor summary. For 'plan' jobs only."""
-    j = jobs.get(job_id)
+    j = _owned_job(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
     if (_why := halt_reason(j)):
@@ -713,7 +752,7 @@ def get_job_trace(job_id: str):
     actually used on THIS run. Static map (report/section_provenance) joined to the run's
     own append-only ledger, so it reports what happened rather than what was intended.
     """
-    j = jobs.get(job_id)
+    j = _owned_job(job_id)
     if (_why := halt_reason(j)):
         raise HTTPException(status_code=404, detail=f"no report to trace: {_why}")
     r = j.get("result") or {}
@@ -881,7 +920,7 @@ def get_job_report_html(job_id: str, debug: int = 0, force: int = 0):
     WITHHOLD by default (see below); force exists because there are real cases — a demo, a
     known-cosmetic failure, a buyer who wants the draft with its faults — where shipping is
     the right call. It never hides the verdict: a forced page carries the banner."""
-    j = jobs.get(job_id)
+    j = _owned_job(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
     if halt_reason(j):
@@ -957,7 +996,7 @@ def get_job_report_pdf(job_id: str, force: int = 0):
     resolves target-counter(), i.e. real page numbers in the table of contents).
     """
     from fastapi.responses import Response
-    j = jobs.get(job_id)
+    j = _owned_job(job_id)
     if (_why := halt_reason(j)):
         raise HTTPException(status_code=404, detail=f"no report to render: {_why}")
 
@@ -1006,7 +1045,7 @@ def get_job_report(job_id: str):
     """Markdown report for a completed job. Returns {markdown}."""
     import report as report_mod
 
-    j = jobs.get(job_id)
+    j = _owned_job(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
     if (_why := halt_reason(j)):

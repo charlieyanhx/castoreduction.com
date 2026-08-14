@@ -154,7 +154,7 @@ class TestOnARealReport(unittest.TestCase):
         import api
         cls.result = json.load(open(_CORPUS[0]))["result"]
         real = api.jobs.get
-        api.jobs.get = lambda _i: {"state": "complete", "kind": "plan",
+        api.jobs.get = lambda _i, **_kw: {"state": "complete", "kind": "plan",
                                    "result": cls.result, "error": None}
         try:
             cls.plain = api.get_job_report_html("t", debug=0).body.decode()
@@ -212,7 +212,7 @@ class TestNoNestedCorruption(unittest.TestCase):
         r = json.load(open(files[0]))["result"]
         import api
         real = api.jobs.get
-        api.jobs.get = lambda _i: {"state": "complete", "kind": "plan",
+        api.jobs.get = lambda _i, **_kw: {"state": "complete", "kind": "plan",
                                    "result": r, "error": None}
         try:
             traced = api.get_job_report_html("t", debug=1).body.decode()
@@ -299,7 +299,7 @@ class TestByScriptOnARealReport(unittest.TestCase):
         from report.trace import by_script, full_trace
         result = json.load(open(_CORPUS[0]))["result"]
         real = api.jobs.get
-        api.jobs.get = lambda _i: {"state": "complete", "kind": "plan",
+        api.jobs.get = lambda _i, **_kw: {"state": "complete", "kind": "plan",
                                    "result": result, "error": None}
         try:
             page = api.get_job_report_html("t", debug=0).body.decode()

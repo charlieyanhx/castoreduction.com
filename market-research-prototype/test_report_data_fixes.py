@@ -950,7 +950,7 @@ class TestIncompleteReportPage(unittest.TestCase):
     def _render(self, job):
         import api
         orig = api.jobs.get
-        api.jobs.get = lambda jid: job
+        api.jobs.get = lambda jid, **_kw: job
         try:
             return api.get_job_report_html("x")
         finally:
