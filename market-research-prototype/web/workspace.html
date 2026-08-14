@@ -137,11 +137,69 @@
   .card .c-desc { font-size: 12px; color: var(--text-dim); margin-top: 8px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .cat-head { font-family: var(--serif); font-size: 16px; font-weight: 600; margin: 24px 0 10px; }
   .cat-head:first-child { margin-top: 0; }
-</style>
+
+  /* ---------- responsive ------------------------------------------------------
+     MEASURED at 375px before this existed: the three-pane desktop grid did not
+     collapse — the 248px sidebar took two thirds of the width, the centre pane was
+     squeezed to a sliver wrapping ONE CHARACTER PER LINE, and the computer pane
+     overlapped it. Unusable on a phone.
+
+     Two steps, because the panes have different value on a small screen. The agent
+     pane is a live view of work in progress: worth its column on a laptop, the first
+     thing to go when there is no room. The conversation is the product and always
+     keeps the space. The sidebar becomes a slide-over rather than disappearing,
+     because the report library is how you get back to anything. */
+  .nav-toggle { display: none; }
+
+  @media (max-width: 1024px) {
+    body { grid-template-columns: 220px 1fr; }
+    .computer { display: none; }
+  }
+
+  @media (max-width: 768px) {
+    body { grid-template-columns: 1fr; }
+    .nav-toggle {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 34px; height: 34px; margin-right: 10px; flex-shrink: 0;
+      background: transparent; border: 1px solid var(--line, #e5e7eb);
+      border-radius: 9px; font-size: 15px; cursor: pointer; color: inherit;
+    }
+    .sidebar {
+      position: fixed; inset: 0 auto 0 0; width: 82vw; max-width: 320px; z-index: 40;
+      transform: translateX(-100%); transition: transform .18s ease;
+      box-shadow: 0 0 40px rgba(0,0,0,.35);
+    }
+    body.nav-open .sidebar { transform: translateX(0); }
+    body.nav-open::after {
+      content: ""; position: fixed; inset: 0; z-index: 30;
+      background: rgba(0,0,0,.45);
+    }
+    .center-head { display: flex; align-items: center; }
+    .center-head h1 { font-size: 17px; }
+    .center-head .sub { display: none; }   /* the hint costs a line it cannot afford */
+  }
+
+  
+  /* Account row. Hidden until /auth/me answers, so a local single-user install — which
+     has no account and needs none — never shows a sign-out that would do nothing. */
+  .account {
+    display: flex; align-items: center; gap: 8px; padding: 9px 12px; margin: 0 8px 6px;
+    border-top: 1px solid var(--line, #e5e7eb); font-size: 12.5px;
+  }
+  .account-who {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    opacity: .82;
+  }
+  .account-out {
+    background: none; border: none; padding: 0; cursor: pointer; font: inherit;
+    color: inherit; opacity: .6; text-decoration: underline; text-underline-offset: 2px;
+  }
+  .account-out:hover { opacity: 1; }
+  </style>
 </head>
 <body>
   <!-- LEFT -->
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
     <div class="brand"><span class="dot"></span> Castor</div>
     <button class="new-btn" id="newBtn">＋ New report</button>
     <nav class="side-nav">
@@ -151,12 +209,18 @@
     </nav>
     <div class="nav-label">Reports</div>
     <div class="task-list" id="taskList"></div>
+    <div class="account" id="account" hidden>
+      <span class="account-who" id="accountWho"></span>
+      <button class="account-out" id="signOutBtn" type="button">Sign out</button>
+    </div>
     <div class="side-foot" id="sideFoot">Triangulated · sourced · reproducible</div>
   </aside>
 
   <!-- CENTER -->
   <section class="center">
     <div class="center-head">
+      <button class="nav-toggle" id="navToggle" aria-label="Open report library"
+              aria-expanded="false" aria-controls="sidebar">☰</button>
       <h1 id="centerTitle">New report</h1>
       <span class="sub" id="centerSub">Describe your venture →</span>
     </div>
@@ -198,5 +262,51 @@
   </section>
 
   <script src="/workspace.js?v=7"></script>
+
+<script>
+  /* Mobile nav. Closes on backdrop tap and on Escape — a slide-over with no way back
+     is a trap on a phone, and aria-expanded has to track the real state for anyone
+     driving this by keyboard or screen reader. */
+  (function () {
+    var btn = document.getElementById('navToggle');
+    if (!btn) return;
+    function setOpen(open) {
+      document.body.classList.toggle('nav-open', open);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      setOpen(!document.body.classList.contains('nav-open'));
+    });
+    document.addEventListener('click', function (e) {
+      if (document.body.classList.contains('nav-open') &&
+          !e.target.closest('.sidebar') && e.target !== btn) setOpen(false);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') setOpen(false);
+    });
+  })();
+</script>
+
+<script>
+  /* Identity, if there is one. */
+  (function () {
+    fetch('/auth/me').then(function (r) { return r.json(); }).then(function (me) {
+      if (!me || !me.authenticated) {
+        // Production refuses unauthenticated requests outright; landing here without a
+        // session means the redirect was bypassed, so send them to the door themselves.
+        if (me && me.local === false) location.href = '/login';
+        return;
+      }
+      var row = document.getElementById('account');
+      document.getElementById('accountWho').textContent = me.email || 'Signed in';
+      row.hidden = false;
+      document.getElementById('signOutBtn').addEventListener('click', function () {
+        fetch('/auth/logout', { method: 'POST' })
+          .then(function () { location.href = '/login'; });
+      });
+    }).catch(function () {});
+  })();
+</script>
 </body>
 </html>
