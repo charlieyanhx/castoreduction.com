@@ -53,6 +53,7 @@ from orchestrator.steps.financials_step import (_enrich_economics_at_som,  # noq
                                                 run_financials_step)
 from orchestrator.steps.firmographics import run_firmographics_step
 from orchestrator.steps.max_diff import run_max_diff_step
+from orchestrator.steps.personas import run_personas_step
 from orchestrator.steps.pricing_sim import run_pricing_sim_step
 from orchestrator.steps.profile import run_profile_step
 from orchestrator.steps.segments import run_segment_ranking_step
@@ -824,7 +825,44 @@ def extract_location(text: str) -> str | None:
     if m:
         return m.group(0).strip()
     m = _PLACE_RE.search(text)
-    return m.group(1).strip() if m else None
+    return _trim_at_sentence_end(m.group(1)) if m else None
+
+
+# A full stop ends the location only when it ends a SENTENCE. "$5.50" and "St. Louis" both
+# contain one and neither is a boundary, so a bare split on "." is wrong in the other
+# direction — it would truncate a price-bearing description at the decimal and turn
+# "St. Louis, Missouri" into "St".
+_SENTENCE_END = re.compile(
+    r"""(?:
+          (?<!\bSt)(?<!\bMt)(?<!\bFt)(?<!\bSte)(?<!\bPt)(?<!\bAve)(?<!\bRd)
+          [.!?](?=\s+[A-Z])    # terminator + whitespace + capital: a new sentence...
+                                # ...unless it followed a place abbreviation, because
+                                # "St. Louis" and "Mt. Vernon" match that shape exactly
+                                # and cutting there leaves "St".
+        | [;\n\r]              # semicolon or newline: always a break
+        | \s+[—–]\s+           # spaced em/en dash: an aside, not part of the place
+        )""",
+    re.X,
+)
+
+
+def _trim_at_sentence_end(place: str) -> str | None:
+    """Cut a captured place at the first sentence boundary inside it.
+
+    MEASURED on run16: "...in the Mission District of San Francisco. It offers..." captured
+    "Mission District of San Francisco. It". That string still geocoded to San Francisco —
+    so households looked right at 38,877 and nothing appeared wrong — while the OSM
+    competitor query built from it returned ZERO venues against run15's 102, failing D07
+    and D59 together. A location is only ever one sentence long; anything past the
+    boundary is the next sentence leaking in.
+    """
+    if not place:
+        return None
+    m = _SENTENCE_END.search(place)
+    if m:
+        place = place[:m.start()]
+    place = place.strip().rstrip(".,;:-—– ")
+    return place or None
 
 
 # Map common physical categories to a REAL OSM (key, value) tag for competitor lookup.

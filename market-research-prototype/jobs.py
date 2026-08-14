@@ -35,6 +35,16 @@ DB = _db_path()  # back-compat snapshot of the default; connections use _db_path
 _lock = threading.Lock()
 
 
+# Rows that predate the ownership column. Kept as a named constant because both the
+# migration and the identity stub in api.py must agree on it.
+LEGACY_OWNER = "legacy"
+
+
+def _reset_for_tests() -> None:
+    """Drop any cached connection so a test can point JOBS_DB_PATH somewhere new."""
+    globals().pop("_cached_conn", None)
+
+
 def _conn():
     path = _db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -53,19 +63,29 @@ def _conn():
         )
         """
     )
+    # Ownership migration. Added after the fact, so existing rows are backfilled to
+    # LEGACY_OWNER rather than left NULL — a NULL owner would either be invisible to
+    # everyone (reads as data loss on Charlie's local library) or visible to everyone
+    # (the exact leak the column exists to close).
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
+    if "owner_id" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN owner_id TEXT")
+        conn.execute("UPDATE jobs SET owner_id = ? WHERE owner_id IS NULL", (LEGACY_OWNER,))
+        log.info("jobs: added owner_id and backfilled existing rows to %r", LEGACY_OWNER)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_owner ON jobs(owner_id, created_at)")
     return conn
 
 
-def create(kind: str, params: dict) -> str:
-    """Insert a pending job and return its id."""
+def create(kind: str, params: dict, owner_id: str = LEGACY_OWNER) -> str:
+    """Insert a pending job and return its id. Every job has an owner from birth."""
     job_id = str(uuid.uuid4())
     now = int(time.time())
     with _lock:
         c = _conn()
         c.execute(
-            "INSERT INTO jobs (id, kind, state, params_json, created_at, updated_at) "
-            "VALUES (?, ?, 'pending', ?, ?, ?)",
-            (job_id, kind, json.dumps(params, default=str), now, now),
+            "INSERT INTO jobs (id, kind, state, params_json, created_at, updated_at, "
+            "owner_id) VALUES (?, ?, 'pending', ?, ?, ?, ?)",
+            (job_id, kind, json.dumps(params, default=str), now, now, owner_id),
         )
         c.close()
     log.info("created job %s kind=%s", job_id, kind)
@@ -92,14 +112,32 @@ def update(job_id: str, *, state: str | None = None, result: dict | None = None,
         c.close()
 
 
-def get(job_id: str) -> dict | None:
+def get(job_id: str, owner_id: str | None = None) -> dict | None:
+    """One job, scoped to its owner.
+
+    A NULL owner_id reads as LEGACY_OWNER. Rows can arrive NULL from the migration or from
+    any writer that forgets the column, and a row nobody can read is data loss wearing a
+    security feature's clothes.
+
+    A job belonging to someone else returns None — the caller then 404s, which is the
+    point: a 403 would confirm the id exists and tell an attacker iterating ids exactly
+    which ones belong to real users.
+
+    owner_id=None means UNSCOPED and exists only so internal callers can share this code;
+    HTTP paths must never pass None. get_unscoped() is the honest name for that door, and
+    a test asserts no endpoint reaches past the owner-scoped helper in api.py.
+    """
     with _lock:
         c = _conn()
-        row = c.execute(
-            "SELECT id, kind, state, params_json, result_json, error, created_at, updated_at "
-            "FROM jobs WHERE id = ?",
-            (job_id,),
-        ).fetchone()
+        if owner_id is None:
+            row = c.execute(
+                "SELECT id, kind, state, params_json, result_json, error, created_at, "
+                "updated_at, owner_id FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        else:
+            row = c.execute(
+                "SELECT id, kind, state, params_json, result_json, error, created_at, "
+                "updated_at, owner_id FROM jobs WHERE id = ? "
+                "AND COALESCE(owner_id, ?) = ?", (job_id, LEGACY_OWNER, owner_id)).fetchone()
         c.close()
     if not row:
         return None
@@ -112,17 +150,30 @@ def get(job_id: str) -> dict | None:
         "error": row[5],
         "created_at": row[6],
         "updated_at": row[7],
+        "owner_id": row[8],
     }
 
 
-def list_recent(limit: int = 50) -> list[dict]:
+def get_unscoped(job_id: str) -> dict | None:
+    """The background worker updates jobs it does not own. Deliberately a separate name
+    so the unscoped path cannot be reached by an HTTP handler that forgot an argument."""
+    return get(job_id, owner_id=None)
+
+
+def list_recent(limit: int = 50, owner_id: str | None = None) -> list[dict]:
+    """Recent jobs for ONE owner. owner_id=None lists everything and is for internal use
+    only — the library endpoint always scopes."""
     with _lock:
         c = _conn()
-        rows = c.execute(
-            "SELECT id, kind, state, created_at, updated_at FROM jobs "
-            "ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        if owner_id is None:
+            rows = c.execute(
+                "SELECT id, kind, state, created_at, updated_at FROM jobs "
+                "ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+        else:
+            rows = c.execute(
+                "SELECT id, kind, state, created_at, updated_at FROM jobs "
+                "WHERE COALESCE(owner_id, ?) = ? ORDER BY created_at DESC LIMIT ?",
+                (LEGACY_OWNER, owner_id, limit)).fetchall()
         c.close()
     return [
         {"id": r[0], "kind": r[1], "state": r[2], "created_at": r[3], "updated_at": r[4]}

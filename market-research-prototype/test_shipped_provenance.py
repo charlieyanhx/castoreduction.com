@@ -28,7 +28,7 @@ def _render(result: dict, debug: int = 0) -> str:
     """Render through the live endpoint. debug=0 — what a buyer opens."""
     import api
     real_get = api.jobs.get
-    api.jobs.get = lambda _id: {"state": "complete", "kind": "plan",
+    api.jobs.get = lambda _id, **_kw: {"state": "complete", "kind": "plan",
                                 "result": result, "error": None}
     try:
         return api.get_job_report_html("testjob", debug=debug).body.decode()
