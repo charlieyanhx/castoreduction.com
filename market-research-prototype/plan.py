@@ -1078,6 +1078,13 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
         "som_anchor": p.get("som_anchor"),
         "som_demand_usd": p.get("som_demand_usd"),
         "som_supply_usd": p.get("som_supply_usd"),
+        # FOURTH time. #91 added the sourced anchor's arithmetic chain and its operand
+        # sources, and this allowlist ate both — measured on run18, where som_anchor came
+        # through populated and som_anchor_chain arrived as None. The chain is the ONLY
+        # thing that makes an Economic Census area average checkable rather than a county
+        # mean wearing a citation, so losing it here loses the point of the change.
+        "som_anchor_chain": p.get("som_anchor_chain"),
+        "som_anchor_sources": p.get("som_anchor_sources"),
         # Carry the TRADE-AREA SCALE through to the stored report. size_hyperlocal publishes
         # these; this mapping dropped them, so D49 — the gate guarding the measured 372x
         # county-as-trade-area error — was N/A on all 16 stored reports while its synthetic

@@ -13,6 +13,7 @@ rather than presenting a guess as sourced.
 """
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import os
 import re
@@ -388,3 +389,75 @@ def cex_income_quintile_curve(item_code: str = "FOODAWAY") -> Evidence:
         payload=dict(record, from_cache=False),
         cost_meta={"source": "BLS CEX", "points": len(points), "vintage": vintage},
     )
+
+
+# --------------------------------------------------------------------------- CPI-U
+# The Economic Census is a five-yearly programme: the 2022 reference year is the current
+# vintage, and using a 2022 dollar figure as a present-day anchor understates it. For this
+# venture's county the bias is knowable and one-directional — SF county NAICS 722515
+# receipts went $496,256K (2017) -> $464,115K (2022), a NOMINAL DECLINE across ~19%
+# cumulative inflation, because 2022 was still a COVID-depressed year for San Francisco.
+_CPI_U_SERIES = "CUUR0000SA0"      # All items, US city average, not seasonally adjusted
+
+
+def cpi_escalation_factor(from_year: int, to_year: Optional[int] = None) -> Optional[dict]:
+    """CPI-U ratio between two years, with both index values, or None.
+
+    A PROXY, AND CALLERS MUST SAY SO. CPI-U measures what households pay for a consumer
+    basket; it does not measure what businesses take in receipts. Escalating receipts by it
+    is a modelling assumption, and presenting it as a unit conversion ("in 2026 dollars")
+    would hide that. Returning both index values lets a reader who disagrees divide it back
+    out.
+
+    Uses the annual average when the target year has one and the latest monthly reading
+    otherwise, so a mid-year call still works. Returns None on any failure — an unavailable
+    index means the caller publishes in the vintage year and discloses it, which is a
+    smaller error than a silent 1.0.
+
+    Do NOT use this to deflate a series that already has its own deflator, and do not use
+    it across countries — this series is US city average only.
+    """
+    if not isinstance(from_year, int) or from_year < 1913:
+        return None
+    to_year = to_year or _dt.datetime.now().year
+    if to_year <= from_year:
+        return None
+    from scrape.http import request
+    payload = {"seriesid": [_CPI_U_SERIES], "startyear": str(from_year),
+               "endyear": str(to_year), "annualaverage": True}
+    key = os.getenv("BLS_API_KEY")
+    if key:
+        payload["registrationkey"] = key
+    resp = request("POST", _BLS_API, json=payload, timeout=20)
+    if resp is None or getattr(resp, "status_code", 500) >= 400:
+        resp = request("POST", _BLS_API, json=payload, timeout=20)   # BLS stalls; retry once
+    if resp is None or getattr(resp, "status_code", 500) >= 400:
+        return None
+    try:
+        series = ((resp.json().get("Results") or {}).get("series") or [])
+        rows = series[0].get("data") if series else []
+    except (ValueError, KeyError, IndexError, TypeError, json.JSONDecodeError):
+        return None
+
+    def _pick(year: int) -> Optional[float]:
+        """Annual average (period M13) if published, else the latest month of that year."""
+        yr = [r for r in rows if str(r.get("year")) == str(year)]
+        annual = [r for r in yr if r.get("period") == "M13"]
+        chosen = annual or sorted(yr, key=lambda r: str(r.get("period")), reverse=True)
+        for r in chosen:
+            try:
+                v = float(str(r.get("value")).replace(",", ""))
+            except (TypeError, ValueError):
+                continue
+            if v > 0:
+                return v
+        return None
+
+    a, b = _pick(from_year), _pick(to_year)
+    if not a or not b:
+        return None
+    return {"factor": b / a, "from_index": a, "to_index": b,
+            "from_year": from_year, "to_year": to_year,
+            "series_id": _CPI_U_SERIES,
+            "statistic": "CPI-U all items, US city average — a consumer-price proxy for "
+                         "receipt growth, not a measure of it"}

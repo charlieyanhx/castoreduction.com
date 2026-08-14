@@ -100,7 +100,135 @@ def _estimate_unit_revenue(category: str, location: str) -> Optional[float]:
         return None
 
 
-def som_anchor_block(*, som, unit_revenue, fair_share, sourced: bool) -> dict:
+def _fetch_area_receipts_anchor(category: str, state_fips: Optional[str],
+                                county_fips: Optional[str]) -> Optional[dict]:
+    """Resolve the industry, fetch the three sourced inputs, build the anchor. None on any
+    miss — a partial chain must never become a figure.
+
+    Everything goes through get_tool(...).fn rather than a direct import: the @tool wrapper
+    is what records the call, and a production path that bypasses it is invisible to the
+    ledger and to the provenance gates. This codebase has already measured that exact
+    under-reporting once.
+
+    The NAICS code is validated BY USE. A code can be perfectly well-formed and still
+    belong to the wrong vintage — "bookstore" resolves to 451110 (NAICS 2017), which the
+    2022 Economic Census answers with an empty body, while 459210 returns real rows. Only
+    the dataset knows its own vocabulary, so resolve_naics gets a predicate that asks it.
+    """
+    if not category or not (state_fips and county_fips):
+        return None
+    try:
+        from tools.geo import resolve_naics, single_unit_receipts_ratio
+        from tools.econ import cpi_escalation_factor
+        receipts = get_tool("census_receipts_per_establishment")
+
+        def _retrievable(code: str) -> bool:
+            ev = receipts.fn(naics=code, state_fips=state_fips, county_fips=county_fips)
+            return not ev.skeleton
+
+        naics = resolve_naics(category, is_valid=_retrievable)
+        if not naics:
+            return None
+        ev = receipts.fn(naics=naics, state_fips=state_fips, county_fips=county_fips)
+        if ev.skeleton or not ev.payload:
+            return None
+        ratio = single_unit_receipts_ratio(naics)
+        if not ratio:
+            return None
+        # Optional by design: without it the figure ships in its vintage year and says so,
+        # which is a smaller and more visible error than a silent 1.0.
+        cpi = cpi_escalation_factor(int(ev.payload.get("vintage") or 2022))
+        return area_receipts_anchor(benchmark=ev.payload, ratio=ratio, cpi=cpi)
+    except Exception:                                            # noqa: BLE001
+        return None
+
+
+def area_receipts_anchor(*, benchmark: Optional[dict], ratio: Optional[dict],
+                         cpi: Optional[dict]) -> Optional[dict]:
+    """An AREA-AVERAGE revenue anchor, with the whole arithmetic chain a reader can check.
+
+    Takes the three sourced inputs — Economic Census receipts per establishment for this
+    NAICS and geography, the national single-unit/all-firms composition ratio, and
+    optionally a CPI-U escalation — and returns the figure PLUS the sentence that makes it
+    auditable. Returns None if either required input is missing; there is no default.
+
+    IT IS AN AREA MEAN, AND EVERY STRING HERE SAYS SO. 525 establishments across a county,
+    not this storefront, over a right-skewed distribution whose median the Census does not
+    publish. An adversarial review of the first design returned BROKEN precisely here: the
+    naive version rendered a county mean under the existing label "single-unit revenue",
+    which a buyer reads as "this one unit", with a Census citation attached. That would be
+    worse than the guess it replaces, because a guess at least looks like one.
+
+    THE CHAIN GOES IN THE FORMULA, NOT A PROVENANCE STAMP. The published figure appears in
+    no dataset — following the citation finds $884,029, not the adjusted number. This repo
+    already settled that question twice ("derived is its own origin, not a missing one";
+    "claiming arithmetic as a fetch would be the OVER-claiming mirror of the bug this
+    branch fixes") and already built the remedy one figure earlier, where the
+    income-adjusted TAM publishes its operands inline. Same treatment: data_origin stays
+    `derived` and every operand ships in `chain`.
+
+    ONLY A LOCAL RUNG GROUNDS. Measured against the 802 counties that do publish, a state
+    substitution is off by a median 2.29x where there are under 10 establishments — worse
+    than the 1.67x swing of the LLM guess it would replace — and suppression targets
+    exactly those small counties. A substituted rung may inform the report; it must never
+    be called sourced.
+
+    AND IT NEVER RAISES CONFIDENCE. Better provenance is not better accuracy for this
+    address, and on the measured run this branch is the only thing holding the sizing
+    section's data-quality chip at "low". `raises_confidence` is False on purpose.
+    """
+    if not benchmark or not ratio:
+        return None
+    base = benchmark.get("receipts_per_establishment_usd")
+    r = ratio.get("ratio")
+    if not isinstance(base, (int, float)) or not isinstance(r, (int, float)) or base <= 0:
+        return None
+
+    usd = float(base) * float(r)
+    geography = benchmark.get("geography_name") or "the local area"
+    parts = [
+        f"${base:,.0f} average annual receipts per establishment "
+        f"({geography}, {benchmark.get('establishments')} establishments, "
+        f"{benchmark.get('vintage')} Economic Census, NAICS {benchmark.get('naics')} "
+        f"{benchmark.get('naics_label')}) — an arithmetic mean across the county, not a "
+        f"single store; the median is lower and the Census does not publish it",
+        f"x {float(r):.3f} national single-unit adjustment "
+        f"(${ratio.get('single_unit_per_establishment_usd', 0):,.0f} per "
+        f"single-unit-firm establishment / "
+        f"${ratio.get('all_firms_per_establishment_usd', 0):,.0f} per establishment across "
+        f"all firms, {ratio.get('vintage')} Economic Census) — a ratio of per-establishment "
+        f"means, applied nationally to a local level",
+    ]
+    if cpi and isinstance(cpi.get("factor"), (int, float)) and cpi["factor"] > 0:
+        usd *= float(cpi["factor"])
+        parts.append(
+            f"x {float(cpi['factor']):.3f} CPI-U ({cpi.get('from_index')} in "
+            f"{cpi.get('from_year')} to {cpi.get('to_index')} in {cpi.get('to_year')}, "
+            f"series {cpi.get('series_id')}) — CPI-U measures household consumer prices, "
+            f"so it is a PROXY for receipt growth, not a measure of it")
+    else:
+        parts.append(f"stated in {benchmark.get('vintage')} dollars — not escalated for "
+                     f"inflation, so it understates current-year receipts")
+    if benchmark.get("substitution"):
+        parts.append(benchmark["substitution"])
+
+    return {
+        "usd": usd,
+        "chain": f"= ${usd:,.0f}: " + "; ".join(parts),
+        "grounded": benchmark.get("rung") == "county",
+        "rung": benchmark.get("rung"),
+        # Arithmetic on sourced inputs is its own origin. See the docstring.
+        "data_origin": "derived",
+        # Auditability and accuracy are different axes.
+        "raises_confidence": False,
+        "benchmark": benchmark,
+        "ratio": ratio,
+        "cpi": cpi,
+    }
+
+
+def som_anchor_block(*, som, unit_revenue, fair_share, sourced: bool,
+                     method: Optional[str] = None) -> dict:
     """State HOW the headline SOM was anchored, and what the other method said.
 
     MEASURED on the stored runs — same venture, same trade area, same competitor census:
@@ -110,10 +238,18 @@ def som_anchor_block(*, som, unit_revenue, fair_share, sourced: bool) -> dict:
     it (fair share of SAM across the census) and the mapping downstream dropped BOTH, so
     the report showed one confident number and no way to inspect it.
 
-    This does not ground the anchor — that needs operator seat/turn inputs (the supply_*
-    parameters exist and are never passed) or published per-store revenue benchmarks. It
-    makes the ungroundedness visible and the disagreement available, which is the
-    difference between a number a reader can discount and one they cannot.
+    THREE ANCHORS NOW, not two, because "capacity_model" and "single_unit_revenue_estimate"
+    are both lies about an Economic Census area average — it is neither a measured capacity
+    nor a guess. `method="area_receipts_benchmark"` names it honestly and its note leads
+    with the word "average".
+
+    THE SPREAD SURVIVES ON THE SOURCED PATH. Two defensible methods disagreeing is the
+    honest uncertainty and does not stop being interesting because one of them acquired a
+    citation. The note deliberately makes NO corroboration claim: fair share is
+    SAM/(competitors+1) where SAM is TAM x a hardcoded serviceable_fraction of 0.35, so
+    apparent agreement is an artifact of an unsourced constant — at 0.25 the same pair
+    spreads 1.47x, at 0.50 1.36x. A reader invited to read agreement as validation has been
+    misled by arithmetic.
     """
     def _n(v):
         return v if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else None
@@ -122,12 +258,20 @@ def som_anchor_block(*, som, unit_revenue, fair_share, sourced: bool) -> dict:
     if som is None:
         return {}
     if unit_revenue is not None:
-        method = "capacity_model" if sourced else "single_unit_revenue_estimate"
-        note = ("seats x turns x check x days, from operator-supplied capacity"
-                if sourced else
-                "single-unit annual revenue, UNSOURCED model estimate — it moved 67% "
-                "between two runs of the same venture; treat the headline SOM as an "
-                "order of magnitude, not a forecast")
+        if method == "area_receipts_benchmark":
+            note = ("area AVERAGE annual receipts per establishment for this industry, "
+                    "from the Economic Census, adjusted to single-unit firms — a mean "
+                    "across every establishment in the area, so a particular location can "
+                    "plausibly run at half or double it; the full arithmetic is published "
+                    "with the figure")
+        elif sourced:
+            method = "capacity_model"
+            note = "seats x turns x check x days, from operator-supplied capacity"
+        else:
+            method = "single_unit_revenue_estimate"
+            note = ("single-unit annual revenue, UNSOURCED model estimate — it moved 67% "
+                    "between two runs of the same venture; treat the headline SOM as an "
+                    "order of magnitude, not a forecast")
         alt, alt_method = fair_share, ("fair_share_of_sam" if fair_share else None)
     else:
         method, alt, alt_method = "fair_share_of_sam", None, None
@@ -652,25 +796,55 @@ def size_hyperlocal(
         # Capacity-side SOM — what ONE premise can realistically earn, ramped, then
         # capped by serviceable demand (SAM). THIS is the headline SOM. Prefer an
         # explicit seats model when given; else estimate single-unit revenue (labeled).
+        # THE ANCHOR LADDER, best-grounded first. Rung 1 is operator fact, rung 2 is a
+        # published dataset, rung 3 is the model. Every rung ends up labelled for what it
+        # is; none of them is allowed to borrow another's language.
+        anchor_method = None
+        anchor = None
         if supply_seats:
             unit_rev = (supply_seats * supply_turns_per_day
                         * supply_avg_check * supply_days_per_year)
             unit_src = (f"capacity model: {supply_seats} seats × "
                         f"{supply_turns_per_day}/day × ${supply_avg_check} × "
                         f"{supply_days_per_year}d")
+            unit_calc = unit_src
         else:
-            unit_rev = _estimate_unit_revenue(category, matched)
-            unit_src = "single-unit revenue benchmark (LLM estimate, UNSOURCED)"
-            if unit_rev:
-                _lower("low")  # estimated capacity is load-bearing for SOM
+            anchor = _fetch_area_receipts_anchor(category, state_fips, county_fips)
+            if anchor:
+                anchor_method = "area_receipts_benchmark"
+                unit_rev = anchor["usd"]
+                unit_src = (f"{anchor['benchmark'].get('dataset')} — area average receipts "
+                            f"per establishment, adjusted to single-unit firms")
+                unit_calc = anchor["chain"]
+                # NOT raised. A citation is not accuracy for THIS address: the figure is a
+                # mean across every establishment in the county. See area_receipts_anchor.
+                _lower("low")
+                notes.append(
+                    "The obtainable SOM is anchored on an AREA AVERAGE — mean annual "
+                    "receipts per establishment for this industry in "
+                    f"{anchor['benchmark'].get('geography_name')}, not a measurement of "
+                    "this site. A particular location can plausibly run at half or double "
+                    "it. The full arithmetic is published with the figure.")
+                if anchor["benchmark"].get("substitution"):
+                    notes.append(anchor["benchmark"]["substitution"])
+            else:
+                unit_rev = _estimate_unit_revenue(category, matched)
+                unit_src = "single-unit revenue benchmark (LLM estimate, UNSOURCED)"
+                unit_calc = (f"${unit_rev:,.0f} single-unit revenue"
+                             if unit_rev else "")
+                if unit_rev:
+                    _lower("low")  # estimated capacity is load-bearing for SOM
 
         if unit_rev:
             som_supply = unit_rev  # mature single-unit ceiling
             som = min(unit_rev, sam)   # steady state — the scenarios own the ramp
+            # The chain goes in the FORMULA, which is the string a reader actually sees:
+            # plan.py::_block keeps `calculation` and discards `source`, and figures[]
+            # never reaches the template. A disclosure written where the pipeline throws
+            # it away is not a disclosure.
             figures.append(_fig(
                 som, "SOM_obtainable", unit_src,
-                f"min(${unit_rev:,.0f} single-unit revenue at steady state, "
-                f"${sam:,.0f} SAM)",
+                f"min({unit_calc}, ${sam:,.0f} SAM)",
                 data_origin="derived",
                 calc=f"{min(unit_rev, sam):.6f}"))
             # Surface saturation honestly when fair share sits far below the SOM.
@@ -710,9 +884,19 @@ def size_hyperlocal(
         "tam_usd": tam, "sam_usd": sam, "som_usd": som,
         "som_demand_usd": som_demand, "som_supply_usd": som_supply,
         # HOW the headline SOM was anchored, and what the other method said (#83).
-        "som_anchor": som_anchor_block(som=som, unit_revenue=som_supply,
-                                       fair_share=som_demand,
-                                       sourced=bool(supply_seats)),
+        "som_anchor": som_anchor_block(
+            som=som, unit_revenue=som_supply, fair_share=som_demand,
+            # Only a LOCAL rung grounds. A state substitution is off by a median 2.29x on
+            # counties with under 10 establishments — worse than the LLM swing it would
+            # replace — and suppression targets exactly those counties.
+            sourced=bool(supply_seats) or bool(anchor and anchor.get("grounded")),
+            method=anchor_method),
+        # The operands, so the JSON is as checkable as the prose.
+        "som_anchor_chain": (anchor or {}).get("chain"),
+        "som_anchor_sources": ({"receipts": (anchor or {}).get("benchmark"),
+                                "composition": (anchor or {}).get("ratio"),
+                                "inflation": (anchor or {}).get("cpi")}
+                               if anchor else None),
         "trade_area_spend_usd": tam,  # catchment ceiling
         "figures": figures,
         "households": households, "competitors": competitors,

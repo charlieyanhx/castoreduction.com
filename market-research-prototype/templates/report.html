@@ -746,6 +746,35 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 </div>
 {% endif %}
 
+{# HOW THE SOM WAS ANCHORED. #83 computed this block and NOTHING rendered it — the
+   disclosure existed only in the JSON, which is to say it did not exist for a reader.
+   The headline SOM is the most decision-relevant number in the report and it moved 67%
+   between two runs of the same venture when it rested on an unsourced estimate; whichever
+   method it rests on now, the reader is entitled to see which, and to see the other
+   method's answer beside it. The spread IS the finding — deliberately shown as a
+   disagreement, never as corroboration. #}
+{% if market_sizing.som_anchor and market_sizing.som_anchor.method %}
+{% set anc = market_sizing.som_anchor %}
+{% set anc_color = '#047857' if anc.sourced else '#b45309' %}
+<div style="border:1px solid {{ anc_color }};border-radius:8px;padding:12px 14px;margin:10px 0;background:rgba(0,0,0,0.02)">
+  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:{{ anc_color }};margin-bottom:6px">
+    SOM anchor · {{ anc.method|replace('_',' ') }}{% if anc.sourced %} · sourced{% else %} · not sourced{% endif %}
+  </div>
+  <div style="font-size:10.5pt;color:#1f2937">{{ anc.note }}</div>
+  {% if market_sizing.som_anchor_chain %}
+  <div style="font-size:9pt;color:#4b5563;margin-top:6px">{{ market_sizing.som_anchor_chain }}</div>
+  {% endif %}
+  {% if anc.alternative_usd %}
+  <div style="font-size:9pt;color:#6b7280;margin-top:6px">
+    A second method ({{ anc.alternative_method|replace('_',' ') }}) gives
+    {{ format_currency(anc.alternative_usd) }}{% if anc.spread_x %} — the two disagree by {{ anc.spread_x }}x{% endif %}.
+    That disagreement is the honest uncertainty around this figure; it is wider than the
+    ±30% band drawn around the point estimate.
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
 <!-- SAM SLICE -->
 {% if market_sizing.sam and (market_sizing.sam.serviceability_waterfall or market_sizing.sam.serviceable_slice_pct is not none) %}
 <div style="background:#eef2ff;border-left:3px solid #3730a3;padding:10px 14px;font-size:10pt;color:#1f2937;margin:10px 0">
