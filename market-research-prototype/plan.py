@@ -43,6 +43,10 @@ log = get("plan")
 # here, not just imported: callers across the codebase — and tests that patch
 # `plan.triangulate_sizing` — resolve the name through this module, and a move that breaks
 # them is a refactor that changed behaviour.
+# Category -> OSM tag/radius resolution now lives with the sizing skills (#87 wave 2).
+from skills.sizing.osm_tags import (  # noqa: F401
+    _OSM_TAG_BY_CATEGORY, _RADIUS_BY_OSM_VALUE, _radius_for_osm_value,
+    _resolve_osm_amenity, _resolve_osm_tag)
 from skills.sizing.triangulation import (  # noqa: F401
     _fmt_tam_short, _renormalize_segmentation, _resync_sam_after_triangulation,
     _rewrite_tam_tokens, triangulate_sizing)
@@ -880,67 +884,17 @@ def _trim_at_sentence_end(place: str) -> str | None:
 # CRITICAL: OSM does NOT put everything under amenity=. Gyms are leisure=fitness_centre;
 # hairdressers/bakeries/bookstores are shop=*. A value-only map (assuming amenity=)
 # silently returned 0 competitors for gyms and salons (audit M1 gap).
-_OSM_TAG_BY_CATEGORY = {
-    "restaurant": ("amenity", "restaurant"), "eatery": ("amenity", "restaurant"),
-    "diner": ("amenity", "restaurant"), "bistro": ("amenity", "restaurant"),
-    "food truck": ("amenity", "fast_food"), "food cart": ("amenity", "fast_food"),
-    "fast food": ("amenity", "fast_food"), "fast-casual": ("amenity", "fast_food"),
-    "fast casual": ("amenity", "fast_food"), "salad": ("amenity", "fast_food"),
-    "food": ("amenity", "restaurant"),
-    "cafe": ("amenity", "cafe"), "café": ("amenity", "cafe"), "coffee": ("amenity", "cafe"),
-    "tea house": ("amenity", "cafe"), "teahouse": ("amenity", "cafe"),
-    "bakery": ("shop", "bakery"), "patisserie": ("shop", "bakery"),
-    "pub": ("amenity", "pub"), "brewery": ("amenity", "bar"), "bar": ("amenity", "bar"),
-    "wine bar": ("amenity", "bar"), "cocktail": ("amenity", "bar"),
-    "nightclub": ("amenity", "nightclub"), "ice cream": ("amenity", "ice_cream"),
-    "gym": ("leisure", "fitness_centre"), "fitness": ("leisure", "fitness_centre"),
-    "crossfit": ("leisure", "fitness_centre"), "yoga": ("leisure", "fitness_centre"),
-    "pilates": ("leisure", "fitness_centre"),
-    "barbershop": ("shop", "hairdresser"), "barber": ("shop", "hairdresser"),
-    "hair salon": ("shop", "hairdresser"), "salon": ("shop", "hairdresser"),
-    "nail": ("shop", "beauty"), "beauty": ("shop", "beauty"), "spa": ("leisure", "spa"),
-    "clinic": ("amenity", "clinic"), "dental": ("amenity", "dentist"),
-    "dentist": ("amenity", "dentist"), "veterinary": ("amenity", "veterinary"),
-    "pharmacy": ("amenity", "pharmacy"), "bookstore": ("shop", "books"),
-    "bookshop": ("shop", "books"), "florist": ("shop", "florist"),
-    "library": ("amenity", "library"), "cinema": ("amenity", "cinema"),
-}
 
 
 # Realistic catchment radius (metres) by OSM value — a walk-in cafe draws from ~1.5km, a
 # destination restaurant ~3km, a drive-to gym ~5km. A flat 3km over-counted households (and
 # competitors) for grab-and-go venues, inflating the trade-area TAM. cycle38.
-_RADIUS_BY_OSM_VALUE = {
-    "cafe": 1500, "fast_food": 1500, "bakery": 1500, "ice_cream": 1500,
-    "bar": 2000, "pub": 2000, "hairdresser": 2500, "beauty": 2500, "spa": 3000,
-    "restaurant": 3000, "nightclub": 3000, "pharmacy": 3000,
-    "clinic": 4500, "dentist": 4500, "fitness_centre": 5000, "cinema": 6000, "library": 4000,
-}
 
 
-def _radius_for_osm_value(osm_value: str, default: int = 3000) -> int:
-    """Deterministic catchment radius (m) for an OSM venue type — walk-in vs destination."""
-    return _RADIUS_BY_OSM_VALUE.get((osm_value or "").lower(), default)
 
 
-def _resolve_osm_tag(category: str) -> tuple[str, str] | None:
-    """Deterministic category → (osm_key, osm_value) using real OSM taxonomy. Longest
-    substring match wins (so 'barbershop' → shop/hairdresser, not 'bar' → amenity/bar).
-    Returns None when no confident match, so callers SKIP geo-competitor fetch instead of
-    guessing a wrong category."""
-    catl = (category or "").lower()
-    best, best_len = None, 0
-    for k, v in _OSM_TAG_BY_CATEGORY.items():
-        if k in catl and len(k) > best_len:
-            best, best_len = v, len(k)
-    return best
 
 
-def _resolve_osm_amenity(category: str) -> str | None:
-    """Back-compat shim: the OSM VALUE only (e.g. 'cafe', 'hairdresser'). Prefer
-    _resolve_osm_tag, which also returns the correct OSM key (amenity/shop/leisure)."""
-    t = _resolve_osm_tag(category)
-    return t[1] if t else None
 
 
 def attach_consumer_research(result: dict, description: str, geo: str, profile: dict,
