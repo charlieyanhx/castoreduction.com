@@ -48,6 +48,18 @@ _KNOWN_UNREACHABLE: dict[str, str] = {
            "PRODUCER, asserting the mapping writes the keys and that the gate returns a "
            "real verdict on a current-shape payload. Remove this entry after the next "
            "corpus regeneration.",
+    "D60": "fires only when market_sizing.som_anchor.method == 'area_receipts_benchmark', "
+           "which no stored report can carry: the Economic Census anchor did not exist "
+           "when this corpus was generated, so every one of the 16 was anchored on the LLM "
+           "estimate and D60 is N/A on all of them BY CONSTRUCTION. NOT a pass: "
+           "test_d60_area_average_reaches_the_reader.py asserts it on current-shape "
+           "payloads, and it is proven on a GENUINE END-TO-END RUN: out/live/run18.json, "
+           "the first run produced with the Economic Census anchor, where D60 returns "
+           "ok=True ('the SOM is disclosed as an area average, with its geography, its "
+           "establishment count and its statistic') rather than N/A. The unit tests pin "
+           "the negative half — ok=False when the geography, the establishment count or "
+           "the statistic is dropped. Remove this entry after the next corpus "
+           "regeneration.",
     "D54": "reconciles the ledger's PRODUCER records against the report, and the stored "
            "corpus has none. Measured: all 16 reports carry a _trace (83 events in the "
            "first), but 0 of those events carry a `produces` key -- they predate the "

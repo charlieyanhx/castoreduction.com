@@ -1525,6 +1525,20 @@ def _origin_of(block: dict) -> str:
     return ""
 
 
+def _shows_its_agency_operand(block: dict) -> bool:
+    """True when the figure's formula names an agency AND a currency operand beside it.
+
+    Deliberately strict about WHERE it looks: the formula is the string that reaches a
+    reader (plan.py::_block keeps `calculation` and discards `source`), so a chain proved
+    only in a field the pipeline throws away proves nothing. Mentioning the word "Census"
+    is not showing your work — there has to be a number to check.
+    """
+    formula = str(block.get("formula") or block.get("calculation") or "")
+    if not _AGENCIES.search(formula):
+        return False
+    return bool(re.search(r"\$\s?\d{1,3}(,\d{3})+", formula))
+
+
 def d53_no_fabricated_agency_citation(r: dict, html: str | None) -> Finding:
     """A figure may not name a statistical agency that no tool actually called.
 
@@ -1561,6 +1575,19 @@ def d53_no_fabricated_agency_citation(r: dict, html: str | None) -> Finding:
             continue                        # says outright it is not sourced
         origin = _origin_of(b)
         if origin in _PROVEN_ORIGINS:
+            continue
+        if origin == "derived" and _shows_its_agency_operand(b):
+            # THE THIRD CASE (#91). A figure can be derived arithmetic ON a genuine agency
+            # fetch: the SOM anchor is $884,029 (Economic Census, really called) x 0.638 x
+            # 1.141, and the product appears in no dataset. Both existing escapes would be
+            # lies — "unsourced" throws away a real citation, and claiming `census` as the
+            # origin is precisely the over-claiming this gate exists to stop.
+            #
+            # What makes it safe is not the label but the ARITHMETIC BEING VISIBLE: the
+            # formula publishes the agency-attributed operand, so a reader opens the
+            # citation, finds $884,029, and recomputes. That is the property D53 protects,
+            # reached another way. A derived figure that names an agency and shows no
+            # operand still fails below — the teeth are in _shows_its_agency_operand.
             continue
         agency = (_AGENCIES.search(src) or [""])[0]
         bad.append(f"{lbl} cites {agency!r} with origin="
@@ -1897,7 +1924,13 @@ def d59_som_anchor_discloses_its_method(r: dict, html: str | None) -> Finding:
                        "the report publishes a SOM with no statement of how it was "
                        "anchored — a reader cannot tell a capacity model from an "
                        "unsourced single-unit revenue guess")
-    if anchor.get("sourced"):
+    if anchor.get("sourced") and anchor.get("method") != "area_receipts_benchmark":
+        # A measured seats x turns capacity model IS about this site, so a fair-share
+        # alternative beside it adds little. That was the only sourced anchor when this
+        # branch was written. An AREA AVERAGE is sourced and wide — a mean across every
+        # establishment in a county — so the spread against fair share is exactly the
+        # finding, and short-circuiting here would drop the requirement at the moment it
+        # started to matter. It falls through to the alternative check below.
         return Finding(True, f"SOM anchored on {anchor.get('method')} (sourced)")
     if anchor.get("method") == "fair_share_of_sam":
         return Finding(True, "SOM is the fair-share fallback, and says so")
@@ -1908,10 +1941,76 @@ def d59_som_anchor_discloses_its_method(r: dict, html: str | None) -> Finding:
                        f"disagreement between the two methods is the honest uncertainty "
                        f"and it is being hidden")
     return Finding(True,
-                   f"unsourced {anchor.get('method')} anchor, disclosed, with the "
+                   f"{'sourced' if anchor.get('sourced') else 'unsourced'} "
+                   f"{anchor.get('method')} anchor, disclosed, with the "
                    f"{anchor.get('alternative_method')} alternative "
                    f"(${anchor.get('alternative_usd'):,.0f}) published beside it")
 
+
+
+def d60_area_average_is_labelled(r: dict, html: Optional[str]) -> Finding:
+    """An area average must never reach a reader dressed as this venture's revenue.
+
+    #91 anchors the headline SOM on Economic Census receipts per establishment — a mean
+    across every establishment in a county (525 of them for the measured venture). That is
+    a defensible anchor and a dangerous string: rendered under the previous label,
+    "single-unit revenue", a buyer reads it as this one unit, now with a Census citation
+    attached. An adversarial review of the design called that out as strictly worse than
+    the unsourced guess it replaces, because a guess at least looks like one.
+
+    WHY THIS FIELD. plan.py::_block keeps `calculation` and DISCARDS `source`, and
+    market_sizing.figures[] never reaches the template. A disclosure written into
+    figures[].source is one the pipeline throws away, and a gate asserting on it would pass
+    while the page said nothing — the shape this repo has already shipped three times. So
+    this reads market_sizing.som.calculation, the string a reader actually gets, and the
+    rendered HTML when it is available.
+
+    Four things must be present, because each alone is insufficient: the word AVERAGE (what
+    kind of number), the GEOGRAPHY (average over where), the ESTABLISHMENT COUNT (average
+    over how many — two and 525 are different claims), and MEAN (over a right-skewed
+    distribution, and the Census does not publish the median).
+    """
+    ms = r.get("market_sizing") or {}
+    if (ms.get("method") or "") != "trade_area_catchment":
+        return Finding(None, "not a trade-area (hyperlocal) sizing")
+    anchor = ms.get("som_anchor") or {}
+    if anchor.get("method") != "area_receipts_benchmark":
+        return Finding(None, "SOM is not anchored on an area receipts benchmark")
+
+    calc = ((ms.get("som") or {}).get("calculation") or "")
+    if not calc.strip():
+        return Finding(False,
+                       "the SOM is an area average and the report publishes no "
+                       "calculation for it — the reader gets the number with none of "
+                       "the qualification that makes it honest")
+
+    def _missing(text: str) -> list[str]:
+        low = (text or "").lower()
+        out = []
+        if "average" not in low:
+            out.append("the word 'average'")
+        if "mean" not in low:
+            out.append("'mean' (the median is lower and unpublished)")
+        if not re.search(r"\b\d{1,3}(,\d{3})*\s+establishments\b", low):
+            out.append("the establishment count it averages over")
+        if not re.search(r"\b(county|parish|borough|state|nation|united states)\b", low):
+            out.append("the geography it averages over")
+        return out
+
+    gaps = _missing(calc)
+    if gaps:
+        return Finding(False,
+                       f"the SOM calculation presents an area average without "
+                       f"{', '.join(gaps)} — a reader cannot tell it is not this site's "
+                       f"revenue: {calc[:160]}")
+    if html:
+        html_gaps = _missing(html)
+        if html_gaps:
+            return Finding(False,
+                           f"the area-average qualification reaches the JSON but not the "
+                           f"rendered page, which is missing {', '.join(html_gaps)}")
+    return Finding(True, "the SOM is disclosed as an area average, with its geography, "
+                         "its establishment count and its statistic")
 
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
@@ -1973,6 +2072,7 @@ INVARIANTS: list[Invariant] = [
     Invariant("D57", "market supports its own competitors", "run9 published $122K of market per existing cafe — 102 real venues were surviving on a TAM the report said could not sustain one", "fail", d57_market_supports_its_competitors),
     Invariant("D58", "PSM tiers disclose when they fall outside their own acceptable range", "run12-15 recommended $3.85 and $9.50 against a $4.25-$6.75 range, flat and unqualified", "fail", d58_psm_tiers_disclose_their_own_range),
     Invariant("D59", "SOM anchor discloses its method", "run14 $390K vs run15 $650K for the same venture — an unsourced single-unit revenue guess published as the headline with no alternative beside it", "fail", d59_som_anchor_discloses_its_method),
+    Invariant("D60", "area-average SOM is labelled as one", "the sourced anchor is a mean across 525 county establishments; rendered under the old 'single-unit revenue' label it reads as this one store, now carrying a Census citation", "fail", d60_area_average_is_labelled),
 ]
 
 # Named gates: which invariants must be 100% pass (severity 'fail' ones) for the claim.
