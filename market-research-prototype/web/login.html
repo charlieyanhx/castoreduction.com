@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Castor</title>
+<style>
+  /* One screen, two modes. A separate /signup page would double the surface for a form
+     that differs by one endpoint and one line of copy; a toggle keeps the shared parts
+     shared and makes "I do not have an account yet" a click rather than a navigation.
+
+     Deliberately NOT the workspace shell: this page must render before any authenticated
+     fetch, so it carries its own styles and depends on nothing that could 401. */
+  :root {
+    --ink: #12100e;
+    --paper: #f7f5f2;
+    --line: #e2ddd6;
+    --muted: #6b645c;
+    --accent: #1b4d3e;          /* the same deep green the reports use for verdicts */
+    --accent-ink: #f7f5f2;
+    --bad: #9b2226;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+    display: grid; grid-template-columns: 1.1fr 1fr;
+  }
+
+  /* Left: what the thing is. A bare login box tells a first-time visitor nothing about
+     what they are signing in to. */
+  .pitch {
+    background: var(--ink); color: #efeae3; padding: 56px 48px;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+  .mark { display: flex; align-items: center; gap: 10px; font-weight: 600;
+          letter-spacing: .01em; }
+  .mark .dot { width: 10px; height: 10px; border-radius: 50%; background: #7cb69f; }
+  .pitch h1 {
+    font: 600 clamp(28px, 2.4vw, 40px)/1.15 ui-serif, Georgia, "Times New Roman", serif;
+    margin: 40px 0 14px; max-width: 15ch;
+  }
+  .pitch p { color: #b9b2a8; max-width: 46ch; margin: 0 0 22px; }
+  .facts { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+  .facts li { display: flex; gap: 10px; color: #cfc8be; font-size: 14px; }
+  .facts li::before { content: "→"; color: #7cb69f; }
+  .fine { color: #8d867d; font-size: 12.5px; margin: 0; }
+
+  /* Right: the form. */
+  .panel { display: flex; align-items: center; justify-content: center; padding: 40px 32px; }
+  form { width: 100%; max-width: 380px; }
+  h2 { font-size: 22px; margin: 0 0 4px; }
+  .lede { color: var(--muted); margin: 0 0 26px; font-size: 14px; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 6px; }
+  input {
+    width: 100%; padding: 11px 12px; margin: 0 0 4px; font: inherit; color: inherit;
+    background: #fff; border: 1px solid var(--line); border-radius: 9px;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  input:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(27, 77, 62, .14);
+  }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 18px; min-height: 1.2em; }
+  button[type=submit] {
+    width: 100%; padding: 12px; font: 600 15px/1 inherit; cursor: pointer;
+    color: var(--accent-ink); background: var(--accent);
+    border: 1px solid var(--accent); border-radius: 9px;
+    transition: transform .12s ease, opacity .15s ease;
+  }
+  button[type=submit]:hover { opacity: .92; }
+  button[type=submit]:active { transform: translateY(1px); }
+  button[type=submit][disabled] { opacity: .55; cursor: progress; }
+  .swap { margin: 18px 0 0; font-size: 14px; color: var(--muted); text-align: center; }
+  .swap button {
+    background: none; border: none; padding: 0; font: inherit; cursor: pointer;
+    color: var(--accent); text-decoration: underline; text-underline-offset: 2px;
+  }
+  .error {
+    display: none; margin: 0 0 16px; padding: 10px 12px; border-radius: 9px;
+    background: #fdecec; border: 1px solid #f3c9c9; color: var(--bad); font-size: 13.5px;
+  }
+  .error.show { display: block; }
+
+  @media (max-width: 860px) {
+    body { grid-template-columns: 1fr; }
+    .pitch { padding: 28px 24px; }
+    .pitch h1 { font-size: 26px; margin: 20px 0 10px; }
+    .facts, .fine { display: none; }        /* the form is why you are here on a phone */
+    .panel { padding: 28px 24px 48px; }
+  }
+</style>
+</head>
+<body>
+  <section class="pitch">
+    <div class="mark"><span class="dot"></span> Castor</div>
+    <div>
+      <h1>Market research you can check.</h1>
+      <p>Every number in a Castor report carries the source it came from, and the report
+         refuses to publish when its own checks fail.</p>
+      <ul class="facts">
+        <li>Census, BLS and OpenStreetMap data, not a model's recollection</li>
+        <li>59 automated invariants run against every report before you see it</li>
+        <li>Three free reports a day while the product is in preview</li>
+      </ul>
+    </div>
+    <p class="fine">A report takes about six minutes of live research to produce.</p>
+  </section>
+
+  <main class="panel">
+    <form id="authForm" novalidate>
+      <h2 id="formTitle">Sign in</h2>
+      <p class="lede" id="formLede">Welcome back.</p>
+
+      <div class="error" id="formError" role="alert"></div>
+
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="email"
+             required autofocus>
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password"
+             autocomplete="current-password" required>
+      <p class="hint" id="pwHint">At least 12 characters.</p>
+
+      <button type="submit" id="submitBtn">Sign in</button>
+
+      <p class="swap" id="swapLine">
+        No account yet? <button type="button" id="swapBtn">Sign up</button>
+      </p>
+    </form>
+  </main>
+
+<script>
+(function () {
+  var MIN_PASSWORD = 12;
+  var mode = new URLSearchParams(location.search).get("mode") === "signup"
+             ? "signup" : "login";
+
+  var form   = document.getElementById("authForm");
+  var title  = document.getElementById("formTitle");
+  var lede   = document.getElementById("formLede");
+  var btn    = document.getElementById("submitBtn");
+  var swap   = document.getElementById("swapLine");
+  var errBox = document.getElementById("formError");
+  var pw     = document.getElementById("password");
+
+  function render() {
+    var signup = mode === "signup";
+    title.textContent = signup ? "Sign up" : "Sign in";
+    lede.textContent  = signup ? "Three free reports a day, no card."
+                               : "Welcome back.";
+    btn.textContent   = signup ? "Sign up" : "Sign in";
+    pw.setAttribute("autocomplete", signup ? "new-password" : "current-password");
+    swap.innerHTML = signup
+      ? 'Already have an account? <button type="button" id="swapBtn">Sign in</button>'
+      : 'No account yet? <button type="button" id="swapBtn">Sign up</button>';
+    document.getElementById("swapBtn").addEventListener("click", function () {
+      mode = signup ? "login" : "signup";
+      hideError();
+      render();
+    });
+    document.title = (signup ? "Sign up" : "Sign in") + " · Castor";
+  }
+
+  function showError(msg) { errBox.textContent = msg; errBox.classList.add("show"); }
+  function hideError()    { errBox.classList.remove("show"); }
+
+  form.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    hideError();
+    var email = document.getElementById("email").value.trim();
+    var password = pw.value;
+
+    // Checked here as well as on the server: the server's refusal is authoritative, but
+    // learning the minimum after a round trip is a wasted one.
+    if (!email || email.indexOf("@") === -1) return showError("Enter a valid email address.");
+    if (password.length < MIN_PASSWORD)
+      return showError("Password must be at least " + MIN_PASSWORD + " characters.");
+
+    btn.disabled = true;
+    var wasLabel = btn.textContent;
+    btn.textContent = mode === "signup" ? "Creating account…" : "Signing in…";
+    try {
+      var endpoint = mode === "signup" ? "/auth/signup" : "/auth/login";
+      var r = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email, password: password })
+      });
+      if (r.ok) { location.href = "/"; return; }
+      var detail = "";
+      try { detail = (await r.json()).detail || ""; } catch (_) {}
+      // The server deliberately does not say WHICH half was wrong — repeating its exact
+      // wording keeps the login form from becoming an account-enumeration oracle.
+      showError(detail || (mode === "signup"
+                ? "Could not create that account."
+                : "Invalid email or password."));
+    } catch (_) {
+      showError("Could not reach the server. Check your connection and try again.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = wasLabel;
+    }
+  });
+
+  // Already signed in? Do not make someone log in twice.
+  fetch("/auth/me").then(function (r) { return r.json(); }).then(function (me) {
+    if (me && me.authenticated) location.href = "/";
+  }).catch(function () {});
+
+  render();
+})();
+</script>
+</body>
+</html>

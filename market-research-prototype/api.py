@@ -19,8 +19,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Response
-from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
+                              RedirectResponse)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -120,18 +121,51 @@ def _current_owner(request: Request = None) -> str:
     request without one falls back to LEGACY_OWNER, which keeps a single-user local
     install working exactly as before and keeps Charlie's existing library visible.
 
-    THAT FALLBACK IS A DEVELOPMENT AFFORDANCE, NOT A PRODUCTION POSTURE. With
-    CASTOR_ENV=production an unauthenticated request gets a fresh anonymous owner instead,
-    so a stranger can never land in the legacy account by simply not presenting a cookie.
+    THAT FALLBACK IS A DEVELOPMENT AFFORDANCE, NOT A PRODUCTION POSTURE. Under
+    CASTOR_ENV=production an unauthenticated request is REFUSED (401) rather than given an
+    owner id at all.
+
+    It used to be given the constant "anonymous", which isolated nobody: every stranger
+    shared one owner id and therefore one library — the cross-tenant leak #93 existed to
+    close, re-opened by the branch meant to be the safe one. A per-visitor random id would
+    isolate them but would hand out a library that evaporates with the cookie, and would
+    leave POST /plan (~6 minutes of live research per call) open to anyone who can reach
+    the host. Refusing is the only answer that is both isolated and honest.
+
+    Fail-closed HERE, at the one choke point, so an endpoint added later inherits the
+    guard instead of having to remember it.
+    """
+    acct = _session_owner(request)
+    if acct:
+        return acct
+    if os.environ.get("CASTOR_ENV", "").lower() == "production":
+        raise HTTPException(status_code=401, detail="sign in to use Castor")
+    return jobs.LEGACY_OWNER
+
+
+def _account_email(account_id: str) -> str | None:
+    """Display only. Failure here must never break a page — an unreadable accounts row is
+    a cosmetic problem, not an authentication one."""
+    try:
+        c = auth._db()
+        row = c.execute("SELECT email FROM accounts WHERE id = ?", (account_id,)).fetchone()
+        c.close()
+        return row[0] if row else None
+    except Exception:                                        # noqa: BLE001
+        return None
+
+
+def _session_owner(request: Request = None) -> str | None:
+    """The account a valid session names, or None. Never falls back to anything.
+
+    Separated from _current_owner so /auth/me — the one endpoint that must answer while
+    logged out, because it is what the login screen asks to decide whether to show
+    itself — can read identity without inheriting the refusal.
     """
     request = request or _REQUEST.get()
-    if request is not None:
-        acct = auth.read_session_token(request.cookies.get(SESSION_COOKIE))
-        if acct:
-            return acct
-    if os.environ.get("CASTOR_ENV", "").lower() == "production":
-        return "anonymous"
-    return jobs.LEGACY_OWNER
+    if request is None:
+        return None
+    return auth.read_session_token(request.cookies.get(SESSION_COOKIE))
 
 
 def _owned_job(job_id: str, request: Request = None) -> dict:
@@ -547,8 +581,14 @@ def auth_logout(response: Response):
 
 @app.get("/auth/me")
 def auth_me():
-    owner = _current_owner()
-    return {"owner": owner, "authenticated": owner not in (jobs.LEGACY_OWNER, "anonymous")}
+    """Deliberately does NOT go through _current_owner: this endpoint has to answer while
+    logged out, or the login screen cannot ask whether it is needed."""
+    acct = _session_owner()
+    if acct:
+        return {"owner": acct, "authenticated": True, "email": _account_email(acct)}
+    local = os.environ.get("CASTOR_ENV", "").lower() != "production"
+    return {"owner": jobs.LEGACY_OWNER if local else None,
+            "authenticated": False, "local": local}
 
 
 @app.get("/jobs")
@@ -1169,8 +1209,23 @@ def get_job_report(job_id: str):
 _NO_CACHE = {"Cache-Control": "no-cache, must-revalidate"}
 
 
+@app.get("/login", response_class=HTMLResponse)
+def login_page():
+    """Sign in / sign up. #94 shipped the endpoints and no screen, which made the product
+    usable only by someone holding the route list and a curl command."""
+    f = WEB_DIR / "login.html"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="login page not built")
+    return FileResponse(f, headers=_NO_CACHE)
+
+
 @app.get("/")
 def index():
+    # A 401 from the workspace's first fetch is a dead end for a real customer; send them
+    # somewhere they can act. Local installs keep going straight in.
+    if (os.environ.get("CASTOR_ENV", "").lower() == "production"
+            and not _session_owner()):
+        return RedirectResponse("/login", status_code=303)
     ws = WEB_DIR / "workspace.html"
     if ws.exists():
         return FileResponse(ws, headers=_NO_CACHE)
