@@ -795,3 +795,232 @@ def tracts_in_catchment(lat: float, lng: float, radius_m: int = 1500) -> Evidenc
                     payload={"geoids": geoids, "land_km2": land_m2 / 1e6,
                              "n_tracts": len(geoids)},
                     cost_meta={"source": "US Census TIGERweb", "n_tracts": len(geoids)})
+
+
+# ---------------------------------------------------------------------------
+# Economic Census — receipts per establishment. The sourced replacement for the
+# LLM single-unit revenue guess that anchors every hyperlocal SOM (#91).
+# ---------------------------------------------------------------------------
+
+_ECN_BASIC_URL = "https://api.census.gov/data/2022/ecnbasic"
+_ECN_SIZE_URL = "https://api.census.gov/data/2022/ecnsize"
+_ECN_VINTAGE = 2022
+# RCPTOT and PAYANN are reported in THOUSANDS of dollars.
+_ECN_SCALE = 1000.0
+# What substituting a broader geography costs, measured against the 802 counties where the
+# county figure IS published. Median ratio of state-mean to county-truth, by county size:
+#   1-9 establishments   n=347   2.29x   (p90 5.34x)
+#   10-24                n=176   1.44x
+#   25-99                n=158   1.02x
+#   100+                 n=121   0.93x
+# Suppression targets exactly the top row — median ESTAB is 5 among suppressed counties
+# and 12 among usable ones — so the state rung disproportionately serves the population
+# where it is worst. For comparison the LLM guess it replaces swung 1.67x between two runs.
+# This text ships with the figure so the caller cannot present a substitution as local.
+_SUBSTITUTION_NOTE = {
+    "state": ("state-wide mean substituted because the county cell is withheld; measured "
+              "against counties that do publish, a state mean is off by a median 1.02x "
+              "where there are 25+ establishments but 2.29x where there are under 10, and "
+              "withheld cells are mostly small counties"),
+    "us": ("national mean substituted because neither the county nor the state cell is "
+           "usable; measured median error against county truth is worse than the state "
+           "rung (2.71x vs 2.29x for counties with under 10 establishments)"),
+}
+
+
+class CensusReceiptsArgs(BaseModel):
+    # Exactly six digits. A sector aggregate answers with HTTP 200 and a real row —
+    # NAICS 81 gives $3,158,226/establishment against pet care's $1,286,805 — so a short
+    # code is a 2.45x error wearing a genuine citation. See resolve_naics.
+    naics: str = Field(pattern=r"^\d{6}$")
+    state_fips: Optional[str] = None
+    county_fips: Optional[str] = None
+
+
+def _ecn_row(params: dict) -> Optional[dict]:
+    """One ecnbasic row as a dict, or None. Never raises on shape."""
+    rows = _http_json("GET", _ECN_BASIC_URL, params=params, timeout=15)
+    if not isinstance(rows, list) or len(rows) < 2:
+        return None
+    header, values = rows[0], rows[1]
+    if not isinstance(header, list) or not isinstance(values, list):
+        return None
+    return dict(zip(header, values))
+
+
+def _usable_receipts(rec: dict) -> Optional[tuple[float, int]]:
+    """(receipts_usd, establishments) when the cell is a real measurement, else None.
+
+    THE SUPPRESSION TRAP. Across all 1,818 county rows for NAICS 722515, 971 carry
+    RCPTOT_F="D" (withheld) and 124 of those return RCPTOT as the literal string "0" WITH
+    ESTAB > 0 — verified: Santa Barbara County, 158 establishments, "0", "D". Dividing
+    without checking the flag computes $0 per establishment and reports it as sourced.
+    RCPTOT_F is not listed in the dataset's variables.json; it is returned only when asked
+    for by name, which is why the caller requests it explicitly.
+    """
+    if (rec.get("RCPTOT_F") or "").strip():
+        return None
+    try:
+        receipts_k = float(rec.get("RCPTOT"))
+        estab = int(rec.get("ESTAB"))
+    except (TypeError, ValueError):
+        return None
+    if receipts_k <= 0 or estab <= 0:
+        return None
+    return receipts_k * _ECN_SCALE, estab
+
+
+@tool(category="geo",
+      returns="{receipts_per_establishment_usd, establishments, rung, vintage, url}",
+      args_model=CensusReceiptsArgs)
+def census_receipts_per_establishment(naics: str, state_fips: Optional[str] = None,
+                                      county_fips: Optional[str] = None) -> Evidence:
+    """Average annual receipts per establishment for a NAICS industry in an area.
+
+    2022 Economic Census (`ecnbasic`). This is the sourced alternative to asking a model
+    what one store earns — measured, that guess moved 67% between two runs of the same
+    venture, while this endpoint is byte-identical on repeat.
+
+    IT IS AN ARITHMETIC MEAN OVER AN AREA, AND THAT IS ALL IT IS. 525 establishments
+    across San Francisco County, not this storefront; the distribution is right-skewed so
+    the mean sits above the median, and the Economic Census does not publish the median.
+    Callers must present it as an area average with its geography named. Reporting it as
+    "single-unit revenue" would be a worse lie than the guess it replaces, because it
+    arrives with a citation.
+
+    THE LADDER WALKS GEOGRAPHY, NEVER THE INDUSTRY. When a cell is withheld the tempting
+    fallback is a shorter NAICS code, and it is measurably the wrong one — on the SF cell,
+    722515 is $884,029, 72251 and 7225 are both $1,368,562 (+55%, and identical, so the
+    5-digit rung is a duplicate rather than a softer step), 722 is +58% and 72 is +119%.
+    Broadening geography instead costs 6x less: state +13%, national -9%. So: county ->
+    state -> national, industry code held fixed, with every rung tried recorded and any
+    substitution carrying its measured error.
+
+    Returns Evidence(skeleton=True) rather than a number whenever nothing is usable —
+    a withheld cell is an absence, and this codebase's recurring bug is reading one as an
+    answer.
+
+    Do NOT use this as a forecast of what a specific venture will earn, and do not print
+    the figure without its geography and its `statistic` field — it is an area mean, and a
+    particular storefront can plausibly be half or double it. Do not use it to count
+    establishments near a point (poi_competition and osm_named_competitors own a lat/lng
+    radius; ESTAB here is county-wide) and do not call it for non-US locations — the
+    Economic Census covers the United States only.
+    """
+    tried: list[str] = []
+    base_get = "NAME,NAICS2022,NAICS2022_LABEL,ESTAB,RCPTOT,RCPTOT_F"
+    key = os.getenv("CENSUS_API_KEY")
+
+    rungs: list[tuple[str, dict]] = []
+    if state_fips and county_fips:
+        rungs.append(("county", {"for": f"county:{county_fips}",
+                                 "in": f"state:{state_fips}"}))
+    if state_fips:
+        rungs.append(("state", {"for": f"state:{state_fips}"}))
+    rungs.append(("us", {"for": "us:1"}))
+
+    for rung, geo in rungs:
+        params = {"get": base_get, "NAICS2022": naics, **geo}
+        if key:
+            params["key"] = key
+        rec = _ecn_row(params)
+        if rec is None:
+            tried.append(f"{rung}: no row returned")
+            continue
+        usable = _usable_receipts(rec)
+        if usable is None:
+            flag = (rec.get("RCPTOT_F") or "").strip()
+            tried.append(f"{rung}: suppressed (RCPTOT_F={flag or 'none'}, "
+                         f"ESTAB={rec.get('ESTAB')})" if flag
+                         else f"{rung}: unusable (ESTAB={rec.get('ESTAB')}, "
+                              f"RCPTOT={rec.get('RCPTOT')})")
+            continue
+        receipts_usd, estab = usable
+        url = (f"{_ECN_BASIC_URL}?get={base_get}&{geo.get('for','')}"
+               f"{'&' + geo['in'] if 'in' in geo else ''}&NAICS2022={naics}")
+        return Evidence(
+            source="census_receipts_per_establishment", category="geo", count=estab,
+            payload={
+                "receipts_per_establishment_usd": receipts_usd / estab,
+                "receipts_usd": receipts_usd,
+                "establishments": estab,
+                "rung": rung,
+                "rungs_tried": tried,
+                "substitution": _SUBSTITUTION_NOTE.get(rung),
+                "geography_name": rec.get("NAME"),
+                "naics": naics,
+                "naics_label": rec.get("NAICS2022_LABEL"),
+                "vintage": _ECN_VINTAGE,
+                "statistic": "arithmetic mean across establishments",
+                "dataset": f"US Census {_ECN_VINTAGE} Economic Census (ecnbasic)",
+                "url": url,
+            },
+            cost_meta={"source": f"US Census {_ECN_VINTAGE} Economic Census",
+                       "naics": naics, "rung": rung, "establishments": estab},
+        )
+
+    return Evidence(source="census_receipts_per_establishment", category="geo", count=0,
+                    skeleton=True, payload={"rungs_tried": tried, "naics": naics},
+                    error=f"no usable Economic Census receipts cell for NAICS {naics} "
+                          f"({'; '.join(tried) or 'no rungs attempted'})")
+
+
+def single_unit_receipts_ratio(naics: str) -> Optional[dict]:
+    """How much less an independent takes than the average establishment, nationally.
+
+    A raw area mean mixes Starbucks with the corner cafe. `ecnsize` publishes the
+    single-unit / multiunit firm split — measured for NAICS 722515:
+
+        001 All firms          78,110 estabs  $62,769,408K  ->   $803,603 / estab
+        200 Single unit firms  55,352 estabs  $28,366,095K  ->   $512,467 / estab
+        300 Multiunit firms    22,758 estabs  $34,403,313K  -> $1,511,702 / estab
+
+    ratio = 512,467 / 803,603 = 0.6377, so a naive Economic Census mean is 1.57x too high
+    for an independent.
+
+    IT IS A RATIO OF PER-ESTABLISHMENT MEANS, NOT A SHARE OF RECEIPTS. The receipts share
+    is 28,366,095/62,769,408 = 0.4519 — a different quantity entirely. Describing 0.638 as
+    a share of receipts would invite a reader to open the cited table, compute 45%, and
+    conclude the report is wrong. Both operands ship with the ratio for that reason.
+
+    ecnsize is published for the NATION ONLY (its geography.json lists `us` alone), so
+    applying this to a local level is a composition TRANSFER — a modelling step, not a
+    measurement, and callers must say so. Returns None rather than 1.0 when the split is
+    unavailable: defaulting to 1.0 would silently publish the chain-inclusive mean as an
+    independent's revenue, which is the error this function exists to prevent.
+    """
+    if not naics:
+        return None
+    params = {"get": "NAME,NAICS2022,ESTAB,RCPTOT,SUMUFI,SUMUFI_LABEL",
+              "for": "us:1", "NAICS2022": naics}
+    key = os.getenv("CENSUS_API_KEY")
+    if key:
+        params["key"] = key
+    rows = _http_json("GET", _ECN_SIZE_URL, params=params, timeout=15)
+    if not isinstance(rows, list) or len(rows) < 2:
+        return None
+    header = rows[0]
+    per_estab: dict[str, float] = {}
+    for values in rows[1:]:
+        rec = dict(zip(header, values))
+        try:
+            estab = int(rec.get("ESTAB"))
+            receipts_k = float(rec.get("RCPTOT"))
+        except (TypeError, ValueError):
+            continue
+        if estab > 0 and receipts_k > 0:
+            per_estab[str(rec.get("SUMUFI"))] = receipts_k * _ECN_SCALE / estab
+    single, allf = per_estab.get("200"), per_estab.get("001")
+    if not single or not allf:
+        return None
+    return {"ratio": single / allf,
+            "single_unit_per_establishment_usd": single,
+            "all_firms_per_establishment_usd": allf,
+            "scope": "national",
+            "statistic": "ratio of per-establishment arithmetic means "
+                         "(single-unit firms vs all firms) — NOT a share of receipts",
+            "naics": naics,
+            "vintage": _ECN_VINTAGE,
+            "dataset": f"US Census {_ECN_VINTAGE} Economic Census (ecnsize)",
+            "url": f"{_ECN_SIZE_URL}?get=NAME,NAICS2022,ESTAB,RCPTOT,SUMUFI"
+                   f"&for=us:1&NAICS2022={naics}"}
