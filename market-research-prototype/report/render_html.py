@@ -126,6 +126,11 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0) -> str:
         reddit_signal=r.get("reddit_signal"),
         economics=r.get("economics"),
         pricing_benchmark=(r.get("pricing") or {}).get("benchmark"),
+        # The price of record has been computed since R4 rank 16 and rendered nowhere, so
+        # its provenance — including "we read no price at all" — existed only for whoever
+        # opened the artifact. Same shape as #83's som_anchor: a disclosure that never
+        # reaches the page is not a disclosure.
+        price_of_record=(r.get("pricing") or {}).get("price_of_record"),
         differentiators=r.get("differentiators"),
         customer_universe=r.get("customer_universe"),
         segment_ranking=r.get("segment_ranking"),

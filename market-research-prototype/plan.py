@@ -49,7 +49,8 @@ log = get("plan")
 # than location.
 from brief import (  # noqa: F401
     _PLACE_RE, _SENTENCE_END, _STATED_PRICE_RE, _STREET_RE, _trim_at_sentence_end,
-    extract_location, extract_stated_price)
+    extract_location, extract_price, extract_stated_price)
+from brief import UNIT_NOUNS as _BRIEF_UNIT_NOUNS
 # Category -> OSM tag/radius resolution now lives with the sizing skills (#87 wave 2).
 from skills.sizing.osm_tags import (  # noqa: F401
     _OSM_TAG_BY_CATEGORY, _RADIUS_BY_OSM_VALUE, _radius_for_osm_value,
@@ -533,20 +534,58 @@ def reconcile_pricing(stated: float | None, recommended,
             "delta_pct": delta_pct, "verdict": verdict, "note": note}
 
 
+def price_from_brief(description, unit_noun, opt, is_transactional) -> dict:
+    """Brief text -> the price of record. THE call site, callable outside run_plan.
+
+    This logic lived inline in run_plan, so the only way to measure it was to reassemble it
+    in a scratch script — and a scratch script that reassembles a call site measures the
+    script. It read 4 of 20 ordinary phrasings and I confirmed that number twice against a
+    harness I had written myself; the second confirmation was worth nothing. A function the
+    tests and the pipeline both call is the only honest way to state an accuracy figure.
+
+    `brief.extract_price` is the primary reader — one vocabulary, shared with the unit
+    resolver. The three legacy extractors stay as the fallback rung: each encodes a narrow
+    case paid for in production (the /mo-adjacent device guard, B2/D17), and retiring them
+    in the same change that widens the primary path would make any regression
+    unattributable. They are reached only when the shared reader returns nothing.
+    """
+    price = extract_price(description, unit_noun)
+    recurring = bool(price and price.get("period"))
+    unit_price = (price["value"] if price and not recurring else None) \
+        or extract_unit_price(description)
+    stated = (price["value"] if recurring else None) or extract_stated_price(description)
+    return price_of_record(unit_price, extract_device_price(description), stated, opt,
+                           unit_noun, is_transactional,
+                           currency=(price or {}).get("currency"))
+
+
 def price_of_record(unit_price, device_price, stated, opt, unit_noun,
-                    is_transactional) -> dict:
+                    is_transactional, currency=None) -> dict:
     """R4 rank 16: ONE disclosed price of record + its provenance. The price fed to
     economics/financials was a bare fallback chain (unit_price or device_price or stated
     or opt) that could differ from the PSM optimal shown elsewhere, unreconciled. This
     records which source won, the PSM optimal, and whether they materially (>15%) differ
-    so a second price of record can never hide."""
+    so a second price of record can never hide.
+
+    `differs_from_psm` USED TO LIE when nothing was extracted. The chain fell through to
+    the PSM optimal, and the comparison then ran |opt - opt| / opt > 0.15 -> False: the
+    report stated that the model agrees with the founder's price, having read no price at
+    all. MEASURED across 20 ordinary phrasings, 13 landed in exactly that state. It is now
+    None — "not tested" — beside an explicit `no_stated_price`, because a reconciliation
+    that never happened must not render as one that passed.
+    """
+    chain = [("stated per-unit price", unit_price),
+             ("one-time device/hardware price", device_price),
+             ("stated price", stated)]
+    stated_value = next((v for _b, v in chain if v), None)
     if is_transactional:
-        chain = [("stated per-unit price", unit_price),
-                 ("one-time device/hardware price", device_price),
-                 ("stated price", stated), ("PSM optimal", opt)]
         value, basis = next(((v, b) for b, v in chain if v), (opt, "PSM optimal"))
     else:
+        # A recurring model keeps the PSM point as the price DRIVING the economics: the
+        # instrument simulates monthly willingness, so it is the comparable figure, and
+        # rerouting subscription economics onto a stated price is a change this one is not.
         value, basis = opt, "PSM optimal"
+    no_stated_price = stated_value is None
     try:
         value = float(value) if value is not None else None
     except (TypeError, ValueError):
@@ -555,10 +594,34 @@ def price_of_record(unit_price, device_price, stated, opt, unit_noun,
         psm = float(opt) if opt is not None else None
     except (TypeError, ValueError):
         psm = None
-    differs = bool(value is not None and psm is not None and psm > 0
-                   and abs(value - psm) / psm > 0.15)
+    # Compare what the FOUNDER SAID against the model, not the winner against the model.
+    # MEASURED with the winner: a brief reading "$499 per seat per month" produced
+    # `differs_from_psm: False` beside a $38 modelled point — because a subscription's
+    # winner IS the modelled point, so the comparison was $38 against $38. The report
+    # asserted agreement with a price it had read and then discarded, which is the same
+    # lie as asserting agreement with a price it never read.
+    try:
+        stated_value = float(stated_value) if stated_value is not None else None
+    except (TypeError, ValueError):
+        stated_value = None
+    differs = None if stated_value is None else bool(
+        psm is not None and psm > 0 and abs(stated_value - psm) / psm > 0.15)
+    cur = (currency or "USD").upper()
     return {"value": value, "unit": unit_noun, "basis": basis,
-            "psm_optimal": psm, "differs_from_psm": differs}
+            "psm_optimal": psm, "differs_from_psm": differs,
+            # What the brief actually said, kept separately from what drives the economics.
+            # On a recurring model those are different figures and the reader is entitled
+            # to both rather than to the one that happens to win.
+            "stated_value": stated_value,
+            # The founder said a price and the pipeline could not read it, or they said
+            # none at all. Either way the figure below is the MODEL's, and the page has to
+            # say so rather than presenting it as a reconciled number.
+            "no_stated_price": no_stated_price,
+            "currency": cur,
+            # Detection, never conversion. Every sizing figure in this report is USD; a
+            # EUR 3.50 pastry silently becoming a modelled $7.50 was the failure, and the
+            # honest fix is to say the figure was read in EUR and not converted.
+            "currency_unconverted": cur != "USD"}
 
 
 # A per-transaction price phrase ("$6 per drink", "$15/cut") makes the natural WTP unit
@@ -591,15 +654,16 @@ def infer_wtp_unit(description: str, profile: dict | None = None) -> str:
 # The ECONOMICS unit noun (distinct from the WTP unit). A per-unit venture must NEVER be sized
 # in "/mo" — that recreates subscription bleed in the spine ($45/mo serum, "84 mos/mo" for a gym).
 # Broader phrase set than _PER_UNIT_RE, plus category + kind fallbacks.
+# Built from brief.UNIT_NOUNS — the SAME vocabulary brief.extract_price reads prices in.
+# It was a second hand-maintained list, and the two disagreed in the direction that hurts:
+# this one could name a venture's unit "sprint", "jar", "engagement" or "kit" and no
+# extractor could read a price in any of them, so the report stated a unit it could not
+# price. Adding a noun in one place now makes it both nameable and priceable.
 _UNIT_NOUN_RE = re.compile(
     r"(?:per|/|each|a|an)\s+"
-    r"(drink|cup|coffee|latte|espresso|beverage|meal|plate|dish|entree|cover|bowl|burrito|"
-    r"taco|sandwich|salad|pizza|slice|scoop|cone|pint|glass|"
-    r"visit|ticket|session|class|lesson|drop-?in|ride|trip|haircut|cut|treatment|appointment|"
-    r"booking|night|room|"
-    r"item|order|box|bag|bottle|jar|unit|device|kit|pair|board|"
-    r"project|engagement|sprint|"
-    r"meter|sq\s?ft|square\s?foot|hour|day)\b",
+    r"(" + "|".join(
+        re.escape(n).replace(r"\ ", r"\s?") for n in
+        sorted(_BRIEF_UNIT_NOUNS, key=len, reverse=True)) + r")s?\b",
     re.I)
 _UNIT_DEFAULT_BY_KIND = {"services": "project", "ecommerce": "order",
                          "hybrid": "unit", "transactional": "visit"}
@@ -1775,14 +1839,10 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         # margin against real hardware COGS, error out of economics, and silently land
         # financials on the subscription model). Falls back to a monthly stated price,
         # then the PSM optimal.
-        _unit_price = extract_unit_price(description)
-        _device_price = extract_device_price(description)
-        _stated = extract_stated_price(description)
         _unit_noun = _psm_unit  # cycle38: model-derived unit, never "/mo" for a per-unit venture
         # R4 rank 16: ONE disclosed price of record + provenance (which source won, the
         # PSM optimal, whether they materially differ) — so a second price can't hide.
-        _por = price_of_record(_unit_price, _device_price, _stated, _opt, _unit_noun,
-                               is_transactional)
+        _por = price_from_brief(description, _unit_noun, _opt, is_transactional)
         result["pricing"]["price_of_record"] = _por
         if is_transactional:
             _price_per_unit = _por["value"] if _por["value"] is not None else float(_opt)
