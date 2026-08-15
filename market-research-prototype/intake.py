@@ -255,7 +255,13 @@ def process_message(session_id: str, user_message: str) -> dict:
                      (session["extracted"].get("target_customer") or "")).strip()
         session["final_description"] = final
         session["ready"] = True
-        assistant_text = "Great — I've got enough to start. Generating your report now."
+        # NOT "Generating your report now" — nothing is generating. The run does not start
+        # until the operator confirms the load-bearing answers and presses the button, and
+        # the button is disabled while this message is on screen. A UI that narrates an
+        # action it is not taking is the same defect class as a report asserting a number
+        # it did not compute, and it trains people to distrust the parts that are true.
+        assistant_text = ("That's enough to work with. Check the two answers below — they "
+                          "decide the numbers — then generate whenever you're ready.")
         session["messages"].append({"role": "assistant", "content": assistant_text})
         log.info("intake ready (session=%s, %d turns, %d/%d required filled)",
                  session_id[:8], user_msg_count,

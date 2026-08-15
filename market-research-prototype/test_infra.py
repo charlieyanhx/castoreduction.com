@@ -768,7 +768,14 @@ class TestIntake(unittest.TestCase):
             out = intake.process_message(sid, "yep, that's all I have for now")
         self.assertTrue(out["ready"])
         self.assertIn("MintBox", out["final_description"])
-        self.assertIn("Generating", out["assistant_message"])
+        # Was assertIn("Generating", ...) — it pinned the word of a claim that was FALSE:
+        # nothing generates at this point, the run waits for the operator to confirm the
+        # load-bearing answers and press a button that is disabled while the message is on
+        # screen. Assert the property (ready is announced, and the operator is told what to
+        # do next) rather than a specific verb, so honest copy can change without a test
+        # demanding the dishonest version back.
+        self.assertTrue(out["assistant_message"].strip())
+        self.assertRegex(out["assistant_message"].lower(), r"generate|ready|enough")
 
     def test_safety_blocks_premature_ready(self):
         """Even if LLM signals ready, we block it if required fields are unfilled and < 6 user msgs."""
