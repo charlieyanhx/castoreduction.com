@@ -13,8 +13,15 @@
     --text: oklch(22% 0.02 270);
     --text-dim: oklch(52% 0.015 270);
     --text-faint: oklch(66% 0.012 270);
-    --accent: oklch(58% 0.20 264);
-    --accent-soft: oklch(95% 0.04 264);
+    /* Emerald, not the stock blue this shipped with. NOT a taste call: the reports this
+       app produces already use #047857 for a verdict it stands behind and #b45309 for one
+       it qualifies (108 and 19 occurrences in templates/report.html), and the login page
+       uses the same green. The workspace was the only surface speaking a different
+       language, so the product disagreed with its own output about what "verified" looks
+       like. --accent now IS the verdict green. */
+    --accent: oklch(48.5% 0.105 163.5);      /* = #047857, the report's verdict green */
+    --accent-soft: oklch(95.5% 0.028 163.5);
+    --accent-ink: oklch(99% 0.005 163.5);
     --ok: oklch(60% 0.16 155);
     --warn: oklch(70% 0.16 70);
     --bad: oklch(58% 0.20 25);
@@ -250,6 +257,67 @@
   /* The Generate button is now gated on confirmation, so its disabled state is a state the
      operator will actually sit in — it has to look deliberate rather than broken. */
   #launchBtn:disabled { opacity: .45; cursor: not-allowed; }
+  
+  /* ---------- considered surfaces -----------------------------------------------------
+     The direction is EDITORIAL, because that is what the artifact is: a research document
+     whose whole claim is that you can check it. So the assistant speaks on paper with a
+     hairline rule rather than in a coloured pill, the operator speaks in the verdict green,
+     and the one serif in the type stack finally gets used for the thing the page is about.
+
+     Uniform radius and one decorative accent everywhere is the template look the project's
+     own design rules forbid; hierarchy here comes from scale contrast and from surface,
+     not from making things bigger and bluer. */
+
+  /* The centre title carries the document's name — serif, tight, and allowed to be large.
+     It was 17px sans, the same voice as a button label. */
+  .center-head h1 {
+    font-family: var(--serif); font-size: 21px; font-weight: 600;
+    letter-spacing: -.012em; line-height: 1.15;
+  }
+
+  /* The assistant is a document voice: paper, hairline, square-ish corner on the side it
+     speaks from, so the two speakers are distinguishable without colour alone. */
+  .msg.bot .bubble {
+    background: var(--surface); border: 1px solid var(--line);
+    border-bottom-left-radius: 5px; color: var(--text);
+    box-shadow: 0 1px 2px oklch(20% 0.02 270 / .04);
+  }
+  .msg.user .bubble {
+    background: var(--accent); color: var(--accent-ink);
+    border-bottom-right-radius: 5px; border: 1px solid transparent;
+  }
+  .msg.bot .av { background: var(--accent-soft); color: var(--accent); }
+
+  /* Chips read as a checklist, so an unfilled one has to look UNFILLED — the old pending
+     and done states differed by a tick and almost nothing else. */
+  .chip {
+    border: 1px solid var(--line); background: var(--surface);
+    color: var(--text-faint); border-radius: 999px;
+    transition: color .15s var(--ease), border-color .15s var(--ease),
+                background .15s var(--ease);
+  }
+  .chip.done {
+    color: var(--accent); border-color: color-mix(in oklch, var(--accent) 32%, var(--line));
+    background: var(--accent-soft);
+  }
+
+  /* States that feel designed rather than defaulted. */
+  #launchBtn { transition: transform .12s var(--ease), opacity .15s var(--ease),
+                           box-shadow .2s var(--ease); }
+  #launchBtn:not(:disabled):hover { box-shadow: 0 6px 18px -8px oklch(48.5% 0.105 163.5 / .5); }
+  #launchBtn:not(:disabled):active { transform: translateY(1px); }
+  .side-nav .nav-item { transition: background .15s var(--ease), color .15s var(--ease); }
+  #composer textarea:focus, #composer input:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 15%, transparent);
+  }
+
+  /* The agent pane spends most of a six-minute run being looked at. An empty grey line is
+     a wasted surface — say what will appear, in the type the reports use. */
+  .computer .placeholder {
+    font-family: var(--serif); font-size: 15px; color: var(--text-dim);
+    max-width: 34ch; line-height: 1.5; text-align: center;
+  }
   </style>
 </head>
 <body>
@@ -301,7 +369,8 @@
       <div style="margin-left:auto" class="tabs" id="compTabs"></div>
     </div>
     <div class="comp-body" id="compBody">
-      <div class="placeholder">The agent's work appears here as it runs.</div>
+      <div class="placeholder">Every source I open, every figure I compute, and every
+        check I run against it — live, in the order it happens.</div>
     </div>
     <div class="scrubber" id="scrubber">
       <button id="playBtn">▶</button>
