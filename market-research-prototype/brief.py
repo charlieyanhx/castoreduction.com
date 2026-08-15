@@ -44,6 +44,150 @@ def extract_stated_price(text: str) -> float | None:
         return float(m.group(1).replace(",", ""))
     except ValueError:
         return None
+
+
+# --------------------------------------------------------------------------------------
+# ONE price extractor, sharing ONE vocabulary with the unit resolver.
+#
+# MEASURED before this existed, over 20 ordinary ways a founder states their own price,
+# through the real chain (unit_for_model -> extract_unit_price / extract_device_price /
+# extract_stated_price -> price_of_record) with the PSM point pinned at $38:
+#
+#     PRICE OF RECORD CORRECT: 4/20 = 20%
+#
+# 13 of the 16 misses landed on `basis="PSM optimal"` with `differs_from_psm: False` — the
+# report telling the founder the model agrees with a price it never read. Three returned a
+# real number that was the wrong one:
+#
+#     "the hardware costs $249 up front, then $9 monthly"  -> $9   basis "stated price"
+#     "buy the monitor for $329, subscribe at $12/mo"      -> $12  basis "stated price"
+#
+# That is the app fee sold as the hardware price — the exact defect extract_device_price
+# (B2/D17) was written for, still live because _DEVICE_PRICE_RE requires the `$` BEFORE the
+# device noun and "the hardware costs $249" puts the noun first. Against real hardware COGS
+# that is a -700% margin, economics errors out, and financials falls back to subscription —
+# churn and lifetime value on a one-time sale.
+#
+# The cause was four hand-maintained lists that disagreed with each other AND with the unit
+# the same codebase picks: plan._UNIT_NOUN_RE could NAME a venture's unit as sprint, jar,
+# engagement or kit, and no extractor could READ a price in any of them. A module that names
+# a unit it cannot price is not missing a pattern; it is two parsers never introduced.
+#
+# UNIT_NOUNS is that single vocabulary. plan._UNIT_NOUN_RE is built from it, so a noun added
+# here is nameable and priceable in the same commit, and the two cannot drift again.
+# --------------------------------------------------------------------------------------
+UNIT_NOUNS: tuple[str, ...] = (
+    # food and drink
+    "drink", "cup", "coffee", "latte", "espresso", "beverage", "meal", "plate", "dish",
+    "entree", "cover", "bowl", "burrito", "taco", "sandwich", "salad", "pizza", "slice",
+    "scoop", "cone", "pint", "glass", "pastry", "loaf", "cookie",
+    # visits and appointments
+    "visit", "ticket", "session", "class", "lesson", "drop-in", "ride", "trip",
+    "haircut", "cut", "treatment", "appointment", "booking", "night", "room",
+    # goods
+    "item", "order", "box", "bag", "bottle", "jar", "unit", "device", "hardware",
+    "kit", "pair", "board", "sensor", "monitor", "gadget", "appliance",
+    # services
+    "project", "engagement", "sprint", "retainer", "audit",
+    # recurring seats
+    "seat", "user", "account", "workspace", "licence", "license", "member",
+    # measured
+    "meter", "sq ft", "square foot", "hour", "day", "head", "person", "guest",
+)
+
+#: Symbol or code -> ISO code. Detection only: nothing here converts, and a non-USD figure
+#: must be DISCLOSED as unconverted rather than quietly treated as dollars or dropped. The
+#: lie was the silence, not the dollar sign.
+_CURRENCIES = {"$": "USD", "usd": "USD", "€": "EUR", "eur": "EUR",
+               "£": "GBP", "gbp": "GBP", "¥": "JPY", "jpy": "JPY"}
+_CUR_RE = r"(?P<cur>[$€£¥]|\b(?:USD|EUR|GBP|JPY)\b)"
+_AMT_RE = r"(?P<amt>\d[\d,]*(?:\.\d+)?)"
+_MONTHLY_RE = r"(?:per\s+month|/\s*mo(?:nth)?\b|a\s+month|monthly)"
+_YEARLY_RE = r"(?:per\s+year|/\s*yr\b|annually|a\s+year|per\s+annum|yearly)"
+#: The verbs a founder puts between a unit and its price. Bounded, so "the box we ship to
+#: 400 customers is $54" does not bind 400 to "box".
+_LEADIN_RE = (r"(?:costs?|is|are|sells?\s+for|retails?\s+(?:at|for)|priced\s+at|at|for|"
+              r"starts?\s+at|goes\s+for)")
+
+
+def _noun_pattern(noun: str) -> str:
+    """`box` must match "box" and "boxes"; `drink` must match "drink" and "drinks".
+
+    A first version branched on the ending (`es?` after s/x/ch) and thereby stopped matching
+    the SINGULAR of every such noun — box, class, glass and sandwich all became unpriceable,
+    which is how a vocabulary quietly loses four entries. `(?:e?s)?` covers both.
+    """
+    return re.escape(noun) + "(?:e?s)?"
+
+
+def _noun_alternation(unit_noun: str | None) -> str:
+    """The venture's own noun first, then the shared vocabulary, longest first so
+    "square foot" is not eaten by "foot"."""
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for noun in ([unit_noun] if unit_noun else []) + list(UNIT_NOUNS):
+        n = (noun or "").strip().lower()
+        if n and n not in seen:
+            seen.add(n)
+            ordered.append(n)
+    ordered.sort(key=len, reverse=True)
+    return "|".join(_noun_pattern(n) for n in ordered)
+
+
+def extract_price(text: str, unit_noun: str | None = None) -> dict | None:
+    """The one price reader. Returns {value, currency, basis, period, unit} or None.
+
+    Order is the point, not just coverage. A per-unit price is looked for BEFORE any
+    recurring phrase, and a match that is itself recurring is skipped, so a hybrid's
+    one-time hardware price wins over the /mo app fee sitting in the same sentence. The
+    recurring patterns run last and only when nothing per-unit was stated.
+
+    `basis` names the unit it read so a reader can check the parse, and None means exactly
+    that — no price in the brief — which the caller must surface rather than silently
+    substituting a modelled figure.
+    """
+    if not text:
+        return None
+    alt = _noun_alternation(unit_noun)
+    recurring = f"{_MONTHLY_RE}|{_YEARLY_RE}"
+    patterns = (
+        # price then unit: "$6 per drink", "$499 per seat per month", "EUR 3.50 per pastry"
+        (rf"{_CUR_RE}\s*{_AMT_RE}\s*(?:/|per|a|an|each)\s*(?P<noun>{alt})\b", None),
+        # unit then price: "the hardware costs $249", "each kit sells for $65"
+        (rf"(?P<noun>{alt})\b(?:\s+\w+){{0,3}}?\s+{_LEADIN_RE}\s+{_CUR_RE}\s*{_AMT_RE}", None),
+        # adjacent, no preposition: "$199 device", "$65 starter kit"
+        (rf"{_CUR_RE}\s*{_AMT_RE}\s*(?:\w+\s+){{0,2}}?(?P<noun>{alt})\b", None),
+        # recurring, LAST — a monthly figure is the price only if nothing per-unit is stated
+        (rf"{_CUR_RE}\s*{_AMT_RE}\s*{_MONTHLY_RE}", "month"),
+        (rf"{_CUR_RE}\s*{_AMT_RE}\s*{_YEARLY_RE}", "year"),
+    )
+    for pattern, fixed_period in patterns:
+        for m in re.finditer(pattern, text, re.I):
+            if fixed_period is None and re.search(recurring, m.group(0), re.I):
+                continue        # this occurrence IS the recurring leg, not the unit price
+            try:
+                value = float(m.group("amt").replace(",", ""))
+            except (TypeError, ValueError):
+                continue
+            noun = (m.groupdict().get("noun") or "").lower()
+            period = fixed_period
+            if period is None:
+                tail = text[m.end():m.end() + 24]
+                if re.match(rf"\s*{_MONTHLY_RE}", tail, re.I):
+                    period = "month"
+                elif re.match(rf"\s*{_YEARLY_RE}", tail, re.I):
+                    period = "year"
+            return {
+                "value": value,
+                "currency": _CURRENCIES.get((m.group("cur") or "$").lower(), "USD"),
+                "basis": (f"stated price per {noun}" if noun
+                          else f"stated {period or 'unit'} price"),
+                "period": period,
+                "unit": noun or None,
+            }
+    return None
+
+
 _STREET_RE = re.compile(
     r"\b\d{1,6}\s+[A-Z0-9][\w.'-]*(?:\s+[\w.'-]+){0,4}\s+"
     r"(?:St|Street|Ave|Avenue|Blvd|Boulevard|Rd|Road|Dr|Drive|Ln|Lane|Way|Ct|Court|Pl|Plaza)\b",

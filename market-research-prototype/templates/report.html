@@ -1484,6 +1484,50 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <!-- PRICING DETAIL -->
 {% if psm.optimal_price_point or psm.recommended_tiers or is_transactional %}
 <h2 id="pricing">Pricing Detail</h2>
+
+{# The price of record and, more importantly, whether there WAS one to reconcile against.
+   It has been computed since R4 rank 16 and rendered nowhere, so its provenance — including
+   "we read no price at all" — existed only for whoever opened the artifact. Same shape as
+   #83's som_anchor: a disclosure that never reaches the page is not a disclosure.
+
+   ABOVE the transactional/non-transactional split on purpose. Placed inside the else branch
+   it rendered for SaaS and marketplaces and never for a cafe — and a cafe is precisely the
+   venture whose brief says "$6 per drink". #}
+{% if price_of_record %}
+{% if price_of_record.no_stated_price %}
+<p style="font-size:10.5pt;background:#fef3c7;border-left:3px solid #d97706;padding:8px 12px;margin:10px 0">
+  <strong>No stated price found in the brief.</strong> The price below is this model's
+  recommendation, not a reconciliation — nothing was read from your description to compare
+  it against. State a price (for example &ldquo;$12,000 per project&rdquo; or
+  &ldquo;$29 per seat per month&rdquo;) and the analysis will reconcile against it.
+</p>
+{% elif price_of_record.value %}
+<p style="font-size:10.5pt;color:#6b7280">
+  <strong>Price of record:</strong> {{ price_of_record.value }}
+  {%- if price_of_record.unit %} per {{ price_of_record.unit }}{% endif %}
+  ({{ price_of_record.basis }}).
+</p>
+{% if price_of_record.differs_from_psm and price_of_record.stated_value %}
+<p style="font-size:10.5pt;background:#fef3c7;border-left:3px solid #d97706;padding:8px 12px;margin:10px 0">
+  <strong>Your stated price and this model disagree.</strong> The brief states
+  {{ price_of_record.stated_value }}{% if price_of_record.unit %} per {{ price_of_record.unit }}{% endif %};
+  the simulation's optimum is {{ price_of_record.psm_optimal }}.
+  {% if price_of_record.value == price_of_record.stated_value %}The analysis is built on
+  your stated price.{% else %}The analysis is built on the modelled figure, so every margin
+  and break-even below assumes {{ price_of_record.value }}, not {{ price_of_record.stated_value }}.{% endif %}
+</p>
+{% endif %}
+{% endif %}
+{% if price_of_record.currency_unconverted %}
+<p style="font-size:10.5pt;background:#fef3c7;border-left:3px solid #d97706;padding:8px 12px;margin:10px 0">
+  <strong>Stated in {{ price_of_record.currency }}, not converted.</strong> Every market
+  size and revenue figure in this report is in USD. The {{ price_of_record.currency }}
+  price was read as written and no exchange rate was applied, so the two are not directly
+  comparable — convert before relying on the margin figures.
+</p>
+{% endif %}
+{% endif %}
+
 {% if is_transactional and economics and not economics.error %}
 {# cycle37: transactional retail is priced per UNIT (e.g. $6/drink, 15% per booking), not as a
    monthly subscription tier. The PSM monthly simulation + monthly competitor benchmark are the
@@ -1587,6 +1631,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 {% if psm.acceptable_range %} <strong>Acceptable range:</strong> ${{ psm.acceptable_range[0] }}–${{ psm.acceptable_range[1] }}.{% endif %}
 </p>
 {% endif %}
+
 
 <!-- ITER 35: COMPETITOR PRICE BENCHMARK (user feedback #3b) -->
 {% if pricing_benchmark and pricing_benchmark.rows %}
