@@ -1672,9 +1672,20 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                      (result.get("market_scale") or {}).get("scale"))
         except Exception as e:
             log.warning("[plan] early scale classification failed (non-fatal): %s", e)
-    from business_model import classify_business_model, is_per_unit
-    biz_kind = classify_business_model(profile, result.get("market_scale"))
+    from business_model import classify_with_confidence, is_per_unit
+    # WITH CONFIDENCE, not just the kind. The classifier ends in a silent default to
+    # `subscription`, and MEASURED across 35 natural phrasings, 16 of them landed there — so
+    # a marketplace was handed CLV, churn and MRR for a venture that never said it was
+    # recurring. Everything else in this pipeline discloses whether a number was fetched or
+    # assumed; the monetization model, which picks the entire economic engine downstream,
+    # was the one load-bearing choice that never did.
+    _bm = classify_with_confidence(profile, result.get("market_scale"))
+    biz_kind = _bm["kind"]
     result["business_model_kind"] = biz_kind
+    result["business_model"] = {"kind": biz_kind, "explicit": _bm["explicit"],
+                                "disclosure": _bm.get("disclosure")}
+    if _bm.get("disclosure"):
+        log.info("[plan] monetization model INFERRED (%s) — brief carried no signal", biz_kind)
     # cycle38: the economics/PSM unit must be model-derived and NEVER "/mo" for a per-unit
     # venture (infer_wtp_unit defaults to /mo → sized a $45 serum and a gym "per month").
     _psm_unit = unit_for_model(biz_kind, description, profile)

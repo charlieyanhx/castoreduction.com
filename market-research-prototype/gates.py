@@ -2065,6 +2065,9 @@ def d61_volume_targets_match_the_ladder(r: dict, html: Optional[str]) -> Finding
     stated = _stated_daily_volumes(fp)
     if not stated:
         return Finding(None, "no section states a daily volume")
+    # Break-even and the ceiling are computed per DAY. When the plan's period is a month,
+    # the rungs must be expressed in the same period the prose uses or every comparison is
+    # off by ~30x and the gate cries wolf on correct writing.
 
     econ = r.get("economics") or {}
     ms = r.get("market_sizing") or {}
@@ -2074,21 +2077,32 @@ def d61_volume_targets_match_the_ladder(r: dict, html: Optional[str]) -> Finding
     be = econ.get("break_even_units_per_day")
     if isinstance(be, (int, float)) and be > 0:
         rungs["break-even"] = float(be)
-    target = fp.get("_volume_target_units_per_day")
+    # The target the sections were handed. It carries its own PERIOD — a consultancy plans
+    # in projects/month, a cafe in drinks/day — so this gate must not assume days. A float
+    # is still accepted: older artifacts stored one, and a gate that crashes on last week's
+    # report is a gate that gets switched off.
+    target = fp.get("_volume_target") or fp.get("_volume_target_units_per_day")
     if not target:
         try:
-            from financials import planning_target_units_per_day
-            t = planning_target_units_per_day(
+            from financials import planning_target
+            target = planning_target(
                 som_usd=som, price_per_unit=price, market_scale=ms.get("scale"),
                 model=(r.get("business_model") or {}).get("kind") or "transactional")
-            target = (t or {}).get("units_per_day")
         except Exception:                                    # noqa: BLE001
             target = None
+    target_period = "day"
+    if isinstance(target, dict):
+        target_period = target.get("period") or "day"
+        target = target.get("value") if target.get("measure") == "units" else None
     if isinstance(target, (int, float)) and target > 0:
         rungs["planning target"] = float(target)
     if (isinstance(som, (int, float)) and som > 0
             and isinstance(price, (int, float)) and price > 0):
         rungs["obtainable ceiling"] = som / price / 365.0
+    if target_period == "month":
+        for k in ("break-even", "obtainable ceiling"):
+            if k in rungs:
+                rungs[k] *= 365.0 / 12.0
     if not rungs:
         return Finding(None, "no ladder available to check the stated volumes against")
 
