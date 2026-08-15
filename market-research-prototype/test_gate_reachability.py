@@ -31,6 +31,7 @@ import json
 import os
 import unittest
 from collections.abc import Callable
+from typing import NamedTuple
 
 import gates
 
@@ -116,9 +117,27 @@ def _load_reports():
 
 def _d49_on_a_current_shape_payload():
     """No run on disk can carry D49's keys — plan.py began writing them after the last one —
-    so the artifact has to be what the mapping produces today."""
+    so what the mapping produces today is the only artifact there is."""
     from gates import d49_trade_area_matches_its_radius as d49
     return d49(_D49_CURRENT_SHAPE, None)
+
+
+def _d54_on_a_current_shape_ledger():
+    """One skill-layer event carrying `produces`, copied from run2's own ledger — the field
+    the corpus's 83 events lack — against a report the output never reached."""
+    from gates import d54_produced_output_reaches_the_report as d54
+    return d54({"_trace": [{"layer": "skill", "name": "cluster_competitors",
+                            "produces": "clustering", "module": "skills.clustering",
+                            "qualname": "cluster_competitors",
+                            "file": "skills/clustering.py", "line": 142, "ok": True}]}, None)
+
+
+def _d60_on_a_current_shape_payload():
+    """Borrowed from D60's own unit tests rather than restated here, so a change to the
+    anchor's shape cannot leave a stale copy passing in this file."""
+    from gates import d60_area_average_is_labelled as d60
+    from test_d60_area_average_reaches_the_reader import _ANCHOR, _HONEST, _run
+    return d60(_run(calculation=_HONEST, anchor=_ANCHOR), None)
 
 
 def _d54_on_the_live_run():
@@ -135,11 +154,29 @@ def _d60_on_the_live_run():
     return d60(*_load_one(_RUN18))
 
 
-# gate -> (artifact it needs on disk, if any; the check that proves the gate still answers).
-_STALENESS_DEMONSTRATIONS: dict[str, tuple[str | None, Callable[[], gates.Finding]]] = {
-    "D49": (None, _d49_on_a_current_shape_payload),
-    "D54": (_RUN2, _d54_on_the_live_run),
-    "D60": (_RUN18, _d60_on_the_live_run),
+class _Demonstration(NamedTuple):
+    """How a gate excused on staleness proves it can still answer.
+
+    TWO ARTIFACTS, and the difference between them is the subject of this whole file.
+    `constructed` is a payload of the shape the allowlist entry claims the pipeline writes
+    today. `live` is a genuine end-to-end run. The live one is strictly stronger, because a
+    constructed payload can only show the DETECTOR answers — it cannot show the PIPELINE
+    emits that shape, which is the exact gap D49 fell through: its synthetic tests all passed
+    while the gate was N/A on all 16 real reports.
+
+    So the constructed payload is not the guarantee, it is the FLOOR. out/ is gitignored, so
+    on a fresh clone the live half is simply unavailable and the floor is what remains
+    standing. Where a live run can carry the shape, one is named and run; D49's cannot exist
+    by construction, which is why it is allowlisted in the first place.
+    """
+    constructed: Callable[[], gates.Finding]
+    live: tuple[str, Callable[[], gates.Finding]] | None = None
+
+
+_STALENESS_DEMONSTRATIONS: dict[str, _Demonstration] = {
+    "D49": _Demonstration(_d49_on_a_current_shape_payload),
+    "D54": _Demonstration(_d54_on_a_current_shape_ledger, (_RUN2, _d54_on_the_live_run)),
+    "D60": _Demonstration(_d60_on_a_current_shape_payload, (_RUN18, _d60_on_the_live_run)),
 }
 
 
@@ -249,19 +286,32 @@ class TestTheStalenessAllowlistPaysItsCompensatingCheck(unittest.TestCase):
                          f"demonstrations for gates no longer excused on staleness: {stale}")
 
     def test_each_demonstration_yields_a_real_verdict(self):
-        """The check itself, and the only one of these that runs a gate: True or False on a
-        payload of the current shape. None here means the compensating artifact has drifted
-        out of shape too, and the gate is now unproven on BOTH."""
+        """The check itself: True or False on a payload of the current shape. None here means
+        the compensating artifact has drifted out of shape too, and the gate is now unproven
+        on BOTH. Runs everywhere — no artifact on disk, nothing to skip."""
         for gid in sorted(_STALENESS_ALLOWLISTED & set(_STALENESS_DEMONSTRATIONS)):
-            artifact, demonstrate = _STALENESS_DEMONSTRATIONS[gid]
             with self.subTest(gate=gid):
-                if artifact and not os.path.exists(artifact):
-                    self.skipTest(f"{gid}'s artifact {artifact} is not on disk")
                 self.assertIsNotNone(
-                    demonstrate().ok,
+                    _STALENESS_DEMONSTRATIONS[gid].constructed().ok,
                     f"{gid} is excused from corpus reachability because the corpus is stale, "
                     "and declines to answer on a current-shape payload as well — so nothing "
                     "anywhere shows it can fire")
+
+    def test_the_live_proof_still_holds_where_a_live_run_can_carry_the_shape(self):
+        """The half a constructed payload cannot do: show the PIPELINE emits the shape, not
+        just that the detector reads it. Skipped rather than failed when out/ is absent —
+        it is gitignored, so a clone has no live runs — and that skip is the honest report
+        that only the floor above is holding, not a pass."""
+        for gid in sorted(gid for gid, d in _STALENESS_DEMONSTRATIONS.items() if d.live):
+            artifact, demonstrate = _STALENESS_DEMONSTRATIONS[gid].live
+            with self.subTest(gate=gid, artifact=artifact):
+                if not os.path.exists(artifact):
+                    self.skipTest(f"{artifact} is not on disk; {gid} rests on its "
+                                  "constructed payload alone")
+                self.assertIsNotNone(
+                    demonstrate().ok,
+                    f"{gid} returns N/A on {artifact} — a genuine run of the shape its "
+                    "allowlist entry claims the pipeline now produces")
 
 
 @unittest.skipIf(not _CORPUS, "no corpus on disk")
