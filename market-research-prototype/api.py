@@ -393,7 +393,10 @@ def post_intake_confirm(session_id: str, body: dict | None = None):
         if field in ("geography", "pricing") and isinstance(value, str) and value.strip():
             s.setdefault("extracted", {})[field] = value.strip()
     mark_confirmed(s)
-    return {"ok": True, "confirmed_facts": s.get("confirmed_facts")}
+    return {"ok": True, "confirmed_facts": s.get("confirmed_facts"),
+            # The rebuilt brief, so the browser sends the run the CORRECTED description
+            # rather than one synthesised before the operator saw the card.
+            "final_description": s.get("final_description")}
 
 
 @app.get("/healthz")

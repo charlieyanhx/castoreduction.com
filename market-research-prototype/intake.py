@@ -327,7 +327,14 @@ def _synthesize_from_extracted(ex: dict) -> str:
     if ex.get("business_model"):
         parts.append(f"Business model: {ex['business_model']}.")
     if ex.get("geography"):
-        parts.append(f"Geography: {ex['geography']}.")
+        # "Located in X", NOT "Geography: X". MEASURED: plan.extract_location requires a
+        # prepositional phrase, and the label form returned None on every description this
+        # builder has ever produced. The consequence was silent and total —
+        # size_by_scale returns None without a location (no trade-area sizing at all) and
+        # geo_competitor_opps returns [] (no local competitor census) — so a neighbourhood
+        # cafe fell back to national sizing and the report said "needs an address" rather
+        # than "I could not read the address you gave me".
+        parts.append(f"Located in {ex['geography']}.")
     if ex.get("pricing"):
         parts.append(f"Pricing: {ex['pricing']}.")
     if ex.get("differentiation"):
@@ -453,4 +460,8 @@ def mark_confirmed(session: dict) -> dict:
     session["confirmed"] = True
     session["confirmed_facts"] = {i["field"]: ex.get(i["field"])
                                   for i in confirmation_items(ex)}
+    # REBUILD. final_description is synthesised when the session goes ready, which is
+    # BEFORE the operator sees the card — so a correction made on the card would never
+    # reach the run, and the card would be theatre for the one field it exists to fix.
+    session["final_description"] = _synthesize_from_extracted(ex)
     return session

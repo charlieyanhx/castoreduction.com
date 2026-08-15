@@ -205,8 +205,11 @@ async function showConfirmation() {
       if (v) corrections[el.dataset.field] = v;
     });
     try {
-      await api("POST", `/intake/${session}/confirm`, { corrections });
+      const res = await api("POST", `/intake/${session}/confirm`, { corrections });
       Object.assign(extracted, corrections);
+      // The description the run will actually receive, rebuilt server-side from the
+      // corrected answers. Without this the card could not fix the field it exists for.
+      if (res && res.final_description) window._serverDescription = res.final_description;
     } catch (e) { /* confirmation is a checkpoint, not a gate that can strand you */ }
     window._confirmed = true;
     card.classList.add("done");
@@ -216,11 +219,22 @@ async function showConfirmation() {
   });
 }
 
+/* The SERVER owns this string now. It used to be assembled here as well, identically and
+   identically wrongly: both emitted "Geography: <place>." and plan.extract_location needs a
+   prepositional phrase, so it returned None on every description the chat ever produced —
+   and without a location size_by_scale returns None (no trade-area sizing at all) while
+   geo_competitor_opps returns [] (no local competitors). A neighbourhood cafe silently got
+   national sizing.
+
+   Two builders for one fact is how that drifted unnoticed. `_serverDescription` is
+   whatever the confirm step rebuilt from the corrected answers; the local assembly stays
+   only as a fallback for the path where confirmation never happened. */
 function buildDescription() {
+  if (window._serverDescription) return window._serverDescription;
   const e = extracted;
   const parts = [
     e.product, e.target_customer && `For ${e.target_customer}.`,
-    e.business_model, e.geography && `Geography: ${e.geography}.`,
+    e.business_model, e.geography && `Located in ${e.geography}.`,
     e.pricing && `Pricing: ${e.pricing}.`,
     e.differentiation && `Differentiator: ${e.differentiation}.`,
   ].filter((x) => x && String(x).toLowerCase() !== "null");
