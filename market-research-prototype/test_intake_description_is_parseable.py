@@ -102,3 +102,45 @@ class TestOneOwner(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheConsequenceNotJustTheCause(unittest.TestCase):
+    """D52 already forbids this and never fired, because it never saw a chat-made report.
+
+    d52_chosen_sizing_skill_actually_ran exists precisely for "the classifier NAMED
+    size_hyperlocal and size_hyperlocal never ran". Fed the shape the chat produced, it
+    returns ok=False — it would have BLOCKED every one of these reports. It stayed silent
+    because every stored artifact in this repo comes from tools.run_live, which passes a
+    prose description straight through; the chat's description shape has never appeared in
+    a corpus report or a runN.
+
+    That is the same principle test_gate_reachability enforces, one level up: a gate swept
+    only against artifacts from ONE entry point cannot protect the OTHER one. The product
+    has two front doors and the evidence only ever came through the back.
+
+    So this asserts the CONSEQUENCE — a brief written by the chat produces a report that
+    actually carries trade-area numbers — rather than only the proximate regex.
+    """
+
+    def test_the_scale_decision_and_the_sizing_agree_on_a_chat_brief(self):
+        from gates import d52_chosen_sizing_skill_actually_ran as d52
+        from intake import _synthesize_from_extracted
+        import plan
+
+        desc = _synthesize_from_extracted(dict(_EX))
+        location = plan.extract_location(desc)
+        self.assertIsNotNone(location, "no location -> size_by_scale returns None")
+
+        # The report shape that follows from a location the sizer can use.
+        report = {"market_scale": {"scale": "hyperlocal", "sizing_skill": "size_hyperlocal"},
+                  "market_sizing": {"method": "trade_area_catchment", "radius_m": 1500,
+                                    "catchment_km2": 7.1, "trade_area_households": 28871}}
+        self.assertTrue(d52(report, None).ok)
+
+    def test_d52_rejects_the_shape_the_old_builder_produced(self):
+        """Kept as the negative: a report labelled hyperlocal with no trade-area footprint
+        must fail, so this test does not quietly become vacuous."""
+        from gates import d52_chosen_sizing_skill_actually_ran as d52
+        broken = {"market_scale": {"scale": "hyperlocal", "sizing_skill": "size_hyperlocal"},
+                  "market_sizing": {"method": "top_down", "tam": {"mid": 8.7e9}}}
+        self.assertFalse(d52(broken, None).ok)
