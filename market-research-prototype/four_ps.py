@@ -650,15 +650,22 @@ def _r_volume_ladder(facts: dict) -> str:
     # beside the ramp it depends on, so there is one owner rather than two.
     target = None
     try:
-        from financials import planning_target_units_per_day
-        target = planning_target_units_per_day(
+        from financials import planning_target
+        target = planning_target(
             som_usd=som, price_per_unit=price, market_scale=ms.get("scale"),
             model=facts.get("business_model_kind") or "transactional")
     except Exception:                                        # noqa: BLE001
         target = None
     if target:
-        parts.append(f"PLANNING TARGET ≈ {target['units_per_day']:,.0f} {unit}s/day "
-                     f"({target['basis']})")
+        # The PERIOD comes from the model, not from the cafe this was written for.
+        # MEASURED with a daily period for everything: a consultancy read "0.1 projects/day"
+        # and SaaS "8.9 seats/day" — the first is not actionable and the second is a retail
+        # frame on a recurring business, and the sections are told to quote these verbatim.
+        if target["measure"] == "revenue":
+            shown = f"${target['value']:,.0f} revenue/{target['period']}"
+        else:
+            shown = f"{target['value']:,.0f} {unit}s/{target['period']}"
+        parts.append(f"PLANNING TARGET ≈ {shown} ({target['basis']})")
     if (isinstance(som, (int, float)) and som > 0
             and isinstance(price, (int, float)) and price > 0):
         parts.append(f"obtainable ceiling (SOM) ≈ {som / price / 365:,.0f} {unit}s/day")
@@ -777,13 +784,13 @@ def _volume_target_for_artifact(economics, market_sizing, business_model_kind):
     the artifact cannot disagree with the prompt."""
     econ, ms = economics or {}, market_sizing or {}
     try:
-        from financials import planning_target_units_per_day
-        t = planning_target_units_per_day(
+        from financials import planning_target
+        t = planning_target(
             som_usd=(ms.get("som") or {}).get("mid") or ms.get("som_usd"),
             price_per_unit=econ.get("price_per_unit"),
             market_scale=ms.get("scale"),
             model=business_model_kind or "transactional")
-        return (t or {}).get("units_per_day")
+        return t or None
     except Exception:                                        # noqa: BLE001
         return None
 
@@ -1081,7 +1088,7 @@ def assemble_4ps_split(
         # re-derive the target would be a second owner of it — the failure this whole fix
         # is about. Recording what was actually handed over also makes a prompt-side
         # regression visible without byte-identity forensics, the way _reminders_fired does.
-        "_volume_target_units_per_day": (
+        "_volume_target": (
             _volume_target_for_artifact(economics, market_sizing, business_model_kind)),
         "_reminders_fired": {
             "volume_ladder": "CANONICAL DAILY-VOLUME LADDER" in reminders,

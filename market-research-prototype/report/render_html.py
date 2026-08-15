@@ -148,6 +148,10 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0) -> str:
         # cycle37: business model (transactional retail vs subscription) → model-aware
         # pricing / unit-economics / financials rendering.
         business_model_kind=r.get("business_model_kind"),
+        # The kind AND whether the brief actually said so. A disclosure that reaches
+        # the JSON and not the template is not a disclosure — this codebase has
+        # shipped that shape before (the SOM anchor block, rendered nowhere).
+        business_model=r.get("business_model"),
         # DEBUG-ONLY: the raw per-run call log (every tool invocation, including failures).
         # It was passed unconditionally, so the "🔍 Data Provenance (debug)" table — raw
         # HTTPSConnectionPool errors, garbage discovery domains and all — shipped inside the

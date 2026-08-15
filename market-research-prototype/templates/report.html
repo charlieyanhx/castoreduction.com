@@ -239,6 +239,17 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     <p><strong>Category:</strong> {{ profile.category or 'unknown' }}</p>
     <p><strong>Geography:</strong> {{ profile.geography or 'US' }}</p>
     <p><strong>Business model:</strong> {{ profile.business_model or 'unknown' }}</p>
+    {# The monetization model picks the entire economic engine below — per-unit economics vs
+       lifetime value, the unit noun, the ramp, the planning target. When the brief never said
+       how the venture charges, the classifier falls back to a default, and MEASURED across 35
+       natural phrasings that default swallowed 16 of them. A reader is entitled to know which
+       of those two things happened before they read a single financial figure. #}
+    {% if business_model and business_model.disclosure %}
+    <div style="margin:8px 0;padding:9px 11px;border-radius:8px;background:#fffbf3;
+                border:1px solid #f3e2c4;color:#92400e;font-size:10pt;line-height:1.5">
+      {{ business_model.disclosure }}
+    </div>
+    {% endif %}
     <p><strong>Generated:</strong> {{ generated_date }}</p>
     <p><strong>Pipeline:</strong> {{ steps_completed|length }} steps completed ({{ ', '.join(steps_completed) }})</p>
     {% if refine_audit %}

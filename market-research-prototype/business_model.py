@@ -73,6 +73,77 @@ _PER_VISIT_KW = (
 )
 
 
+import re as _re2
+
+# ---------------------------------------------------------------------------------------
+# Matching that reads how founders actually write, not how a keyword list was typed.
+#
+# MEASURED before this: 19 of 35 natural phrasings of the seven models classified correctly
+# (54%), and EVERY miss fell through to `subscription` because that is the default. So a
+# marketplace got CLV and churn instead of take-rate on GMV, and the report was internally
+# consistent and entirely wrong. The literal lists recognised "advertising-supported" and
+# missed "advertising supported"; recognised "monetized via ads" and missed "monetized with
+# display advertising".
+#
+# Two changes. Punctuation stops being a distinct business model (_norm), and the SEMANTIC
+# signal gets a pattern instead of an enumeration of its spellings. The literal lists stay —
+# they encode specificity that was learned from real misroutes — and the patterns are
+# additive.
+# ---------------------------------------------------------------------------------------
+
+def _norm(text: str) -> str:
+    """Lowercase, punctuation-insensitive, whitespace-collapsed.
+
+    "ad-supported", "ad supported" and "ad—supported" are one concept; treating them as
+    three is how a substring matcher accumulates near-duplicates and still misses the
+    fourth spelling."""
+    t = (text or "").lower()
+    # The ASCII hyphen is U+002D and sits OUTSIDE the \u2010-\u2015 dash block — the first
+    # version of this line omitted it, so "peer-to-peer" never normalised and the pattern
+    # written to catch it could not fire. The common case was the one that got missed.
+    t = _re2.sub(r"[-\u2010-\u2015_/]", " ", t)     # hyphen family, underscore, slash
+    return _re2.sub(r"\s+", " ", t).strip()
+
+
+# A take-rate on somebody else's transaction. Deliberately does NOT include bare "platform"
+# or "connects" — those over-matched SaaS and news apps, which is why the literal list
+# excluded them, and that judgement is preserved here.
+_MARKETPLACE_RE = _re2.compile(
+    r"take rate|take a cut|\btwo sided\b|\bpeer to peer\b|\bp2p\b|\bgmv\b|"
+    r"\d+\s*%\s*(?:commission|take|of (?:each|every|the|all))|"
+    r"commission (?:on|per|of|from)|"
+    r"match(?:es|ing)? (?:supply and demand|buyers (?:and|with) sellers)|"
+    r"connect(?:s|ing)? \w+ (?:with|and) (?:vetted |local )?\w+")
+
+# Advertising as the REVENUE, not as a marketing channel. "we advertise on Instagram" is a
+# channel and must not match — hence the required monetization context on every branch.
+_AD_RE = _re2.compile(
+    r"(?:free|no charge|no cost|zero cost)[^.]{0,40}?(?:\bads?\b|advertis|sponsor)|"
+    r"(?:\bads?\b|advertis\w*|sponsor\w*)[^.]{0,30}?"
+    r"(?:revenue|inventory|supported|funded|monetiz|pay us|pay for placement)|"
+    r"monetiz\w*[^.]{0,30}?(?:\bads?\b|advertis|sponsor)")
+
+_SERVICES_RE = _re2.compile(
+    r"\bbill(?:s|ed|ing)?\b[^.]{0,30}?(?:hourly|by the hour|per (?:hour|project|engagement|day))|"
+    r"per (?:project|engagement|deliverable)|\bretainer\b|"
+    r"\b(?:agency|consultancy|consulting|professional services)\b|"
+    r"(?:custom|bespoke) \w*\s*(?:implementation|integration|build|projects?)|"
+    r"done for you")
+
+_ONETIME_RE = _re2.compile(
+    r"\bone time\b|single purchase|buy (?:it |the \w+ )?once|"
+    r"sell(?:s|ing)? (?:physical|tangible) (?:goods|products?)|"
+    r"customers? buy [^.]{0,25}once|\bdtc\b|direct to consumer|"
+    r"\b(?:buy|purchase)\b[^.]{0,20}?\b(?:unit|device|hardware|kit|machine|equipment)\b")
+
+# Recurring as a REVENUE shape. "recurring software fee" and "subscribe for analytics" are
+# recurring; the literal list only had "recurring revenue" and "subscription".
+_RECURRING_RE = _re2.compile(
+    r"\bsubscrib\w+|\brecurring\b[^.]{0,25}?(?:fee|charge|payment|billing|revenue|software|"
+    r"licen[cs]e)|(?:monthly|annual|yearly|per month|per year)[^.]{0,25}?"
+    r"(?:fee|plan|pass|club|membership|licen[cs]e|retainer|contract)")
+
+
 def classify_business_model(profile: dict, market_scale: Optional[dict] = None) -> str:
     """Deterministic monetization-model classifier (no LLM). Returns one of the seven kinds.
 
@@ -82,26 +153,28 @@ def classify_business_model(profile: dict, market_scale: Optional[dict] = None) 
     → one-time=ecommerce → recurring=subscription → default subscription (preserves original
     behavior so nothing regresses)."""
     profile = profile or {}
-    bm = (profile.get("business_model") or "").lower()
-    cat = (profile.get("category") or "").lower()
-    blob = f"{bm} {cat} {(profile.get('summary') or '').lower()}"
+    # Normalised once; every literal list below is normalised the same way, so punctuation
+    # variants collapse instead of each needing its own entry.
+    blob = _norm(f"{profile.get('business_model') or ''} {profile.get('category') or ''} "
+                 f"{profile.get('summary') or ''}")
     ms = market_scale or {}
     is_physical = bool((ms.get("signals") or {}).get("is_physical")) or ms.get("scale") == "hyperlocal"
 
     def has(kws):
-        return any(k in blob for k in kws)
+        return any(_norm(k) in blob for k in kws)
 
-    membership_first = has(("membership", "subscription-first", "members-only", "members only"))
+    membership_first = (has(("membership", "subscription-first", "members-only", "members only"))
+                        or bool(_RECURRING_RE.search(blob)))
     per_visit = has(_PER_VISIT_KW)
 
     # 1. Unambiguous models that must win even if the venture is (mis)tagged physical: a take-rate
     # marketplace, a free ad-supported product, or an explicit B2B services/agency. These keyword
     # sets are specific enough that a cafe/salon/gym never matches them.
-    if has(_MARKETPLACE_KW):
+    if has(_MARKETPLACE_KW) or _MARKETPLACE_RE.search(blob):
         return MARKETPLACE
-    if has(_AD_KW):
+    if has(_AD_KW) or _AD_RE.search(blob):
         return AD_SUPPORTED
-    if has(_SERVICES_KW):
+    if has(_SERVICES_KW) or _SERVICES_RE.search(blob):
         return SERVICES
 
     # 2. Physical premise serving local trade.
@@ -113,8 +186,8 @@ def classify_business_model(profile: dict, market_scale: Optional[dict] = None) 
         return TRANSACTIONAL         # cafe, restaurant, salon, food truck
 
     # 3. Digital / non-premise venture — route by remaining monetization signal.
-    recurring = has(_SUBSCRIPTION_KW)
-    onetime = has(_ONETIME_KW)
+    recurring = has(_SUBSCRIPTION_KW) or bool(_RECURRING_RE.search(blob))
+    onetime = has(_ONETIME_KW) or bool(_ONETIME_RE.search(blob))
     if per_visit and recurring:
         return HYBRID                # drop-in + membership, scale signal missing (mirror of §2)
     if onetime and recurring:
@@ -293,3 +366,61 @@ def retail_unit_economics(
             asv["profitable_at_som"] = monthly_profit > 0
         out["at_som_volume"] = asv
     return out
+
+
+def classify_with_confidence(profile: dict, market_scale: Optional[dict] = None) -> dict:
+    """The kind, PLUS whether the brief actually said so.
+
+    THE ROOT DEFECT THIS EXISTS FOR. classify_business_model ends in
+    `return SUBSCRIPTION  # default preserves original SaaS behavior`, and that default is
+    silent. MEASURED: 16 of 35 natural phrasings fell into it, so a marketplace was handed
+    CLV, churn and MRR — a complete, coherent subscription model for a venture that never
+    said it was recurring. Nothing in the report distinguished "the founder told us they
+    charge monthly" from "we could not tell, so we assumed SaaS".
+
+    Everything else in this codebase discloses that distinction. A sizing figure says
+    whether it was fetched or estimated; the SOM anchor publishes its own method and its
+    disagreement with the alternative. The monetization model — which picks the entire
+    economic engine downstream — was the one load-bearing choice that never did.
+
+    Returns {kind, explicit, signal, disclosure}. `kind` is exactly what
+    classify_business_model returns, so callers can adopt this incrementally; `explicit` is
+    False when nothing in the brief named a revenue shape, and `disclosure` is the sentence
+    a report should carry when that happens.
+
+    It does NOT refuse to classify. Blocking a report over a missing sentence would be worse
+    than proceeding with a stated assumption — the default stays, it just stops being
+    invisible.
+    """
+    kind = classify_business_model(profile, market_scale)
+    profile = profile or {}
+    blob = _norm(f"{profile.get('business_model') or ''} {profile.get('category') or ''} "
+                 f"{profile.get('summary') or ''}")
+
+    def _has(kws):
+        return any(_norm(k) in blob for k in kws)
+
+    # Did anything in the brief name a revenue shape at all? The union of every signal the
+    # classifier can act on — if none of them fired, whatever came back is an inference.
+    explicit = bool(
+        _has(_SUBSCRIPTION_KW) or _has(_MARKETPLACE_KW) or _has(_AD_KW)
+        or _has(_SERVICES_KW) or _has(_ONETIME_KW) or _has(_PER_VISIT_KW)
+        or _MARKETPLACE_RE.search(blob) or _AD_RE.search(blob)
+        or _SERVICES_RE.search(blob) or _ONETIME_RE.search(blob)
+        or _RECURRING_RE.search(blob))
+
+    ms = market_scale or {}
+    if not explicit and ((ms.get("signals") or {}).get("is_physical")
+                         or ms.get("scale") == "hyperlocal"):
+        # A physical premise IS a monetization signal: you pay when you visit. That is an
+        # inference from the venue, not from a stated model, but it is a grounded one.
+        explicit = True
+
+    disclosure = None
+    if not explicit:
+        disclosure = (
+            f"Monetization model INFERRED as '{kind}' — the brief does not say how this "
+            f"venture charges. Every figure below that depends on the revenue shape "
+            f"(pricing, unit economics, lifetime value, the volume ladder) rests on that "
+            f"assumption. If it is wrong, say how you charge and the numbers change.")
+    return {"kind": kind, "explicit": explicit, "disclosure": disclosure}

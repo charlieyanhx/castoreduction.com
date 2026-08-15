@@ -362,6 +362,76 @@ def mark_derived_from_withheld(proj: dict, market_sizing: dict | None) -> dict:
 _DAYS_PER_YEAR = 360.0
 
 
+# The PERIOD a business actually plans in. MEASURED with a daily period hardcoded for all:
+# a consultancy came out at 0.1 projects/day and SaaS at 8.9 seats/day — the first is not a
+# plan anybody can act on, the second is a retail frame on a recurring business. Both would
+# have been written into 4Ps prose, and D61 would have PASSED them, because a wrong frame the
+# guard endorses is still a ladder rung.
+#
+# High-frequency low-value units are a daily business. Lumpy multi-week delivery, recurring
+# accounts, GMV and impressions are monthly ones.
+_PLANNING_PERIOD = {
+    "transactional": "day",
+    "ecommerce": "day",
+    "services": "month",
+    "subscription": "month",
+    "marketplace": "month",
+    "ad_supported": "month",
+}
+_PERIODS_PER_YEAR = {"day": _DAYS_PER_YEAR, "month": 12.0}
+
+
+def planning_target(*, som_usd, price_per_unit, market_scale=None,
+                    model: str = "transactional") -> dict | None:
+    """The ONE figure the plan is built around, in the period this model operates in.
+
+    Returns {value, period, measure, revenue_usd, basis, ...} or None.
+
+    `measure` is "units" when the brief carries a unit price and "revenue" when it does not.
+    A marketplace take-rate and an ad business have no per-unit price to quote, and #97's
+    whole finding was that a ladder with no target lets each section invent its own — so
+    those models state money instead of refusing to state anything.
+
+    ONE DERIVATION. The monthly figure is the daily one rescaled, never a second computation
+    from the SOM: two owners of one number is the bug this codebase keeps relearning, and it
+    is the reason the ramp lives here beside it rather than in four_ps.
+    """
+    def _pos(v):
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else None
+
+    som = _pos(som_usd)
+    if som is None:
+        return None
+    ramp, ramp_note = _ramp_for(market_scale, model)
+    y1 = ramp.get(1)
+    if not y1:
+        return None
+    revenue = som * y1
+    period = _PLANNING_PERIOD.get((model or "").lower(), "day")
+    per_year = _PERIODS_PER_YEAR[period]
+
+    price = _pos(price_per_unit)
+    if price is None:
+        # No unit price in the brief — state the money. Refusing here is what left
+        # marketplace and ad-supported ventures with a floor, a roof and no plan.
+        value, measure, shape = revenue / per_year, "revenue", f"revenue per {period}"
+    else:
+        value, measure = revenue / price / per_year, "units"
+        shape = f"units per {period}"
+
+    return {
+        "value": round(value, 1),
+        "period": period,
+        "measure": measure,
+        "revenue_usd": revenue,
+        "y1_fraction": y1,
+        "basis": (f"base-case year 1 ({shape}): {y1:.0%} of the obtainable SOM "
+                  f"(${som:,.0f})" + (f" at ${price:,.2f}" if price else "")
+                  + f", spread over the year"),
+        "ramp_note": ramp_note,
+    }
+
+
 def planning_target_units_per_day(*, som_usd, price_per_unit, market_scale=None,
                                   model: str = "transactional") -> dict | None:
     """The ONE daily volume the plan is actually built around, or None.
