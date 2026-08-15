@@ -144,15 +144,76 @@ function renderFields() {
     return `<span class="chip ${done ? "done" : ""}">${done ? "✓ " : ""}${lbl}</span>`;
   }).join("");
   const ready = REQUIRED.every((k) => extracted[k] && String(extracted[k]).toLowerCase() !== "null");
-  $("launchBtn").disabled = !ready;
-  // Felt rigor: once we have enough to run, preview HOW the numbers get made (one-time).
+  // Ready is NOT the same as confirmed. The required fields can all be filled and still
+  // point the run at the wrong neighbourhood — measured, "San Francisco" satisfies the
+  // geography field and geocodes 2.3 km from the Mission, against a 1.5 km trade-area ring.
+  // The Generate button waits for the operator to look at the two answers that decide the
+  // numbers.
+  $("launchBtn").disabled = !(ready && window._confirmed);
   if (ready && !window._rigorShown) {
     window._rigorShown = true;
     addMsg("bot", "Got what I need. When you generate, I'll size the market from real " +
       "data — Census business counts, BLS spending, and live competitor pricing I scrape — " +
       "triangulate each figure across independent sources, validate every number, and " +
-      "flag (or withhold) anything I can't stand behind. Hit Generate when ready.");
+      "flag (or withhold) anything I can't stand behind.");
+    showConfirmation();
   }
+}
+
+/* ---------------------------------------------------------------- confirmation card ---
+   The one stop before ~6 minutes of live research. Only the answers whose VALUE changes a
+   published number appear here; confirming eight fields would train people to click
+   through the two that matter. Each row says what it drives, because "confirm your
+   location" is a chore and "this sets the ring we count competitors in" is a reason to
+   read it. */
+async function showConfirmation() {
+  let payload;
+  try {
+    payload = await api("GET", `/intake/${session}/confirmation`);
+  } catch (e) {
+    // Never strand the operator behind a card that failed to load.
+    window._confirmed = true; renderFields(); return;
+  }
+  const rows = (payload.items || []).map((it) => `
+    <div class="cf-row ${it.precise ? "" : "warn"}">
+      <div class="cf-head">
+        <span class="cf-label">${it.label}</span>
+        <span class="cf-state">${it.precise ? "✓" : "needs a moment"}</span>
+      </div>
+      <input class="cf-input" data-field="${it.field}"
+             value="${(it.value || "").replace(/"/g, "&quot;")}"
+             placeholder="${it.ask}" aria-label="${it.label}">
+      <div class="cf-why">Sets ${it.drives}</div>
+      ${it.warning ? `<div class="cf-warn">${it.warning}</div>` : ""}
+    </div>`).join("");
+  const card = document.createElement("div");
+  card.className = "confirm-card";
+  card.id = "confirmCard";
+  card.innerHTML = `
+    <div class="cf-title">Before I spend six minutes on this</div>
+    <div class="cf-sub">These two decide the numbers. Everything else I can infer.</div>
+    ${rows}
+    <button class="cf-go" id="confirmBtn">Looks right — continue</button>`;
+  $("convo").appendChild(card);
+  $("convo").scrollTop = $("convo").scrollHeight;
+  $("confirmBtn").addEventListener("click", async () => {
+    const btn = $("confirmBtn");
+    btn.disabled = true; btn.textContent = "Saving…";
+    const corrections = {};
+    card.querySelectorAll(".cf-input").forEach((el) => {
+      const v = el.value.trim();
+      if (v) corrections[el.dataset.field] = v;
+    });
+    try {
+      await api("POST", `/intake/${session}/confirm`, { corrections });
+      Object.assign(extracted, corrections);
+    } catch (e) { /* confirmation is a checkpoint, not a gate that can strand you */ }
+    window._confirmed = true;
+    card.classList.add("done");
+    btn.textContent = "Confirmed ✓";
+    addMsg("bot", "Locked in. Hit Generate when you're ready.");
+    renderFields();
+  });
 }
 
 function buildDescription() {

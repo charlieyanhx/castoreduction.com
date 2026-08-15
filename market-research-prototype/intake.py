@@ -25,6 +25,7 @@ persistence is a follow-up if needed.
 """
 from __future__ import annotations
 import json
+import re
 import time
 import uuid
 from threading import Lock
@@ -344,3 +345,106 @@ def _fallback_question(ex: dict) -> str:
     if not ex.get("geography"):
         return "What geography are you targeting first? US, UK, EU, global?"
     return "Anything else important about the product or market that I should know?"
+
+
+# ---------------------------------------------------------------------------------------
+# Confirmation — the one stop before six minutes of research and a report full of numbers.
+# ---------------------------------------------------------------------------------------
+
+# A geography precise enough to draw a trade-area ring around. size_hyperlocal uses a 1.5 km
+# radius for a walk-in venue, so "San Francisco" is not a location, it is a list of them.
+# MEASURED: "San Francisco, California" geocodes to tract 011700 (lat 37.7879) while
+# "Mission District of San Francisco" lands on tract 017700 (lat 37.7675) — 2.3 km apart,
+# so the two 1.5 km catchments barely intersect and every household, income and competitor
+# figure would belong to a neighbourhood the operator is not opening in.
+_SITE_MARKERS = re.compile(
+    r"\d|\bdistrict\b|\bneighbou?rhood\b|\bnear\b|\bcorner\b|\band\b.*\bst\b|"
+    r"\bstreet\b|\bave\b|\bavenue\b|\brd\b|\broad\b|\bblvd\b|\bmission\b|\bdowntown\b|"
+    r"\buptown\b|\bsoma\b|\bwest\b|\beast\b|\bnorth\b|\bsouth\b", re.I)
+
+_PHYSICAL_HINTS = ("brick", "mortar", "retail", "store", "shop", "cafe", "restaurant",
+                   "storefront", "walk-in", "salon", "studio", "gym", "clinic")
+
+# A price is a FIGURE. MEASURED: the intake once put "Pay per drink" in this field — it
+# fills the slot, carries no number, and every downstream volume figure still vanishes.
+_PRICE_FIGURE = re.compile(r"\d")
+
+
+def _is_physical(business_model: str | None) -> bool:
+    low = (business_model or "").lower()
+    return any(h in low for h in _PHYSICAL_HINTS)
+
+
+def confirmation_items(extracted: dict | None) -> list[dict]:
+    """The few answers whose value changes a published number, with what each one drives.
+
+    DELIBERATELY SHORT. Confirming eight fields teaches people to click through; the two
+    that move the arithmetic get a card, and stage/key_features/differentiation do not.
+
+    Each item carries `drives` — what breaks if it is wrong — because "confirm your
+    location" is a chore and "this sets the 1.5 km ring we count competitors in" is a
+    reason to actually read it. `precise` is False when the value fills the field but not
+    the need, which is the failure a required-field check cannot see.
+    """
+    ex = extracted or {}
+    physical = _is_physical(ex.get("business_model"))
+    items: list[dict] = []
+
+    geo = (ex.get("geography") or "").strip()
+    geo_precise = bool(geo) and (not physical or bool(_SITE_MARKERS.search(geo)))
+    items.append({
+        "field": "geography",
+        "label": "Location",
+        "value": geo or None,
+        "precise": geo_precise,
+        "drives": ("the 1.5 km trade area — the households, local spending and competitor "
+                   "census every market-size figure is built from"),
+        "warning": (None if geo_precise else
+                    "This is a city, not a site. The trade area is a 1.5 km ring, so two "
+                    "addresses in the same city can produce completely different "
+                    "households and competitor counts. Which neighbourhood or cross-streets?"),
+        "ask": "Which neighbourhood, or the nearest cross-streets?",
+    })
+
+    price = (ex.get("pricing") or "").strip()
+    price_precise = bool(_PRICE_FIGURE.search(price))
+    items.append({
+        "field": "pricing",
+        "label": "Price per unit",
+        "value": price or None,
+        "precise": price_precise,
+        "drives": ("break-even volume, the daily planning target and the obtainable "
+                   "ceiling — without a figure the report cannot state any of them"),
+        "warning": (None if price_precise else
+                    ("No number captured. A description of how you charge is not a price: "
+                     "without a figure there is no break-even line and no daily target.")),
+        "ask": "Roughly what will one unit cost a customer?",
+    })
+    return items
+
+
+def confirmation_payload(session: dict | None) -> dict:
+    """What the UI renders before the Generate button becomes real."""
+    ex = (session or {}).get("extracted") or {}
+    items = confirmation_items(ex)
+    return {"items": items,
+            "all_precise": all(i["precise"] for i in items),
+            "confirmed": is_confirmed(session or {})}
+
+
+def is_confirmed(session: dict) -> bool:
+    return bool((session or {}).get("confirmed"))
+
+
+def mark_confirmed(session: dict) -> dict:
+    """Record the confirmation AND the values it was given for.
+
+    Snapshotting matters: if a report's trade area later disagrees with what the operator
+    believes they asked for, the artifact has to be able to say which location was on the
+    screen when they pressed the button.
+    """
+    ex = (session or {}).get("extracted") or {}
+    session["confirmed"] = True
+    session["confirmed_facts"] = {i["field"]: ex.get(i["field"])
+                                  for i in confirmation_items(ex)}
+    return session

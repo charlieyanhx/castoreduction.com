@@ -17,6 +17,8 @@ Run:
 """
 from __future__ import annotations
 import os
+import hashlib
+import re
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -357,6 +359,41 @@ def get_intake(session_id: str):
     if not s:
         raise HTTPException(status_code=404, detail="session not found")
     return s
+
+
+@app.get("/intake/{session_id}/confirmation")
+def get_intake_confirmation(session_id: str):
+    """The load-bearing answers, and what each one drives, for the confirmation card.
+
+    A separate endpoint rather than a field on the session: the card is rendered at one
+    specific moment (after ready, before Generate) and the UI should not have to infer
+    which of eight extracted fields actually move a number.
+    """
+    from intake import confirmation_payload, get_session
+    s = get_session(session_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="session not found")
+    return confirmation_payload(s)
+
+
+@app.post("/intake/{session_id}/confirm")
+def post_intake_confirm(session_id: str, body: dict | None = None):
+    """Record the operator's confirmation, optionally with corrections.
+
+    Corrections arrive as {field: value} and are written back into `extracted` BEFORE the
+    snapshot, so what gets confirmed is what the operator actually meant rather than what
+    the model first heard. This is the cheapest possible moment to fix a wrong location:
+    a sentence here against a whole report afterwards.
+    """
+    from intake import get_session, mark_confirmed
+    s = get_session(session_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="session not found")
+    for field, value in ((body or {}).get("corrections") or {}).items():
+        if field in ("geography", "pricing") and isinstance(value, str) and value.strip():
+            s.setdefault("extracted", {})[field] = value.strip()
+    mark_confirmed(s)
+    return {"ok": True, "confirmed_facts": s.get("confirmed_facts")}
 
 
 @app.get("/healthz")
@@ -1209,6 +1246,54 @@ def get_job_report(job_id: str):
 _NO_CACHE = {"Cache-Control": "no-cache, must-revalidate"}
 
 
+_ASSET_VERSIONS: dict[tuple, str] = {}
+
+
+def _asset_version(path: Path) -> str:
+    """A cache-buster derived from the file itself.
+
+    web/workspace.html used to load `workspace.js?v=7` — a number typed by hand, in a
+    different file from the one being edited. MEASURED: I changed workspace.js, reloaded,
+    and the browser kept the old script; `typeof renderFields` was `function` while
+    `typeof showConfirmation` was `undefined`. The page was running a half-old bundle, so
+    the new confirmation card never rendered and the Generate button never learned to wait
+    for it. The app looked correct and behaved like an older version, which is far worse
+    than looking stale.
+
+    CONTENT hash, not mtime. mtime was the first attempt and its own test caught it:
+    rewriting a file with identical bytes changes the timestamp, so a checkout, a rebuild or
+    a `touch` would bust every returning browser's cache for a file that did not change.
+    Busting too eagerly is a milder failure than not busting at all, but it is still a
+    failure — the point is that the version tracks the CONTENT.
+
+    Memoised on (mtime, size) so the bytes are re-read only when the file plausibly moved,
+    which keeps this to a dict lookup on the common path.
+    """
+    try:
+        st = path.stat()
+    except OSError:
+        return "0"          # a missing asset is the route's problem, not the page's
+    key = (str(path), int(st.st_mtime_ns), st.st_size)
+    cached = _ASSET_VERSIONS.get(key)
+    if cached:
+        return cached
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    except OSError:
+        return "0"
+    _ASSET_VERSIONS.clear()          # one asset, one entry — this is not a growing cache
+    _ASSET_VERSIONS[key] = digest
+    return digest
+
+
+def _stamped_html(path: Path) -> HTMLResponse:
+    """Serve an HTML page with its asset references version-stamped."""
+    html = path.read_text(encoding="utf-8")
+    js = WEB_DIR / "workspace.js"
+    html = re.sub(r"(workspace\.js)\?v=[\w.]+", rf"\1?v={_asset_version(js)}", html)
+    return HTMLResponse(html, headers=_NO_CACHE)
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_page():
     """Sign in / sign up. #94 shipped the endpoints and no screen, which made the product
@@ -1228,7 +1313,7 @@ def index():
         return RedirectResponse("/login", status_code=303)
     ws = WEB_DIR / "workspace.html"
     if ws.exists():
-        return FileResponse(ws, headers=_NO_CACHE)
+        return _stamped_html(ws)
     f = WEB_DIR / "index.html"
     if f.exists():
         return FileResponse(f, headers=_NO_CACHE)
@@ -1241,7 +1326,7 @@ def home_landing():
     f = WEB_DIR / "index.html"
     if not f.exists():
         raise HTTPException(status_code=404, detail="home not found")
-    return FileResponse(f)
+    return FileResponse(f, headers=_NO_CACHE)
 
 
 @app.get("/workspace", response_class=HTMLResponse)
@@ -1250,7 +1335,7 @@ def workspace_page():
     f = WEB_DIR / "workspace.html"
     if not f.exists():
         raise HTTPException(status_code=404, detail="workspace not built")
-    return FileResponse(f)
+    return _stamped_html(f)
 
 
 @app.get("/workspace.js")
@@ -1258,7 +1343,8 @@ def workspace_js():
     f = WEB_DIR / "workspace.js"
     if not f.exists():
         raise HTTPException(status_code=404, detail="workspace.js not found")
-    return FileResponse(f, media_type="application/javascript")
+    return FileResponse(f, media_type="application/javascript",
+                        headers=_NO_CACHE)
 
 
 @app.get("/dashboard.html", response_class=HTMLResponse)
@@ -1266,7 +1352,7 @@ def dashboard_page():
     f = WEB_DIR / "dashboard.html"
     if not f.exists():
         raise HTTPException(status_code=404, detail="dashboard not built")
-    return FileResponse(f)
+    return FileResponse(f, headers=_NO_CACHE)
 
 
 @app.get("/progress.html", response_class=HTMLResponse)
@@ -1274,7 +1360,7 @@ def progress_page():
     f = WEB_DIR / "progress.html"
     if not f.exists():
         raise HTTPException(status_code=404, detail="progress page not built")
-    return FileResponse(f)
+    return FileResponse(f, headers=_NO_CACHE)
 
 
 # ---------------------------------------------------------------------------
