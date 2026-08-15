@@ -90,14 +90,30 @@ class TestTheLadderCarriesTheTarget(unittest.TestCase):
         facts.update(kw)
         return _r_volume_ladder(facts)
 
+    def _rungs(self):
+        """The model's own rungs. These used to be hardcoded as "195" and "320" — the
+        rounded, 365-day spellings of the day — and both changed under a fix that made the
+        prompt exact and put it on the same 360 open days as every ramp. A test that pins a
+        rendering rather than the number is a test that has to be edited to stay true, so
+        it asks the model instead."""
+        from financials import ladder_inputs
+        return ladder_inputs(self._ECON, self._MS, "transactional")["rungs"]
+
     def test_the_ladder_states_a_planning_target(self):
-        self.assertIn("195", self._ladder().replace(",", ""),
+        from four_ps import ladder_number
+        self.assertIn(ladder_number(self._rungs()["planning target"]),
+                      self._ladder().replace(",", ""),
                       "the ladder still gives only a floor and a roof")
 
     def test_all_three_rungs_are_present(self):
+        from four_ps import ladder_number
         text = self._ladder().replace(",", "")
-        for rung in ("120", "195", "320"):
-            self.assertIn(rung, text, f"rung {rung} missing from the ladder")
+        rungs = self._rungs()
+        self.assertEqual(sorted(rungs), ["break-even", "obtainable ceiling",
+                                         "planning target"])
+        for name, value in rungs.items():
+            self.assertIn(ladder_number(value), text,
+                          f"rung {name} ({value:g}) missing from the ladder")
 
     def test_the_rule_names_the_target_not_just_the_range(self):
         """MEASURED: 150 and 250 both sit inside the range, so a range-only rule let two

@@ -853,11 +853,18 @@ def d39_price_reconcile_unit_honest(r: dict, html: Optional[str]) -> Finding:
         return Finding(None, "no price reconciliation")
     econ = r.get("economics") or {}
     kind = econ.get("model") or r.get("business_model_kind")
-    if not is_per_unit(kind):
-        return Finding(None, "not a per-unit venture (/mo is correct)")
+    # NOT `is_per_unit` — that answers "is revenue price x volume?" and is False for
+    # marketplace and ad_supported, which are ALSO not monthly. MEASURED: a marketplace
+    # reconciliation read "you stated $29/mo, WTP suggests $450/mo (+1452%)" where $450 is
+    # one homeowner's job value, and this gate declared it not-applicable — so the only
+    # check on that sentence excused the exact venture it was wrong for. "/mo" is correct
+    # for a true subscription and for nothing else.
+    from plan import _pricing_is_recurring
+    if _pricing_is_recurring(kind):
+        return Finding(None, "recurring venture (/mo is correct)")
     if "/mo" in note:
-        return Finding(False, "per-unit venture's price reconciliation is priced '/mo' "
-                              "instead of the venture's unit")
+        return Finding(False, f"a {kind or 'non-recurring'} venture's price reconciliation "
+                              f"is priced '/mo' instead of the venture's own unit")
     return Finding(True, "price reconciliation uses the venture's unit")
 
 
@@ -1181,8 +1188,16 @@ def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> F
     year3 = (((r.get("financials") or {}).get("scenarios") or {}).get("base") or {}).get("year_3") or {}
     if kind in PER_UNIT_KINDS:
         econ = r.get("economics") or {}
-        if econ.get("model") != "transactional":
-            return Finding(None, "economics not on the transactional model")
+        # NOT `!= "transactional"`. business_model.py:319 writes `"model": kind`, and
+        # economics_step passes the real kind, so econ["model"] is literally "ecommerce" /
+        # "services" / "hybrid" for three of the four per-unit kinds — MEASURED, this gate
+        # returned not-applicable on all three. It is the ONLY gate that inspects
+        # `customers` / `annual_price_per_customer` on a per-unit venture, and those are
+        # exactly the kinds where the subscription fallback lands, so it was dead in the
+        # place it was needed. The outer `kind in PER_UNIT_KINDS` already established
+        # applicability; this inner check only needs to confirm economics agrees.
+        if econ.get("model") not in PER_UNIT_KINDS:
+            return Finding(None, f"economics model {econ.get('model')!r} is not per-unit")
         if not year3:
             return Finding(None, "no financials scenario table")
         bad = "customers" in year3
@@ -2015,30 +2030,65 @@ def d60_area_average_is_labelled(r: dict, html: Optional[str]) -> Finding:
 
 # Volume phrasings the sections actually write. Built from the two measured runs:
 # "targeting 250 drinks per day", "150 drinks/day", "reach 150 daily drinks",
-# "120.4 drinks per day", "targeting 150 daily transactions".
-_VOLUME_CLAIM = re.compile(
-    r"(\d[\d,]*(?:\.\d+)?)\s*(?:\w+\s+)?"
-    r"(?:drinks?|units?|transactions?|customers?|covers?|orders?|visits?)\s*"
-    r"(?:per day|/\s*day|a day|daily)"
-    r"|(?:reach|target(?:ing)?|hit)\s+(\d[\d,]*(?:\.\d+)?)\s+daily",
-    re.I)
+# "120.4 drinks per day", "targeting 150 daily transactions" — plus, since #100 taught the
+# ladder to plan in months, "690 seats per month" and "57 bookings/mo".
+#
+# The noun list below is every cafe-and-shop word someone happened to think of. It is a
+# FLOOR, not the list: the venture's own unit noun is spliced in per call, because a
+# consultancy selling projects and a platform selling bookings were invisible to all of it.
+_GENERIC_UNIT_NOUNS = ("drink", "unit", "transaction", "customer",
+                       "cover", "order", "visit", "sale", "booking", "seat")
+_PER_DAY = r"per\s+day|/\s*day|a\s+day|daily"
+_PER_MONTH = r"per\s+month|/\s*months?\b|/\s*mo\b|a\s+month|monthly"
 
 
-def _stated_daily_volumes(four_ps: dict) -> list[tuple[str, float]]:
-    """(section, number) for every daily-volume figure the 4Ps prose states."""
-    out: list[tuple[str, float]] = []
+def _singular(noun: str) -> str:
+    n = (noun or "").strip().lower()
+    return n[:-1] if n.endswith("s") and not n.endswith("ss") else n
+
+
+def _volume_claim_re(unit_noun: str | None) -> re.Pattern:
+    """The phrasing matcher, widened by the venture's own noun and its own period."""
+    nouns = sorted({_singular(n) for n in (*_GENERIC_UNIT_NOUNS, unit_noun or "") if n},
+                   key=len, reverse=True)
+    alt = "|".join(re.escape(n) + "s?" for n in nouns)
+    return re.compile(
+        rf"(?P<n1>\d[\d,]*(?:\.\d+)?)\s*(?:\w+\s+)?(?:{alt})\s*"
+        rf"(?:(?P<d1>{_PER_DAY})|(?P<m1>{_PER_MONTH}))"
+        rf"|(?:reach|target(?:ing)?|hit)\s+(?P<n2>\d[\d,]*(?:\.\d+)?)\s+"
+        rf"(?:(?P<d2>daily)|(?P<m2>monthly))",
+        re.I)
+
+
+def _stated_volumes(four_ps: dict, unit_noun: str | None = None
+                    ) -> list[tuple[str, float, str]]:
+    """(section, number, period) for every operating-volume figure the 4Ps prose states.
+
+    The PERIOD is captured rather than assumed. A daily figure inside a monthly business is
+    not a missing match — it is a claim, and one worth checking, because a section that
+    writes "23 bookings per day" against a 57/month plan is off by 12x and used to read as
+    "no section states a daily volume".
+    """
+    pattern = _volume_claim_re(unit_noun)
+    out: list[tuple[str, float, str]] = []
     for section in ("product", "price", "place", "promotion"):
         body = four_ps.get(section)
         if body is None:
             continue
         text = body if isinstance(body, str) else json.dumps(body)
-        for m in _VOLUME_CLAIM.finditer(text):
-            raw = m.group(1) or m.group(2)
+        for m in pattern.finditer(text):
+            raw = m.group("n1") or m.group("n2")
+            period = "month" if (m.group("m1") or m.group("m2")) else "day"
             try:
-                out.append((section, float(str(raw).replace(",", ""))))
+                out.append((section, float(str(raw).replace(",", "")), period))
             except (TypeError, ValueError):
                 continue
     return out
+
+
+def _stated_daily_volumes(four_ps: dict) -> list[tuple[str, float]]:
+    """Back-compat shim: the pre-#100 signature, daily claims only."""
+    return [(s, v) for s, v, p in _stated_volumes(four_ps) if p == "day"]
 
 
 def d61_volume_targets_match_the_ladder(r: dict, html: Optional[str]) -> Finding:
@@ -2062,49 +2112,59 @@ def d61_volume_targets_match_the_ladder(r: dict, html: Optional[str]) -> Finding
     comfortably between break-even and the ceiling and still fails, which is the whole point.
     """
     fp = r.get("four_ps") or {}
-    stated = _stated_daily_volumes(fp)
-    if not stated:
-        return Finding(None, "no section states a daily volume")
-    # Break-even and the ceiling are computed per DAY. When the plan's period is a month,
-    # the rungs must be expressed in the same period the prose uses or every comparison is
-    # off by ~30x and the gate cries wolf on correct writing.
-
-    econ = r.get("economics") or {}
+    # ONE reader, shared with the four_ps prompt that wrote the ladder. This gate used to
+    # rebuild the rungs from `economics["price_per_unit"]` and `/365`, which meant it was a
+    # SECOND owner of the number it exists to police -- and it disagreed with the first on
+    # every non-retail shape (no price found at all) and by 1.4% on retail (the model runs
+    # on 360 open days, this ran on 365).
+    from financials import ladder_inputs
     ms = r.get("market_sizing") or {}
-    som = (ms.get("som") or {}).get("mid") or ms.get("som_usd")
-    price = econ.get("price_per_unit")
-    rungs: dict[str, float] = {}
-    be = econ.get("break_even_units_per_day")
-    if isinstance(be, (int, float)) and be > 0:
-        rungs["break-even"] = float(be)
-    # The target the sections were handed. It carries its own PERIOD — a consultancy plans
-    # in projects/month, a cafe in drinks/day — so this gate must not assume days. A float
-    # is still accepted: older artifacts stored one, and a gate that crashes on last week's
-    # report is a gate that gets switched off.
-    target = fp.get("_volume_target") or fp.get("_volume_target_units_per_day")
-    if not target:
-        try:
-            from financials import planning_target
-            target = planning_target(
-                som_usd=som, price_per_unit=price, market_scale=ms.get("scale"),
-                model=(r.get("business_model") or {}).get("kind") or "transactional")
-        except Exception:                                    # noqa: BLE001
-            target = None
-    target_period = "day"
-    if isinstance(target, dict):
-        target_period = target.get("period") or "day"
-        target = target.get("value") if target.get("measure") == "units" else None
-    if isinstance(target, (int, float)) and target > 0:
-        rungs["planning target"] = float(target)
-    if (isinstance(som, (int, float)) and som > 0
-            and isinstance(price, (int, float)) and price > 0):
-        rungs["obtainable ceiling"] = som / price / 365.0
-    if target_period == "month":
-        for k in ("break-even", "obtainable ceiling"):
-            if k in rungs:
-                rungs[k] *= 365.0 / 12.0
+    lad = ladder_inputs(r.get("economics"), ms,
+                        (r.get("business_model") or {}).get("kind"))
+    rungs = dict(lad["rungs"])
+    ladder_period, unit_noun = lad["period"], lad["unit"]
+
+    # THE LADDER THE SECTIONS WERE ACTUALLY SHOWN, when the artifact recorded it. Prose is
+    # graded against the rungs it was written from, never against what today's arithmetic
+    # would produce -- otherwise every change to the model retroactively fails reports that
+    # obeyed it, and the gate is back to being a second owner of the number.
+    shown = fp.get("_volume_ladder")
+    stamped_ladder = False
+    if isinstance(shown, dict) and isinstance(shown.get("rungs"), dict):
+        stamped_rungs = {k: float(v) for k, v in shown["rungs"].items()
+                         if isinstance(v, (int, float)) and not isinstance(v, bool)}
+        if stamped_rungs:
+            rungs, stamped_ladder = stamped_rungs, True
+            ladder_period = shown.get("period") or ladder_period
+            unit_noun = shown.get("unit") or unit_noun
+    if not stamped_ladder and ladder_period == "day" and "obtainable ceiling" in rungs:
+        # An artifact from before the ladder was stamped had its ceiling written as
+        # som/price/365; the model divides by 360 open days. Un-stamped reports are graded
+        # against both calendars rather than failed for quoting the one they were given.
+        # Self-expiring: every run since stamps its ladder and takes the branch above.
+        rungs["obtainable ceiling (365-day calendar)"] = (
+            rungs["obtainable ceiling"] * 360.0 / 365.0)
+
+    # The target the sections were ACTUALLY handed, when the artifact recorded it. Prose is
+    # checked against what the prompt said, not against what today's code would say -- a
+    # gate that re-derives is a gate that grades a report against a model it never saw. A
+    # bare float is still accepted: older artifacts stored one.
+    stamped = fp.get("_volume_target") or fp.get("_volume_target_units_per_day")
+    if isinstance(stamped, dict):
+        if stamped.get("measure") == "units" and stamped.get("value"):
+            rungs["planning target"] = float(stamped["value"])
+            ladder_period = stamped.get("period") or ladder_period
+    elif isinstance(stamped, (int, float)) and not isinstance(stamped, bool) and stamped > 0:
+        rungs["planning target"] = float(stamped)
+        ladder_period = "day"          # the pre-#100 key was units *per day* by definition
+
+    stated = _stated_volumes(fp, unit_noun)
+    if not stated:
+        return Finding(None, "no section states an operating volume")
     if not rungs:
         return Finding(None, "no ladder available to check the stated volumes against")
+
+    per_year = {"day": 360.0, "month": 12.0}
 
     def _is_rung(value: float, rung: float) -> bool:
         """Prose may ROUND a rung; it may not re-estimate it.
@@ -2117,11 +2177,15 @@ def d61_volume_targets_match_the_ladder(r: dict, html: Optional[str]) -> Finding
         return abs(value - rung) <= max(0.51, 0.005 * rung)
 
     bad = []
-    for section, value in stated:
-        if not any(_is_rung(value, v) for v in rungs.values()):
-            bad.append(f"{section} states {value:g}/day")
+    for section, value, period in stated:
+        # Restate the prose's figure in the ladder's period before comparing. "23 bookings
+        # per day" beside a 57/month plan is a claim of 690/month, and comparing 23 to 57
+        # would have called it merely low rather than 12x the plan.
+        as_ladder = value * (per_year[period] / per_year[ladder_period])
+        if not any(_is_rung(as_ladder, v) for v in rungs.values()):
+            bad.append(f"{section} states {value:g}/{period}")
     if bad:
-        rung_txt = ", ".join(f"{k} {v:,.1f}" for k, v in rungs.items())
+        rung_txt = ", ".join(f"{k} {v:,.1f}/{ladder_period}" for k, v in rungs.items())
         return Finding(False,
                        f"{'; '.join(bad[:4])} — none of which is a rung of the ladder "
                        f"({rung_txt}). A volume a section chose for itself is how one "

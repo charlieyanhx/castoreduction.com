@@ -389,6 +389,39 @@ def _pricing_is_recurring(biz_kind: str) -> bool:
     return biz_kind not in _NON_RECURRING_KINDS and biz_kind != "ad_supported"
 
 
+def _modeled_price_is_not_monthly(biz_kind: str | None) -> bool:
+    """True when a MODELED optimal price must not be multiplied by 12 to get annual revenue.
+
+    MEASURED: this guard used `is_per_unit(kind)`, which answers a DIFFERENT question —
+    "is revenue price x volume?" — and is False for marketplace and ad_supported. Both are
+    also non-recurring, so both fell through and had their modeled per-booking (or entirely
+    phantom) price annualised into a fake ARPU, which grounded_bottom_up then stamped
+    `count_origin: census`. A marketplace TAM of $42.1B shipped as $19.1B under a note saying
+    it was "grounded in live Census count ... x $5,400/yr". A wrong number wearing a federal
+    citation is the worst thing this codebase can produce.
+
+    AN UNKNOWN KIND COUNTS AS NOT-MONTHLY, and that is why this is a named function rather
+    than `not _pricing_is_recurring(kind)`: _pricing_is_recurring("") is True, because an
+    empty string is not in the non-recurring set, so the bare substitution would START
+    annualising unclassified ventures. The safe reading of a modeled price has always been
+    "unit unspecified", and it stays that way.
+    """
+    return not biz_kind or not _pricing_is_recurring(biz_kind)
+
+
+def _reconciliation_unit(biz_kind: str | None, psm_unit: str | None) -> str:
+    """The unit label the stated-vs-recommended price comparison is written in.
+
+    "/mo" is only true for a real subscription. MEASURED on a marketplace: the reconciliation
+    read "you stated $29/mo, WTP suggests $450/mo (+1452%)" where $450 is the value of one
+    homeowner's JOB, not a monthly fee — and D39 then reported that same line as
+    not-applicable, so nothing caught it.
+    """
+    if _pricing_is_recurring(biz_kind):
+        return "/mo"
+    return f"/{psm_unit}" if psm_unit else "/unit"
+
+
 def extract_device_price(text: str) -> float | None:
     """Pull the one-time hardware/device price from a hybrid venture's description
     ('$199 device plus a $5 per month app' -> 199.0). Returns None when the only
@@ -737,8 +770,7 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
         # and scrape_market_price keeps only recurring $5-$5,000/month values. So the guard
         # belongs here, on the modeled fallback alone. Unknown kind counts as per-unit —
         # the safe reading of a modeled price is "unit unspecified".
-        from business_model import is_per_unit
-        if arpu_monthly_fallback and (not biz_kind or is_per_unit(biz_kind)):
+        if arpu_monthly_fallback and _modeled_price_is_not_monthly(biz_kind):
             out = dict(sizing)
             out["notes"] = list(out.get("notes") or []) + [
                 f"Bottom-up TAM not Census-grounded: the only price available is the "
@@ -1703,7 +1735,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     # C5 (Manus-parity): the user's stated price must not be silently dropped.
     # Reconcile it against the model's recommended optimal price, visibly.
     # R4 rank 16: in the venture's own unit, never a hardcoded "/mo".
-    _recon_unit = f"/{_psm_unit}" if (is_per_unit(biz_kind) and _psm_unit) else "/mo"
+    _recon_unit = _reconciliation_unit(biz_kind, _psm_unit)
     recon = reconcile_pricing(extract_stated_price(description),
                               psm_result.get("optimal_price_point"),
                               unit_label=_recon_unit)

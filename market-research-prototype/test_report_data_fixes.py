@@ -672,13 +672,32 @@ class TestHybridDevicePrice(unittest.TestCase):
 
     def test_d17_fires_on_the_real_wave2_shape(self):
         from gates import d17_per_unit_not_on_subscription_fallback
-        # 8add1fa2 shape: hybrid model, transactional economics, but financials
-        # landed on the subscription (customers) shape.
+        # 8add1fa2 shape: a per-unit venture whose financials landed on the subscription
+        # (customers) shape.
+        #
+        # economics.model was pinned to "transactional" here while business_model_kind was
+        # "hybrid" — a COMBINATION THE PIPELINE CANNOT EMIT. business_model.py:319 writes
+        # `"model": kind`, so a hybrid venture's economics carry model="hybrid". The gate
+        # then bailed on `!= "transactional"` and returned not-applicable in production for
+        # ecommerce, services and hybrid — three of the four kinds it names — while this
+        # test stayed green on a shape that never occurs. A fixture that cannot happen is a
+        # test of nothing.
         r = {"business_model_kind": "hybrid",
-            "economics": {"model": "transactional"},
+            "economics": {"model": "hybrid"},
             "financials": {"scenarios": {"base": {"year_3": {"customers": 310}}}}}
         f = d17_per_unit_not_on_subscription_fallback(r, None)
         self.assertIs(f.ok, False, f.detail)
+
+    def test_d17_fires_for_every_per_unit_kind_not_just_transactional(self):
+        """The production shapes, which the fixture above could not reach."""
+        from business_model import _PER_UNIT_KINDS as PER_UNIT_KINDS
+        from gates import d17_per_unit_not_on_subscription_fallback
+        for kind in PER_UNIT_KINDS:
+            with self.subTest(kind=kind):
+                r = {"business_model_kind": kind, "economics": {"model": kind},
+                     "financials": {"scenarios": {"base": {"year_3": {"customers": 310}}}}}
+                self.assertIs(d17_per_unit_not_on_subscription_fallback(r, None).ok, False,
+                              f"D17 is not-applicable for {kind}, where it is needed most")
 
     def test_d17_passes_on_a_real_transactional_shape(self):
         from gates import d17_per_unit_not_on_subscription_fallback

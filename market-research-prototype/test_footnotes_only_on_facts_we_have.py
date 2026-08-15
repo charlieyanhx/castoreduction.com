@@ -61,12 +61,24 @@ class TestGivenNumbers(unittest.TestCase):
             self.assertIn(n, g, f"{n} was handed to the sections but is not in the allowlist")
 
     def test_the_ladder_rungs_are_derivable_and_allowed(self):
-        """SOM/day is computed in Python and injected by the volume_ladder reminder, so
-        the model may legitimately cite it even though it appears in no payload field."""
+        """EVERY rung the volume_ladder reminder injects is citable, not just the ceiling.
+
+        This pinned `650,000 / 5.5 / 365` — the allowlist's own restatement of the ceiling,
+        on a calendar the model does not use. It asks financials now, which also closes the
+        hole the restatement left: the PLANNING TARGET was never in the allowlist for any
+        model, while every section was being told to quote it."""
+        from financials import ladder_inputs
         from report.claim_support import given_numbers
 
-        g = given_numbers(self._result())
-        self.assertIn(round(650_000.0 / 5.5 / 365, 1), g)
+        r = self._result()
+        g = given_numbers(r)
+        rungs = ladder_inputs(r.get("economics"), r.get("market_sizing"),
+                              (r.get("business_model") or {}).get("kind"))["rungs"]
+        self.assertIn("planning target", rungs, "the target rung vanished from the model")
+        for name, value in rungs.items():
+            self.assertTrue(any(abs(value - n) < 0.51 for n in g),
+                            f"the sections are told to quote {name} ({value:.1f}) and the "
+                            f"citation allowlist rejects it")
 
     def test_four_ps_prose_is_never_its_own_evidence(self):
         """If the narrative counted as input, every invented number would justify itself."""

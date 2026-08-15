@@ -481,3 +481,60 @@ def planning_target_units_per_day(*, som_usd, price_per_unit, market_scale=None,
                   f"(${som:,.0f}) at ${price:,.2f} over {int(_DAYS_PER_YEAR)} days"),
         "ramp_note": ramp_note,
     }
+
+
+# The two shapes an economics object comes in. retail_unit_economics writes `unit` /
+# `price_per_unit` / `break_even_units_per_day`; the subscription path writes `pricing_unit`
+# / `monthly_price_usd`; marketplace and ad_supported write neither. MEASURED: four_ps and
+# gates.D61 both read only the first shape, so the ladder lost its floor, its ceiling and its
+# unit noun on every subscription, marketplace and ad-supported report — and D61 went
+# not-applicable on all three, while a 12x contradiction between Place and Promotion shipped
+# with the gate reporting nothing.
+_UNIT_KEYS = ("unit", "pricing_unit", "unit_noun")
+_PRICE_KEYS = ("price_per_unit", "monthly_price_usd", "price_usd")
+
+
+def ladder_inputs(economics: dict | None, market_sizing: dict | None,
+                  biz_kind: str | None = None) -> dict:
+    """Everything the volume ladder needs, from ANY economics shape.
+
+    ONE reader for both shapes, used by the prompt side (four_ps) and the checking side
+    (gates.D61). They disagreed before because each reached into the economics dict itself
+    and only knew the retail keys — and a prompt and its gate reading different fields is
+    how a report ends up contradicting itself with nothing to catch it.
+
+    Returns {unit, price, period, measure, rungs}. `rungs` is the dict D61 compares prose
+    against and four_ps writes into the prompt: whatever is knowable, expressed in the
+    period this model plans in, so a monthly business is never asked to reconcile a daily
+    figure.
+    """
+    econ = economics or {}
+    ms = market_sizing or {}
+    kind = (biz_kind or econ.get("model") or "transactional").lower()
+
+    unit = next((econ[k] for k in _UNIT_KEYS if econ.get(k)), None) or "unit"
+    price = next((econ[k] for k in _PRICE_KEYS
+                  if isinstance(econ.get(k), (int, float))
+                  and not isinstance(econ.get(k), bool) and econ[k] > 0), None)
+    som = (ms.get("som") or {}).get("mid") or ms.get("som_usd")
+
+    target = planning_target(som_usd=som, price_per_unit=price,
+                             market_scale=ms.get("scale"), model=kind)
+    period = (target or {}).get("period") or _PLANNING_PERIOD.get(kind, "day")
+    per_year = _PERIODS_PER_YEAR[period]
+
+    rungs: dict[str, float] = {}
+    be_day = econ.get("break_even_units_per_day")
+    if isinstance(be_day, (int, float)) and not isinstance(be_day, bool) and be_day > 0:
+        # Stored per DAY by retail_unit_economics; restate it in the plan's own period so
+        # the three rungs are commensurable. A floor in days beside a target in months is
+        # an off-by-30x invitation.
+        rungs["break-even"] = float(be_day) * (_DAYS_PER_YEAR / per_year)
+    if target and target.get("measure") == "units":
+        rungs["planning target"] = float(target["value"])
+    if som and price:
+        rungs["obtainable ceiling"] = som / price / per_year
+
+    return {"unit": unit, "price": price, "period": period,
+            "measure": (target or {}).get("measure") or ("units" if price else "revenue"),
+            "target": target, "rungs": rungs}
