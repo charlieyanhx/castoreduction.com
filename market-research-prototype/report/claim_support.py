@@ -105,13 +105,38 @@ def given_numbers(result: dict) -> set[float]:
 
     # The volume ladder's rungs are computed in Python and injected into every section
     # prompt, so they are legitimately citable even though they appear in no stored field.
-    econ = r.get("economics") or {}
-    som = ((r.get("market_sizing") or {}).get("som") or {}).get("mid")
-    price = econ.get("price_per_unit")
-    if all(isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
-           for v in (som, price)):
-        per_day = som / price / 365
-        given |= {round(per_day, 1), float(int(per_day)), float(round(per_day))}
+    #
+    # This used to recompute ONE of them, `som / price / 365`, making it a third owner of a
+    # number four_ps and gates.D61 also each owned. MEASURED against the model's own rungs:
+    #
+    #   transactional  NOT CITABLE: planning target 118.5, obtainable ceiling 197.4
+    #   subscription   NOT CITABLE: planning target 689.7, obtainable ceiling 8,620.7
+    #   services       NOT CITABLE: planning target 1.7,   obtainable ceiling 20.8
+    #
+    # The planning target was never citable for any model. Since #97 every section has been
+    # instructed "Quote the PLANNING TARGET when you need an operating number" while this
+    # function called that number unsupported — one subsystem commanding what another
+    # forbids. `ladder_inputs` is the single owner; this asks it.
+    #
+    # `four_ps._volume_ladder` is the one key read out of four_ps, and it is a deliberate
+    # exception to the exclusion above: it is stamped by Python from economics and sizing,
+    # never written by the model, and it is the ladder the sections were actually shown.
+    # Narrative in the four sections remains excluded, so prose still cannot cite itself.
+    fp = r.get("four_ps") or {}
+    rungs: dict = {}
+    shown = fp.get("_volume_ladder")
+    if isinstance(shown, dict) and isinstance(shown.get("rungs"), dict):
+        rungs = shown["rungs"]
+    if not rungs:
+        try:
+            from financials import ladder_inputs
+            rungs = ladder_inputs(r.get("economics"), r.get("market_sizing"),
+                                  (r.get("business_model") or {}).get("kind"))["rungs"]
+        except Exception:                                    # noqa: BLE001
+            rungs = {}
+    for value in rungs.values():
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            given |= {round(value, 1), float(int(value)), float(round(value))}
     return given
 
 

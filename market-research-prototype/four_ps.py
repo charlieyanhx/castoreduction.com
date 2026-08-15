@@ -625,6 +625,21 @@ def _r_density(facts: dict) -> str:
     return base
 
 
+def ladder_number(value: float) -> str:
+    """How a rung is written into the prompt, in one place.
+
+    A consultancy's planning target is 1.7 projects/month and its break-even 120.4
+    drinks/day. Rounding those to "2" and "120" edits the model's own answer by up to 17%,
+    and D61 then reads a figure back out of the prose that financials never produced — the
+    gate and the prompt disagreeing over a rounding rule is the same class of defect as
+    them disagreeing over a divisor. Exact below four digits; no reader needs a decimal on
+    "8,621 seats".
+    """
+    if value >= 1000:
+        return f"{value:,.0f}"
+    return f"{value:,.1f}".rstrip("0").rstrip(".")
+
+
 @reminder("volume_ladder", requires=("economics",), order=40)
 def _r_volume_ladder(facts: dict) -> str:
     """ONE volume ladder for every section. MEASURED on run9: the report stated FIVE
@@ -632,53 +647,59 @@ def _r_volume_ladder(facts: dict) -> str:
     'target 400 units daily', Place 200/day (enshrined as a critical assumption), Promotion
     ~33/day — and the viability verdict straddled the contradiction. A buyer cannot act on a
     report whose plan and market model live in different universes. The pipeline computes the
-    ladder once, in Python; the sections write prose around it, never their own volumes."""
-    econ = facts.get("economics") or {}
-    unit = econ.get("unit") or "unit"
-    parts = []
-    be_day = econ.get("break_even_units_per_day")
-    if isinstance(be_day, (int, float)) and not isinstance(be_day, bool) and be_day > 0:
-        parts.append(f"break-even ≈ {be_day:g} {unit}s/day")
-    ms = facts.get("market_sizing") or {}
-    som = (ms.get("som") or {}).get("mid") or ms.get("som_usd")
-    price = econ.get("price_per_unit")
+    ladder once, in Python; the sections write prose around it, never their own volumes.
+
+    Every rung comes from `financials.ladder_inputs` — the same call gates.D61 makes when it
+    checks the prose that comes back. MEASURED with the two sides computing their own: this
+    function read `unit`/`price_per_unit` (the retail keys and only those), so a $29/seat
+    subscription and a $12,000/project consultancy both read as priceless and were handed
+    "$20,000 revenue/month" instead of a headcount they could staff against; a marketplace
+    got "PLANNING TARGET 57 units/month · obtainable ceiling 23 units/day", a self-
+    contradicting ladder — the target is monthly since #100, the ceiling was still som/
+    price/365 — under an instruction saying these are the only volumes a section may state.
+    """
+    from financials import ladder_inputs
+    lad = ladder_inputs(facts.get("economics"), facts.get("market_sizing"),
+                        facts.get("business_model_kind"))
+    unit, period, rungs = lad["unit"], lad["period"], lad["rungs"]
+    target = lad["target"]
+
     # THE TARGET RUNG. A range is not a plan: MEASURED, run17's price section targeted 250
     # /day while place and promotion targeted 150 — 67% apart and BOTH obeying the old
     # "between break-even and the ceiling" rule — and run18's sections, declining to invent
     # one, left the operator with a floor and a roof and nothing in between. The model
-    # already knows the answer; it was simply never handed over. Computed in financials.py
-    # beside the ramp it depends on, so there is one owner rather than two.
-    target = None
-    try:
-        from financials import planning_target
-        target = planning_target(
-            som_usd=som, price_per_unit=price, market_scale=ms.get("scale"),
-            model=facts.get("business_model_kind") or "transactional")
-    except Exception:                                        # noqa: BLE001
-        target = None
-    if target:
-        # The PERIOD comes from the model, not from the cafe this was written for.
-        # MEASURED with a daily period for everything: a consultancy read "0.1 projects/day"
-        # and SaaS "8.9 seats/day" — the first is not actionable and the second is a retail
-        # frame on a recurring business, and the sections are told to quote these verbatim.
-        if target["measure"] == "revenue":
-            shown = f"${target['value']:,.0f} revenue/{target['period']}"
-        else:
-            shown = f"{target['value']:,.0f} {unit}s/{target['period']}"
-        parts.append(f"PLANNING TARGET ≈ {shown} ({target['basis']})")
-    if (isinstance(som, (int, float)) and som > 0
-            and isinstance(price, (int, float)) and price > 0):
-        parts.append(f"obtainable ceiling (SOM) ≈ {som / price / 365:,.0f} {unit}s/day")
+    # already knows the answer; it was simply never handed over.
+    _n = ladder_number
+    parts = []
+    if "break-even" in rungs:
+        parts.append(f"break-even ≈ {_n(rungs['break-even'])} {unit}s/{period}")
+    if "planning target" in rungs:
+        parts.append(f"PLANNING TARGET ≈ {_n(rungs['planning target'])} {unit}s/{period} "
+                     f"({target['basis']})")
+    elif target and target.get("measure") == "revenue":
+        # No unit price anywhere in the economics, so a unit count would be invented. Say
+        # so in money rather than inventing a denominator.
+        parts.append(f"PLANNING TARGET ≈ ${target['value']:,.0f} revenue/{period} "
+                     f"({target['basis']})")
+    if "obtainable ceiling" in rungs:
+        parts.append(f"obtainable ceiling (SOM) ≈ "
+                     f"{_n(rungs['obtainable ceiling'])} {unit}s/{period}")
     if not parts:
         return ""
-    rule = ("HARD RULE: the ONLY daily volumes you may state are the ones above. Quote the "
-            "PLANNING TARGET when you need an operating number — never a figure of your "
-            "own, and never a different one from another section's. "
-            if target else
-            "HARD RULE: any daily/monthly volume target you state MUST be consistent with "
-            "this ladder (between break-even and the obtainable ceiling, or explicitly "
-            "labelled as requiring share beyond the fair-share model). ")
-    return ("CANONICAL DAILY-VOLUME LADDER — " + " · ".join(parts) + ". " + rule
+
+    # The PERIOD names itself in the header and the rule. MEASURED with "DAILY" hardcoded:
+    # a monthly venture was told "the ONLY daily volumes you may state are the ones above"
+    # over a ladder containing none, so a section obeying the rule literally states no
+    # volume at all — which is exactly what run18's sections did.
+    label = "DAILY" if period == "day" else "MONTHLY"
+    rule = (f"HARD RULE: the ONLY {period}-level volumes you may state are the ones above. "
+            "Quote the PLANNING TARGET when you need an operating number — never a figure "
+            "of your own, and never a different one from another section's. "
+            if "planning target" in rungs or target else
+            "HARD RULE: any volume target you state MUST be consistent with this ladder "
+            "(between break-even and the obtainable ceiling, or explicitly labelled as "
+            "requiring share beyond the fair-share model). ")
+    return (f"CANONICAL {label}-VOLUME LADDER — " + " · ".join(parts) + ". " + rule
             + "NEVER invent a volume target — the five contradictory targets a prior "
               "report shipped made it unusable, and two sections of a later one still "
               "disagreed by 67% while each obeyed a range.")
@@ -780,17 +801,41 @@ def _r_citation_discipline(facts: dict) -> str:
 
 
 def _volume_target_for_artifact(economics, market_sizing, business_model_kind):
-    """The planning target as the ladder computed it, or None. Same call, same inputs, so
-    the artifact cannot disagree with the prompt."""
-    econ, ms = economics or {}, market_sizing or {}
+    """The planning target as the ladder computed it, or None.
+
+    Same reader as the prompt — `ladder_inputs`, not a second call to `planning_target` with
+    hand-picked keys. The hand-picked version passed `economics["price_per_unit"]`, which a
+    subscription or a consultancy never sets, so the artifact recorded a revenue target
+    while a correctly-keyed reader would have recorded a unit count. A gate comparing prose
+    to the artifact then compared it to the wrong rung.
+    """
     try:
-        from financials import planning_target
-        t = planning_target(
-            som_usd=(ms.get("som") or {}).get("mid") or ms.get("som_usd"),
-            price_per_unit=econ.get("price_per_unit"),
-            market_scale=ms.get("scale"),
-            model=business_model_kind or "transactional")
-        return t or None
+        from financials import ladder_inputs
+        return ladder_inputs(economics, market_sizing, business_model_kind)["target"] or None
+    except Exception:                                        # noqa: BLE001
+        return None
+
+
+def _volume_ladder_for_artifact(economics, market_sizing, business_model_kind):
+    """EVERY rung the sections were shown, with its unit and period — not just the target.
+
+    The target alone was stamped, so D61 still recomputed break-even and the ceiling from
+    the artifact's economics. That makes the gate a second owner of two of the three rungs,
+    and it bites the moment the model changes underneath a stored report: consolidating the
+    open-days assumption (financials runs on 360, the old inline ceiling on 365) moved the
+    ceiling 1.4%, and run18's prose — which correctly quoted the ceiling it was given —
+    started failing a gate that had recomputed a different one.
+
+    A report is graded against the ladder it was written from. Artifacts predating this key
+    fall back to re-derivation, which is the old behaviour and its old caveat.
+    """
+    try:
+        from financials import ladder_inputs
+        lad = ladder_inputs(economics, market_sizing, business_model_kind)
+        if not lad["rungs"]:
+            return None
+        return {"unit": lad["unit"], "period": lad["period"],
+                "rungs": {k: round(v, 4) for k, v in lad["rungs"].items()}}
     except Exception:                                        # noqa: BLE001
         return None
 
@@ -1090,8 +1135,13 @@ def assemble_4ps_split(
         # regression visible without byte-identity forensics, the way _reminders_fired does.
         "_volume_target": (
             _volume_target_for_artifact(economics, market_sizing, business_model_kind)),
+        "_volume_ladder": (
+            _volume_ladder_for_artifact(economics, market_sizing, business_model_kind)),
         "_reminders_fired": {
-            "volume_ladder": "CANONICAL DAILY-VOLUME LADDER" in reminders,
+            # The header names the venture's own period, so this cannot pin one spelling —
+            # matching "DAILY" alone would report the ladder as never fired on every
+            # monthly business, which is precisely the class #100 opened up.
+            "volume_ladder": "-VOLUME LADDER" in reminders,
             "competitor_counts_pair": "COMPETITOR COUNTS — HARD RULE" in reminders,
             "competitive_density": "competitor" in reminders.lower(),
             "monetization_model": "MONETIZATION MODEL" in reminders,

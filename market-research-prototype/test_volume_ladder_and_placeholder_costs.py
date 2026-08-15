@@ -38,10 +38,16 @@ MS = {"som": {"mid": 630_000.0}}
 
 class TestTheLadderReminder(unittest.TestCase):
     def test_it_states_both_rungs(self):
+        from financials import ladder_inputs
+        from four_ps import ladder_number
         text = _r_volume_ladder({"economics": ECON, "market_sizing": MS})
         self.assertIn("break-even ≈ 51.3 drinks/day", text)
-        # 630,000 / 5.25 / 365 = 328.8/day
-        self.assertIn("329 drinks/day", text)
+        # Was pinned as "329 drinks/day" — 630,000 / 5.25 / 365. The prompt now divides by
+        # the model's own 360 open days (financials._DAYS_PER_YEAR), the same divisor every
+        # ramp and the planning target beside it already used, so the ceiling is 333.3.
+        # Asking the model rather than restating its arithmetic is the point of the fix.
+        ceiling = ladder_inputs(ECON, MS, "transactional")["rungs"]["obtainable ceiling"]
+        self.assertIn(f"{ladder_number(ceiling)} drinks/day", text)
 
     def test_it_reaches_every_section_prompt(self):
         """The registry mechanism, executed — a ladder only some sections see is how five

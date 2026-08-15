@@ -22,6 +22,19 @@ from . import record_dropped_output, step_done, step_scope
 log = get("plan.steps.economics")
 
 
+def _wants_subscription_break_even(biz_kind: str | None) -> bool:
+    """Only a real subscription gets subscription break-even.
+
+    MEASURED: the condition was `not is_transactional`, which is True for marketplace and
+    ad_supported as well — so a marketplace published "break even at 90 bookings, $444
+    margin each" when the PLATFORM's contribution is $48 per booking and the real answer is
+    834 (9.3x off), and report/claim_support.py whitelists that figure as citable. A free
+    ad-supported app was told it needs "10,345 paying customers". The full transaction value
+    is not the platform's revenue, and a free product has no paying customer at all.
+    """
+    return (biz_kind or "") == "subscription"
+
+
 def run_economics_step(result: dict, profile: dict, *, psm_result: dict, biz_kind: str,
                        opt: float | None, price_per_unit, is_transactional: bool,
                        unit_noun: str, benchmark_recurring: bool, segment_summary: str,
@@ -39,7 +52,9 @@ def run_economics_step(result: dict, profile: dict, *, psm_result: dict, biz_kin
         ) if opt else None
 
         # --- Break-even (subscription only — retail break-even lives in unit economics) ---
-        if _cost and opt and not is_transactional:
+        # Not `not is_transactional` — that is True for marketplace and ad_supported
+        # too, and neither has a monthly per-customer fee to break even on.
+        if _cost and opt and _wants_subscription_break_even(biz_kind):
             try:
                 from pricing import compute_break_even
                 result["pricing"]["break_even"] = compute_break_even(
