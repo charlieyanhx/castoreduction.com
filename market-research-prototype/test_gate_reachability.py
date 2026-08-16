@@ -40,18 +40,24 @@ _CORPUS = sorted(glob.glob("out/wave4_corpus/*.json"))
 # Gates that are legitimately N/A on the CURRENT corpus. Each entry needs a reason and,
 # ideally, the venture shape that would exercise it — an entry with no path to ever firing
 # is a gate that should be deleted, not allowlisted.
+#
+# RETIRED, #98: D49 and D54 lived here saying "remove this entry after the next corpus
+# regeneration", and three live runs on the free backend did it — a subscription venture
+# (a kind the 16-report corpus did not contain AT ALL), a five-store chain, and a Lisbon
+# bakery. D49 now answers on the chain's real trade area (51,643 households over 7.07 km²);
+# D54 answers on the new runs' producer-stamped ledgers. Both are genuine NEW evidence.
+#
+# D60 stays, and the reason is worth stating because the tempting move is available and
+# wrong: adding out/live/run18.json to the corpus WOULD clear it — but run18 IS D60's
+# compensating demonstration. Promoting the same artifact from "demonstration" to "corpus"
+# and then deleting the demonstration that pointed at it proves nothing new, relabels one
+# file, and removes the portable floor that still runs on a fresh clone where out/ is
+# gitignored. D60 needs a NEW run that anchors on the Economic Census.
 _KNOWN_UNREACHABLE: dict[str, str] = {
     "D22": "its density-claim regex matches none of the phrasings the pipeline actually "
            "writes — 11/17 reports state a numeric competitor count in viability prose and "
            "the pattern misses all of them. A real defect in the DETECTOR, tracked "
            "separately; allowlisted so this rule does not block on a pre-existing bug.",
-    "D49": "reads market_sizing.trade_area_households / radius_m, which plan.py only began "
-           "carrying AFTER this corpus was generated — so no stored report can contain "
-           "them and corpus reachability is unprovable for it by construction. NOT a pass: "
-           "TestD49SpecificallyReachesReality below enforces the same guarantee at the "
-           "PRODUCER, asserting the mapping writes the keys and that the gate returns a "
-           "real verdict on a current-shape payload. Remove this entry after the next "
-           "corpus regeneration.",
     "D60": "fires only when market_sizing.som_anchor.method == 'area_receipts_benchmark', "
            "which no stored report can carry: the Economic Census anchor did not exist "
            "when this corpus was generated, so every one of the 16 was anchored on the LLM "
@@ -64,14 +70,6 @@ _KNOWN_UNREACHABLE: dict[str, str] = {
            "the negative half — ok=False when the geography, the establishment count or "
            "the statistic is dropped. Remove this entry after the next corpus "
            "regeneration.",
-    "D54": "reconciles the ledger's PRODUCER records against the report, and the stored "
-           "corpus has none. Measured: all 16 reports carry a _trace (83 events in the "
-           "first), but 0 of those events carry a `produces` key -- they predate the "
-           "producer stamping, so recorded_producers() returns {} and there is nothing to "
-           "reconcile. run2 has 10. NOT a pass: TestTheGateCatchesItOnTheLiveRun in "
-           "test_produced_output_reaches_the_report.py proves it fires on out/live/run2.json "
-           "-- a genuine end-to-end run -- catching all 3 measured silent drops. Remove "
-           "this entry after the next corpus regeneration.",
 }
 
 
@@ -84,13 +82,12 @@ _KNOWN_UNREACHABLE: dict[str, str] = {
 # entry's demonstration and requires a real True/False verdict out of it, and refuses an
 # entry that blames the corpus without joining this set. The rule and the check are the same
 # object now.
-_STALENESS_ALLOWLISTED = {"D49", "D54", "D60"}
+_STALENESS_ALLOWLISTED = {"D60"}
 
 # The phrase every staleness reason ends on. An entry promising that the next regeneration
 # will fix it IS a staleness claim, whether or not whoever wrote it remembered this set.
 _STALENESS_TELL = "after the next corpus regeneration"
 
-_RUN2 = "out/live/run2.json"
 _RUN18 = "out/live/run18.json"
 
 # D49's compensating payload, shaped the way plan.py's hyperlocal mapping emits one today.
@@ -115,21 +112,6 @@ def _load_reports():
     return [(os.path.basename(p), *_load_one(p)) for p in _CORPUS]
 
 
-def _d49_on_a_current_shape_payload():
-    """No run on disk can carry D49's keys — plan.py began writing them after the last one —
-    so what the mapping produces today is the only artifact there is."""
-    from gates import d49_trade_area_matches_its_radius as d49
-    return d49(_D49_CURRENT_SHAPE, None)
-
-
-def _d54_on_a_current_shape_ledger():
-    """One skill-layer event carrying `produces`, copied from run2's own ledger — the field
-    the corpus's 83 events lack — against a report the output never reached."""
-    from gates import d54_produced_output_reaches_the_report as d54
-    return d54({"_trace": [{"layer": "skill", "name": "cluster_competitors",
-                            "produces": "clustering", "module": "skills.clustering",
-                            "qualname": "cluster_competitors",
-                            "file": "skills/clustering.py", "line": 142, "ok": True}]}, None)
 
 
 def _d60_on_a_current_shape_payload():
@@ -139,12 +121,6 @@ def _d60_on_a_current_shape_payload():
     from test_d60_area_average_reaches_the_reader import _ANCHOR, _HONEST, _run
     return d60(_run(calculation=_HONEST, anchor=_ANCHOR), None)
 
-
-def _d54_on_the_live_run():
-    """run2 is a genuine end-to-end run whose ledger stamps `produces`; the corpus's events
-    predate the stamping, so its 83 events reconcile against nothing."""
-    from gates import d54_produced_output_reaches_the_report as d54
-    return d54(*_load_one(_RUN2))
 
 
 def _d60_on_the_live_run():
@@ -174,8 +150,6 @@ class _Demonstration(NamedTuple):
 
 
 _STALENESS_DEMONSTRATIONS: dict[str, _Demonstration] = {
-    "D49": _Demonstration(_d49_on_a_current_shape_payload),
-    "D54": _Demonstration(_d54_on_a_current_shape_ledger, (_RUN2, _d54_on_the_live_run)),
     "D60": _Demonstration(_d60_on_a_current_shape_payload, (_RUN18, _d60_on_the_live_run)),
 }
 

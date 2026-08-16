@@ -168,7 +168,12 @@ class TestOnTheRealCorpus(unittest.TestCase):
             s = build_integrity_summary(r)
             self.assertEqual(s["provenance"]["n_grounded"], 0, os.path.basename(f))
             self.assertGreater(s["provenance"]["n_cited"], 0, os.path.basename(f))
-        self.assertEqual(checked, 10, "corpus changed — recheck the premise")
+        # Was pinned at 10 and the message said "recheck the premise" — so I did. #98 added
+        # three live runs; one (the B2B SaaS) is a national_digital venture and carries the
+        # three-method TAM shape, making 11. RECHECKED, not bumped: n_grounded is still 0
+        # and n_cited still > 0 on every one of the 11, asserted per-report in the loop
+        # above. The count is a tripwire for "the population changed", and it did.
+        self.assertEqual(checked, 11, "corpus changed — recheck the premise")
 
 
 class TestGateD25(unittest.TestCase):
