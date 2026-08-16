@@ -1082,6 +1082,18 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
         # unit tests passed. A gate that cannot see real output is not a safeguard.
         # test_gate_reachability now enforces this for every gate.
         "scale": (scale_decision or {}).get("scale") or "hyperlocal",
+        # WHICH SKILL PRODUCED THESE NUMBERS, as distinct from which one the classifier
+        # nominated. This function routes BOTH hyperlocal and regional into
+        # size_hyperlocal — `size_regional` is reachable only from the unwired
+        # skills/sizing/dispatch.py — so a 3-location chain publishes ONE 3 km catchment as
+        # its whole market, with no ×n_locations, while the report note is stamped from
+        # scale_decision["sizing_skill"] and reads "size_regional". D52 exists to catch
+        # exactly that and passed, because it asked whether a trade-area footprint EXISTS
+        # and size_hyperlocal always leaves one. It can now compare the two names.
+        #
+        # This does not wire size_regional. It converts a silent false claim into a loud
+        # failure, which is the honest interim state.
+        "sizing_skill_ran": "size_hyperlocal",
         "trade_area_households": p.get("trade_area_households"),
         "radius_m": p.get("radius_m"),
         "catchment_km2": p.get("catchment_km2"),

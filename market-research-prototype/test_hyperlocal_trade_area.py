@@ -260,10 +260,26 @@ class TestGateD49(unittest.TestCase):
     def test_a_bigger_radius_permits_a_bigger_count(self):
         self.assertTrue(self._gate(self._sizing(200_000, radius_m=25_000)).ok)
 
-    def test_not_applicable_to_a_non_hyperlocal_sizing(self):
+    def test_not_applicable_to_a_sizing_with_no_trade_area(self):
+        """Was "not applicable to a non-hyperlocal sizing", and asserted N/A for a report
+        LABELLED national_digital that still carried a 3.3M-household count in a 3 km
+        radius. Applicability now follows the data, not the label (audit C5): the old
+        allow-list excused the gate from every `regional` report, which is where a single
+        catchment standing in for a multi-site footprint makes an implausible density most
+        diagnostic. A venture with no catchment has nothing to check; a mislabelled one
+        carrying a radius and a household count has made a checkable claim."""
         r = self._sizing(3_300_000)
         r["market_sizing"]["scale"] = "national_digital"
+        del r["market_sizing"]["trade_area_households"]
+        del r["market_sizing"]["radius_m"]
         self.assertIsNone(self._gate(r).ok)
+
+    def test_a_mislabelled_scale_does_not_buy_an_exemption(self):
+        r = self._sizing(3_300_000)
+        r["market_sizing"]["scale"] = "national_digital"
+        self.assertIs(self._gate(r).ok, False,
+                      "a county-scale count in a 3 km catchment escaped by calling itself "
+                      "digital")
 
     def test_not_applicable_without_a_household_count(self):
         r = self._sizing(1000)
