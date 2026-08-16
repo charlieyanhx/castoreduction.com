@@ -188,6 +188,47 @@ def extract_price(text: str, unit_noun: str | None = None) -> dict | None:
     return None
 
 
+#: Small counts are usually written as words in a brief ("a three-location chain").
+_NUMBER_WORDS = {
+    "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+    "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15, "twenty": 20,
+}
+#: Nouns that mean "a premises we operate". `unit` is DELIBERATELY absent — "6 units of
+#: cold brew" is stock, not sites, and that false positive would multiply a TAM.
+_PREMISES = r"(?:locations?|stores?|sites?|branches|branch|outlets?|shops?|cafes?|" \
+            r"restaurants?|salons?|studios?|storefronts?|premises)"
+_LOCATION_COUNT_RE = re.compile(
+    rf"\b(\d{{1,3}}|{'|'.join(_NUMBER_WORDS)})[\s-]{_PREMISES}\b", re.I)
+
+
+def extract_location_count(text: str) -> int | None:
+    """How many premises the venture operates, or None when the brief does not say.
+
+    Routes a multi-site venture to `size_regional` instead of publishing ONE site's trade
+    area as its whole market. MEASURED before this existed, with the trade-area sizer
+    mocked to a $4.0M single site: a three-location chain, a five-store bakery and a
+    four-site rollout all published $4.0M and `n_locations: None`.
+
+    Word numerals are read here and were refused for volume claims (#100) for a reason:
+    this pattern REQUIRES a premises noun immediately after the number, so "three-location"
+    matches while "one of the two channels" cannot. The noun list omits `unit` on purpose —
+    "6 units of cold brew" is inventory, and mistaking it for six shops multiplies a TAM.
+
+    A count of 1 returns None: one site is not a rollout, however it is phrased.
+    """
+    if not text:
+        return None
+    m = _LOCATION_COUNT_RE.search(text)
+    if not m:
+        return None
+    raw = m.group(1).lower()
+    try:
+        n = int(raw) if raw.isdigit() else _NUMBER_WORDS[raw]
+    except (ValueError, KeyError):
+        return None
+    return n if n > 1 else None
+
+
 _STREET_RE = re.compile(
     r"\b\d{1,6}\s+[A-Z0-9][\w.'-]*(?:\s+[\w.'-]+){0,4}\s+"
     r"(?:St|Street|Ave|Avenue|Blvd|Boulevard|Rd|Road|Dr|Drive|Ln|Lane|Way|Ct|Court|Pl|Plaza)\b",
@@ -200,7 +241,12 @@ _PLACE_RE = re.compile(
     # Measured on a real run: "opening in the Mission District of San Francisco" extracted
     # NOTHING, because the lowercase article ended the match before it began and the city was
     # chained with "of" rather than a comma. The whole hyperlocal path hung on that miss.
-    r"\b(?:in|at|near|around|located in)\s+(?:the\s+)?"
+    # "across" / "throughout" / "serving" were missing, and a MULTI-SITE brief is exactly
+    # the shape that uses them: "5 locations across Austin, Texas" extracted nothing, so a
+    # regional venture — the one that most needs a trade area — got no sizing at all. The
+    # audit filed this as low BECAUSE the refusal is safe ("no street address was
+    # available"); it is safe only for a single-site brief.
+    r"\b(?:in|at|near|around|located in|across|throughout|serving)\s+(?:the\s+)?"
     r"([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3}"
     r"(?:(?:,|\s+of)\s*[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,2}){0,2})")
 def extract_location(text: str) -> str | None:
