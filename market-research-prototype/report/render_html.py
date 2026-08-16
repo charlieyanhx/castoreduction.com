@@ -30,6 +30,21 @@ from report.section_provenance import SECTION_SOURCES  # noqa: F401  (template m
 log = logging.getLogger("mrp.report.render")
 
 
+def _ladder_period(r: dict) -> str:
+    """The period this venture plans in — asked of `financials`, never decided here.
+
+    A second place deciding a period is exactly the defect C6 spent a day consolidating
+    away. Falls back to "day", which is what the template hardcoded before, so a result too
+    thin to judge renders as it always did.
+    """
+    try:
+        from financials import ladder_inputs
+        return ladder_inputs(r.get("economics"), r.get("market_sizing"),
+                             (r.get("business_model") or {}).get("kind"))["period"]
+    except Exception:                                        # noqa: BLE001
+        return "day"
+
+
 def render_report_html(result: dict, job_id: str = "", debug: int = 0) -> str:
     """Render one report to HTML from its result dict. Pure: no DB, no request."""
     from api import SafeUndefined, display_title   # local: api imports plan, plan imports us
@@ -126,6 +141,12 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0) -> str:
         reddit_signal=r.get("reddit_signal"),
         economics=r.get("economics"),
         pricing_benchmark=(r.get("pricing") or {}).get("benchmark"),
+        # WHICH PERIOD THIS VENTURE PLANS IN, from the one function that decides it. The
+        # break-even tiles hardcoded "/day", so a consultancy read "0.3 projects/day" —
+        # arithmetically right (30x12 = 360 = _DAYS_PER_YEAR) and useless. Passing the
+        # ladder's period rather than adding a second rule here is the whole point: the
+        # computation stays in business_model, the CHOICE stays in financials.
+        ladder_period=_ladder_period(r),
         # The price of record has been computed since R4 rank 16 and rendered nowhere, so
         # its provenance — including "we read no price at all" — existed only for whoever
         # opened the artifact. Same shape as #83's som_anchor: a disclosure that never

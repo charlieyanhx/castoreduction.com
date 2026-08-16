@@ -1573,11 +1573,15 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     <div class="price">${{ economics.contribution_margin_per_unit }}<span style="font-size:10pt;font-weight:400;color:#6b7280">/{{ economics.unit }}</span></div>
     <div class="for-whom">{{ economics.contribution_margin_pct }}% of price, after ${{ economics.variable_cost_per_unit }} variable cost</div>
   </div>
-  {% if economics.break_even_units_per_day %}
+  {# The period comes from financials, the one owner. Hardcoded "/day" gave a consultancy
+     "0.3 projects/day" — arithmetically right and useless. #}
+  {% set be_daily = ladder_period != 'month' %}
+  {% set be_value = economics.break_even_units_per_day if be_daily else economics.break_even_units_per_month %}
+  {% if be_value %}
   <div class="tier-card">
     <div class="name">Break-even volume</div>
-    <div class="price">{{ economics.break_even_units_per_day }}<span style="font-size:10pt;font-weight:400;color:#6b7280">/day</span></div>
-    <div class="for-whom">{{ economics.unit }}s/day to cover ${{ '{:,.0f}'.format(economics.monthly_fixed_cost) }}/mo fixed cost</div>
+    <div class="price">{{ '{:,}'.format(be_value) if not be_daily else be_value }}<span style="font-size:10pt;font-weight:400;color:#6b7280">/{{ 'day' if be_daily else 'mo' }}</span></div>
+    <div class="for-whom">{{ economics.unit }}s/{{ 'day' if be_daily else 'month' }} to cover ${{ '{:,.0f}'.format(economics.monthly_fixed_cost) }}/mo fixed cost</div>
   </div>
   {% endif %}
 </div>
@@ -1593,8 +1597,15 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   </div>
   <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:12px">
     <div style="font-size:9pt;font-weight:700;color:#1e40af;text-transform:uppercase;letter-spacing:.05em">Break-even volume</div>
+    {# Headline in the venture's own period; the other figure stays as the secondary line,
+       because both are true and a reader may want either. #}
+    {% if ladder_period == 'month' %}
+    <div style="font-size:18pt;font-weight:700;color:#1f2937">{{ '{:,}'.format(economics.break_even_units_per_month) }}<span style="font-size:10pt;color:#6b7280">/mo</span></div>
+    <div style="font-size:9pt;color:#4b5563">{{ economics.break_even_units_per_day }} {{ economics.unit }}s/day equivalent</div>
+    {% else %}
     <div style="font-size:18pt;font-weight:700;color:#1f2937">{{ economics.break_even_units_per_day }}<span style="font-size:10pt;color:#6b7280">/day</span></div>
     <div style="font-size:9pt;color:#4b5563">{{ '{:,}'.format(economics.break_even_units_per_month) }} {{ economics.unit }}s/mo to break even</div>
+    {% endif %}
   </div>
   <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:12px">
     <div style="font-size:9pt;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.05em">Monthly fixed cost</div>
