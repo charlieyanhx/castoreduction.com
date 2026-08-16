@@ -145,14 +145,28 @@ class TestTheVentureThatFoundIt(unittest.TestCase):
                         f"{table:,.0f}/yr — {table / ladder:.1f}x apart, both printed")
 
     def test_the_ladder_and_the_table_may_use_different_periods(self):
-        """Documenting the distinction this test rests on, so a later reader does not
-        "fix" it by forcing both to days: `_PLANNING_PERIOD` keys the period on the billing
-        model, so a hyperlocal salon plans in projects/month while its scenario table
-        counts days. That is a presentation difference. A different RATE is not."""
+        """Documenting the distinction this file's rate comparison rests on, so a later
+        reader does not "fix" it by forcing both to days: the scenario table counts days for
+        every per-unit venture, while the ladder states the period the OPERATOR reasons in.
+        A different period is presentation. A different RATE is the defect.
+
+        THE EXAMPLE MOVED. This used to assert that a hyperlocal SERVICES venture at
+        $500k/$25 plans in months — the old `_PLANNING_PERIOD` keyed the period on the
+        billing model, so a salon doing 33 haircuts a day was told to think in months, and
+        this test recorded that as intentional. It was not; it was the defect, and the
+        period now follows the venture's own volume. A consultancy at 1.7 projects/month
+        still exhibits the real difference, so the invariant is pinned on a venture that
+        actually shows it."""
         from financials import planning_target
-        t = planning_target(som_usd=self.SOM, price_per_unit=self.PRICE,
-                            market_scale="hyperlocal", model="services")
-        self.assertEqual(t["period"], "month")
+        self.assertEqual(
+            planning_target(som_usd=3_000_000.0, price_per_unit=12_000.0,
+                            market_scale="national_digital", model="services")["period"],
+            "month")
+        # The salon this test used to assert was monthly. 33/day is a daily business.
+        self.assertEqual(
+            planning_target(som_usd=self.SOM, price_per_unit=self.PRICE,
+                            market_scale="hyperlocal", model="services")["period"],
+            "day")
         self.assertEqual(
             planning_target(som_usd=self.SOM, price_per_unit=self.PRICE,
                             market_scale="hyperlocal", model="transactional")["period"],

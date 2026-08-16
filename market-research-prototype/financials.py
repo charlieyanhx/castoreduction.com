@@ -418,6 +418,44 @@ _PLANNING_PERIOD = {
 }
 _PERIODS_PER_YEAR = {"day": _DAYS_PER_YEAR, "month": 12.0}
 
+#: Kinds whose unit is a STOCK — a count you HOLD at a point in time, not a rate you
+#: perform. A seat and an active user are stocks; drinks, haircuts, projects, bookings and
+#: orders are flows. Only a flow has a legible daily version, so stocks are exempt from the
+#: magnitude test below rather than subjected to it: 689.7 seats/month is 23/day, and
+#: "23 seats/day" is not a smaller version of the same fact, it is a different and wrong one.
+_STOCK_KINDS = ("subscription", "ad_supported")
+
+#: Units per day below which a daily rate stops being something an operator can act on.
+#: Far from both sides of the real distribution — a cafe runs 100+/day, a consultancy 0.06 —
+#: so a venture does not flip period between runs on a small change in SOM.
+_DAILY_LEGIBILITY_FLOOR = 3.0
+
+
+def planning_period(model: str | None, units_per_year: float | None = None) -> str:
+    """"day" or "month" — the period this venture's operator actually reasons in.
+
+    `_PLANNING_PERIOD` keys this on the BILLING MODEL, and the comment above it states the
+    real rule: "High-frequency low-value units are a daily business. Lumpy multi-week
+    delivery, recurring accounts, GMV and impressions are monthly ones." That is cadence and
+    magnitude. Same shape as C8's `_ramp_for` — the prose was right and the code
+    approximated it with a taxonomy.
+
+    MEASURED, with the period keyed on kind alone: a salon doing 466.7 haircuts/month —
+    15.6 a day — was told to plan in months, while a consultancy at 1.7 projects/month was
+    told the same thing. Two `services` ventures wanting opposite answers off one table row
+    is the proof the key is wrong.
+
+    Volume decides for a FLOW. A STOCK is exempt: see `_STOCK_KINDS`. With no volume known
+    yet the old table is the fallback — the best guess available before a price exists.
+    """
+    kind = (model or "").lower()
+    if kind in _STOCK_KINDS:
+        return "month"
+    if not units_per_year or units_per_year <= 0:
+        return _PLANNING_PERIOD.get(kind, "day")
+    return ("day" if units_per_year / _DAYS_PER_YEAR >= _DAILY_LEGIBILITY_FLOOR
+            else "month")
+
 
 def planning_target(*, som_usd, price_per_unit, market_scale=None,
                     model: str = "transactional") -> dict | None:
@@ -445,10 +483,13 @@ def planning_target(*, som_usd, price_per_unit, market_scale=None,
     if not y1:
         return None
     revenue = som * y1
-    period = _PLANNING_PERIOD.get((model or "").lower(), "day")
+    # The period follows the VOLUME, so the volume has to be known first. Same rate either
+    # way — 466.7 haircuts/month and 15.6/day are one fact — but only one of them is a
+    # number a salon owner schedules staff against.
+    price = _pos(price_per_unit)
+    period = planning_period(model, (revenue / price) if price else None)
     per_year = _PERIODS_PER_YEAR[period]
 
-    price = _pos(price_per_unit)
     if price is None:
         # No unit price in the brief — state the money. Refusing here is what left
         # marketplace and ad-supported ventures with a floor, a roof and no plan.
@@ -558,7 +599,10 @@ def ladder_inputs(economics: dict | None, market_sizing: dict | None,
 
     target = planning_target(som_usd=som, price_per_unit=price,
                              market_scale=ms.get("scale"), model=kind)
-    period = (target or {}).get("period") or _PLANNING_PERIOD.get(kind, "day")
+    # The target already decided the period from the venture's own volume; fall back to the
+    # same function, not to the raw table, so there is one answer rather than two.
+    period = ((target or {}).get("period")
+              or planning_period(kind, (som / price) if (som and price) else None))
     per_year = _PERIODS_PER_YEAR[period]
 
     rungs: dict[str, float] = {}
