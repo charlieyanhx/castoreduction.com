@@ -124,6 +124,15 @@ def run_financials_step(result: dict, profile: dict, *, psm_result: dict, biz_ki
                 break_even_costs=be,  # cycle36: surface the cost assumptions in the report
                 model=_fin_model,  # cycle37/38 + C3 + W4-1
                 economics=result.get("economics"),
+                # The churn the unit economics ACTUALLY estimated. Omitting it let
+                # financials.py's 5.0 placeholder ship in `assumptions` while
+                # `unit_economics` carried the estimate — and the template renders BOTH
+                # (report.html:976 and :1756), so one page stated two churn rates.
+                **({"monthly_churn_pct": float(_churn)}
+                   if isinstance(_churn := (((result.get("economics") or {})
+                                             .get("unit_economics") or {})
+                                            .get("monthly_churn_pct")), (int, float))
+                   and not isinstance(_churn, bool) and _churn > 0 else {}),
                 som_low=som_low, som_high=som_high,
                 market_scale=_mkt_scale,
                 cac_usd=float(_cac) if isinstance(_cac, (int, float)) and _cac > 0 else None,

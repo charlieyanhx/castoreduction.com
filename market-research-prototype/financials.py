@@ -356,6 +356,15 @@ def project_three_year(
                     "against fixed cost only and EXCLUDES acquisition spend. Treat "
                     "the break-even year as optimistic until a CAC is supplied.")}),
             "annual_price_per_customer": round(annual_price_per_customer, 2),
+            # WHAT WAS COUNTED. `economics.pricing_unit` is "seat" for a B2B SaaS and
+            # "account" for a consumer subscription, and it reached the reader nowhere —
+            # every `pricing_unit` in report.html was `pricing_benchmark.pricing_unit`.
+            # So a report said "3,340 cust by Y3" and "max sustainable CAC $9,315 per
+            # customer" with both figures per SEAT. At 15-20 seats per account that is
+            # ~180 accounts and a per-account acquisition ceiling an order of magnitude
+            # higher than the page implies — a founder sizing a sales budget reads the
+            # wrong number by 15-20x. Decision-changing, and one word of provenance.
+            "pricing_unit": ((economics or {}).get("pricing_unit") or "customer"),
             "monthly_churn_pct": monthly_churn_pct,
             "som_mid_used": round(som_mid, 0),
             "scenario_basis": basis,

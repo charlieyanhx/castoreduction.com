@@ -685,9 +685,15 @@ def unit_for_model(biz_kind: str, description: str, profile: dict | None = None)
     (transactional/ecommerce/services/hybrid): an explicit per-unit phrase wins, else a
     category hint, else a kind default. Deterministic; the root fix for '/mo' bleed in the
     per-unit spine (cycle38)."""
-    from business_model import is_per_unit
+    from business_model import _norm, is_per_unit
     prof = profile or {}
-    blob = f"{description or ''} {prof.get('summary','')} {prof.get('business_model','')} {prof.get('category','')}".lower()
+    # `_norm` collapses hyphens and dash variants, the same normalisation #99 added to the
+    # classifier. Without it "per-seat licence" resolved to "account" while "per seat
+    # licence" resolved to "seat" — one concept, two spellings, and the report prices in
+    # whichever the founder happened to type.
+    blob = _norm(
+        f"{description or ''} {prof.get('summary','')} "
+        f"{prof.get('business_model','')} {prof.get('category','')}")
     if biz_kind == "subscription":
         return "seat" if ("b2b" in blob or "saas" in blob or "per seat" in blob) else "account"
     if biz_kind == "marketplace":
