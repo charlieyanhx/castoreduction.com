@@ -188,6 +188,15 @@ def price_anchor_directive(business_model_kind: str | None, economics: dict | No
     kind = (business_model_kind or "").lower()
     econ = economics or {}
     vw = van_westendorp or {}
+    # A venture whose users pay nothing has no canonical transaction value to anchor to.
+    # MEASURED without this: the `else` below fired on an ad-supported product and ordered
+    # all four sections to treat the PSM point as "the ONE canonical transaction/order/job/
+    # booking value for this venture: $4.99" — in the same prompt where model_directive had
+    # just told them there is NO subscriber price and not to invent one. Two directives
+    # contradicting each other, and this is the emphatic one.
+    from business_model import venture_has_a_customer_price
+    if not venture_has_a_customer_price(kind):
+        return ""
     if kind in ("transactional", "ecommerce", "services", "hybrid"):
         price = econ.get("price_per_unit")
         unit = econ.get("unit") or "unit"
@@ -1019,14 +1028,31 @@ def assemble_4ps_split(
         ],
     }, 700) if pricing_benchmark else "(not yet computed)"
 
-    economics_blob = json_blob({
-        "clv_usd": (economics or {}).get("clv", {}).get("clv_usd"),
-        "max_sustainable_cac_usd": (economics or {}).get("cac_target", {}).get("max_sustainable_cac_usd"),
-        "evc_verdict": (economics or {}).get("evc", {}).get("verdict"),
-        "price_as_pct_of_evc": (economics or {}).get("evc", {}).get("price_as_pct_of_evc"),
-        "customer_annual_roi_usd": (economics or {}).get("evc", {}).get("customer_annual_roi_usd"),
-        "differentiation_reasoning": (economics or {}).get("evc", {}).get("differentiation_reasoning"),
-    }, 700) if economics else "(not yet computed)"
+    # A free product has no CLV, no CAC target and no EVC — the economics module does not
+    # compute them and never will, because the customer pays nothing. Handing the Price
+    # section six nulls under the heading "UNIT ECONOMICS (CLV / CAC / EVC)" beside the
+    # instruction "Cover the CLV:CAC implication" is an invitation to invent all three.
+    # The model's REAL keys exist and were passed nowhere; they go here instead.
+    from business_model import venture_has_a_customer_price
+    if economics and not venture_has_a_customer_price(business_model_kind):
+        economics_blob = json_blob({
+            "revenue_basis": economics.get("revenue_basis"),
+            "needs_operator_input": economics.get("needs_operator_input"),
+            "note": economics.get("note"),
+            "clv_cac_evc": "NOT APPLICABLE — the user pays nothing. Do not state a CLV, a "
+                           "CAC target or an EVC; there is no customer price to compare "
+                           "them against. Discuss ad revenue per active user vs "
+                           "cost-to-serve, and name the operator inputs above as unknowns.",
+        }, 700)
+    else:
+        economics_blob = json_blob({
+            "clv_usd": (economics or {}).get("clv", {}).get("clv_usd"),
+            "max_sustainable_cac_usd": (economics or {}).get("cac_target", {}).get("max_sustainable_cac_usd"),
+            "evc_verdict": (economics or {}).get("evc", {}).get("verdict"),
+            "price_as_pct_of_evc": (economics or {}).get("evc", {}).get("price_as_pct_of_evc"),
+            "customer_annual_roi_usd": (economics or {}).get("evc", {}).get("customer_annual_roi_usd"),
+            "differentiation_reasoning": (economics or {}).get("evc", {}).get("differentiation_reasoning"),
+        }, 700) if economics else "(not yet computed)"
 
     place_blob = json_blob({
         "primary_channel": (place or {}).get("primary_channel"),

@@ -1482,7 +1482,29 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 {% endfor %}
 
 <!-- PRICING DETAIL -->
-{% if psm.optimal_price_point or psm.recommended_tiers or is_transactional %}
+{# A venture whose users pay nothing has no price to recommend. MEASURED without this gate:
+   an ad-supported product shipped "Value $3.49 / Standard $4.99 / Premium $11.99" and
+   "Optimal price point: $4.99. Acceptable range: $3.49–$11.99" two inches above its own
+   sentence "Free to the user — there is no subscriber price". The section gated on
+   `psm.optimal_price_point or …` and never on the monetization model, so the simulation —
+   which runs unconditionally — always had something to render. Publishing a price under a
+   research method's name is worse than publishing none: the method name asserts that users
+   were asked. #}
+{% set venture_charges = (business_model_kind or (economics and economics.model) or (financials and financials.model)) != 'ad_supported' %}
+{% if not venture_charges %}
+<h2 id="pricing">Pricing Detail</h2>
+<p style="font-size:10.5pt;background:#fef3c7;border-left:3px solid #d97706;padding:8px 12px;margin:10px 0">
+  <strong>No price analysis — this venture is free to the user.</strong> It monetizes
+  through advertising, so there is no subscriber price to recommend and no
+  willingness-to-pay to simulate. The figures that decide this business are ad revenue per
+  active user against cost-to-serve
+  {%- if economics and economics.needs_operator_input %}, and its drivers are operator
+  inputs this analysis cannot source: {{ economics.needs_operator_input | join(', ') }}
+  {%- endif %}. See the financial projections for the revenue-only model.
+</p>
+{% endif %}
+
+{% if venture_charges and (psm.optimal_price_point or psm.recommended_tiers or is_transactional) %}
 <h2 id="pricing">Pricing Detail</h2>
 
 {# The price of record and, more importantly, whether there WAS one to reconcile against.
