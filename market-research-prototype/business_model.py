@@ -33,6 +33,31 @@ AD_SUPPORTED = "ad_supported"     # free to user, monetized via advertising
 _PER_UNIT_KINDS = (TRANSACTIONAL, ECOMMERCE, SERVICES, HYBRID)
 
 
+def venture_has_a_customer_price(kind: Optional[str]) -> bool:
+    """Does an END CUSTOMER of this venture pay a price the report can recommend?
+
+    False for ad_supported ALONE. A marketplace charges a take-rate, a subscription a fee,
+    a cafe a menu price — every other kind has some number a buyer hands over, and pricing
+    research is meaningful for all of them. An ad-supported product's user pays nothing, so
+    a recommended price for them is not merely uncertain, it is a recommendation about a
+    transaction that does not exist.
+
+    MEASURED, rendering an ad_supported venture through the real template: the report ships
+    a validated three-tier deck — "Value $3.49 / Standard $4.99 / Premium $11.99" and
+    "Optimal price point: $4.99. Acceptable range: $3.49-$11.99" — two inches above its own
+    sentence "Free to the user — there is no subscriber price." The pricing simulation runs
+    unconditionally and the template gates on `psm.optimal_price_point or …`, never on the
+    monetization model, so a number nobody will ever pay is presented with a method name
+    attached to it.
+
+    A separate predicate rather than `not is_per_unit(kind)`: that is True for subscription
+    and marketplace too, and suppressing their pricing would delete the analysis those
+    ventures most need. This is the narrower question, asked in one place because four
+    sites need the same answer (audit C7).
+    """
+    return (kind or "").strip().lower() != AD_SUPPORTED
+
+
 def is_per_unit(kind: Optional[str]) -> bool:
     """True if the model's revenue is price-per-unit × volume (transactional/ecommerce/
     services/hybrid) → uses retail_unit_economics, not subscription CLV:CAC."""
