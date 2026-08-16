@@ -60,8 +60,7 @@ def _estimate_households(location: str, radius_m: int) -> Optional[float]:
         from llm import call_json
         raw = call_json(
             system=("Estimate residential density as HOUSEHOLDS PER SQUARE KILOMETER for the area, "
-                    "using typical US density for this kind of place: dense urban core ~3000-6000, "
-                    "urban ~1500-3000, suburban ~400-1500, rural <300. Reply ONLY JSON: "
+                    + density_prompt_hint(location) + ". Reply ONLY JSON: "
                     "{\"households_per_km2\": <number>}."),
             user=f"Location: {location}",
             max_tokens=60,
@@ -288,6 +287,99 @@ def som_anchor_block(*, som, unit_revenue, fair_share, sourced: bool,
     return block
 
 
+def _is_non_us(address: Optional[str]) -> bool:
+    """The geography predicate, guarded so an import failure never changes US behaviour.
+
+    `market_sizing.is_non_us_geography` has existed and worked all along — Lisbon, London,
+    Paris, Berlin and Tokyo all True, San Francisco and Austin False. It was reachable from
+    exactly one caller, `adjust_spend_for_local_income`, and only AFTER that function had
+    already returned for want of Census FIPS — which a non-US address never has. So the
+    predicate declined an adjustment that was never going to happen, while the SOURCING
+    decision two hundred lines earlier never asked it anything.
+    """
+    if not address:
+        return False        # unknown is not foreign: absence of evidence is not evidence
+    try:
+        from market_sizing import is_non_us_geography
+        return bool(is_non_us_geography(address))
+    except Exception:                                     # pragma: no cover - import guard
+        return False
+
+
+def households_source_label(sourced: bool, address: Optional[str] = None) -> str:
+    """The households provenance string. "validate vs US Census ACS" on a Lisbon report is
+    advice the operator cannot act on, and `validation_sources_for()` one call away already
+    answers "Eurostat/INE" for that same location."""
+    if sourced:
+        return "US Census ACS 5-yr"
+    if _is_non_us(address):
+        return ("LLM estimate (UNSOURCED — validate vs the national statistics office for "
+                "this market, e.g. Eurostat/INE in the EU)")
+    return "LLM estimate (UNSOURCED — validate vs US Census ACS)"
+
+
+def spend_source_label(sourced: bool, origin: Optional[str] = None,
+                       address: Optional[str] = None) -> str:
+    """The spend provenance string.
+
+    A US national average used outside the US is still the best figure available here, and
+    it is NOT a source for that market. The label has to carry both facts or the reader
+    cannot tell a grounded TAM from a proxied one — MEASURED, a Lisbon bakery shipped
+    "$3,945/household/yr · source: BLS Consumer Expenditure Survey" and read as sourced.
+    """
+    if sourced:
+        return "BLS Consumer Expenditure Survey"
+    if origin == "bls_national_us":
+        return ("US BLS Consumer Expenditure Survey national average, used as a PROXY "
+                "(UNSOURCED for this market — no local household-expenditure survey was "
+                "consulted; validate before relying on TAM)")
+    return "LLM estimate (UNSOURCED — validate vs BLS CEX)"
+
+
+def density_prompt_hint(address: Optional[str] = None) -> str:
+    """The density-estimate instruction. Asserting "typical US density" for Kreuzberg asks
+    the model to answer about the wrong country and then treats the answer as local."""
+    if _is_non_us(address):
+        return ("using typical density for this kind of place in its own country: dense "
+                "urban core ~3000-6000, urban ~1500-3000, suburban ~400-1500, rural <300")
+    return ("using typical US density for this kind of place: dense urban core ~3000-6000, "
+            "urban ~1500-3000, suburban ~400-1500, rural <300")
+
+
+def spend_provenance(value, from_bls: bool,
+                     address: Optional[str] = None) -> tuple[bool, str, str]:
+    """THREE distinct facts about the spend figure, decided in one place.
+
+    Returns (is_sourced, origin, label):
+      is_sourced  may this be treated as reliable?  -> drives confidence
+      origin      who published it?                 -> drives data_origin and D53
+      label       what the reader is told
+
+    Conflating any two of them is how this shipped. `resolve_annual_spend` answers only
+    "did this come from BLS", which is exactly what its name and docstring claim and what
+    fourteen test seams patch; the question it CANNOT answer is whether BLS surveys the
+    market being sized. MEASURED without this split, a Lisbon bakery shipped
+
+        $3,945/household/yr · source: BLS Consumer Expenditure Survey     TAM $117M
+
+    and D11, D53 and D56 all passed — D53 because the HOUSEHOLDS half already carried an
+    UNSOURCED label, so the funnel read as half-grounded rather than wrongly-grounded.
+
+    A BLS national average outside the US is still RETURNED and used. This codebase has no
+    Portuguese household-expenditure source and inventing one would be worse than using a
+    labelled proxy; a proxy is better than an LLM guess and worse than a source, so it gets
+    its own origin instead of borrowing either. What it may not do is call itself sourced or
+    cite a US federal agency for a market that agency does not survey.
+    """
+    if value is None:
+        return False, "none", "no spend figure resolved"
+    if from_bls and not _is_non_us(address):
+        return True, "bls", spend_source_label(True)
+    if from_bls:
+        return False, "bls_national_us", spend_source_label(False, "bls_national_us", address)
+    return False, "llm", spend_source_label(False, "llm", address)
+
+
 def resolve_annual_spend(category: str) -> tuple[Optional[float], bool]:
     """Annual household spend ($/yr) for a category.
 
@@ -295,6 +387,11 @@ def resolve_annual_spend(category: str) -> tuple[Optional[float], bool]:
     falls back to a labeled LLM estimate if BLS is unavailable. Returns
     (value, sourced) where `sourced` is True iff the number came from BLS, so callers
     label provenance honestly. (None, False) if nothing resolves.
+
+    Deliberately geography-BLIND. "Did this come from BLS" and "may BLS be cited for this
+    market" are different questions, and answering the second here would mean either a
+    third return value (fourteen patch sites) or a boolean that silently means two things.
+    `spend_provenance` answers it, once, where the labels are built.
     """
     if not category:
         return None, False
@@ -437,18 +534,17 @@ def adjust_spend_for_local_income(spend: Optional[float],
         out["reason"] = ("spend is not a BLS-sourced national figure (caller-provided or "
                          "unsourced estimate) — left unadjusted on purpose")
         return out
+    # ACS and BLS CEX are US-only. A Lisbon cafe must not be scaled by a US income curve.
+    # BEFORE the FIPS check, not after: a non-US address never HAS Census FIPS, so behind
+    # that guard this branch was unreachable and reported the vaguer reason. The specific
+    # one is the useful one, and an unreachable geography predicate is the whole of C4.
+    if _is_non_us(address):
+        out["reason"] = ("non-US geography — ACS/BLS CEX are US-only sources, so no local "
+                         "income adjustment is available")
+        return out
     if not (state_fips and county_fips):
         out["reason"] = "no Census FIPS for the address, so no local income distribution"
         return out
-    # ACS and BLS CEX are US-only. A Lisbon cafe must not be scaled by a US income curve.
-    try:
-        from market_sizing import is_non_us_geography
-        if is_non_us_geography(address):
-            out["reason"] = ("non-US geography — ACS/BLS CEX are US-only sources, so no local "
-                             "income adjustment is available")
-            return out
-    except Exception:                                     # pragma: no cover - import guard
-        pass
     try:
         from .spend_index import (IncomeDistribution, SpendCurve, local_spend_multiplier)
         curve_ev = get_tool("cex_income_quintile_curve").fn(
@@ -644,7 +740,7 @@ def size_hyperlocal(
         # so fall through to the estimate — which is on the right scale by construction and
         # wears the UNSOURCED label the sourced path cannot honestly claim.
         households = _estimate_households(matched, radius_m)
-        households_src = "LLM estimate (UNSOURCED — validate vs US Census ACS)"
+        households_src = households_source_label(False, matched or address)
 
     # 3. Competition (needs coordinates — skipped, not fatal, if geocode didn't resolve).
     competitors = None
@@ -663,15 +759,16 @@ def size_hyperlocal(
     # and data_origin "census", and D53 — the gate that exists to refuse exactly this — PASSED
     # it, because the arbitrary input had been marked sourced two hundred lines earlier.
     spend_is_sourced = False
+    _from_bls = False        # a caller's number is not a BLS figure, whatever else it is
     if annual_spend_per_hh is not None:
         spend, spend_src = annual_spend_per_hh, "caller-provided"
         spend_is_sourced = True          # trusted for confidence: the caller asked for it
         spend_origin = "caller"          # but NOT an agency figure, whatever it happens to be
     else:
-        spend, spend_is_sourced = resolve_annual_spend(category)
-        spend_src = ("BLS Consumer Expenditure Survey" if spend_is_sourced
-                     else "LLM estimate (UNSOURCED — validate vs BLS CEX)")
-        spend_origin = "bls" if spend_is_sourced else "llm"
+        _where = matched or address
+        spend, _from_bls = resolve_annual_spend(category)
+        spend_is_sourced, spend_origin, spend_src = spend_provenance(
+            spend, _from_bls, _where)
 
     # 4b. Ground that NATIONAL spend figure in the LOCAL income distribution.
     #
@@ -691,7 +788,12 @@ def size_hyperlocal(
     #   - a failure here must not cost the TAM. Sizing survived a geocode failure by design
     #     (cycle36); it must equally survive an income lookup failure.
     spend_adjustment = adjust_spend_for_local_income(
-        spend=spend if spend_is_sourced and annual_spend_per_hh is None else None,
+        # Gated on "came from BLS", NOT on "may BLS be cited here". A non-US venture now
+        # has spend_is_sourced=False, and passing None on that basis made the adjuster
+        # report "not a BLS-sourced national figure" — true of the label, false of the
+        # number, and it hides the actual reason. It gets the figure and declines for the
+        # geography, in its own words.
+        spend=spend if _from_bls and annual_spend_per_hh is None else None,
         state_fips=state_fips, county_fips=county_fips, tract=geo_tract,
         geo_level=geo_level, category=category, address=matched, year=year,
         geoids=geo_geoids)
@@ -727,8 +829,19 @@ def size_hyperlocal(
     if not spend_is_sourced and spend:
         # Estimated spend is the load-bearing per-unit input → TAM can't be "high".
         _lower("medium")
-        notes.append("Annual spend/household is an LLM estimate, not survey-sourced — "
-                     f"validate against {_note_srcs['spend']} before relying on TAM.")
+        if spend_origin == "bls_national_us":
+            # Naming this "an LLM estimate" would be a second inaccuracy correcting the
+            # first: the figure IS survey data, from a survey that does not cover this
+            # market. The reader needs the distinction to judge how far off it might be.
+            notes.append(
+                "Annual spend/household is the US BLS Consumer Expenditure Survey national "
+                "average used as a PROXY — this venture is outside the US and no local "
+                "household-expenditure survey was consulted, so the per-household figure "
+                f"carries unknown error. Validate against {_note_srcs['spend']} before "
+                "relying on TAM.")
+        else:
+            notes.append("Annual spend/household is an LLM estimate, not survey-sourced — "
+                         f"validate against {_note_srcs['spend']} before relying on TAM.")
     if not households_sourced and households:
         _lower("low")  # estimated catchment size is the other load-bearing input
         notes.append("Trade-area households is an LLM estimate, not census-sourced — "

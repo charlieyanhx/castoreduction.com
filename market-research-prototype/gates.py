@@ -605,14 +605,45 @@ def d32_wtp_aggregation_honest(r: dict, html: Optional[str]) -> Finding:
 
 
 def d11_currency_sources(r: dict, html: Optional[str]) -> Finding:
-    geo = str((r.get("profile") or {}).get("geography") or "").lower()
-    desc = str((r.get("profile") or {}).get("summary") or "").lower()
-    blob = f"{geo} {desc}"
+    """A non-US venture must not be SOURCED to US-only data, nor advised to validate on it.
+
+    MEASURED: this gate passed a Lisbon bakery whose TAM was built on the BLS Consumer
+    Expenditure Survey national average and cited as "source: BLS Consumer Expenditure
+    Survey", because it inspected `sources_to_validate` — the ADVICE strings — and those
+    have always been right. `validation_sources_for()` correctly returns Eurostat/INE for a
+    non-US location, so the one field the gate read was the one field that was never wrong,
+    while the DATA half beside it carried a US federal citation.
+
+    It now reads provenance as well as advice, and looks for the location in the places the
+    pipeline actually stores it — `profile.geography` alone missed a hyperlocal run whose
+    trade area lives on `market_sizing._hyperlocal_location`.
+    """
+    prof, ms = r.get("profile") or {}, r.get("market_sizing") or {}
+    blob = " ".join(str(v or "") for v in (
+        prof.get("geography"), prof.get("location"), prof.get("summary"),
+        ms.get("location"), ms.get("_hyperlocal_location"), ms.get("density_geography"),
+    )).lower()
     if not any(m in blob for m in NON_US_MARKERS):
         return Finding(None, "US venture")
-    srcs = " ".join((r.get("market_sizing") or {}).get("sources_to_validate") or [])
-    bad = [s for s in ("US Census", "BLS") if s in srcs]
-    return Finding(not bad, f"non-US venture recommends US sources: {bad}" if bad else "clean")
+
+    bad = []
+    srcs = " ".join(ms.get("sources_to_validate") or [])
+    advice = [s for s in ("US Census", "BLS") if s in srcs]
+    if advice:
+        bad.append(f"recommends US-only sources to validate against: {advice}")
+    # The half that shipped wrong. `bls`/`census` are the origins D53 treats as agency-
+    # grounded; a non-US venture may carry `bls_national_us` (a labelled proxy) but never
+    # an origin that asserts the agency surveys this market.
+    origins = ms.get("data_origin") or {}
+    claimed = sorted({k for k, v in origins.items() if v in ("bls", "census", "acs")})
+    if claimed:
+        bad.append(f"claims US federal provenance for {claimed}")
+    # The reader-facing string, checked separately: an origin can be right while the
+    # sentence beside it still says BLS.
+    src_txt = str(ms.get("spend_per_hh_source") or "")
+    if ("BLS" in src_txt or "Census" in src_txt) and "PROXY" not in src_txt.upper():
+        bad.append(f"spend cited to a US agency without a proxy label: {src_txt[:70]}")
+    return Finding(not bad, "non-US venture " + "; ".join(bad) if bad else "clean")
 
 
 def d12_provenance(r: dict, html: Optional[str]) -> Finding:
@@ -1119,16 +1150,19 @@ def d49_trade_area_matches_its_radius(r: dict, html: Optional[str]) -> Finding:
     residentially plausible density. Manhattan, the densest US county, is ~13,500
     households/km², so 20,000 is a generous ceiling that no real catchment reaches and that
     every county-scale figure blows through (LA County as a 3km trade area implies ~117,000
-    households/km²). N/A for non-hyperlocal sizings and when the scale is not disclosed."""
+    households/km²).
+
+    APPLICABILITY IS THE DATA, NOT THE LABEL. This used to decline on any scale outside
+    ("hyperlocal", "trade_area", ""), which excused it from every `regional` report — and
+    those are exactly the reports where a single catchment is standing in for a multi-site
+    footprint, so an implausible density is most diagnostic there, not least. A report that
+    publishes a radius and a trade-area household count has made a checkable claim whatever
+    it calls its scale; one that publishes neither has nothing to check."""
     ms = r.get("market_sizing") or {}
-    if (ms.get("scale") or "").lower() not in ("hyperlocal", "trade_area", ""):
-        return Finding(None, f"not a hyperlocal sizing (scale={ms.get('scale')})")
-    if ms.get("method") and ms.get("method") != "trade_area_catchment" and not ms.get("scale"):
-        return Finding(None, "not a trade-area sizing")
     households = ms.get("trade_area_households")
     radius_m = ms.get("radius_m")
     if households is None or not radius_m:
-        return Finding(None, "trade-area households or radius not disclosed")
+        return Finding(None, "no trade area disclosed (no radius or household count)")
     area = math.pi * (_num(radius_m) / 1000.0) ** 2
     if area <= 0:
         return Finding(None, "non-positive catchment")
@@ -1499,8 +1533,26 @@ def d52_chosen_sizing_skill_actually_ran(r: dict, html: str | None) -> Finding:
     skill = scale_dec.get("sizing_skill") or "the trade-area model"
     footprint = {k: ms.get(k) for k in ("radius_m", "catchment_km2", "trade_area_households")
                  if ms.get(k) is not None}
+
+    # WHICH skill, not merely whether SOME trade-area model ran. The footprint test alone
+    # cannot tell a substitution from a success: `size_by_scale` routes hyperlocal AND
+    # regional into `size_hyperlocal`, which leaves the same radius/catchment/household
+    # trio either way, so a 3-location chain sized as one 3 km catchment read here as
+    # "size_regional ran" — the gate confirming a measurement while missing that it
+    # measured the wrong thing.
+    ran = ms.get("sizing_skill_ran")
+    if ran and ran != skill:
+        return Finding(False,
+                       f"classifier chose {skill} for this {scale} venture and "
+                       f"{ran} produced the numbers instead — the published figures "
+                       f"describe what {ran} measures ({footprint or 'no footprint'}), "
+                       f"not what {skill} would have. A multi-site venture sized this way "
+                       f"publishes one trade area as its whole market")
     if footprint:
-        return Finding(True, f"{skill} ran: {footprint}")
+        # Un-stamped artifacts predate the key and fall back to the original check: a gate
+        # that fails every archived report for lacking a field invented today is a gate
+        # people learn to ignore.
+        return Finding(True, f"{ran or skill} ran: {footprint}")
 
     tam = ((ms.get("tam") or {}).get("mid"))
     return Finding(False,
