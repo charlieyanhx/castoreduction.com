@@ -24,10 +24,12 @@ from typing import Optional
 
 from skills.registry import skill
 from tools import Evidence
-from .classify import classify_market_scale
-from .hyperlocal import size_hyperlocal
-from .regional import size_regional
-from .national_digital import size_national_digital
+# THE MODULE, not the name — see the note in regional.py. One patchable location per
+# sizer, reachable from every caller, instead of one per import site.
+from . import classify as _classify_mod
+from . import hyperlocal as _hyperlocal_mod
+from . import national_digital as _national_digital_mod
+from . import regional as _regional_mod
 
 
 @skill(produces="market_sizing", consumes=["company_profile"])
@@ -59,7 +61,7 @@ def size_market(
     the routing decision without numbers (classify_market_scale) or when
     grounding an already-computed figure (grounded_bottom_up).
     """
-    cls = classify_market_scale(description, geo)
+    cls = _classify_mod.classify_market_scale(description, geo)
     scale = cls.payload["scale"]
     sizing_skill = cls.payload["sizing_skill"]
     decision = {
@@ -74,19 +76,19 @@ def size_market(
         if not addr:
             ev = _need(scale, "address", "a street address for the location")
         else:
-            ev = size_hyperlocal(address=addr, **geo_kw)
+            ev = _hyperlocal_mod.size_hyperlocal(address=addr, **geo_kw)
 
     elif sizing_skill == "size_regional":
         if addresses:
-            ev = size_regional(addresses=addresses, **geo_kw)
+            ev = _regional_mod.size_regional(addresses=addresses, **geo_kw)
         elif representative_address or address:
-            ev = size_regional(representative_address=representative_address or address,
+            ev = _regional_mod.size_regional(representative_address=representative_address or address,
                                planned_locations=planned_locations, **geo_kw)
         else:
             ev = _need(scale, "addresses", "site addresses or a representative location")
 
     else:  # size_national_digital
-        ev = size_national_digital(
+        ev = _national_digital_mod.size_national_digital(
             profile=profile or {"description": description},
             competitors=competitors, audience=audience,
             competitor_pricing=competitor_pricing, psm_result=psm_result,

@@ -9,6 +9,13 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+# These patch `skills.sizing.hyperlocal.size_hyperlocal` — the module that DEFINES it — not
+# `skills.sizing.regional.size_hyperlocal`, which was regional's own copy of the name. The
+# copy is gone: a sizing skill now reaches another through the module object, so one patch
+# at the definition intercepts every caller. See
+# test_a_sizing_skill_has_one_patchable_seam.py for why (#87 wave 4, and a test that hung
+# for 100s because it patched the definition while regional held a stale binding).
+
 from tools import Evidence
 from skills import get_skill, SKILL_REGISTRY
 from skills.sizing.regional import size_regional
@@ -29,7 +36,7 @@ class TestRegistration(unittest.TestCase):
 class TestExplicitAddresses(unittest.TestCase):
     def test_sums_sites(self):
         sites = iter([_site(100, 40, 10), _site(200, 80, 20)])
-        with patch("skills.sizing.regional.size_hyperlocal", side_effect=lambda **k: next(sites)):
+        with patch("skills.sizing.hyperlocal.size_hyperlocal", side_effect=lambda **k: next(sites)):
             e = size_regional(addresses=["a", "b"])
         self.assertEqual(e.payload["tam_usd"], 300)
         self.assertEqual(e.payload["som_usd"], 30)
@@ -41,7 +48,7 @@ class TestExplicitAddresses(unittest.TestCase):
         bad = Evidence(source="size_hyperlocal", category="skill_output", count=0,
                        skeleton=True, error="geocode failed")
         seq = iter([ok, bad])
-        with patch("skills.sizing.regional.size_hyperlocal", side_effect=lambda **k: next(seq)):
+        with patch("skills.sizing.hyperlocal.size_hyperlocal", side_effect=lambda **k: next(seq)):
             e = size_regional(addresses=["a", "b"])
         self.assertEqual(e.payload["n_locations"], 1)
         self.assertTrue(any("skipped" in n for n in e.payload["notes"]))
@@ -49,7 +56,7 @@ class TestExplicitAddresses(unittest.TestCase):
 
 class TestRepresentativeMode(unittest.TestCase):
     def test_scales_by_planned_count(self):
-        with patch("skills.sizing.regional.size_hyperlocal", return_value=_site(100, 40, 10)):
+        with patch("skills.sizing.hyperlocal.size_hyperlocal", return_value=_site(100, 40, 10)):
             e = size_regional(representative_address="hq", planned_locations=5)
         self.assertEqual(e.payload["tam_usd"], 500)
         self.assertEqual(e.payload["som_usd"], 50)
@@ -57,14 +64,14 @@ class TestRepresentativeMode(unittest.TestCase):
         self.assertTrue(any("overlap" in n for n in e.payload["notes"]))
 
     def test_national_ceiling_caps_tam(self):
-        with patch("skills.sizing.regional.size_hyperlocal", return_value=_site(100, 40, 10)):
+        with patch("skills.sizing.hyperlocal.size_hyperlocal", return_value=_site(100, 40, 10)):
             e = size_regional(representative_address="hq", planned_locations=100,
                               national_ceiling_usd=2000)
         self.assertEqual(e.payload["tam_usd"], 2000)  # capped from 10,000
         self.assertTrue(any("ceiling" in n for n in e.payload["notes"]))
 
     def test_phasing_schedule(self):
-        with patch("skills.sizing.regional.size_hyperlocal", return_value=_site(100, 40, 10)):
+        with patch("skills.sizing.hyperlocal.size_hyperlocal", return_value=_site(100, 40, 10)):
             e = size_regional(representative_address="hq", planned_locations=3,
                               phasing=[0.33, 0.66, 1.0])
         sched = e.payload["phasing_schedule"]
