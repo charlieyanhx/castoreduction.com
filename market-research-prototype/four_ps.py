@@ -135,13 +135,27 @@ def model_directive(business_model_kind: str | None, economics: dict | None = No
     # own directive that permits the recurring leg as a clearly-labeled SECONDARY line.
     if kind == "hybrid":
         unit = ((economics or {}).get("unit")) or "unit"
-        return (f"\n\nMONETIZATION MODEL — HYBRID (one-time {unit} sale + a real secondary "
+        # The recurring leg is NOT COMPUTED ANYWHERE. `_PER_UNIT_KINDS` routes hybrid to
+        # retail_unit_economics — a single-stream model — and financials_step collapses it
+        # to "transactional"; grepping the finished result for recurring/mrr/arpu/attach
+        # returns nothing. This directive used to say the leg was "REAL and defined by the
+        # profile ... never dropped", so any recurring figure a section produced was
+        # necessarily invented AND the prompt is what asked for it.
+        #
+        # Two fixes were available: compute the leg, or stop promising it. Computing it
+        # needs an attach rate, which is an operator input nobody has supplied — so this
+        # takes the second and follows the pattern the ad_supported branch already
+        # established: name the unknown rather than order a number that cannot exist.
+        return (f"\n\nMONETIZATION MODEL — HYBRID (one-time {unit} sale + a secondary "
                 f"recurring leg). The one-time leg (the device/product) is the PRIMARY, "
-                f"headline revenue = {unit}s sold × price per {unit}. The recurring leg is "
-                f"REAL and defined by the profile — show it as a clearly LABELED SECONDARY "
-                f"line (its retention / recurring revenue belong there, never as the "
-                f"headline, and never dropped). Do NOT collapse the venture into a pure "
-                f"subscription, and do NOT erase the recurring half the profile defines.")
+                f"headline revenue = {unit}s sold × price per {unit}, and it is the only "
+                f"leg this analysis has modelled. The recurring leg is an OPERATOR "
+                f"UNKNOWN: its attach rate and retention were never supplied, so state it "
+                f"qualitatively and name what the operator must provide (attach rate, "
+                f"monthly fee, expected retention) — do NOT state an MRR, an ARPU, a "
+                f"CLV or a recurring revenue figure, because nothing in this report "
+                f"computes one. Do NOT collapse the venture into a pure subscription "
+                f"either: the one-time sale is the headline.")
     if kind in ("transactional", "ecommerce", "services"):
         unit = ((economics or {}).get("unit")) or "unit"
         kindlabel = {
@@ -799,13 +813,18 @@ def _r_citation_discipline(facts: dict) -> str:
     phrasing only moves the invention somewhere else.
     """
     unit = ((facts.get("economics") or {}).get("unit")) or "unit"
+    # The third segment below was not f-prefixed, so the literal characters `{unit}` shipped
+    # inside the citation rule of every 4Ps prompt of every run. The example also said
+    # "/day", which is wrong for the four models that plan in months (#100) — dropped
+    # rather than made period-aware, because the example is about the FOOTNOTE, not the
+    # period, and a second period owner is the last thing this file needs.
     return (
         "CITATION DISCIPLINE — HARD RULE: a ¹ marker may ONLY sit on a sentence whose "
         "numbers appear in the facts given to you above or in the cited source itself. "
         "Any target, quota, radius, headcount or spend you are PROPOSING is a "
         f"recommendation, not a measurement: write it WITHOUT a footnote and name it as "
-        f"one — e.g. \"we recommend an opening target of N {unit}s/day (operator "
-        "decision)\" — never \"N {unit}s/day ¹\". Do not attach a marker to an invented "
+        f"one — e.g. \"we recommend an opening target of N {unit}s (operator "
+        f"decision)\" — never \"N {unit}s ¹\". Do not attach a marker to an invented "
         "figure merely because a real figure sits beside it in the same sentence.")
 
 

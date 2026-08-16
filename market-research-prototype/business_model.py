@@ -265,9 +265,16 @@ def benchmark_validation_note(unit: str, category: str = "", business_model: str
     derived from the venture's own category/model.
     """
     u = (unit or "unit").strip() or "unit"
-    blob = f"{category} {business_model} {u}".lower()
+    # The unit noun is NOT part of the model signal. "project" sits in _MARKETPLACE_UNITS
+    # because platforms broker projects — and so every services venture, whose unit noun is
+    # "project" by default, was told to "sample rival take-rates ... validate against
+    # comparable marketplaces". An agency has no take-rate. That is the same bleed this
+    # function's docstring exists to prevent, running the other direction: a marketplace
+    # was given cafe copy, and the fix that stopped it started giving agencies marketplace
+    # copy. The MODEL decides; the unit noun only names things once the model is known.
+    blob = f"{category} {business_model}".lower()
 
-    if any(k in blob for k in _MARKETPLACE_KW) or u in _MARKETPLACE_UNITS:
+    if any(k in blob for k in _MARKETPLACE_KW):
         return (
             f"Competitor benchmark requires sampling rival take-rates and per-{u} fees; "
             "operator should validate against comparable marketplaces and local service providers."
@@ -310,6 +317,28 @@ try:  # provenance: record that this function produced a report key
 except Exception:  # pragma: no cover — never let provenance break an import
     def _records_production(_k):
         return lambda f: f
+
+
+#: Kinds that genuinely run a single physical site, for the fixed-cost fallback below.
+_SINGLE_SITE_KINDS = (TRANSACTIONAL,)
+
+
+def _fixed_cost_basis(cost_source: str, kind: Optional[str] = None) -> str:
+    """What the monthly fixed cost IS, taken from whoever computed it.
+
+    `estimate_cost_structure` describes the basis it used and passes it through as
+    `cost_source` ("estimated: early-stage company overhead (team + infrastructure +
+    tooling)"). This reads that rather than restating a cafe's cost structure for every
+    venture. Falls back only when nothing was supplied, and then only claims rent for a
+    kind that plausibly pays it.
+    """
+    src = (cost_source or "").strip()
+    if src:
+        # Strip the "estimated: " lead-in — the basis is the noun phrase after it.
+        return src.split(":", 1)[1].strip() if ":" in src else src
+    if (kind or "").strip().lower() in _SINGLE_SITE_KINDS:
+        return "single-site rent + staff + utilities"
+    return "monthly fixed cost as supplied (basis not stated)"
 
 
 @_records_production("economics")
@@ -379,7 +408,12 @@ def retail_unit_economics(
             "monthly_units": round(monthly_units),
             "monthly_units_per_day": round(monthly_units / 30.0, 1),
             "som_capture_pct": round(som_capture_frac * 100, 1),
-            "fixed_cost_basis": "single-site rent + staff + utilities",
+            # `estimate_cost_structure` ALREADY works out the right basis — a consultancy
+            # gets "early-stage company overhead (team + infrastructure + tooling)" — and
+            # it arrives here as `cost_source` and was dropped: two producers, zero
+            # consumers. Hardcoding shop rent meant a DTC brand and an agency were both
+            # told their fixed cost was a single site's rent and utilities.
+            "fixed_cost_basis": _fixed_cost_basis(cost_source, kind),
         }
         _withhold = multi_site_withhold_reason(market_scale)
         if _withhold:
