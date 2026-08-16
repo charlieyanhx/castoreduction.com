@@ -49,7 +49,7 @@ log = get("plan")
 # than location.
 from brief import (  # noqa: F401
     _PLACE_RE, _SENTENCE_END, _STATED_PRICE_RE, _STREET_RE, _trim_at_sentence_end,
-    extract_location, extract_price, extract_stated_price)
+    extract_location, extract_location_count, extract_price, extract_stated_price)
 from brief import UNIT_NOUNS as _BRIEF_UNIT_NOUNS
 # Category -> OSM tag/radius resolution now lives with the sizing skills (#87 wave 2).
 from skills.sizing.osm_tags import (  # noqa: F401
@@ -991,6 +991,9 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
     """
     if not scale_decision or scale_decision.get("scale") not in ("hyperlocal", "regional"):
         return None
+    # Only a scale the classifier called multi-site may route to the rollout engine. A
+    # hyperlocal brief that happens to mention "our two espresso machines" must not.
+    _is_rollout = scale_decision.get("scale") in ("regional", "national_physical")
     location = extract_location(description)
     if not location:
         return None  # caller keeps legacy + the existing "needs an address" caveat
@@ -1006,16 +1009,44 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
     _tag = _resolve_osm_tag(cat) or ("amenity", "restaurant")
     osm_key, osm = _tag
     radius_m = _radius_for_osm_value(osm)  # cycle38: walk-in cafe ~1.5km, not a flat 3km
+
+    # HOW MANY PREMISES. `size_regional` — the multi-site rollout engine — has been written
+    # the whole time (skills/sizing/regional.py, called correctly by the unwired
+    # dispatch.py) and this function had no branch for it, so a chain published ONE site's
+    # trade area as its market: measured, a three-location chain, a five-store bakery and a
+    # four-site rollout all shipped $4.0M with n_locations None. C5 made that fail loudly
+    # rather than silently; this makes it size correctly.
+    #
+    # A count is required, not assumed. Absence of one is not evidence of a single site, but
+    # inventing a multiplier is worse than declining — so an uncountable "chain" keeps the
+    # single-site path and the C5 stamp lets D52 refuse it, which is the honest state.
+    n_locations = extract_location_count(description) if _is_rollout else None
+    _sized_by = "size_hyperlocal"
     try:
-        from skills.sizing.hyperlocal import size_hyperlocal
-        ev = size_hyperlocal(address=location, category=cat or "food_away_from_home",
-                             osm_value=osm, osm_key=osm_key, radius_m=radius_m)
+        if n_locations and n_locations > 1:
+            from skills.sizing.regional import size_regional
+            _sized_by = "size_regional"
+            ev = size_regional(representative_address=location,
+                               planned_locations=n_locations,
+                               category=cat or "food_away_from_home",
+                               osm_value=osm, radius_m=radius_m)
+        else:
+            from skills.sizing.hyperlocal import size_hyperlocal
+            ev = size_hyperlocal(address=location, category=cat or "food_away_from_home",
+                                 osm_value=osm, osm_key=osm_key, radius_m=radius_m)
     except Exception as e:
-        log.warning("[plan] hyperlocal sizing failed (non-fatal): %s", e)
+        log.warning("[plan] %s sizing failed (non-fatal): %s", _sized_by, e)
         return None
     if ev.skeleton or not ev.payload:
         return None
     p = ev.payload
+    if _sized_by == "size_regional":
+        # The ROLLUP is the market; the FOOTPRINT stays per-site. Publishing five sites'
+        # households against one site's radius is a county-scale density in a 3 km circle,
+        # which D49 would fail — correctly. `per_site[0]` is the representative trade area
+        # those figures actually describe.
+        _first = (p.get("per_site") or [{}])[0]
+        p = dict(_first, **{k: v for k, v in p.items() if v is not None})
 
     # Map the hyperlocal figures (which carry the real `formula`) so the report's
     # TAM/SAM/SOM "math" lines render instead of going blank — the template reads
@@ -1099,7 +1130,11 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
         #
         # This does not wire size_regional. It converts a silent false claim into a loud
         # failure, which is the honest interim state.
-        "sizing_skill_ran": "size_hyperlocal",
+        "sizing_skill_ran": _sized_by,
+        # How many premises the rollup covers, so the report can say "5 trade areas" rather
+        # than presenting a sum as if it were one catchment.
+        "n_locations": p.get("n_locations"),
+        "phasing_schedule": p.get("phasing_schedule"),
         "trade_area_households": p.get("trade_area_households"),
         "radius_m": p.get("radius_m"),
         "catchment_km2": p.get("catchment_km2"),

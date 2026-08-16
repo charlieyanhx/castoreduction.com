@@ -74,6 +74,27 @@ class TestTheTwoBriefsAgree(unittest.TestCase):
         self.assertEqual(plan.extract_unit_price(_assembled()),
                          plan.extract_unit_price(_PROSE))
 
+    def test_both_yield_the_same_location_count(self):
+        """A count read from one door and not the other multiplies the TAM by 5 through one
+        entry point and not the other. Both shapes are single-site here, so both must say
+        None — and the chain shapes below must agree with each other too."""
+        import plan
+        self.assertIsNone(plan.extract_location_count(_assembled()))
+        self.assertIsNone(plan.extract_location_count(_PROSE))
+
+    def test_a_chain_reads_the_same_through_both_doors(self):
+        from intake import _synthesize_from_extracted
+        import plan
+        facts = dict(_FACTS, product="A five-store specialty coffee chain")
+        prose = ("A five-store specialty coffee chain in the Mission District, San "
+                 "Francisco, CA, at $5.50 per drink.")
+        self.assertEqual(plan.extract_location_count(_synthesize_from_extracted(facts)),
+                         plan.extract_location_count(prose),
+                         "the assembled brief and the prose brief disagree on how many "
+                         "premises this venture operates — one of them sizes 5 trade "
+                         "areas and the other sizes 1")
+        self.assertEqual(plan.extract_location_count(prose), 5)
+
     def test_both_route_to_the_same_sizing_skill(self):
         """The decision that picks which market model runs at all."""
         from skills.sizing.classify import classify_market_scale
@@ -125,7 +146,7 @@ class TestEveryDescriptionReaderIsCovered(unittest.TestCase):
 
     #: Everything called with the raw description in run_plan, by grep of `(description)`.
     _READERS = ("extract_location", "extract_unit_price", "extract_device_price",
-                "extract_stated_price")
+                "extract_stated_price", "extract_location_count")
 
     def test_the_readers_named_here_still_exist(self):
         import plan
