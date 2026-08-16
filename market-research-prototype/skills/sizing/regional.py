@@ -21,7 +21,20 @@ from typing import Optional
 
 from skills.registry import skill
 from tools import Evidence
-from .hyperlocal import size_hyperlocal
+# THE MODULE, not the name. A sizing skill that calls another sizing skill reaches it
+# through the module object, so `patch("skills.sizing.hyperlocal.size_hyperlocal")`
+# intercepts from EVERY caller rather than only from the module that defines it.
+#
+# Bound as a bare name, this line cost twice. #87 wave 4 was reverted when 14 tests failed:
+# they patched `plan.<name>` and the moved functions resolved in their own module's globals,
+# so the patch never applied. Then, wiring size_regional, a test that patched
+# `skills.sizing.hyperlocal.size_hyperlocal` silently made real network calls and hung for
+# 100s, because THIS line had already bound the original into regional's namespace at import
+# time. Same defect, opposite direction, both invisible until something hung or failed.
+#
+# `validate_numbers` stays a bare import on purpose: it is a leaf validator nothing patches,
+# and a rule wide enough to cover it would be aspirational rather than true.
+from . import hyperlocal
 from .validate import validate_numbers
 
 
@@ -71,13 +84,13 @@ def size_regional(
 
     if addresses:
         for addr in addresses:
-            ev = size_hyperlocal(address=addr, **kw)
+            ev = hyperlocal.size_hyperlocal(address=addr, **kw)
             if ev.payload and not ev.skeleton:
                 sites.append(ev.payload)
             else:
                 notes.append(f"site skipped (sizing failed): {addr}")
     elif representative_address:
-        ev = size_hyperlocal(address=representative_address, **kw)
+        ev = hyperlocal.size_hyperlocal(address=representative_address, **kw)
         if ev.payload and not ev.skeleton:
             sites.append(ev.payload)
             scale_factor = max(1, planned_locations)

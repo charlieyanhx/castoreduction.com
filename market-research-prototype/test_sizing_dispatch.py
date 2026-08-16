@@ -9,6 +9,15 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+# These patch each sizer at the module that DEFINES it, not at `skills.sizing.dispatch`,
+# which used to hold its own copy of every name. The copies are gone: a sizing skill reaches
+# another through the module object, so ONE patch per sizer intercepts every caller —
+# dispatch, regional, plan, anything. See test_a_sizing_skill_has_one_patchable_seam.py.
+#
+# The old form was not merely stylistic. It meant the number of places you had to patch
+# equalled the number of modules that had imported the sizer, which a test author cannot
+# know: that is what reverted #87 wave 4 and what hung a test for 100 seconds.
+
 from tools import Evidence
 from skills import get_skill, SKILL_REGISTRY
 from skills.sizing.dispatch import size_market
@@ -36,9 +45,9 @@ class TestRegistration(unittest.TestCase):
 
 class TestRouting(unittest.TestCase):
     def test_hyperlocal_route(self):
-        with patch("skills.sizing.dispatch.classify_market_scale",
+        with patch("skills.sizing.classify.classify_market_scale",
                    return_value=_classified("hyperlocal", "size_hyperlocal")), \
-             patch("skills.sizing.dispatch.size_hyperlocal", return_value=_sized("trade_area_catchment")) as h:
+             patch("skills.sizing.hyperlocal.size_hyperlocal", return_value=_sized("trade_area_catchment")) as h:
             e = size_market("a restaurant", address="123 Main St, LA")
         h.assert_called_once()
         self.assertEqual(e.payload["scale_decision"]["scale"], "hyperlocal")
@@ -46,17 +55,17 @@ class TestRouting(unittest.TestCase):
         self.assertEqual(e.payload["tam_usd"], 100)
 
     def test_regional_route_with_addresses(self):
-        with patch("skills.sizing.dispatch.classify_market_scale",
+        with patch("skills.sizing.classify.classify_market_scale",
                    return_value=_classified("regional", "size_regional")), \
-             patch("skills.sizing.dispatch.size_regional", return_value=_sized("per_location_rollout")) as r:
+             patch("skills.sizing.regional.size_regional", return_value=_sized("per_location_rollout")) as r:
             e = size_market("a chain", addresses=["a", "b"])
         r.assert_called_once()
         self.assertEqual(e.payload["scale_decision"]["sizing_skill"], "size_regional")
 
     def test_digital_route(self):
-        with patch("skills.sizing.dispatch.classify_market_scale",
+        with patch("skills.sizing.classify.classify_market_scale",
                    return_value=_classified("global_digital", "size_national_digital")), \
-             patch("skills.sizing.dispatch.size_national_digital",
+             patch("skills.sizing.national_digital.size_national_digital",
                    return_value=_sized("topdown_bottomup_digital")) as d:
             e = size_market("a global SaaS", profile={"name": "Acme"})
         d.assert_called_once()
@@ -65,7 +74,7 @@ class TestRouting(unittest.TestCase):
 
 class TestInputGuards(unittest.TestCase):
     def test_hyperlocal_missing_address(self):
-        with patch("skills.sizing.dispatch.classify_market_scale",
+        with patch("skills.sizing.classify.classify_market_scale",
                    return_value=_classified("hyperlocal", "size_hyperlocal")):
             e = size_market("a restaurant")  # no address
         self.assertTrue(e.skeleton)
@@ -73,16 +82,16 @@ class TestInputGuards(unittest.TestCase):
         self.assertEqual(e.payload["missing_input"], "address")
 
     def test_regional_missing_addresses(self):
-        with patch("skills.sizing.dispatch.classify_market_scale",
+        with patch("skills.sizing.classify.classify_market_scale",
                    return_value=_classified("regional", "size_regional")):
             e = size_market("a chain")
         self.assertTrue(e.skeleton)
         self.assertIn("addresses", e.error)
 
     def test_digital_defaults_profile_from_description(self):
-        with patch("skills.sizing.dispatch.classify_market_scale",
+        with patch("skills.sizing.classify.classify_market_scale",
                    return_value=_classified("national_digital", "size_national_digital")), \
-             patch("skills.sizing.dispatch.size_national_digital",
+             patch("skills.sizing.national_digital.size_national_digital",
                    return_value=_sized("topdown_bottomup_digital")) as d:
             size_market("an online tool")  # no profile passed
         # profile defaulted to {"description": ...}

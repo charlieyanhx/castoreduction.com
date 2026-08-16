@@ -51,11 +51,13 @@ SITE = {"tam_usd": 4_000_000.0, "sam_usd": 1_200_000.0, "som_usd": 240_000.0,
 
 
 def _size(brief, scale="regional", skill="size_regional"):
-    """BOTH bind sites are patched. `skills/sizing/regional.py` does
-    `from .hyperlocal import size_hyperlocal` at import time, so the name lives in
-    regional's own globals and patching the hyperlocal module never reaches it — the run
-    then geocodes for real and hangs. Same lesson as #87 wave 4: a moved or re-exported
-    function resolves in the namespace that bound it, not the one that defined it."""
+    """ONE patch site, at the module that DEFINES size_hyperlocal.
+
+    This needed two until `regional.py` stopped binding the name: it did
+    `from .hyperlocal import size_hyperlocal` at import, so patching the hyperlocal module
+    never reached regional's copy and the run geocoded for real and hung for 100 seconds.
+    The seam rule (test_a_sizing_skill_has_one_patchable_seam) makes one patch sufficient,
+    and this call site is the proof — if the rule regresses, this hangs again."""
     import plan
     dec = {"scale": scale, "sizing_skill": skill}
     # `get_tool` is stubbed because size_by_scale ends by geocoding the address and asking
@@ -69,8 +71,6 @@ def _size(brief, scale="regional", skill="size_regional"):
         return _T()
 
     with patch("skills.sizing.hyperlocal.size_hyperlocal",
-               return_value=_Ev(dict(SITE))), \
-         patch("skills.sizing.regional.size_hyperlocal",
                return_value=_Ev(dict(SITE))), \
          patch("tools.get_tool", _no_tools), \
          patch.object(plan, "_resolve_osm_tag", return_value=("amenity", "cafe")):
