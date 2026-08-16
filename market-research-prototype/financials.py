@@ -56,10 +56,39 @@ def _y3_ceilings(som_mid: float, som_low, som_high) -> tuple[dict, str]:
             "mid). Treat the spread as generic, not venture-specific.")
 
 
-def _ramp_for(market_scale: str | None, model: str) -> tuple[dict, str]:
-    """Growth curve follows WHERE the venture operates, not its billing model."""
+def _ramp_for(market_scale: str | None, model: str | None) -> tuple[dict, str]:
+    """Growth curve follows WHERE the venture operates and WHETHER revenue recurs.
+
+    THE DOCSTRING WAS RIGHT AND THE CODE WAS NOT. It read "follows WHERE the venture
+    operates, not its billing model" and then tested `model == "transactional"` — one
+    literal string — so two callers naming the same venture differently got different
+    curves. MEASURED at hyperlocal scale:
+
+        kind           table y1   ladder y1
+        transactional     60%        60%     agree, but only because the coercion is a no-op
+        ecommerce         60%         8%     7.5x apart
+        services          60%         8%     7.5x apart
+        hybrid            60%         8%     7.5x apart
+        subscription       8%         8%     agree
+        marketplace        8%         8%     agree
+
+    The TABLE reaches here via financials_step, which coerces every per-unit kind to the
+    literal "transactional" to choose a PROJECTION FUNCTION — a routing decision that
+    silently doubled as a ramp input. The LADDER reaches here via planning_target with the
+    venture's real kind. A boutique fitness studio (hybrid, hyperlocal) was told to plan
+    around 6.2 drop-ins/day by the volume ladder while the scenario table's own base-case
+    year-1 row required 46.9/day, both printed, a page apart, each internally consistent.
+    D61 endorses the ladder's figure — it IS a rung — and has no idea the table exists.
+
+    So: the curve keys on `is_per_unit(kind) and physical`. A physical venture builds
+    clientele on a physical-venture curve whether it bills per drop-in, per class pack or
+    as a device plus an app. A recurring model compounds instead of filling up, wherever it
+    operates — that half the old branch had right. An UNKNOWN kind gets the S-curve, the
+    cautious read: a venture nobody could classify must not be handed the optimistic 60%.
+    """
     physical = any(t in (market_scale or "").lower() for t in _PHYSICAL_SCALES)
-    if model == "transactional" and physical:
+    from business_model import is_per_unit
+    if physical and model and is_per_unit(model):
         return _RETAIL, ("Retail ramp: y1=60%, y2=85%, y3=100% of the year-3 ceiling — "
                          "a physical location builds clientele fast.")
     return _S_CURVE, "S-curve: y1=8%, y2=35%, y3=100% of the year-3 ceiling."
