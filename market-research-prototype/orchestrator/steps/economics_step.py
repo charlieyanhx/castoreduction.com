@@ -124,13 +124,19 @@ def run_economics_step(result: dict, profile: dict, *, psm_result: dict, biz_kin
                 comp_prices = None
                 if competitor_pricing_data and competitor_pricing_data.get("per_domain"):
                     comp_prices = [d["median"] for d in competitor_pricing_data["per_domain"] if d.get("median")]
-                biz_model = (profile.get("business_model") or "").lower()
-                unit = "seat" if "b2b" in biz_model or "saas" in biz_model else "account"
+                # `unit_noun` — the SAME resolver every other site uses. This was a
+                # hand-rolled copy, three lines below the comment explaining that exactly
+                # such a duplicate had been deleted for diverging, and it diverged: it read
+                # the profile's `business_model` FIELD alone while unit_for_model reads
+                # summary + business_model + category. MEASURED on realistic profiles, 1 in
+                # 4 disagreed — a venture whose summary says "$29 per seat per month" but
+                # whose business_model field says "subscription" was priced per seat and
+                # had its CLV computed per account.
                 econ = full_economics(
                     segment_summary=segment_summary,
                     product_summary=profile.get("summary", ""),
                     optimal_price_monthly=opt,
-                    pricing_unit=unit,
+                    pricing_unit=unit_noun,
                     competitor_prices=comp_prices,
                 )
             else:

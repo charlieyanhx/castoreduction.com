@@ -11,6 +11,7 @@ directional signal that's free and fast.
 """
 from __future__ import annotations
 import json
+import math
 import sys
 import statistics
 
@@ -476,7 +477,11 @@ def compute_break_even(monthly_price: float, monthly_fixed_cost: float = 5000,
     if margin <= 0:
         return {"error": "price below variable cost", "break_even_customers": None}
     return {
-        "break_even_customers": round(monthly_fixed_cost / margin),
+        # CEIL, not round. 10.4 customers is 11 customers, or the venture is $30/mo short
+        # and told it has broken even. R4 rank 24 fixed exactly this in
+        # retail_unit_economics (pinned by test_breakeven_ceil.py) and the subscription
+        # side kept rounding down for another eleven months.
+        "break_even_customers": math.ceil(monthly_fixed_cost / margin),
         "monthly_fixed_cost_assumed": monthly_fixed_cost,
         "variable_cost_per_customer_assumed": variable_cost_per_customer,
         "cost_source": cost_source,
