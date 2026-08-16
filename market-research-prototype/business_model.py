@@ -312,6 +312,63 @@ def multi_site_withhold_reason(market_scale: str | None) -> str | None:
     return None
 
 
+#: A delivery person's fully-loaded monthly cost, and the revenue-per-head ceiling above
+#: which a professional-services profit claim stops being credible. Both are ASSUMPTIONS and
+#: both are named in the reason string, because the point is to make the reader check them —
+#: top-tier consultancies run $200-300k revenue per employee, so $400k is generous.
+_LOADED_MONTHLY_COST_PER_HEAD = 15_000.0
+_SERVICES_REVENUE_PER_HEAD_CEILING = 400_000.0
+
+
+def capacity_withhold_reason(kind: Optional[str], monthly_fixed_cost: Optional[float],
+                             annual_revenue_usd: Optional[float]) -> Optional[str]:
+    """"SOM volume needs more people than the fixed cost buys" — the services analogue of
+    `multi_site_withhold_reason`.
+
+    A services venture's CAPACITY IS ITS PEOPLE, and their salaries sit in FIXED cost. So
+    `retail_unit_economics` holds $60k/mo flat while volume ramps and reports the extra
+    projects as nearly free — contribution margin 66.7%, and a profit claim at a volume the
+    team cannot staff.
+
+    MEASURED on the audit's consultancy ($12,000/project, $4,000 delivery cost, $60,000/mo
+    fixed, SOM $3.0M/yr):
+
+        at-SOM volume   252 projects/year, $106,750/mo operating profit, claimed
+        $60k/mo fixed   ~4 people at a loaded rate
+        4 people        ~35 six-week engagements a year
+
+    7.2x more work than the staff can do, with their salaries held flat. Nothing withheld.
+
+    This does NOT model capacity or utilisation — that is a project, and the audit says not
+    to start it here. It withholds the PROFIT CLAIM (volumes and revenue stay, they are
+    sound) when revenue per implied head passes a benchmark no services firm reaches, and
+    names both assumptions so a reader can substitute their own.
+    """
+    if (kind or "").strip().lower() != SERVICES:
+        return None
+    try:
+        fixed = float(monthly_fixed_cost or 0)
+        annual = float(annual_revenue_usd or 0)
+    except (TypeError, ValueError):
+        return None
+    if fixed <= 0 or annual <= 0:
+        return None
+    heads = fixed / _LOADED_MONTHLY_COST_PER_HEAD
+    if heads <= 0:
+        return None
+    per_head = annual / heads
+    if per_head <= _SERVICES_REVENUE_PER_HEAD_CEILING:
+        return None
+    return (
+        f"Profit at this volume assumes ${per_head:,.0f} of revenue per delivery head — "
+        f"the ${fixed:,.0f}/mo fixed cost implies about {heads:.0f} people at "
+        f"${_LOADED_MONTHLY_COST_PER_HEAD:,.0f} loaded, and professional-services firms run "
+        f"$200-300k per employee. Delivery labour sits in FIXED cost here, so the model "
+        f"treats extra engagements as nearly free and holds headcount flat while volume "
+        f"grows. The volume and revenue stand; the profit claim is withheld until the "
+        f"operator supplies real delivery capacity and a staffing plan.")
+
+
 try:  # provenance: record that this function produced a report key
     from skills.registry import records_production as _records_production
 except Exception:  # pragma: no cover — never let provenance break an import
@@ -415,7 +472,14 @@ def retail_unit_economics(
             # told their fixed cost was a single site's rent and utilities.
             "fixed_cost_basis": _fixed_cost_basis(cost_source, kind),
         }
-        _withhold = multi_site_withhold_reason(market_scale)
+        # TWO reasons a profit claim at SOM volume can be unsafe, and they are independent:
+        # the volume spans more SITES than the fixed cost covers (physical retail), or it
+        # needs more PEOPLE than the fixed cost buys (services, where delivery labour is
+        # itself the fixed cost). The second had no predicate, so a consultancy claimed
+        # $106,750/mo at 7.2x the work its implied headcount can deliver.
+        _withhold = (multi_site_withhold_reason(market_scale)
+                     or capacity_withhold_reason(kind, monthly_fixed_cost,
+                                                 annual_revenue_usd))
         if _withhold:
             # Show the volume, withhold the profit verdict, say why — with the SAME
             # sentence financials uses, from the same predicate.
