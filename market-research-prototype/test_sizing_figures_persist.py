@@ -181,18 +181,59 @@ class TestNormalizeReadsTheRealKey(unittest.TestCase):
 
 
 @unittest.skipIf(not _CORPUS, "no corpus on disk")
-class TestTheCorpusShowsTheGap(unittest.TestCase):
-    def test_only_hyperlocal_reports_carry_figures_today(self):
-        with_figs, without = [], []
+class TestTheCorpusShowsTheGapIsClosed(unittest.TestCase):
+    """WAS `TestTheCorpusShowsTheGap`, asserting that only size_hyperlocal reports carry
+    `figures` and that at least 8 lack them. That documented the CORPUS, not the code: the
+    fix landed with this file, and every stored report predated it, so the corpus kept
+    showing a gap the pipeline had already closed.
+
+    Three live runs added for #98 prove it end to end — the first evidence that ever
+    existed, because the corpus had never contained a subscription venture at all:
+
+        c98_chain.json         size_regional          2 figures  ("sum of 5 location trade-area TAMs")
+        c98_subscription.json  size_national_digital  3 figures  (top_down / bottom_up / analog, each with a formula)
+        c98_nonus.json         size_hyperlocal        3 figures
+
+    So `report/verifier.py`'s layer-2 formula check — which reads exactly this key and found
+    nothing on 10 of 16 — now has something to check on a digital and a regional report.
+    """
+
+    def _by_skill(self):
+        out = {}
         for path in _CORPUS:
             r = (json.load(open(path)) or {}).get("result") or {}
             skill = ((r.get("market_scale") or {}).get("sizing_skill") or "?")
             figs = (r.get("market_sizing") or {}).get("figures") or []
-            (with_figs if figs else without).append(skill)
-        self.assertTrue(all(s == "size_hyperlocal" for s in with_figs),
-                        f"unexpected skills carry figures: {set(with_figs)}")
-        self.assertGreaterEqual(len(without), 8,
-                                "corpus should show the digital/regional gap")
+            out.setdefault(skill, []).append(len(figs))
+        return out
+
+    def test_a_digital_and_a_regional_report_now_carry_figures(self):
+        by_skill = self._by_skill()
+        for skill in ("size_national_digital", "size_regional"):
+            with self.subTest(skill=skill):
+                counts = by_skill.get(skill) or []
+                self.assertTrue(counts, f"no {skill} report in the corpus at all")
+                self.assertTrue(any(c > 0 for c in counts),
+                                f"{skill} reports still carry no figures: {counts}")
+
+    def test_the_figures_carry_the_formula_the_verifier_reads(self):
+        """A figure without a `formula` is a row the layer-2 check cannot reconcile, so
+        counting figures alone would let the gap reopen silently."""
+        checked = 0
+        for path in _CORPUS:
+            r = (json.load(open(path)) or {}).get("result") or {}
+            skill = ((r.get("market_scale") or {}).get("sizing_skill") or "?")
+            if skill not in ("size_national_digital", "size_regional"):
+                continue
+            for f in (r.get("market_sizing") or {}).get("figures") or []:
+                checked += 1
+                self.assertTrue(str(f.get("formula") or "").strip(),
+                                f"{path}: figure {f.get('label')} has no formula")
+        self.assertGreater(checked, 0, "no digital/regional figures to check")
+
+    def test_hyperlocal_reports_still_carry_theirs(self):
+        counts = self._by_skill().get("size_hyperlocal") or []
+        self.assertTrue(any(c > 0 for c in counts), counts)
 
 
 if __name__ == "__main__":

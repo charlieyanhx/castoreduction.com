@@ -140,6 +140,34 @@ class TestTheReportSaysSoRatherThanImplyingIt(unittest.TestCase):
             spend_source_label(sourced=True, origin="bls", address="Austin, Texas"),
             "BLS Consumer Expenditure Survey")
 
+    def test_the_llm_fallback_label_also_knows_the_geography(self):
+        """FOUND BY A LIVE RUN, not by this file. C4 fixed the sourcing decision and left
+        this branch ignoring its `address`, so the first non-US run ever made shipped
+        "LLM estimate (UNSOURCED — validate vs BLS CEX)" — pointing a Lisbon operator at a
+        US survey. D11 caught it. The corpus had never contained a non-US venture, which is
+        exactly the blind spot #98 exists to close."""
+        from skills.sizing.hyperlocal import spend_source_label
+        for where in NON_US:
+            with self.subTest(where=where):
+                label = spend_source_label(sourced=False, origin="llm", address=where)
+                self.assertNotIn("BLS", label)
+                self.assertIn("UNSOURCED", label)
+        self.assertIn("BLS", spend_source_label(sourced=False, origin="llm",
+                                                address="Austin, Texas"))
+
+    def test_d11_accepts_the_corrected_label(self):
+        """The gate that found it must pass once it is fixed, or the fix is cosmetic."""
+        from gates import d11_currency_sources
+        from skills.sizing.hyperlocal import spend_source_label
+        r = {"profile": {"geography": "Lisbon, Portugal", "summary": ""},
+             "market_sizing": {
+                 "scale": "hyperlocal", "_hyperlocal_location": "Lisbon, Portugal",
+                 "sources_to_validate": ["national statistics office household data"],
+                 "spend_per_hh_source": spend_source_label(
+                     sourced=False, origin="llm", address="Lisbon, Portugal"),
+                 "data_origin": {"spend": "llm"}}}
+        self.assertIsNot(d11_currency_sources(r, None).ok, False)
+
 
 class TestTheDowngradeIsToldAccurately(unittest.TestCase):
     """The proxy must not be described as an LLM guess. That would be a second inaccuracy

@@ -108,9 +108,21 @@ class TestShippedReportAttributesItsSections(unittest.TestCase):
 @unittest.skipIf(not _CORPUS, "no corpus on disk")
 class TestAcrossTheWholeCorpus(unittest.TestCase):
     def test_every_stored_report_attributes_every_section_it_renders(self):
-        unattributed = {}
+        """"...it RENDERS" is load-bearing. A report with a blocking verification finding
+        renders a 1.2KB withholding notice and NO sections (#82), so it attributes nothing
+        and is vacuously fine — asserting otherwise tests the withholding gate under this
+        test's name and fails for the opposite of the reason it exists.
+
+        This premise was invisible while every corpus report happened to be publishable.
+        Three live runs added for #98 — a subscription venture, a five-store chain and a
+        Lisbon bakery — each carry real blocking findings, which is the pipeline working."""
+        unattributed, rendered = {}, 0
         for path in _CORPUS:
             result = (json.load(open(path)) or {}).get("result") or {}
+            if ((result.get("verification") or {}).get("summary") or {}).get(
+                    "publishable") is False:
+                continue                       # withheld: renders a notice, not sections
+            rendered += 1
             html = _render(result)
             miss = [p["section"] for p in build_section_provenance(result)
                     if f'data-produced-by="{p["module"]}"' not in html
@@ -118,6 +130,22 @@ class TestAcrossTheWholeCorpus(unittest.TestCase):
             if miss:
                 unattributed[path.split("/")[-1]] = miss
         self.assertEqual(unattributed, {})
+        self.assertGreater(rendered, 0, "every corpus report is withheld — nothing checked")
+
+    def test_a_withheld_report_renders_the_notice_instead_of_bare_sections(self):
+        """The other half of the skip above: a withheld report must render the WITHHOLDING
+        page, not sections stripped of attribution. Without this, the skip could hide a
+        render that silently lost its provenance."""
+        withheld = [p for p in _CORPUS
+                    if (((json.load(open(p)) or {}).get("result") or {})
+                        .get("verification") or {}).get("summary", {}).get(
+                            "publishable") is False]
+        if not withheld:
+            self.skipTest("no withheld report in the corpus")
+        result = (json.load(open(withheld[0])) or {}).get("result") or {}
+        html = _render(result)
+        self.assertIn("withheld", html.lower())
+        self.assertNotIn("data-produced-by", html)
 
     def test_a_result_with_no_attributable_sections_drops_the_section_and_its_link(self):
         html = _render({})

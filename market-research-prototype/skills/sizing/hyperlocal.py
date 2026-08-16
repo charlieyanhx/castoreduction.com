@@ -333,6 +333,14 @@ def spend_source_label(sourced: bool, origin: Optional[str] = None,
         return ("US BLS Consumer Expenditure Survey national average, used as a PROXY "
                 "(UNSOURCED for this market — no local household-expenditure survey was "
                 "consulted; validate before relying on TAM)")
+    # The LLM-fallback label ALSO has to know the geography. C4 fixed the sourcing decision
+    # and left this branch ignoring its `address` argument, so the first non-US run ever
+    # made — a Lisbon bakery — shipped "LLM estimate (UNSOURCED — validate vs BLS CEX)":
+    # advice pointing an EU operator at a US survey. D11, strengthened in the same commit,
+    # caught it. Found by running the venture shape the corpus had never contained (#98).
+    if _is_non_us(address):
+        return ("LLM estimate (UNSOURCED — validate vs the national household-expenditure "
+                "survey for this market, e.g. Eurostat HBS / INE in the EU)")
     return "LLM estimate (UNSOURCED — validate vs BLS CEX)"
 
 
