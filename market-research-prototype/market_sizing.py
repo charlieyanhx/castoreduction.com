@@ -224,16 +224,14 @@ def estimate_market_size(
     # Each call now has its own 2500-token budget and only one layer to fill.
     from concurrent.futures import ThreadPoolExecutor
 
-    shared_ctx = SIZING_PROMPT.format(
-        profile=profile_blob,
-        category=profile.get("category", "unknown"),
-        geography=profile.get("geography", "US"),
-        competitors=comp_blob,
-        audience=audience_blob,
-        price_anchor=price_anchor_str,
-        optimal_price=optimal_str,
-        price_range=price_range_str,
-    )
+    # `shared_ctx` used to be built here from SIZING_PROMPT and never read — one
+    # assignment, zero references. It was the reason the documented `unit` field looked
+    # wired: the schema explaining "revenue" vs "gmv" lived in a prompt that was formatted
+    # on every run and thrown away, while the three prompts that actually run never asked
+    # for it. `(m.get("unit") or "revenue")` in apply_tam_triangulation then took its
+    # default on every method of every run, so the GMV/revenue exclusion has never fired
+    # and a marketplace's two GMV-shaped methods read as agreeing with its one
+    # platform-revenue method. The ask now lives in the live prompts (audit C10).
 
     # Iter 43: each per-layer prompt is now SELF-CONTAINED (no shared mega-template).
     # The previous approach included the giant 3-method TAM schema in every call,
@@ -271,6 +269,9 @@ Output ONLY this:
 {
   "method_top_down": {
     "value_usd": <num>,
+    "unit": "revenue" or "gmv" — what value_usd MEASURES. For a take-rate or
+             commission model, total transaction volume is "gmv" and platform revenue
+             (take-rate applied) is "revenue". Say which; mixing them 6x-inflates TAM.,
     "calculation": "≤100 chars showing the arithmetic chain",
     "source": "Gartner / IDC / Forrester / Statista / etc — name the report"
   }
@@ -287,6 +288,9 @@ Output ONLY this:
 {
   "method_bottom_up": {
     "value_usd": <num>,
+    "unit": "revenue" or "gmv" — what value_usd MEASURES. For a take-rate or
+             commission model, total transaction volume is "gmv" and platform revenue
+             (take-rate applied) is "revenue". Say which; mixing them 6x-inflates TAM.,
     "calculation": "≤100 chars: firm count × seats/units × ACV",
     "source": "BLS QCEW / Census SUSB / similar public stat"
   }
@@ -302,6 +306,9 @@ Output ONLY this:
 {
   "method_analog": {
     "value_usd": <num>,
+    "unit": "revenue" or "gmv" — what value_usd MEASURES. For a take-rate or
+             commission model, total transaction volume is "gmv" and platform revenue
+             (take-rate applied) is "revenue". Say which; mixing them 6x-inflates TAM.,
     "calculation": "≤100 chars: comparable's ARR ÷ implied penetration",
     "source": "company name + filing/press source"
   }
