@@ -288,7 +288,12 @@ def extract_differentiators(
     Degrades to empty dict on LLM failure — non-fatal.
     """
     profile_blob = json.dumps({
-        "name": profile.get("name"),
+        # THE seam where a placeholder became prose: a live report read "As an emerging
+        # orbital solar reflection infrastructure provider, Unknown can capture the market".
+        # company_profile now normalises the sentinel to None; this says what to write
+        # instead, because a bare null invites the model to invent one.
+        "name": profile.get("name") or "the company (no name given in the brief — "
+                                        "refer to it generically, never by a placeholder)",
         "summary": profile.get("summary"),
         "category": profile.get("category"),
         "business_model": profile.get("business_model"),

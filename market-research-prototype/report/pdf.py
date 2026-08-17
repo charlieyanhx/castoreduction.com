@@ -226,6 +226,21 @@ a { color: inherit; }
 """
 
 
+
+def _cover_date(generated_at) -> str:
+    """A date a human reads. The cover printed "Prepared: 1786991389" — the HTML report
+    formats the same value correctly, so only the PDF path was handing an epoch straight to
+    the page. Anything already formatted is passed through untouched."""
+    raw = str(generated_at or "").strip()
+    if not raw:
+        return ""
+    try:
+        import datetime as _dt
+        return _dt.datetime.fromtimestamp(float(raw)).strftime("%Y-%m-%d %H:%M")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return raw
+
+
 def build_print_html(body: str, meta: Optional[dict] = None) -> str:
     """Wrap a report body in a print document: cover, contents, paged-media CSS."""
     meta = meta or {}
@@ -236,7 +251,7 @@ def build_print_html(body: str, meta: Optional[dict] = None) -> str:
 
     title = meta.get("title") or "Market Research Report"
     job_id = str(meta.get("job_id") or "")
-    generated = meta.get("generated_at") or ""
+    generated = _cover_date(meta.get("generated_at"))
 
     toc_html = "".join(
         f'<li><a href="#{e["id"]}">{html_mod.escape(e["title"])}</a></li>'

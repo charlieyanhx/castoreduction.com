@@ -575,7 +575,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:14px;margin:14px 0;max-width:340px">
   <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#047857">Willingness to pay (single estimate)</div>
   <div style="font-size:24px;font-weight:800;color:#064e3b;font-variant-numeric:tabular-nums">{{ format_currency(wtp.point) }}<span style="font-size:11px;color:#6b7280">{{ wtp_unit }}</span></div>
-  <div style="font-size:9pt;color:#b45309;margin-top:4px">⚠ Only {{ wtp.n_would_pay }} of {{ wtp.n_total }} simulated segments named a price — not enough for a range.{% if wtp_is_monthly %} (A per-visit business may not fit a monthly model.){% endif %}</div>
+  <div style="font-size:9pt;color:#b45309;margin-top:4px">⚠ Only {{ wtp.n_would_pay }} of {{ wtp.n_total }} simulated segments named a price — not enough for a range.{% if wtp_is_monthly and business_model_kind in ('transactional', 'ecommerce', 'services', 'hybrid') %} (A per-visit business may not fit a monthly model.){% endif %}</div>
 </div>
 {% elif wtp.thin %}
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0;max-width:360px">
@@ -1232,7 +1232,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   <strong>No relevant Reddit signal for "{{ reddit_signal.query }}" in last 6 months.</strong><br/>
   Searched via pullpush.io + DDG. For a local or niche venture, organic Reddit discussion is
   often thin — the higher-signal sources here are <strong>Google &amp; Yelp reviews of nearby
-  competitors and industry-specific forums</strong> (e.g. r/coffee, Home-Barista for a cafe),
+  competitors and industry-specific forums</strong> (the trade forums and review sites for this category),
   which require an API key / are on the roadmap. Adding REDDIT_CLIENT_ID/SECRET enables PRAW
   for richer subreddit search.
 </div>
@@ -1894,7 +1894,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     <tr>
       <td style="padding:8px;border:1px solid #e5e7eb"><strong>{{ a.label }}</strong><div style="font-size:9pt;color:#6b7280">{{ a.description }}</div></td>
       <td style="padding:8px;border:1px solid #e5e7eb;text-align:right">{{ '{:,.1f}'.format(a.latest_value) }}<div style="font-size:8pt;color:#9ca3af">{{ a.unit }}</div></td>
-      <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;color:{% if (a.yoy_pct or 0) >= 0 %}#059669{% else %}#dc2626{% endif %}">{% if a.yoy_pct is not none %}{{ '{:+.1f}'.format(a.yoy_pct) }}%{% else %}—{% endif %}</td>
+      <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;color:{% if (a.yoy_pct or 0) >= 0 %}#059669{% else %}#dc2626{% endif %}">{{ a.change_label or '—' }}</td>
       <td style="padding:8px;border:1px solid #e5e7eb;font-size:9pt"><a href="{{ a.source }}" style="color:#2563eb">{{ (a.provider or 'fred')|upper }} · {{ a.latest_date }}</a></td>
     </tr>
     {% endfor %}
