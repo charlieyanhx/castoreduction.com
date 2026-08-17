@@ -1280,6 +1280,11 @@ def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> F
     return not_applicable("not a per-unit or marketplace model")
 
 
+# The band D18's docstring has always specified: outside 0.1x-10x in EITHER
+# direction is a disagreement the report must disclose.
+_WTP_GAP_FOLD = 10.0
+
+
 def d18_wtp_price_reconciled(r: dict, html: Optional[str]) -> Finding:
     """B3: a large gap between the consumer-research WTP synthesis and the PSM-
     recommended price must be disclosed (plan.reconcile_wtp_with_price), never
@@ -1291,18 +1296,31 @@ def d18_wtp_price_reconciled(r: dict, html: Optional[str]) -> Finding:
     wtp = syn.get("willingness_to_pay") or {}
     center = wtp.get("median") if wtp.get("median") is not None else wtp.get("point")
     ceiling = wtp.get("high") if wtp.get("high") is not None else center
+    floor = wtp.get("low") if wtp.get("low") is not None else center
     recommended = (r.get("pricing") or {}).get("psm", {}).get("optimal_price_point")
-    ceiling_n, rec_n = _num(ceiling), _num(recommended)
+    ceiling_n, floor_n, rec_n = _num(ceiling), _num(floor), _num(recommended)
     if not ceiling_n or not rec_n:
         return Finding(None, "WTP ceiling or recommended price missing")
-    # R4 rank 11: the mismatch that misleads a buyer is a price ABOVE the top of the
-    # WTP range — not a ratio-to-median inside a wide deadband. A price at/below the
-    # ceiling is fine (someone would pay it).
-    if rec_n <= ceiling_n:
-        return Finding(None, f"recommended {rec_n} within WTP range (ceiling {ceiling_n})")
     flagged = "wtp_price_mismatch" in syn
-    return Finding(flagged, f"recommended {rec_n} above WTP ceiling {ceiling_n} — "
-                   + ("disclosed" if flagged else "UNFLAGGED"))
+    # R4 rank 11: a price ABOVE the top of the WTP range is the mismatch that misleads a
+    # buyer, not a ratio-to-median inside a wide deadband.
+    if rec_n > ceiling_n:
+        return Finding(flagged, f"recommended {rec_n} above WTP ceiling {ceiling_n} — "
+                       + ("disclosed" if flagged else "UNFLAGGED"))
+    # ...and the other side, which this gate documented ("outside 0.1x-10x") and then stopped
+    # checking. Measured on job d62bc04f: WTP $150,000/mo against a $1,450/mo recommendation,
+    # 103x apart, rendered side by side with no comment while the EVC section urged a 20-40%
+    # rise — an answer neither number supports. "Someone would pay it" is true and is not the
+    # question; what this gate enforces is that two of the report's own numbers cannot
+    # disagree by an order of magnitude in silence. Measured across all 24 stored artifacts
+    # before widening: every healthy report prices at 0.1x-1.1x of its own WTP floor, so
+    # restoring the documented band costs nothing and catches only the pathological case.
+    if floor_n and rec_n * _WTP_GAP_FOLD < floor_n:
+        return Finding(flagged, f"recommended {rec_n} is {floor_n / rec_n:,.0f}x BELOW the "
+                       f"stated WTP floor {floor_n} — "
+                       + ("disclosed" if flagged else "UNFLAGGED"))
+    return Finding(None, f"recommended {rec_n} within WTP range "
+                         f"(floor {floor_n}, ceiling {ceiling_n})")
 
 
 def d19_no_off_category_direct_competitor(r: dict, html: Optional[str]) -> Finding:
