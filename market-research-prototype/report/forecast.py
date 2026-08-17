@@ -131,6 +131,28 @@ _CONV_HIGH = 0.25      # origins within a quarter of the headline — genuinely 
 _CONV_MED = 0.60       # beyond this the estimates are telling different stories
 
 
+
+# A percentage stops describing a spread once the values differ by orders of magnitude.
+# Measured: a report printed "its 3 estimates diverge 159%" for TAM methods of $8M, $1.6B and
+# $2.5B — 312-FOLD apart — because the figure is (max-min)/median. 159% reads as mild
+# disagreement. skills/sizing/validate.py already had the honest idiom ("diverge 11.4×"); this
+# is the same rule in the one place the headline sizing prose is built.
+_FOLD_THRESHOLD = 10.0          # below this a percentage is still the clearer reading
+
+
+def spread_phrase(values, mid) -> str:
+    """How far apart these estimates are, in whichever unit does not understate it."""
+    vals = [abs(float(v)) for v in (values or []) if v is not None]
+    if len(vals) < 2:
+        return ""
+    lo, hi = min(vals), max(vals)
+    if lo > 0 and hi / lo >= _FOLD_THRESHOLD:
+        return f"{hi / lo:,.0f}×"
+    if not mid:
+        return ""
+    return f"{(hi - lo) / abs(float(mid)):.0%}"
+
+
 def _convergence(kept, conflict, mid, origin_points, by_origin, n_independent):
     """The convergence verdict for the headline this engine just derived.
 
@@ -145,6 +167,7 @@ def _convergence(kept, conflict, mid, origin_points, by_origin, n_independent):
     raw_spread = None
     if all_vals and mid:
         raw_spread = (max(all_vals) - min(all_vals)) / abs(mid)
+    raw_phrase = spread_phrase(all_vals, mid)
 
     cross = tuple({"origin": o, "value": median(v)} for o, v in by_origin.items())
 
@@ -152,7 +175,7 @@ def _convergence(kept, conflict, mid, origin_points, by_origin, n_independent):
         # Spread ACROSS ORIGINS is undefined with one origin; 0.0 would read as perfect
         # agreement between sources that do not exist.
         only = ", ".join(by_origin) or "none"
-        extra = (f"; its {len(all_vals)} estimates diverge {raw_spread:.0%}"
+        extra = (f"; its {len(all_vals)} estimates diverge {raw_phrase}"
                  if raw_spread is not None and raw_spread > _CONV_MED else "")
         return (mid, None, raw_spread, False, "single_source", cross,
                 f"only {n_independent} independent origin"
@@ -170,7 +193,7 @@ def _convergence(kept, conflict, mid, origin_points, by_origin, n_independent):
     if conflict and raw_spread is not None and raw_spread > _CONV_MED:
         confidence, converged = "low", False
         flag = ((flag + "; ") if flag else "") + (
-            f"the {len(all_vals)} printed methods still diverge {raw_spread:.0%} — "
+            f"the {len(all_vals)} printed methods still diverge {raw_phrase} — "
             f"the headline is a median of the {len(kept)} unit-consistent ones, not a "
             f"converged triangulation")
     return (mid, spread, raw_spread, converged, confidence, cross, flag)

@@ -270,6 +270,37 @@ def collapse_near_dupes(items: list, key: str = "name", threshold: int = 92,
     return kept
 
 
+def collapse_by_domain(items: list) -> list:
+    """Collapse records that resolve to the SAME registrable domain. First occurrence wins.
+
+    `collapse_near_dupes` above compares brand NAMES, which cannot catch the case that shipped
+    to a user: "AetherMirror B2B", "ReflectX Logistics" and "SunFleet Ops" all resolved to
+    reflectorbital.com and were reported as three direct competitors with three identical
+    scores. Those names are nowhere near each other fuzzily, and the name collapse runs before
+    enrichment resolves any domain at all — so it ran before the evidence existed.
+
+    A shared resolved domain is the same website, which is stronger evidence of identity than
+    any name similarity. A record with no domain is NOT collapsed: no domain is no evidence,
+    and dropping those would silently delete competitors whose site merely failed to resolve.
+    """
+    kept: list = []
+    seen: set[str] = set()
+    for it in items:
+        if not isinstance(it, dict):
+            kept.append(it)
+            continue
+        raw = it.get("domain") or it.get("final_url") or ""
+        root = root_domain(str(raw)) if raw else ""
+        if not root:
+            kept.append(it)          # unresolved: keep, we cannot prove identity
+            continue
+        if root in seen:
+            continue
+        seen.add(root)
+        kept.append(it)
+    return kept
+
+
 def is_parked_domain(domain: str, html: str = "", final_url: str = "") -> bool:
     """Return True if the domain is parked / for sale / on a marketplace."""
     domain_lc = domain.lower()

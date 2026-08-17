@@ -404,17 +404,52 @@ def fetch_anchors(series_keys: list[str] | None = None,
             data = _fetch_imf(meta["imf_indicator"], meta.get("imf_country", "USA")) or {}
             provider = "imf"
         if data.get("latest_value"):
-            out["series"][k] = {
+            entry = {
                 "label": meta["label"],
                 "unit": meta["unit"],
                 "description": meta["description"],
                 "provider": provider,
                 **data,
             }
+            # Stamp the year-on-year wording HERE, where the unit is known. The fetchers
+            # compute yoy_pct arithmetically for every series and cannot tell a level from a
+            # rate; only this loop has the metadata that distinguishes them.
+            entry["change_label"] = change_label(entry)
+            out["series"][k] = entry
     # Iter 40 (#4b): always attach curated vertical anchors when business_model/category supplied
     if business_model or category:
         out["vertical_anchors"] = fetch_vertical_anchors(business_model, category)
     return out
+
+
+def _is_rate_unit(unit: str | None) -> bool:
+    """Is this series ALREADY expressed as a rate/percentage?
+
+    A level (Billions USD, an index) changes by a PERCENT. A rate (% YoY) changes by
+    PERCENTAGE POINTS. Conflating them shipped "US Real GDP Growth · 1.5 %YoY · +200.0%" to
+    a customer, because the growth rate had moved 0.5 -> 1.5 and (1.5-0.5)/0.5 = +200%. Every
+    reader parses that as GDP growing 200%.
+    """
+    u = (unit or "").strip().lower()
+    return u.startswith("%") or u.startswith("percent") or u == "pp"
+
+
+def change_label(anchor: dict) -> str:
+    """How this series changed over a year, in the units that make it true.
+
+    The ONE owner of that wording — the report table and the methodology citation both read
+    it, so they cannot drift apart. Empty string when there is no prior-year observation:
+    "+0.0%" would assert stability that was never measured.
+    """
+    if not anchor:
+        return ""
+    latest, prev = anchor.get("latest_value"), anchor.get("prev_year_value")
+    if _is_rate_unit(anchor.get("unit")):
+        if latest is None or prev is None:
+            return ""
+        return f"{float(latest) - float(prev):+.1f} pp"
+    pct = anchor.get("yoy_pct")
+    return f"{float(pct):+.1f}%" if pct is not None else ""
 
 
 def format_anchor_for_citation(anchor: dict) -> str:
@@ -429,6 +464,7 @@ def format_anchor_for_citation(anchor: dict) -> str:
         parts.append(f"{v:,.1f} {u}")
     if d:
         parts.append(f"as of {d}")
-    if anchor.get("yoy_pct") is not None:
-        parts.append(f"YoY {anchor['yoy_pct']:+.1f}%")
+    chg = change_label(anchor)
+    if chg:
+        parts.append(f"YoY {chg}")
     return " · ".join(parts)

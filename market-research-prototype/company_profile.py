@@ -41,6 +41,24 @@ Rules:
 - named_competitors: ONLY copy brands that literally appear in the source text"""
 
 
+_PLACEHOLDER_NAMES = frozenset((
+    "unknown", "n/a", "na", "none", "null", "tbd", "tba", "unnamed", "not specified",
+    "not stated", "not mentioned", "unspecified", "no name", "-", "?",
+))
+
+
+def clean_company_name(name: str | None) -> str | None:
+    """The company's real name, or None when the brief never gave one.
+
+    The extraction prompt asks for the literal string 'Unknown' when no company is named, and
+    a downstream prompt then treated it as the name. Every consumer must be able to tell "no
+    name" from "a company called Unknown", and the only way to guarantee that is to stop
+    representing absence with a word.
+    """
+    n = (name or "").strip()
+    return None if not n or n.lower().strip(".") in _PLACEHOLDER_NAMES else n
+
+
 def extract_company_profile(description: str) -> dict:
     """Parse a raw startup/company description into structured profile."""
     log.info(f"[profile] extracting from {len(description)} chars")
@@ -70,6 +88,14 @@ def extract_company_profile(description: str) -> dict:
             **profile,
             "error": f"LLM missed required fields: {missing}",
         }
+
+    # The prompt above ASKS for 'Unknown' when the brief names no company, which is the right
+    # thing for the extractor and the wrong thing for everything downstream: a live report
+    # told its reader "As an emerging orbital solar reflection infrastructure provider,
+    # Unknown can capture the market by bridging the gap...". The sentinel had been handed to
+    # the differentiators prompt as the company's name and came back as prose. Normalise it
+    # to None at the boundary, so no consumer can mistake a placeholder for a name.
+    profile["name"] = clean_company_name(profile.get("name"))
 
     log.info(f"[profile] extracted: {profile.get('name')} | {profile.get('category')}")
     return profile

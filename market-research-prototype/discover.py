@@ -878,7 +878,17 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
 
     # 5. LLM synthesis
     log.info("[discover] step 5/5: llm synthesis")
-    enriched_sorted = sorted(enriched, key=lambda x: x.get("_score", 0), reverse=True)
+    # One website is one company. Enrichment is the FIRST point where a domain exists, so
+    # this is the first point the collapse can happen at all — collapse_near_dupes runs at
+    # candidate time on names alone, and a live run shipped "AetherMirror B2B", "ReflectX
+    # Logistics" and "SunFleet Ops" as three direct competitors, all reflectorbital.com,
+    # all scored 6.3. Collapsing AFTER the sort keeps the strongest record per company, and
+    # doing it here means the density count, the synthesis prompt and the fallback roster all
+    # see companies rather than name variants. The full pre-collapse roster stays in
+    # result["steps"]["signals"] above, so the evidence survives — only the count stops lying.
+    from sources import collapse_by_domain
+    enriched_sorted = collapse_by_domain(
+        sorted(enriched, key=lambda x: x.get("_score", 0), reverse=True))
     density, active_density = _density_counts(enriched_sorted)
     avg_score = (
         round(sum((e.get("_score") or 0) for e in enriched_sorted) / len(enriched_sorted), 1)
