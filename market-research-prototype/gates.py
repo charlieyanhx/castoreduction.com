@@ -44,6 +44,27 @@ def _num(v) -> Optional[float]:
 class Finding:
     ok: Optional[bool]  # True pass / False fail / None not-applicable
     detail: str = ""
+    # WHY this abstained, when it did. `None` alone conflates two opposite meanings, and D55
+    # was adding them together: "this check cannot apply to this KIND of venture" (a fact
+    # about the business, no reflection on the report) versus "this would apply and the data
+    # is not there" (exactly the incompleteness D55 exists to catch). Only the detector knows
+    # which it means, so the detector says it — see `not_applicable` below.
+    out_of_scope: bool = False
+
+
+def not_applicable(detail: str) -> Finding:
+    """Abstain because this check does not apply to this venture's SHAPE.
+
+    Use for facts about the business that no amount of report quality can change — a
+    subscription is not per-unit, a national_digital venture has no trade area, a US venture
+    has no currency conversion to disclose. These leave D55's denominator entirely.
+
+    Do NOT use for an absent section, an empty list, or a claim the report simply did not
+    make. A hollow report makes no claims at all, so every claim-guard abstains together —
+    that is the signal D55 reads, and marking those out-of-scope would retire the gate.
+    Plain `Finding(None, ...)` stays the default for exactly that reason.
+    """
+    return Finding(None, detail, out_of_scope=True)
 
 
 @dataclass
@@ -99,7 +120,7 @@ def d04_funnel_order(r: dict, html: Optional[str]) -> Finding:
 
 def d05_unit_no_monthly(r: dict, html: Optional[str]) -> Finding:
     if r.get("business_model_kind") not in PER_UNIT_KINDS:
-        return Finding(None, "not a per-unit model")
+        return not_applicable("not a per-unit model")
     units = {
         "economics": str((r.get("economics") or {}).get("unit") or ""),
         "financials": str(((r.get("financials") or {}).get("assumptions") or {}).get("unit") or ""),
@@ -118,7 +139,7 @@ def d06_html_no_saas_bleed(r: dict, html: Optional[str]) -> Finding:
     # isn't "per-unit" in the unit-noun sense) rather than widening that set.
     kind = r.get("business_model_kind")
     if kind not in PER_UNIT_KINDS and kind != "marketplace":
-        return Finding(None, "not a per-unit or marketplace model")
+        return not_applicable("not a per-unit or marketplace model")
     if html is None:
         return Finding(None, "no HTML in corpus")
     # "/mo per " matters as much as "/month per ": the tier cards and optimal-price
@@ -138,7 +159,7 @@ def d07_geo_competitors(r: dict, html: Optional[str]) -> Finding:
     # chains and national_physical marketplaces have no single trade-area point → N/A.
     ms = r.get("market_scale") or {}
     if ms.get("scale") != "hyperlocal":
-        return Finding(None, f"scale={ms.get('scale')} (not hyperlocal)")
+        return not_applicable(f"scale={ms.get('scale')} (not hyperlocal)")
     return Finding(bool((r.get("discover") or {}).get("geo_sourced")),
                    f"geo_sourced={(r.get('discover') or {}).get('geo_sourced')}")
 
@@ -624,7 +645,7 @@ def d11_currency_sources(r: dict, html: Optional[str]) -> Finding:
         ms.get("location"), ms.get("_hyperlocal_location"), ms.get("density_geography"),
     )).lower()
     if not any(m in blob for m in NON_US_MARKERS):
-        return Finding(None, "US venture")
+        return not_applicable("US venture")
 
     bad = []
     srcs = " ".join(ms.get("sources_to_validate") or [])
@@ -838,8 +859,12 @@ def d37_viability_anchored_to_real_margin(r: dict, html: Optional[str]) -> Findi
     from business_model import is_per_unit
     econ = r.get("economics") or {}
     cm = econ.get("contribution_margin_pct")
-    if not is_per_unit(econ.get("model")) or not _num(cm):
-        return Finding(None, "not a per-unit venture with a computed margin")
+    if not is_per_unit(econ.get("model")):
+        return not_applicable(f"economics model {econ.get('model')!r} is not per-unit")
+    if not _num(cm):
+        # In scope and unanswerable: a per-unit venture that never computed a contribution
+        # margin has a hole, and D55 should feel it. Only the line above is a shape fact.
+        return Finding(None, "per-unit venture but no contribution margin was computed")
     anchor = (r.get("viability") or {}).get("unit_economics_anchor")
     if not anchor:
         return Finding(False, f"economics computed a {cm}% per-unit margin but viability "
@@ -908,7 +933,7 @@ def d40_hyperlocal_som_basis_honest(r: dict, html: Optional[str]) -> Finding:
     ms = r.get("market_sizing") or {}
     scale = (ms.get("scale_decision") or {}).get("scale")
     if scale != "hyperlocal":
-        return Finding(None, "not a hyperlocal venture")
+        return not_applicable("not a hyperlocal venture")
     notes = " ".join(ms.get("notes") or [])
     if not notes:
         return Finding(None, "no sizing notes")
@@ -1162,6 +1187,13 @@ def d49_trade_area_matches_its_radius(r: dict, html: Optional[str]) -> Finding:
     households = ms.get("trade_area_households")
     radius_m = ms.get("radius_m")
     if households is None or not radius_m:
+        # Distinguish "this venture has no trade area to disclose" from "it should have one
+        # and did not". Keyed on the METHOD, not the scale label, per the note above: a
+        # `regional` report that sized by catchment stays in scope and must still answer.
+        if "trade_area" not in str(ms.get("method") or "").lower():
+            return not_applicable(
+                f"sizing method {ms.get('method') or 'unrecorded'!r} is not a trade-area "
+                "catchment, so there is no radius or household count to check")
         return Finding(None, "no trade area disclosed (no radius or household count)")
     area = math.pi * (_num(radius_m) / 1000.0) ** 2
     if area <= 0:
@@ -1231,7 +1263,7 @@ def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> F
         # place it was needed. The outer `kind in PER_UNIT_KINDS` already established
         # applicability; this inner check only needs to confirm economics agrees.
         if econ.get("model") not in PER_UNIT_KINDS:
-            return Finding(None, f"economics model {econ.get('model')!r} is not per-unit")
+            return not_applicable(f"economics model {econ.get('model')!r} is not per-unit")
         if not year3:
             return Finding(None, "no financials scenario table")
         bad = "customers" in year3
@@ -1245,7 +1277,7 @@ def d17_per_unit_not_on_subscription_fallback(r: dict, html: Optional[str]) -> F
         return Finding(not bad, "financials carry a subscription shape ('customers' or "
                        "annual_price_per_customer) on a marketplace venture" if bad
                        else "financials use the revenue-only shape")
-    return Finding(None, "not a per-unit or marketplace model")
+    return not_applicable("not a per-unit or marketplace model")
 
 
 def d18_wtp_price_reconciled(r: dict, html: Optional[str]) -> Finding:
@@ -1527,7 +1559,7 @@ def d52_chosen_sizing_skill_actually_ran(r: dict, html: str | None) -> Finding:
         return Finding(None, "no scale decision recorded")
     scale = (scale_dec.get("scale") or "").lower()
     if scale not in ("hyperlocal", "regional", "national_physical"):
-        return Finding(None, f"scale={scale or '?'} has no trade area to measure")
+        return not_applicable(f"scale={scale or '?'} has no trade area to measure")
 
     ms = r.get("market_sizing") or {}
     skill = scale_dec.get("sizing_skill") or "the trade-area model"
@@ -1762,8 +1794,28 @@ def d55_report_is_complete_enough_to_have_been_checked(r: dict, html: str | None
     measures what was CHECKABLE, which is the property that actually matters.
 
     Recursion note: this gate excludes itself from the count, or a report could pass it by
-    virtue of it being answerable."""
-    answered = na = 0
+    virtue of it being answerable.
+
+    AND IT MUST NOT COUNT THE VENTURE'S SHAPE AS THE REPORT'S FAULT. The paragraph above
+    rejects a section checklist because "sections are legitimately conditional" — and the
+    first version of this gate then counted GATES with the identical defect. Thirteen
+    invariants are hyperlocal-only or per-unit-only by construction, so a national_digital
+    subscription forfeited a third of the denominator before the run started. Measured, that
+    put the whole family at 55-60% against a 55% floor: a user's report (job d62bc04f) was
+    withheld at 52% as "too incomplete to have been meaningfully verified" while answering 31
+    of its 47 APPLICABLE invariants, 25 pass / 1 fail — the 1 fail being this gate.
+
+    So a detector that cannot apply to this KIND of venture says so via `not_applicable`, and
+    those leave the denominator. What stays in is every abstention that means "this would
+    apply and the data is not here", INCLUDING the guards that abstain because the report made
+    no such claim — a hollow report makes no claims at all, so they all abstain together, and
+    that is precisely the signal this gate reads. Measured across every artifact on disk, the
+    split holds: out/live/run2 (the case in the paragraph above) 43% -> 49%, run3 45% -> 51%,
+    run4 45% -> 50%, all still withheld; c98_subscription 55% -> 70%, becc8783 58% -> 74%,
+    3219f4db 60% -> 77%, all delivering. A hyperlocal report barely moves (c98_nonus 73% ->
+    75%) because almost nothing is out of scope for it, which is the point."""
+    answered = na = out_of_scope = 0
+    excluded: list[str] = []
     for inv in INVARIANTS:
         if inv.id == "D55":
             continue
@@ -1772,21 +1824,26 @@ def d55_report_is_complete_enough_to_have_been_checked(r: dict, html: str | None
         except Exception:                        # a crashing detector checked nothing
             na += 1
             continue
-        if f.ok is None:
-            na += 1
-        else:
+        if f.ok is not None:
             answered += 1
-    total = answered + na
+        elif f.out_of_scope:
+            out_of_scope += 1
+            excluded.append(inv.id)
+        else:
+            na += 1
+    total = answered + na                        # applicable invariants only
     if not total:
-        return Finding(None, "no invariants to measure coverage against")
+        return Finding(None, "no applicable invariants to measure coverage against")
     pct = round(100 * answered / total)
+    shape = (f"; {out_of_scope} more do not apply to this venture's shape "
+             f"({', '.join(excluded)})" if out_of_scope else "")
     if pct < _MIN_COVERAGE_PCT:
         return Finding(False,
-                       f"only {answered}/{total} invariants ({pct}%) could answer on this "
-                       f"report, below the {_MIN_COVERAGE_PCT}% floor — it is too incomplete "
-                       "to have been meaningfully verified, so a clean scorecard here means "
-                       "'barely checked', not 'nothing wrong'")
-    return Finding(True, f"{answered}/{total} invariants ({pct}%) could answer")
+                       f"only {answered}/{total} applicable invariants ({pct}%) could answer "
+                       f"on this report, below the {_MIN_COVERAGE_PCT}% floor — it is too "
+                       "incomplete to have been meaningfully verified, so a clean scorecard "
+                       f"here means 'barely checked', not 'nothing wrong'{shape}")
+    return Finding(True, f"{answered}/{total} applicable invariants ({pct}%) could answer{shape}")
 
 
 def d56_local_spend_is_grounded_or_says_it_is_not(r: dict, html: str | None) -> Finding:
@@ -1813,7 +1870,7 @@ def d56_local_spend_is_grounded_or_says_it_is_not(r: dict, html: str | None) -> 
     an absent disclosure on a PUBLISHED trade-area TAM is exactly what returns False."""
     ms = r.get("market_sizing") or {}
     if (ms.get("method") or "") != "trade_area_catchment":
-        return Finding(None, "not a trade-area (hyperlocal) sizing")
+        return not_applicable("not a trade-area (hyperlocal) sizing")
     tam = ms.get("tam_usd") or (ms.get("tam") or {}).get("mid")
     if not tam:
         return Finding(None, "trade-area sizing published no TAM to ground")
@@ -1876,7 +1933,7 @@ def d57_market_supports_its_competitors(r: dict, html: str | None) -> Finding:
     this reading as fine."""
     ms = r.get("market_sizing") or {}
     if (ms.get("method") or "") != "trade_area_catchment":
-        return Finding(None, "not a trade-area (hyperlocal) sizing")
+        return not_applicable("not a trade-area (hyperlocal) sizing")
     tam = (ms.get("tam") or {}).get("mid") or ms.get("tam_usd")
     if not tam:
         return Finding(None, "no trade-area TAM published")
@@ -1981,7 +2038,7 @@ def d59_som_anchor_discloses_its_method(r: dict, html: str | None) -> Finding:
     counts against coverage, rather than a silent pass."""
     ms = r.get("market_sizing") or {}
     if (ms.get("method") or "") != "trade_area_catchment":
-        return Finding(None, "not a trade-area (hyperlocal) sizing")
+        return not_applicable("not a trade-area (hyperlocal) sizing")
     som = (ms.get("som") or {}).get("mid") or ms.get("som_usd")
     if not som:
         return Finding(None, "no SOM published")
@@ -2039,7 +2096,7 @@ def d60_area_average_is_labelled(r: dict, html: Optional[str]) -> Finding:
     """
     ms = r.get("market_sizing") or {}
     if (ms.get("method") or "") != "trade_area_catchment":
-        return Finding(None, "not a trade-area (hyperlocal) sizing")
+        return not_applicable("not a trade-area (hyperlocal) sizing")
     anchor = ms.get("som_anchor") or {}
     if anchor.get("method") != "area_receipts_benchmark":
         return Finding(None, "SOM is not anchored on an area receipts benchmark")
