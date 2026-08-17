@@ -24,7 +24,23 @@ _OSM_TAG_BY_CATEGORY = {
     "food": ("amenity", "restaurant"),
     "cafe": ("amenity", "cafe"), "café": ("amenity", "cafe"), "coffee": ("amenity", "cafe"),
     "tea house": ("amenity", "cafe"), "teahouse": ("amenity", "cafe"),
+    # A live Lisbon run classified its own category as "artisan sourdough and pastries" —
+    # no word "bakery" in it — so this table returned None, size_by_scale fell back to
+    # amenity=restaurant, and an artisan bakery was benchmarked against 1,603 restaurants
+    # including a London burger place. The words a founder and an LLM actually use for this
+    # trade, including the non-English ones a non-US venture will produce:
     "bakery": ("shop", "bakery"), "patisserie": ("shop", "bakery"),
+    "pâtisserie": ("shop", "bakery"), "pastry": ("shop", "bakery"),
+    "pastries": ("shop", "bakery"), "sourdough": ("shop", "bakery"),
+    "bread": ("shop", "bakery"), "boulangerie": ("shop", "bakery"),
+    "pastelaria": ("shop", "bakery"), "panaderia": ("shop", "bakery"),
+    "panadería": ("shop", "bakery"), "cake": ("shop", "bakery"),
+    "cupcake": ("shop", "bakery"), "doughnut": ("shop", "bakery"),
+    "donut": ("shop", "bakery"), "bagel": ("shop", "bakery"),
+    "croissant": ("shop", "bakery"), "confectioner": ("shop", "confectionery"),
+    "chocolatier": ("shop", "chocolate"), "deli": ("shop", "deli"),
+    "delicatessen": ("shop", "deli"), "butcher": ("shop", "butcher"),
+    "greengrocer": ("shop", "greengrocer"), "cheesemonger": ("shop", "cheese"),
     "pub": ("amenity", "pub"), "brewery": ("amenity", "bar"), "bar": ("amenity", "bar"),
     "wine bar": ("amenity", "bar"), "cocktail": ("amenity", "bar"),
     "nightclub": ("amenity", "nightclub"), "ice cream": ("amenity", "ice_cream"),

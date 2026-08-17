@@ -201,6 +201,66 @@ def _validation_gate(result: dict) -> dict:
     }
 
 
+#: Agencies whose name in a source string is an authority claim a reader will act on. Kept
+#: in step with gates._AGENCIES — the gate detects the claim, this demotes it, and the two
+#: reading different vocabularies would put the fix and its check out of sync.
+_AGENCY_CLAIM_RE = re.compile(
+    r"\b(census|acs\b|cbp\b|susb|bls\b|qcew|cex\b|oes\b|eurostat|"
+    r"office for national statistics|statcan|world bank|imf\b|oecd|fred\b)", re.I)
+#: Phrasings that already DISCLOSE rather than assert (gates._DISCLOSED). A second
+#: disclosure appended to one of these is noise, and a reader who sees two trusts neither.
+_ALREADY_DISCLOSED_RE = re.compile(
+    r"unsourced|llm estimate|llm-estimate|model(?:led|ed)?\s|estimate only|"
+    r"validate\s+(?:vs|against)|compare\s+(?:to|vs|against)|to be validated|"
+    r"not\s+(?:yet\s+)?sourced|placeholder|not fetched", re.I)
+#: Origins that record an actual fetch. Anything else — "llm", "unattributed", absent — is a
+#: figure whose agency name the pipeline cannot stand behind.
+_FETCHED_ORIGINS = frozenset({"census", "acs", "cbp", "susb", "bls", "qcew", "cex",
+                              "scrape", "stated", "osm", "api", "fetched", "derived"})
+
+
+def _demote_unfetched_agency_claim(block: dict) -> dict:
+    """Turn an agency ASSERTION into an agency SUGGESTION when no fetch backs it.
+
+    MEASURED on the three live runs generated for #98, 2 of 3 failed D53 — the gate whose
+    own docstring calls this the worst defect in the codebase:
+
+        method_bottom_up  data_origin=llm  source="US Census County Business Patterns 2022"
+        TAM_regional      data_origin=unattributed  cites 'Census'
+
+    A wrong number can be checked; a number wearing the Census Bureau's name defeats
+    checking, because the reader's next move — look the agency up — confirms it exists and
+    stops there.
+
+    THE MODEL'S CITATION IS KEPT. D53 already passes on "LLM estimate (UNSOURCED — validate
+    vs US Census ACS)", which names the agency as something to check AGAINST. So the honest
+    repair is not to delete the reference or invent another one — it is to demote the claim,
+    in Python, wherever the recorded origin says the fetch did not happen. Same move as C4's
+    BLS proxy label: keep the figure, fix what it claims about itself.
+
+    Deliberately does not touch `value_usd` or `calculation`. This corrects a claim, not a
+    number, and altering the arithmetic would make the output unauditable against the run
+    that produced it.
+    """
+    src = str(block.get("source") or "")
+    if not src or not _AGENCY_CLAIM_RE.search(src):
+        return block
+    if _ALREADY_DISCLOSED_RE.search(src):
+        return block
+    origin = ""
+    for key in ("data_origin", "origin", "count_origin", "arpu_origin"):
+        if block.get(key):
+            origin = str(block[key]).strip().lower()
+            break
+    if origin in _FETCHED_ORIGINS:
+        return block                      # the call really happened; say so plainly
+    return {**block,
+            "source": f"{src} — NOT FETCHED for this figure (recorded origin: "
+                      f"{origin or 'unattributed'}); cited by the model as a reference to "
+                      f"validate against, not as a source consulted",
+            "agency_claim_demoted": True}
+
+
 def gate_and_annotate_sizing(sizing: dict, scale_decision: dict | None) -> dict:
     """Run legacy sizing output through the numbers-right validation gate.
 
@@ -281,10 +341,21 @@ def gate_and_annotate_sizing(sizing: dict, scale_decision: dict | None) -> dict:
     _figs = out.get("figures")
     if isinstance(_figs, list):
         out["figures"] = [
-            ({**f, "data_origin": (f.get("data_origin") or f.get("origin") or "unattributed")}
+            (_demote_unfetched_agency_claim(
+                {**f, "data_origin": (f.get("data_origin") or f.get("origin")
+                                      or "unattributed")})
              if isinstance(f, dict) else f)
             for f in _figs
         ]
+    # THE SAME RULE ON THE THREE-METHOD TAM. A method block carries its own `source`, and
+    # the model writes it: measured on a live run, method_bottom_up said "US Census County
+    # Business Patterns 2022" with data_origin=llm. D53 calls this the worst defect in the
+    # codebase and it failed 2 of 3 live runs.
+    _tam = out.get("tam")
+    if isinstance(_tam, dict):
+        for _name in ("method_top_down", "method_bottom_up", "method_analog"):
+            if isinstance(_tam.get(_name), dict):
+                _tam[_name] = _demote_unfetched_agency_claim(_tam[_name])
 
     if scale_decision:
         out["scale_decision"] = scale_decision
@@ -1006,8 +1077,22 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
     # Use the correct OSM (key, value). Density count only — a coarse fallback here affects a
     # saturation note, not the competitor NAMES (those come from the strict geo_competitor_opps
     # helper, which skips on no-match rather than guessing a wrong category).
-    _tag = _resolve_osm_tag(cat) or ("amenity", "restaurant")
-    osm_key, osm = _tag
+    # NO FALLBACK TAG. `osm_tags`'s own docstring forbids exactly what this line used to do:
+    # "An unmapped category returns None and the caller falls back explicitly — inventing a
+    # plausible-looking tag would return a confident census of the wrong kind of business,
+    # which is harder to notice than none." It fell back to amenity=restaurant, and a live
+    # Lisbon run classified itself "artisan sourdough and pastries" (unmapped), so an artisan
+    # bakery was benchmarked against 1,603 RESTAURANTS — one of them a London burger place —
+    # and D57 read that count as evidence the market was mis-sized.
+    #
+    # A category the taxonomy does not know now yields NO competitor census rather than a
+    # wrong one. The sizing itself still runs on households x spend; D07 then fails honestly
+    # ("no OSM mapping for this category") instead of passing on the wrong trade.
+    _tag = _resolve_osm_tag(cat)
+    if _tag is None:
+        log.info("[plan] no OSM tag for category %r — competitor census skipped rather "
+                 "than run against a guessed category", cat)
+    osm_key, osm = _tag if _tag else (None, None)
     radius_m = _radius_for_osm_value(osm)  # cycle38: walk-in cafe ~1.5km, not a flat 3km
 
     # HOW MANY PREMISES. `size_regional` — the multi-site rollout engine — has been written
