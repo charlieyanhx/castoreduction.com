@@ -208,6 +208,63 @@ def _merge_prospects(method_lists: list[list[dict]], target_count: int) -> list[
     return collapse_near_dupes(flat, max_out=target_count * 2)
 
 
+
+# Domains that are never a prospect, however good the page title looks. A federal statistics
+# agency, an NGO data project, a think tank, a wiki and a trade publication are not companies
+# an operator can sell to — and the shipped Customer Universe listed all five as "real
+# companies matching the ICP". `discover` already applies this judgement in the other
+# direction (StellarAlbedo was correctly demoted for resolving to newsweek.com); this is the
+# same rule on the customer side.
+_NON_PROSPECT_TLDS = (".gov", ".gov.uk", ".edu", ".ac.uk", ".mil", ".int")
+_NON_PROSPECT_HOSTS = frozenset((
+    "ourworldindata.org", "thebreakthrough.org", "wikipedia.org", "wikimedia.org",
+    "newsweek.com", "forbes.com", "reuters.com", "bloomberg.com", "techcrunch.com",
+    "medium.com", "substack.com", "linkedin.com", "indeed.com", "glassdoor.com",
+    "ziprecruiter.com", "crunchbase.com", "statista.com", "researchgate.net",
+    "sciencedirect.com", "iea.org", "irena.org", "worldbank.org", "oecd.org",
+))
+# Trade press and job boards give themselves away in the host itself.
+_NON_PROSPECT_RE = re.compile(
+    r"(?:^|\.)[a-z0-9-]*(?:news|magazine|journal|gazette|herald|wiki)\.|"
+    r"(?:^|\.)(?:press|blog|jobs|careers|times)\.", re.I)
+
+
+def _is_prospect_domain(domain: str | None) -> bool:
+    """Could a company at this domain plausibly BUY something? Institutions cannot."""
+    d = (domain or "").strip().lower()
+    if not d:
+        return False
+    d = re.sub(r"^https?://", "", d).split("/")[0]
+    d = d[4:] if d.startswith("www.") else d
+    if any(d == t.lstrip(".") or d.endswith(t) for t in _NON_PROSPECT_TLDS):
+        return False
+    try:
+        from sources import root_domain
+        root = root_domain(d) or d
+    except Exception:
+        root = d
+    if root in _NON_PROSPECT_HOSTS or d in _NON_PROSPECT_HOSTS:
+        return False
+    return not _NON_PROSPECT_RE.search(d)
+
+
+# Page furniture, job titles and category phrases that a title-split mints as a "company".
+_PAGE_FURNITURE = frozenset((
+    "homepage", "home page", "home", "about", "about us", "contact", "contact us",
+    "index", "products", "our products", "solutions", "services", "our services",
+    "overview", "login", "sign in", "search", "blog", "news", "careers", "jobs",
+))
+_JOB_TITLE_RE = re.compile(
+    r"^(?:senior |junior |lead |chief |head of |vp of |vice president |director|manager|"
+    r"engineer|analyst|president|officer)\b|"
+    r"\b(?:director|manager|engineer|analyst|specialist|coordinator|officer),\s",
+    re.I)
+# A company name is a noun phrase. A sentence has a verb and function words in the middle.
+_SENTENCE_RE = re.compile(
+    r"\b(?:is|are|was|were|to|when|why|how|what|that|which|from|with|about|okay|get|gets)\b",
+    re.I)
+
+
 def _is_plausible_company_name(name: str) -> bool:
     """Iter 39: stricter junk filter — kills review widget alt-text masquerading as customer names.
     cycle22: also reject DDG news-headline titles like 'Nexxa.ai Raises $4.4M in Pre' that
@@ -232,6 +289,25 @@ def _is_plausible_company_name(name: str) -> bool:
         return False
     # cycle22: trailing word must be a real word, not a truncation like "in Pre"
     if re.search(r"\b(in|of|to|for|at|by|the|a|an)\s*$", n, re.I):
+        return False
+    # A search-result title is not a company name. Measured on job d62bc04f: "Homepage"
+    # (eia.gov), "Director, Solar Development" (a job posting), "Installed solar energy
+    # capacity" (a chart) and an essay headline were all shipped as "real companies matching
+    # the ICP". The checks above test the SHAPE of the string; these test what it SAYS.
+    if lowered in _PAGE_FURNITURE:
+        return False
+    if _JOB_TITLE_RE.search(n):
+        return False
+    if _SENTENCE_RE.search(n):
+        return False
+    # "Installed solar energy capacity" is a chart label, not a company. A company name
+    # capitalises its words; a category phrase capitalises only the first.
+    words = n.split()
+    if len(words) >= 3 and sum(1 for w in words if w[:1].isupper()) * 2 < len(words):
+        return False
+    # A release note is not a company. "Atualização do Produto 2.32" (modoenergy.com) shipped
+    # as a company name; no company name carries a version number.
+    if re.search(r"\b\d+\.\d+\b|\bv\d+\b", n, re.I):
         return False
     return True
 
@@ -258,6 +334,8 @@ def _scrape_competitor_customers(domain: str, max_companies: int = 20) -> list[d
         n = _TRAILING_LOGO_RE.sub("", (name or "")).strip()
         if not _is_plausible_company_name(n):
             return
+        if not _is_prospect_domain(url) and not _is_prospect_domain(domain):
+            return          # a .gov / NGO / trade-press page is not a prospect
         key = n.lower()
         if key in seen:
             return
