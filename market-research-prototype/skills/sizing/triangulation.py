@@ -91,6 +91,9 @@ def triangulate_sizing(sizing: dict) -> dict:
         # D35: the spread across EVERY printed method, so a wide table can never be
         # described only by the subset the headline was taken from.
         "raw_spread": s.raw_spread,
+        # The unbounded companion. raw_spread is (max-min)/mid and saturates
+        # near max/mid, so on a 312x table it reads 159% and cannot read more.
+        "raw_fold": s.raw_fold,
         "converged": s.converged, "confidence": s.confidence,
         "cross_origin": [dict(c) for c in s.cross_origin],
         "n_independent": s.n_independent, "flag": s.flag,
