@@ -823,7 +823,29 @@ def d35_tam_method_divergence_disclosed(r: dict, html: Optional[str]) -> Finding
     if raw is None:
         return Finding(False, f"TAM methods span {span:.1f}x but no raw_spread is "
                               "disclosed — the divergence is invisible")
-    return Finding(True, f"TAM methods span {span:.1f}x, disclosed (raw_spread={raw})")
+    # raw_spread = (max-min)/mid SATURATES: with mid the median it approaches max/mid and
+    # stops, so $8M/$1.568B/$2.5B reads 159% and would still read 159% if the bottom-up
+    # method returned one cent. Accepting it as the disclosure let this gate emit "spans
+    # 312.3x, disclosed (raw_spread=1.589)" — its own two halves disagreeing. Once the
+    # methods genuinely diverge, the unbounded measure has to be there too.
+    fold = _num(tri.get("raw_fold"))
+    if fold:
+        return Finding(True, f"TAM methods span {span:.1f}x, disclosed "
+                             f"(raw_fold={fold:.1f}x, raw_spread={raw})")
+    # No raw_fold: judge the disclosure by whether it is COMMENSURATE with the span, not by
+    # whether it exists. Measured across all 40 stored artifacts, failing on absence alone
+    # newly withheld two that disclose honestly — run1 carries raw_spread=64.0 against a
+    # 173.6x span, which understates but plainly conveys "these disagree enormously". What
+    # must fail is a figure that CANNOT convey it: raw_spread/span collapses to about
+    # min/mid, so c98_subscription discloses 2.9 for 102.1x and d62bc04f 1.589 for 312.3x.
+    # Within an order of magnitude of the truth still informs a reader; two orders does not.
+    if _num(raw) and float(raw) * 10.0 >= span:
+        return Finding(True, f"TAM methods span {span:.1f}x, disclosed "
+                             f"(raw_spread={raw} — no raw_fold, but commensurate)")
+    return Finding(False, f"TAM methods span {span:.1f}x but the only disclosed divergence "
+                          f"is raw_spread={raw}, which saturates near max/median "
+                          f"({float(raw or 0) * 100:.0f}% for a {span:.0f}x disagreement) and "
+                          "cannot express a span this wide")
 
 
 def d36_validation_warns_surfaced(r: dict, html: Optional[str]) -> Finding:

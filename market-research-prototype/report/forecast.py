@@ -94,6 +94,11 @@ class Sizing:
     # D35 requires this: without it a wide table can only be described by a spread computed
     # over the subset, which is how a divergence gets hidden behind one median.
     raw_spread: Optional[float] = None
+    # (max/min) across every printed method. raw_spread is (max-min)/mid and SATURATES: with
+    # mid the median of $8M/$1.568B/$2.5B it approaches max/mid = 1.59 and stops, so the
+    # bottom-up method could return one cent and the disclosed divergence would not move.
+    # A number that cannot exceed a bound is not a disclosure of an unbounded quantity.
+    raw_fold: Optional[float] = None
     converged: bool = False
     confidence: str = "single_source"
     cross_origin: tuple[dict, ...] = ()
@@ -168,6 +173,8 @@ def _convergence(kept, conflict, mid, origin_points, by_origin, n_independent):
     if all_vals and mid:
         raw_spread = (max(all_vals) - min(all_vals)) / abs(mid)
     raw_phrase = spread_phrase(all_vals, mid)
+    _pos = [abs(float(v)) for v in all_vals if v and float(v) > 0]
+    raw_fold = (max(_pos) / min(_pos)) if len(_pos) >= 2 else None
 
     cross = tuple({"origin": o, "value": median(v)} for o, v in by_origin.items())
 
@@ -177,7 +184,7 @@ def _convergence(kept, conflict, mid, origin_points, by_origin, n_independent):
         only = ", ".join(by_origin) or "none"
         extra = (f"; its {len(all_vals)} estimates diverge {raw_phrase}"
                  if raw_spread is not None and raw_spread > _CONV_MED else "")
-        return (mid, None, raw_spread, False, "single_source", cross,
+        return (mid, None, raw_spread, raw_fold, False, "single_source", cross,
                 f"only {n_independent} independent origin"
                 f"{'s' if n_independent != 1 else ''} ({only}) — not triangulated{extra}")
 
@@ -196,7 +203,7 @@ def _convergence(kept, conflict, mid, origin_points, by_origin, n_independent):
             f"the {len(all_vals)} printed methods still diverge {raw_phrase} — "
             f"the headline is a median of the {len(kept)} unit-consistent ones, not a "
             f"converged triangulation")
-    return (mid, spread, raw_spread, converged, confidence, cross, flag)
+    return (mid, spread, raw_spread, raw_fold, converged, confidence, cross, flag)
 
 
 def triangulate(methods: Iterable[Method], *, rule: str = MEDIAN_ACROSS_ORIGINS) -> Sizing:
@@ -261,11 +268,12 @@ def triangulate(methods: Iterable[Method], *, rule: str = MEDIAN_ACROSS_ORIGINS)
                      "not a triangulation.")
 
     _mid_r = round(mid)
-    point, spread, raw_spread, converged, confidence, cross, flag = _convergence(
+    point, spread, raw_spread, raw_fold, converged, confidence, cross, flag = _convergence(
         kept, conflict, _mid_r, origin_points, by_origin, n_independent)
     return Sizing(mid=_mid_r, low=round(low), high=round(high), rule=rule,
                   derivation=" ".join(parts), range_basis=range_basis,
                   n_independent=n_independent, unit_conflict=conflict,
                   methods_used=tuple(kept), headline_unit=headline_unit,
-                  point=point, spread=spread, raw_spread=raw_spread, converged=converged,
+                  point=point, spread=spread, raw_spread=raw_spread,
+                  raw_fold=raw_fold, converged=converged,
                   confidence=confidence, cross_origin=cross, flag=flag)
