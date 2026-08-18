@@ -209,6 +209,29 @@
         /* 2x2 grid */
         .grid-2x2 { grid-template-columns: repeat(2, 1fr); }
         @media (max-width: 640px) { .grid-2x2 { grid-template-columns: 1fr; } }
+        @media (max-width: 768px) { .whitespace-layout { grid-template-columns: 1fr !important; } }
+
+        /* Pricing strikethrough / beta badge */
+        .price-regular { font-size: 0.875rem; color: #8A9A8A; text-decoration: line-through; margin-bottom: 0.25rem; }
+        .pricing-card.featured .price-regular { color: rgba(255,255,255,0.35); }
+        .beta-badge { display: inline-block; padding: 0.2rem 0.6rem; background-color: rgba(176,120,64,0.15); color: #B07840; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; border-radius: 9999px; margin-bottom: 0.5rem; }
+        .pricing-card.featured .beta-badge { background-color: rgba(176,120,64,0.25); color: rgba(176,120,64,0.9); }
+
+        /* Comparison table */
+        .comparison-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .comparison-table { width: 100%; border-collapse: collapse; min-width: 560px; }
+        .comparison-table th { padding: 1rem 1.25rem; font-size: 0.875rem; font-weight: 700; text-align: left; border-bottom: 2px solid rgba(43,60,43,0.12); }
+        .comparison-table th.castor-col { background-color: rgba(43,60,43,0.05); color: #2B3C2B; border-radius: 0.75rem 0.75rem 0 0; }
+        .comparison-table th.other-col { color: #8A9A8A; }
+        .comparison-table td { padding: 0.875rem 1.25rem; font-size: 0.875rem; border-bottom: 1px solid rgba(43,60,43,0.06); vertical-align: top; line-height: 1.5; }
+        .comparison-table td.castor-col { background-color: rgba(43,60,43,0.03); color: #2B3C2B; font-weight: 500; }
+        .comparison-table td.other-col { color: #5A6E5A; }
+        .comparison-table tr:last-child td { border-bottom: none; }
+        .comparison-table .row-label { font-size: 0.8125rem; font-weight: 600; color: #2B3C2B; padding-right: 1rem; white-space: nowrap; }
+        .comparison-placeholder { color: #B07840; font-style: italic; font-size: 0.8125rem; }
+
+        /* Consulting section */
+        .consulting-card { border-radius: 1.5rem; padding: 3rem; background: linear-gradient(135deg, rgba(43,60,43,0.05) 0%, rgba(176,120,64,0.05) 100%); border: 1px solid rgba(176,120,64,0.15); }
 
         /* Reduced motion */
         @media (prefers-reduced-motion: reduce) {
@@ -229,8 +252,9 @@
             </a>
             <div class="nav-links desktop">
                 <a href="#how-it-works" class="nav-link">How It Works</a>
+                <a href="#comparison" class="nav-link">See the Difference</a>
                 <a href="#pricing" class="nav-link">Pricing</a>
-                <a href="#sample-report" class="nav-link">Sample Report</a>
+                <a href="#consulting" class="nav-link">Consult</a>
                 <a href="#corporate" class="nav-link">Corporate</a>
             </div>
             <div class="nav-cta desktop">
@@ -242,8 +266,9 @@
         </div>
         <div class="mobile-menu" id="mobileMenu">
             <a href="#how-it-works" class="mobile-menu-link" onclick="closeMobileMenu()">How It Works</a>
+            <a href="#comparison" class="mobile-menu-link" onclick="closeMobileMenu()">See the Difference</a>
             <a href="#pricing" class="mobile-menu-link" onclick="closeMobileMenu()">Pricing</a>
-            <a href="#sample-report" class="mobile-menu-link" onclick="closeMobileMenu()">Sample Report</a>
+            <a href="#consulting" class="mobile-menu-link" onclick="closeMobileMenu()">Consult</a>
             <a href="#corporate" class="mobile-menu-link" onclick="closeMobileMenu()">Corporate</a>
             <a href="./market-research-prototype/web/index.html" class="mobile-menu-link" style="font-weight: 700; color: #2B3C2B; margin-top: 0.5rem; border-top: 1px solid rgba(43,60,43,0.08); padding-top: 1rem;">Generate your report</a>
         </div>
@@ -432,13 +457,275 @@
             </div>
         </section>
 
+        <!-- WHITESPACE MAP + DIFFERENTIATORS -->
+        <section id="competitors">
+            <div class="max-w-6xl mx-auto animate-on-scroll">
+                <div class="text-center" style="margin-bottom: 3rem;">
+                    <span class="section-tag">Where We Sit</span>
+                    <h2>The market research landscape.</h2>
+                    <p style="max-width: 36rem; margin: 1rem auto 0;">Most tools serve researchers who already know what they need. We serve everyone else.</p>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; align-items: stretch;">
+                    <!-- Whitespace map -->
+                    <div style="border-radius: 1rem; overflow: hidden; border: 1px solid rgba(43,60,43,0.12); background: white; padding: 1.5rem; display: flex; align-items: center;">
+                        <svg viewBox="0 0 400 325" width="100%" style="display: block;">
+                            <!-- Background -->
+                            <rect width="400" height="360" fill="white"/>
+
+
+                            <!-- Axis lines -->
+                            <line x1="205" y1="15" x2="205" y2="305" stroke="#2B3C2B" stroke-width="1.5"/>
+                            <line x1="25" y1="185" x2="385" y2="185" stroke="#2B3C2B" stroke-width="1.5"/>
+
+                            <!-- Axis labels -->
+                            <text x="30" y="182" font-family="Inter,sans-serif" font-size="9" font-weight="600" fill="#2B3C2B" text-anchor="start">For experts</text>
+                            <text x="380" y="182" font-family="Inter,sans-serif" font-size="9" font-weight="600" fill="#2B3C2B" text-anchor="end">For anyone</text>
+                            <text x="208" y="22" font-family="Inter,sans-serif" font-size="9" font-weight="600" fill="#2B3C2B">Comprehensive</text>
+                            <text x="208" y="312" font-family="Inter,sans-serif" font-size="9" font-weight="600" fill="#2B3C2B">Shallow</text>
+
+                            <!-- Competitors — gray dots -->
+                            <!-- Traditional Firms: far left, very high -->
+                            <circle cx="55" cy="45" r="5" fill="#c8cfc8"/>
+                            <text x="65" y="42" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">Research Firms</text>
+
+                            <!-- Quantilope: left, high -->
+                            <circle cx="70" cy="85" r="5" fill="#c8cfc8"/>
+                            <text x="80" y="89" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">Quantilope</text>
+
+                            <!-- Manus: left-center, mid-high -->
+                            <circle cx="95" cy="120" r="5" fill="#c8cfc8"/>
+                            <text x="105" y="124" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">Manus</text>
+
+                            <!-- DimeADozen: left-center, high -->
+                            <circle cx="130" cy="70" r="5" fill="#c8cfc8"/>
+                            <text x="140" y="74" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">DimeADozen</text>
+
+                            <!-- ChatGPT/Claude: left, mid -->
+                            <circle cx="80" cy="160" r="5" fill="#c8cfc8"/>
+                            <text x="90" y="164" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">ChatGPT / Claude</text>
+
+                            <!-- Aomni: far left, mid -->
+                            <circle cx="50" cy="140" r="5" fill="#c8cfc8"/>
+                            <text x="60" y="144" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">Aomni</text>
+
+                            <!-- Preuve AI: right, mid-high -->
+                            <circle cx="295" cy="105" r="5" fill="#c8cfc8"/>
+                            <text x="305" y="109" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">Preuve AI</text>
+
+                            <!-- IdeaProof: right, mid -->
+                            <circle cx="310" cy="155" r="5" fill="#c8cfc8"/>
+                            <text x="320" y="159" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">IdeaProof</text>
+
+                            <!-- FounderPal: far right, mid-low -->
+                            <circle cx="345" cy="215" r="5" fill="#c8cfc8"/>
+                            <text x="310" y="230" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">FounderPal</text>
+
+                            <!-- ValidatorAI: far right, low -->
+                            <circle cx="355" cy="250" r="5" fill="#c8cfc8"/>
+                            <text x="315" y="265" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">ValidatorAI</text>
+
+                            <!-- SparkRockets: right, low -->
+                            <circle cx="290" cy="265" r="5" fill="#c8cfc8"/>
+                            <text x="230" y="279" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">SparkRockets</text>
+
+                            <!-- Castor — highlighted star -->
+                            <circle cx="270" cy="58" r="14" fill="rgba(176,120,64,0.15)" stroke="#B07840" stroke-width="1.5"/>
+                            <circle cx="270" cy="58" r="7" fill="#B07840"/>
+                            <text x="270" y="40" font-family="Inter,sans-serif" font-size="10" font-weight="700" fill="#2B3C2B" text-anchor="middle">Castor</text>
+
+                        </svg>
+                    </div>
+
+                    <!-- Differentiators banner -->
+                    <div style="background-color: #2B3C2B; border-radius: 1rem; padding: 2rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                        <div>
+                            <span style="font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(176,120,64,0.8);">Why Castor</span>
+                            <h3 style="color: white; font-size: 1.25rem; font-weight: 900; margin-top: 0.5rem; line-height: 1.3;">Comprehensive output. Built for people who aren't researchers.</h3>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 0.875rem;">
+                            <div style="display: flex; gap: 0.875rem; align-items: flex-start;">
+                                <div style="width: 1.5rem; height: 1.5rem; border-radius: 50%; background: rgba(176,120,64,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.1rem;">
+                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#B07840" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                </div>
+                                <div>
+                                    <div style="color: white; font-weight: 700; font-size: 0.875rem;">Guided intake</div>
+                                    <div style="color: rgba(255,255,255,0.5); font-size: 0.8125rem; margin-top: 0.125rem;">You don't need to know what to ask. The chat interface asks for you.</div>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.875rem; align-items: flex-start;">
+                                <div style="width: 1.5rem; height: 1.5rem; border-radius: 50%; background: rgba(176,120,64,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.1rem;">
+                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#B07840" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                </div>
+                                <div>
+                                    <div style="color: white; font-weight: 700; font-size: 0.875rem;">10 sections, every time</div>
+                                    <div style="color: rgba(255,255,255,0.5); font-size: 0.8125rem; margin-top: 0.125rem;">Same structure every run. Compare ideas on identical dimensions.</div>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.875rem; align-items: flex-start;">
+                                <div style="width: 1.5rem; height: 1.5rem; border-radius: 50%; background: rgba(176,120,64,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.1rem;">
+                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#B07840" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                </div>
+                                <div>
+                                    <div style="color: white; font-weight: 700; font-size: 0.875rem;">Buyer personas and 4Ps included</div>
+                                    <div style="color: rgba(255,255,255,0.5); font-size: 0.8125rem; margin-top: 0.125rem;">No other tool at this price gives you both. Built for people who need to know what to do next.</div>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.875rem; align-items: flex-start;">
+                                <div style="width: 1.5rem; height: 1.5rem; border-radius: 50%; background: rgba(176,120,64,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.1rem;">
+                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#B07840" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                </div>
+                                <div>
+                                    <div style="color: white; font-weight: 700; font-size: 0.875rem;">Every claim cited</div>
+                                    <div style="color: rgba(255,255,255,0.5); font-size: 0.8125rem; margin-top: 0.125rem;">Real competitor data, real pricing pages, real reviews. Nothing fabricated.</div>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.875rem; align-items: flex-start;">
+                                <div style="width: 1.5rem; height: 1.5rem; border-radius: 50%; background: rgba(176,120,64,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.1rem;">
+                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#B07840" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                </div>
+                                <div>
+                                    <div style="color: white; font-weight: 700; font-size: 0.875rem;">$29 flat, no credit uncertainty</div>
+                                    <div style="color: rgba(255,255,255,0.5); font-size: 0.8125rem; margin-top: 0.125rem;">You know what you're paying before you start. No surprise bills.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SIDE-BY-SIDE COMPARISON -->
+        <section id="comparison" style="background-color: rgba(43,60,43,0.02);">
+            <div class="max-w-6xl mx-auto animate-on-scroll">
+                <div class="text-center" style="margin-bottom: 3rem;">
+                    <span class="section-tag">See the Difference</span>
+                    <h2>Castor vs. the alternatives.</h2>
+                    <p style="max-width: 36rem; margin: 1rem auto 0;">How Castor stacks up against the four closest tools on the dimensions that actually matter.</p>
+                </div>
+                <div class="comparison-wrap">
+                    <table class="comparison-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 18%; color: #8A9A8A; font-weight: 600; font-size: 0.8125rem;"></th>
+                                <th class="castor-col" style="text-align: center;">
+                                    <div style="display: flex; align-items: center; gap: 0.5rem; justify-content: center; margin-bottom: 0.25rem;">
+                                        <svg viewBox="0 0 100 100" width="16" height="16"><g transform="translate(10,8)"><ellipse cx="40" cy="38" rx="38" ry="35" fill="#B07840"/><ellipse cx="40" cy="46" rx="28" ry="24" fill="#D4A870"/><circle cx="28" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="52" cy="30" r="5.5" fill="#2B3C2B"/></g></svg>
+                                        Castor Research
+                                    </div>
+                                    <div style="font-size: 0.75rem; font-weight: 500; color: #B07840;">$29 beta</div>
+                                </th>
+                                <th class="other-col" style="text-align: center;">
+                                    <div style="margin-bottom: 0.25rem;">Preuve AI</div>
+                                    <div style="font-size: 0.75rem; font-weight: 500;">$29</div>
+                                </th>
+                                <th class="other-col" style="text-align: center;">
+                                    <div style="margin-bottom: 0.25rem;">DimeADozen</div>
+                                    <div style="font-size: 0.75rem; font-weight: 500;">$9 – $129</div>
+                                </th>
+                                <th class="other-col" style="text-align: center;">
+                                    <div style="margin-bottom: 0.25rem;">IdeaProof</div>
+                                    <div style="font-size: 0.75rem; font-weight: 500;">€19 – €99</div>
+                                </th>
+                                <th class="other-col" style="text-align: center;">
+                                    <div style="margin-bottom: 0.25rem;">Manus</div>
+                                    <div style="font-size: 0.75rem; font-weight: 500;">$20+/mo</div>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="row-label">Time to deliver</td>
+                                <td class="castor-col" style="text-align: center;">Minutes</td>
+                                <td class="other-col" style="text-align: center;">Minutes</td>
+                                <td class="other-col" style="text-align: center;">Minutes</td>
+                                <td class="other-col" style="text-align: center;">~90 seconds</td>
+                                <td class="other-col" style="text-align: center;">Minutes – hours</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">Price per report</td>
+                                <td class="castor-col" style="text-align: center;">$29 flat</td>
+                                <td class="other-col" style="text-align: center;">$29 flat</td>
+                                <td class="other-col" style="text-align: center;">$9 or $129</td>
+                                <td class="other-col" style="text-align: center;">€6 – €19</td>
+                                <td class="other-col" style="text-align: center;">Unpredictable (credit-based)</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">Built for non-experts</td>
+                                <td class="castor-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                                <td class="other-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Partial</td>
+                                <td class="other-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">Guided chat intake</td>
+                                <td class="castor-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">Consistent structure</td>
+                                <td class="castor-col" style="text-align: center;">10 sections, every time</td>
+                                <td class="other-col" style="text-align: center;">13 sections</td>
+                                <td class="other-col" style="text-align: center;">4 sections ($9) / 150+ pages ($129)</td>
+                                <td class="other-col" style="text-align: center;">6 sections</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B;">Varies by task</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">Real data sourcing</td>
+                                <td class="castor-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes — live scraping</td>
+                                <td class="other-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes — 60+ sources</td>
+                                <td class="other-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes — 1,200+ URLs</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Unverified</td>
+                                <td class="other-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">Buyer personas</td>
+                                <td class="castor-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Sometimes</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">4Ps marketing plan</td>
+                                <td class="castor-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Sometimes</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">3-year revenue model</td>
+                                <td class="castor-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes ($129 tier)</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Basic</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Sometimes</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">Scales for portfolio use</td>
+                                <td class="castor-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes — same output every run</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Possible</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Possible</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Possible</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Yes but inconsistent</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
         <!-- SAMPLE REPORT -->
         <section id="sample-report">
             <div class="max-w-3xl mx-auto animate-on-scroll">
                 <div class="cta-box">
                     <span class="section-tag">Sample Report</span>
                     <h2>See a full report before you buy.</h2>
-                    <p style="color: #5A6E5A;">We ran Castor on a real DTC product idea. The full 23-section output is available to review before you commit to a purchase.</p>
+                    <p style="color: #5A6E5A;">We ran Castor on a real DTC product idea. The full output is available to review before you commit to a purchase.</p>
                     <a href="#" class="cta-button primary" style="margin: 0 auto;">View sample report <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></a>
                 </div>
             </div>
@@ -450,17 +737,21 @@
                 <div class="text-center" style="margin-bottom: 1.5rem;">
                     <span class="section-tag">Pricing</span>
                     <h2>Beta pricing.</h2>
-                    <p style="max-width: 36rem; margin: 1rem auto 0;">We are in active development. Current prices reflect that. They will increase as the product matures. Credits are tied to the email you use at purchase and do not expire.</p>
+                    <p style="max-width: 36rem; margin: 1rem auto 0;">We are in active development. Prices are discounted while we build. They will return to standard rates as the product matures. Credits are tied to the email you use at purchase and do not expire.</p>
                 </div>
                 <div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-top: 2.5rem;">
                     <div class="pricing-card">
                         <div class="price-label">Single Report</div>
+                        <div class="price-regular">Regular price: $75</div>
+                        <span class="beta-badge">Beta — save 61%</span>
                         <div class="price">$29</div>
                         <p class="pricing-desc">One report. PDF download and email delivery included. Good for a one-time validation or competitive check.</p>
                         <a href="./market-research-prototype/web/index.html" class="pricing-btn">Get started</a>
                     </div>
                     <div class="pricing-card featured">
                         <div class="price-label">5-Pack</div>
+                        <div class="price-regular">Regular price: $375 ($75/report)</div>
+                        <span class="beta-badge">Beta — save 74%</span>
                         <div class="price">$99</div>
                         <div class="per-report">about $20 per report</div>
                         <p class="pricing-desc">For founders running multiple ideas or businesses doing periodic research. Credits do not expire.</p>
@@ -468,6 +759,8 @@
                     </div>
                     <div class="pricing-card">
                         <div class="price-label">10-Pack</div>
+                        <div class="price-regular">Regular price: $750 ($75/report)</div>
+                        <span class="beta-badge">Beta — save 77%</span>
                         <div class="price">$175</div>
                         <div class="per-report">about $17.50 per report</div>
                         <p class="pricing-desc">For accelerators and VCs running research across a portfolio. Same rigorous output on every company.</p>
@@ -477,8 +770,47 @@
             </div>
         </section>
 
+        <!-- CONSULTING -->
+        <section id="consulting">
+            <div class="max-w-4xl mx-auto animate-on-scroll">
+                <div class="consulting-card">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2.5rem; align-items: center;">
+                        <div>
+                            <span class="section-tag">Want More?</span>
+                            <h2 style="margin-top: 1rem; margin-bottom: 1rem;">Talk to an expert, not just a tool.</h2>
+                            <p style="color: #5A6E5A; margin-bottom: 1rem;">Your report gives you the data. A conversation helps you figure out what to do with it.</p>
+                            <p style="color: #5A6E5A; margin-bottom: 1.5rem;">The founder of Castor Research is a PhD candidate in marketing. Book a one-hour session to walk through your report, pressure-test your positioning, dig into a specific section, or think through your go-to-market strategy with someone who has the research background to back it up.</p>
+                            <button class="cta-button primary" onclick="openContactModal()">Book a session <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 1rem;">
+                            <div class="check-item">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                <span>1-hour 1-on-1 session via video call</span>
+                            </div>
+                            <div class="check-item">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                <span>Walk through your report findings together</span>
+                            </div>
+                            <div class="check-item">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                <span>Positioning, go-to-market, pricing strategy, or competitive analysis</span>
+                            </div>
+                            <div class="check-item">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                <span>PhD-level marketing research expertise applied to your specific business</span>
+                            </div>
+                            <div style="margin-top: 0.5rem; padding: 1rem 1.25rem; border-radius: 0.75rem; background-color: rgba(176,120,64,0.08); border: 1px solid rgba(176,120,64,0.15);">
+                                <div style="font-size: 0.75rem; font-weight: 600; color: #B07840; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.25rem;">Session rate</div>
+                                <div style="font-size: 1.5rem; font-weight: 900; color: #2B3C2B;">$150 <span style="font-size: 0.875rem; font-weight: 500; color: #5A6E5A;">/ hour</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- CORPORATE -->
-        <section id="corporate">
+        <section id="corporate" style="background-color: rgba(43,60,43,0.02);">
             <div class="max-w-4xl mx-auto animate-on-scroll">
                 <div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2rem; align-items: center;">
                     <div>
