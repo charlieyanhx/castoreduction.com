@@ -1502,12 +1502,36 @@ def build_integrity_summary(result: dict) -> dict:
     origins = sorted({str(m.get("data_origin") or "llm") for m in methods}) if methods else []
 
     has_gate = bool(val)
+
+    # "Validated" must mean the REPORT passed, not that the sizing skill passed its own
+    # internal gate. Measured on job d62bc04f: market_sizing.validation.passed was True while
+    # verification carried a blocking D55 finding that withheld the document — so the panel
+    # titled "HOW TO TRUST THESE NUMBERS" printed "✓ Validated — passed the integrity gate"
+    # four inches below "This report did not pass its own checks". The report-level findings
+    # are the wider object and the label already claims them.
+    _findings = ((result or {}).get("verification") or {}).get("findings") or []
+    _blocking = [f for f in _findings
+                 if str((f or {}).get("severity") or "").lower() in ("block", "blocking")]
+    _sizing_ok = val.get("passed") if has_gate else None
+    _passed = (None if (_sizing_ok is None and not _findings)
+               else bool(_sizing_ok is not False) and not _blocking)
+
+    # "Reproducible" was the literal constant True, so no report could ever falsify it. The
+    # arithmetic IS deterministic, but the claim is about the report, and this pipeline fetches
+    # Trends / Trustpilot / OSM / FRED / DDG and falls back across LLM providers. A run that
+    # dropped an output or halted would not reproduce, and said otherwise.
+    _degraded = bool((result or {}).get("_dropped_outputs")
+                     or (result or {}).get("error")
+                     or (result or {}).get("run_health", {}).get("degraded"))
+
     return {
-        "reproducible": True,  # F2: temperature=0 + seed → same input, same number
+        # temperature=0 + seed makes the arithmetic deterministic; live fetches are not, so
+        # this is asserted only when the run recorded no degradation.
+        "reproducible": not _degraded,
         "validation": {
-            "ran": has_gate,
-            "passed": val.get("passed") if has_gate else None,
-            "n_blocks": len(val.get("blocks") or []),
+            "ran": has_gate or bool(_findings),
+            "passed": _passed,
+            "n_blocks": len(val.get("blocks") or []) + len(_blocking),
             "n_warns": len(val.get("warns") or []),
         },
         "triangulation": {
