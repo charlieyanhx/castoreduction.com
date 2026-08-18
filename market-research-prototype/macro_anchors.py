@@ -152,6 +152,47 @@ SERIES = {
 }
 
 
+
+_YEAR_AGO_TOLERANCE_DAYS = 200   # nearest observation must plausibly BE a year back
+
+
+def _pick_year_ago(rows, latest):
+    """The observation nearest to exactly one year before `latest`, or None.
+
+    The previous rule scanned `reversed(rows)` for the first row in the prior CALENDAR YEAR,
+    which is that year's LAST observation. On a quarterly series with the latest point at
+    2026-04-01 (Q2), that selects 2025-10-01 (Q4) — two quarters back, labelled "YoY". Choose
+    by date distance instead: correct for quarterly, monthly and annual series alike, and it
+    returns None rather than a mislabelled comparison when nothing sits near the one-year mark.
+    """
+    import datetime as _dt
+
+    def _d(row):
+        try:
+            return _dt.date.fromisoformat(str(row.get("date"))[:10])
+        except (TypeError, ValueError):
+            return None
+
+    anchor = _d(latest or {})
+    if not anchor or not rows:
+        return None
+    try:
+        target = anchor.replace(year=anchor.year - 1)
+    except ValueError:                      # 29 Feb
+        target = anchor - _dt.timedelta(days=365)
+    best, best_gap = None, None
+    for r_ in rows:
+        d = _d(r_)
+        if d is None or d >= anchor:
+            continue
+        gap = abs((d - target).days)
+        if best_gap is None or gap < best_gap:
+            best, best_gap = r_, gap
+    if best is None or best_gap > _YEAR_AGO_TOLERANCE_DAYS:
+        return None
+    return best
+
+
 def _fetch_fred_series(fred_id: str) -> dict | None:
     """Pull the most recent observations for a FRED series. Returns {latest_value, latest_date, prev_year_value, yoy_pct}."""
     cache_key = f"fred:{fred_id}"
@@ -209,13 +250,7 @@ def _fetch_fred_series(fred_id: str) -> dict | None:
             return {}
 
         latest = rows[-1]
-        # Find ~1 year older observation for YoY
-        prev_year = None
-        latest_year = int(latest["date"].split("-")[0])
-        for r_ in reversed(rows[:-1]):
-            if int(r_["date"].split("-")[0]) == latest_year - 1:
-                prev_year = r_
-                break
+        prev_year = _pick_year_ago(rows[:-1], latest)
 
         out = {
             "latest_value": latest["value"],
