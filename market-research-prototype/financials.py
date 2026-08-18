@@ -592,9 +592,20 @@ def ladder_inputs(economics: dict | None, market_sizing: dict | None,
     kind = (biz_kind or econ.get("model") or "transactional").lower()
 
     unit = next((econ[k] for k in _UNIT_KEYS if econ.get(k)), None) or "unit"
-    price = next((econ[k] for k in _PRICE_KEYS
-                  if isinstance(econ.get(k), (int, float))
-                  and not isinstance(econ.get(k), bool) and econ[k] > 0), None)
+    _price_key = next((k for k in _PRICE_KEYS
+                       if isinstance(econ.get(k), (int, float))
+                       and not isinstance(econ.get(k), bool) and econ[k] > 0), None)
+    price = econ[_price_key] if _price_key else None
+    # WHICH key matched decides whether the ladder is a rate or a stock, and the suffix the
+    # report prints depends on it. som/price with a PER-UNIT price is units per year, so
+    # dividing by per_year genuinely annualises it into units/day — a rate. With a PER-PERIOD
+    # price (monthly_price_usd) som/price is already unit-PERIODS, so the same division turns
+    # a year's worth into a CONCURRENT COUNT — a stock. Measured on job d62bc04f:
+    # $1,740,000/$1,450/12 = 100 seats held at once, printed as "100 seats/month", which
+    # states 1,200 seats a year — twelve times the actual ceiling, and the number a founder
+    # plans hiring and capacity against.
+    price_basis = None if not _price_key else (
+        "per_unit" if _price_key == "price_per_unit" else "per_period")
     som = (ms.get("som") or {}).get("mid") or ms.get("som_usd")
 
     target = planning_target(som_usd=som, price_per_unit=price,
@@ -617,6 +628,8 @@ def ladder_inputs(economics: dict | None, market_sizing: dict | None,
     if som and price:
         rungs["obtainable ceiling"] = som / price / per_year
 
-    return {"unit": unit, "price": price, "period": period,
+    return {
+        "price_basis": price_basis,
+        "is_stock": price_basis == "per_period","unit": unit, "price": price, "period": period,
             "measure": (target or {}).get("measure") or ("units" if price else "revenue"),
             "target": target, "rungs": rungs}
