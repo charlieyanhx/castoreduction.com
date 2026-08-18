@@ -1074,7 +1074,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   {% for s in customer_universe.segments[:4] %}
   <div style="border:1px solid #e5e7eb;border-radius:6px;padding:12px">
     <div style="font-weight:700;font-size:11pt;color:#1f2937">{{ s.label }}</div>
-    {% if s.size_pct %}<div style="font-size:9pt;color:#6b7280;margin-bottom:6px">{{ s.size_pct }} of universe · {{ s.decision_maker_role or '' }}</div>{% endif %}
+    {% if s.size_pct %}<div style="font-size:9pt;color:#6b7280;margin-bottom:6px">{{ s.size_pct }}% of universe · {{ s.decision_maker_role or '' }}</div>{% endif %}
     <div style="font-size:10pt;color:#4b5563;margin-bottom:6px">{{ s.description }}</div>
     {% if s.buying_motivation %}<div style="font-size:9pt"><strong>Buys because:</strong> {{ s.buying_motivation }}</div>{% endif %}
   </div>
