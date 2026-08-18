@@ -521,7 +521,12 @@ def classify_with_confidence(profile: dict, market_scale: Optional[dict] = None)
                  f"{profile.get('summary') or ''}")
 
     def _has(kws):
-        return any(_norm(k) in blob for k in kws)
+        # Word boundaries, not bare substrings. _norm maps "/" to a space, so the pricing
+        # keyword "/mo" degrades to the bigram "mo" — which substring-matched inside the word
+        # "model". Measured on job d62bc04f: a brief reading "Business model: Undetermined /
+        # early exploratory" set explicit=True and suppressed the disclosure telling the
+        # reader the subscription classification was INFERRED, not stated.
+        return any(_re2.search(rf"(?<!\w){_re2.escape(_norm(k))}(?!\w)", blob) for k in kws)
 
     # Did anything in the brief name a revenue shape at all? The union of every signal the
     # classifier can act on — if none of them fired, whatever came back is an inference.

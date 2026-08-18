@@ -252,6 +252,9 @@ def _set_canonical_density(result: dict) -> None:
         if observed else None)
 
 
+import re as _re
+
+
 def _is_megabrand(brand_name: str) -> bool:
     """True if the brand is a legacy megabrand the founder doesn't need to learn from."""
     if not brand_name:
@@ -259,9 +262,20 @@ def _is_megabrand(brand_name: str) -> bool:
     n = brand_name.lower().strip()
     if n in MEGABRAND_NAMES:
         return True
-    # Also check substring (e.g., "Ice Breakers Candy" → "ice breakers")
+    # Also check as a WHOLE WORD (e.g. "Ice Breakers Candy" → "ice breakers"). This used to
+    # be a bare substring test guarded by len(mega) > 4, and "orbit" — Wrigley's Orbit gum,
+    # five characters — matched inside "Reflect Orbital". That is the one real company in the
+    # orbital-reflection market: it was demoted 0.4x as a legacy megabrand, fell past the
+    # synthesis prompt truncation, and the report invented three competitors in its place and
+    # advised positioning "against the 3 competitors by delivering physical sunlight
+    # redirection rather than adjacent software" — aimed straight at the real hardware player.
+    #
+    # KNOWN RESIDUAL: this list was assembled for a chewing-gum venture and still contains
+    # generic words ("extra", "eclipse", "stride", "crest"), so "Extra Space Storage" would
+    # still be demoted. Word boundaries fix the measured defect; scoping a CPG denylist to CPG
+    # ventures is a separate change and is deliberately not smuggled in here.
     for mega in MEGABRAND_NAMES:
-        if mega in n and len(mega) > 4:  # avoid false positives on short names
+        if _re.search(rf"(?<!\w){_re.escape(mega)}(?!\w)", n):
             return True
     return False
 
