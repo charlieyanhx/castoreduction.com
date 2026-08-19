@@ -625,5 +625,62 @@ $("launchBtn").onclick = launch;
 $("input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
+/* ---------------- resizable panes ----------------
+   The three panes were a fixed 248px/1fr/1fr grid — an operator reading a dense report in
+   the right panel could not give it more room. Two gutters drag the grid vars; sizes
+   persist per browser; double-click resets. The small-screen media queries still win
+   because they reset grid-template-columns after these vars. */
+function initGutters() {
+  const KEY = "castor.panes.v1";
+  const root = document.body;
+  const saved = (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } })();
+  if (saved.side) root.style.setProperty("--col-side", saved.side);
+  if (saved.center && saved.comp) {
+    root.style.setProperty("--col-center", saved.center);
+    root.style.setProperty("--col-comp", saved.comp);
+  }
+  const persist = () => {
+    try {
+      localStorage.setItem(KEY, JSON.stringify({
+        side: root.style.getPropertyValue("--col-side") || null,
+        center: root.style.getPropertyValue("--col-center") || null,
+        comp: root.style.getPropertyValue("--col-comp") || null,
+      }));
+    } catch { /* private mode: resize still works, just doesn't persist */ }
+  };
+  const drag = (gut, onMove) => {
+    if (!gut) return;
+    gut.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      gut.classList.add("dragging");
+      gut.setPointerCapture(e.pointerId);
+      const move = (ev) => onMove(ev.clientX);
+      const up = () => {
+        gut.classList.remove("dragging");
+        gut.removeEventListener("pointermove", move);
+        gut.removeEventListener("pointerup", up);
+        persist();
+      };
+      gut.addEventListener("pointermove", move);
+      gut.addEventListener("pointerup", up);
+    });
+    gut.addEventListener("dblclick", () => {
+      ["--col-side", "--col-center", "--col-comp"].forEach((v) => root.style.removeProperty(v));
+      persist();
+    });
+  };
+  drag($("gutLeft"), (x) => {
+    root.style.setProperty("--col-side", Math.min(420, Math.max(170, x)) + "px");
+  });
+  drag($("gutMid"), (x) => {
+    const side = $("sidebar").getBoundingClientRect().width;
+    const total = window.innerWidth - side - 12;          // both gutters
+    const center = Math.min(0.75, Math.max(0.25, (x - side - 6) / total));
+    root.style.setProperty("--col-center", (center * 100).toFixed(1) + "fr");
+    root.style.setProperty("--col-comp", ((1 - center) * 100).toFixed(1) + "fr");
+  });
+}
+initGutters();
+
 loadTasks();
 startIntake();
