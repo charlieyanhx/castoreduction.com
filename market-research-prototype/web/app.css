@@ -556,35 +556,3 @@ a { color: inherit; text-decoration: none; }
   padding: 60px 20px;
   color: var(--text-muted);
 }
-
-/* ---- intake tree additions (task #115) ---- */
-.chip.assumed { border-color: #b45309; color: #b45309; opacity: 0.9; }
-.bubble-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.bubble-why { font-size: 11px; color: var(--muted, #8b93a7); padding-left: 12px; }
-.not-sure {
-  border: 1px solid var(--border, #2a3245); background: transparent;
-  color: var(--muted, #8b93a7); border-radius: 8px; padding: 0 12px;
-  cursor: pointer; font-size: 12px; white-space: nowrap;
-}
-.not-sure:hover { color: var(--text, #e5e9f0); border-color: var(--text, #e5e9f0); }
-.cf-prov { font-size: 10px; border-radius: 6px; padding: 1px 6px; margin-left: 6px; }
-.prov-stated   { background: rgba(16,185,129,.12); color: #059669; }
-.prov-inferred { background: rgba(59,130,246,.12); color: #3b82f6; }
-.prov-assumed  { background: rgba(180,83,9,.12);  color: #b45309; }
-
-/* ---- the live wire: the stream the panel's tagline promises ---- */
-.steps-list { flex: 0 0 auto; }
-.wire {
-  display: none; margin-top: 14px; border-top: 1px solid var(--border, #2a3245);
-  padding-top: 10px; max-height: 38vh; overflow-y: auto;
-  font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.wire.on { display: block; }
-.w-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.w-tool  { color: var(--text, #d7dce6); }
-.w-skill { color: #3b82f6; }
-.w-llm   { color: var(--muted, #8b93a7); opacity: .8; }
-.w-step  { color: var(--muted, #8b93a7); margin: 6px 0 2px; letter-spacing: .04em; }
-.w-err   { color: #dc2626; }
-.w-det   { color: var(--muted, #8b93a7); }
-.w-dur   { color: var(--muted, #8b93a7); opacity: .7; }
