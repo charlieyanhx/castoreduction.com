@@ -427,6 +427,15 @@
   .w-err   { color: oklch(72% 0.17 25); font-weight: 600; }
   .w-det   { color: oklch(58% 0.015 170); }
   .w-dur   { color: oklch(55% 0.015 170); }
+
+  /* typing indicator: three breathing dots while the model works */
+  .bubble.typing { display: inline-flex; gap: 5px; align-items: center; min-width: 44px; }
+  .bubble.typing span { width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-faint); animation: tdot 1.2s ease-in-out infinite; }
+  .bubble.typing span:nth-child(2) { animation-delay: .18s; }
+  .bubble.typing span:nth-child(3) { animation-delay: .36s; }
+  @keyframes tdot { 0%,100% { opacity: .25; transform: translateY(0); }
+                    40% { opacity: 1; transform: translateY(-3px); } }
   </style>
 </head>
 <body>
