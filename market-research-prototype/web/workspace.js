@@ -289,6 +289,11 @@ async function sendMessage() {
   if (!text) return;
   $("input").value = ""; addMsg("user", text);
   $("sendBtn").disabled = true;
+  /* The moment of silence that reads as "frozen": the LLM chain can legitimately take
+     30-90s when the primary model 503s and the fallback retries (measured in the server
+     log), and until now the chat showed NOTHING between Send and the reply. A typing
+     indicator makes the wait legible; it is removed on reply and on error alike. */
+  showTyping();
   try {
     if (!session) {                                  // lazy session init
       const s = await api("POST", "/intake/start", {});
@@ -298,10 +303,12 @@ async function sendMessage() {
     extracted = r.extracted || extracted;
     window._treeFields = r.tree_fields || window._treeFields;
     window._serverReady = !!r.ready;
+    hideTyping();
     addMsg("bot", r.assistant_message, r.asked_why);
     setNotSureVisible(!!r.asked_field && !r.ready);
     renderFields();
   } catch (e) {
+    hideTyping();
     addMsg("bot", "⚠ " + (e.name === "AbortError" ? "the model is busy (rate limit) — try again in a moment" : e.message));
   }
   $("sendBtn").disabled = false; $("input").focus();
@@ -310,6 +317,20 @@ async function sendMessage() {
 /* "Not sure" is a first-class answer: it records an assumption the report must label,
    instead of stalling a founder who genuinely doesn't know their rent yet. One click
    sends the literal phrase the server's not-sure detector reads. */
+let _typingEl = null;
+function showTyping() {
+  hideTyping();
+  _typingEl = document.createElement("div");
+  _typingEl.className = "msg bot";
+  _typingEl.innerHTML = `<div class="av">C</div><div class="bubble-wrap">` +
+    `<div class="bubble typing"><span></span><span></span><span></span></div></div>`;
+  $("convo").appendChild(_typingEl);
+  $("convo").scrollTop = $("convo").scrollHeight;
+}
+function hideTyping() {
+  if (_typingEl) { _typingEl.remove(); _typingEl = null; }
+}
+
 function setNotSureVisible(on) {
   const b = $("notSureBtn");
   if (b) b.style.display = on ? "" : "none";
