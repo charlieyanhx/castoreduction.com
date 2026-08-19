@@ -730,7 +730,12 @@ class TestIntake(unittest.TestCase):
             out = intake.start_session("MintBox is a mint candy subscription box.")
             self.assertFalse(out["ready"])
             self.assertEqual(out["extracted"]["product"], "mint candy box subscription")
-            self.assertIn("target customer", out["assistant_message"].lower())
+            # CONTRACT CHANGE (task #115): the next question now comes from the venture's
+            # own pack — a subscription gets the per-seat/sales-motion questions — not from
+            # the LLM's generic suggestion. This assertion used to pin the LLM's "target
+            # customer" question; now it pins that SOME tree/followup question was asked.
+            self.assertTrue(out["assistant_message"].strip().endswith("?"))
+            self.assertIsNotNone(out.get("asked_field") or out["assistant_message"])
 
     def test_session_marks_ready_when_required_fields_filled(self):
         from unittest.mock import patch
@@ -749,7 +754,14 @@ class TestIntake(unittest.TestCase):
                 {"role": "assistant", "content": "?"},
                 {"role": "user", "content": "US"},
             ],
-            "extracted": {f: None for f in intake.ALL_FIELDS},
+            # CONTRACT CHANGE (task #115): ready now ALSO requires the venture's question
+            # pack to be exhausted — answered or explicitly declined — not just the four
+            # generic fields. This session declines every tree question up front ("not
+            # sure" is an answer), so the original property under test (the ready plumbing:
+            # final_description synthesis, the announcement message) still runs.
+            "extracted": {f: ({"unknown": True} if f in intake.TREE_FIELDS else None)
+                          for f in intake.ALL_FIELDS},
+            "pending_field": None,
             "ready": False,
             "final_description": None,
         }

@@ -556,3 +556,18 @@ a { color: inherit; text-decoration: none; }
   padding: 60px 20px;
   color: var(--text-muted);
 }
+
+/* ---- intake tree additions (task #115) ---- */
+.chip.assumed { border-color: #b45309; color: #b45309; opacity: 0.9; }
+.bubble-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bubble-why { font-size: 11px; color: var(--muted, #8b93a7); padding-left: 12px; }
+.not-sure {
+  border: 1px solid var(--border, #2a3245); background: transparent;
+  color: var(--muted, #8b93a7); border-radius: 8px; padding: 0 12px;
+  cursor: pointer; font-size: 12px; white-space: nowrap;
+}
+.not-sure:hover { color: var(--text, #e5e9f0); border-color: var(--text, #e5e9f0); }
+.cf-prov { font-size: 10px; border-radius: 6px; padding: 1px 6px; margin-left: 6px; }
+.prov-stated   { background: rgba(16,185,129,.12); color: #059669; }
+.prov-inferred { background: rgba(59,130,246,.12); color: #3b82f6; }
+.prov-assumed  { background: rgba(180,83,9,.12);  color: #b45309; }
