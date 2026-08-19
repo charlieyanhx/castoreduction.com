@@ -790,6 +790,99 @@ def post_regenerate_section(job_id: str, req: RegenSectionRequest):
     return {"job_id": job_id, "section": section_name, "revised": revised, "previous_count": len(section_history)}
 
 
+# ------------------------------------------------------------------ refinement layer ---
+# The iteration tool: reader highlights + comments on the first revision, up to ten
+# questions, answers drafted from the report's own artifact (free-chain LLM), every answer
+# hand-editable with provenance, finalize stamps revision 2. All state lives in its own
+# table (iteration.py); the original result JSON is never touched.
+
+@app.get("/jobs/{job_id}/iteration")
+def get_iteration(job_id: str):
+    if not _owned_job(job_id):
+        raise HTTPException(status_code=404, detail="job not found")
+    import iteration
+    return iteration.get_state(job_id)
+
+
+@app.post("/jobs/{job_id}/annotations")
+def post_annotation(job_id: str, body: dict):
+    if not _owned_job(job_id):
+        raise HTTPException(status_code=404, detail="job not found")
+    import iteration
+    try:
+        return iteration.add_annotation(
+            job_id, section=str((body or {}).get("section") or ""),
+            quote=str((body or {}).get("quote") or ""),
+            comment=str((body or {}).get("comment") or ""),
+            marker=str((body or {}).get("marker") or "comment"))
+    except iteration.IterationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.delete("/jobs/{job_id}/annotations/{annotation_id}")
+def delete_annotation(job_id: str, annotation_id: int):
+    if not _owned_job(job_id):
+        raise HTTPException(status_code=404, detail="job not found")
+    import iteration
+    return iteration.remove_annotation(job_id, annotation_id)
+
+
+@app.post("/jobs/{job_id}/questions")
+def post_question(job_id: str, body: dict):
+    if not _owned_job(job_id):
+        raise HTTPException(status_code=404, detail="job not found")
+    import iteration
+    try:
+        return iteration.add_question(job_id, str((body or {}).get("q") or ""))
+    except iteration.IterationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.delete("/jobs/{job_id}/questions/{question_id}")
+def delete_question(job_id: str, question_id: int):
+    if not _owned_job(job_id):
+        raise HTTPException(status_code=404, detail="job not found")
+    import iteration
+    return iteration.remove_question(job_id, question_id)
+
+
+@app.post("/jobs/{job_id}/iterate")
+def post_iterate(job_id: str):
+    """Draft grounded answers for every open question and annotation. One LLM call on the
+    free chain; raises rather than fabricating, so unanswered stays visibly unanswered."""
+    j = _owned_job(job_id)
+    if not j:
+        raise HTTPException(status_code=404, detail="job not found")
+    import iteration
+    result = j.get("result") or {}
+    try:
+        return iteration.draft_answers(job_id, result)
+    except iteration.IterationError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.patch("/jobs/{job_id}/qa/{question_id}")
+def patch_answer(job_id: str, question_id: int, body: dict):
+    if not _owned_job(job_id):
+        raise HTTPException(status_code=404, detail="job not found")
+    import iteration
+    try:
+        return iteration.set_answer(job_id, question_id, str((body or {}).get("a") or ""))
+    except iteration.IterationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.post("/jobs/{job_id}/finalize")
+def post_finalize(job_id: str):
+    if not _owned_job(job_id):
+        raise HTTPException(status_code=404, detail="job not found")
+    import iteration
+    try:
+        return iteration.finalize(job_id)
+    except iteration.IterationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 @app.post("/jobs/{job_id}/feedback")
 def post_feedback(job_id: str, req: FeedbackRequest):
     """Operator submits thumbs-up/down/comment on a plan section."""
@@ -1097,7 +1190,8 @@ def _inject_forced_banner(html: str, blocking: list) -> str:
 
 
 @app.get("/jobs/{job_id}/report.html", response_class=HTMLResponse)
-def get_job_report_html(job_id: str, debug: int = 0, force: int = 0):
+def get_job_report_html(job_id: str, debug: int = 0, force: int = 0,
+                        annotate: int = 0):
     """Polished HTML report (print-friendly, Cmd+P → Save as PDF). For 'plan' jobs only.
 
     `?debug=1` renders the section→script provenance overlay (which module produced each
@@ -1161,7 +1255,8 @@ def get_job_report_html(job_id: str, debug: int = 0, force: int = 0):
         return HTMLResponse(content=_withheld_page(job_id, _blocking), status_code=409)
 
     from report.render_html import render_report_html
-    html = render_report_html(j["result"] or {}, job_id=job_id, debug=debug)
+    html = render_report_html(j["result"] or {}, job_id=job_id, debug=debug,
+                              annotate=annotate)
     if _blocking:
         # Forced. An override that leaves no mark is indistinguishable from a clean pass,
         # which would be worse than having no gate — so it is recorded in the log AND on
