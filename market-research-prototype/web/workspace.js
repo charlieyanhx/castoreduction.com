@@ -356,7 +356,10 @@ function renderTimeline(uptoIdx) {
       `<div><div class="lbl">${lbl}</div>` +
       (detail ? `<div class="lbl-detail">${detail}</div>` : "") + `</div></div>`;
   }).join("");
-  $("compBody").innerHTML = rows;
+  $("compBody").innerHTML =
+    `<div class="steps-list">${rows}</div>` +
+    `<div class="wire" id="wire"></div>`;
+  renderWire();
 }
 
 let activeJobState = "idle";
@@ -373,7 +376,7 @@ function renderComputer() {
 
 function openJob(jobId, fresh) {
   activeJob = jobId; lastSteps = []; lastResult = {}; activeJobState = "running"; compTab = "steps";
-  lastSince = 0; liveEvent = null;   // fresh cursor into this job's event stream
+  lastSince = 0; liveEvent = null; eventBuf = [];   // fresh cursor into this job's event stream
   $("compStatus").innerHTML = `<span class="live-dot">working</span>`;
   $("scrubber").classList.remove("on");
   renderComputer();
@@ -387,13 +390,60 @@ function openJob(jobId, fresh) {
 // Wave 3 item 3 (R5): pull the run's newest events and turn the latest one into a
 // human label. Cursor-based (`since`) so each poll only ships what's new. Failures are
 // silent — this is a nicety on top of the step counter, never a reason to break polling.
+let eventBuf = [];                 // the run's whole stream, in arrival order
+const EVENT_BUF_MAX = 800;         // a full run is ~530 events; cap defends against runaways
+
 async function pollLiveActivity() {
   try {
     const ev = await api("GET", `/jobs/${activeJob}/events?since=${lastSince}`);
     if (typeof ev.next_since === "number") lastSince = ev.next_since;
-    if (ev.events && ev.events.length) liveEvent = ev.events[ev.events.length - 1];
+    if (ev.events && ev.events.length) {
+      liveEvent = ev.events[ev.events.length - 1];
+      /* The panel's own tagline promises "every source I open, every figure I compute,
+         every check I run — live, in the order it happens." The server flushes exactly
+         that stream per event; keeping only the last one reduced it to a ticker. Buffer
+         it all — the wire below the step list renders it. */
+      eventBuf.push(...ev.events);
+      if (eventBuf.length > EVENT_BUF_MAX) eventBuf = eventBuf.slice(-EVENT_BUF_MAX);
+    }
   } catch { /* keep the last known label */ }
   return liveActivityLabel(liveEvent);
+}
+
+/* One event -> one wire line. Tools are the sources opened, skills the figures computed,
+   llm the synthesis, step markers the phase boundaries. Failures render red — a failed
+   fetch quietly absorbed upstream is exactly what an operator watching live should see. */
+function wireLine(e) {
+  const bad = e.ok === false || e.ok === "False" || (e.error && String(e.error).trim());
+  const dur = e.duration_s ? ` <span class="w-dur">${(+e.duration_s).toFixed(1)}s</span>` : "";
+  if (e.layer === "step") {
+    return `<div class="w-line w-step">── ${e.name} ${e.status === "complete" ? "done" : ""} ──</div>`;
+  }
+  if (e.layer === "tool") {
+    const det = e.detail ? ` <span class="w-det">${String(e.detail).slice(0, 46)}</span>` : "";
+    return `<div class="w-line w-tool ${bad ? "w-err" : ""}">` +
+      `${bad ? "✗" : "⚙"} ${e.name}${det}${dur}` +
+      (bad && e.error ? ` <span class="w-det">${String(e.error).slice(0, 60)}</span>` : "") + `</div>`;
+  }
+  if (e.layer === "skill") {
+    return `<div class="w-line w-skill ${bad ? "w-err" : ""}">` +
+      `${bad ? "✗" : "ƒ"} ${e.name}${e.produces ? ` → ${e.produces}` : ""}${dur}</div>`;
+  }
+  if (e.layer === "llm") {
+    return `<div class="w-line w-llm">✦ ${e.model || "llm"}` +
+      (e.out_tok ? ` <span class="w-det">${e.out_tok} tok</span>` : "") + `</div>`;
+  }
+  return "";
+}
+
+function renderWire() {
+  const el = $("wire");
+  if (!el) return;
+  if (!eventBuf.length) { el.innerHTML = ""; el.classList.remove("on"); return; }
+  el.classList.add("on");
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  el.innerHTML = eventBuf.map(wireLine).join("");
+  if (atBottom) el.scrollTop = el.scrollHeight;   // follow live unless the user scrolled up
 }
 
 function liveActivityLabel(e) {
@@ -421,14 +471,15 @@ async function pollJob() {
     const live = await pollLiveActivity();
     $("compStatus").innerHTML =
       `<span class="live-dot">${live || nextLbl}…</span> · ${lastSteps.length}/${STEPS.length}`;
-    if (compTab === "steps") renderTimeline();
+    if (compTab === "steps") { renderTimeline(); renderWire(); }
   } else {
     clearInterval(pollTimer); pollTimer = null;
     if (j.state === "error" || r.error) {
       $("compStatus").textContent = "⚠ " + (r.error || "run failed");
       renderTimeline();
     } else {
-      $("compStatus").textContent = `Done · ${lastSteps.length} steps`;
+      $("compStatus").textContent = `Done · ${lastSteps.length} steps` +
+        (eventBuf.length ? ` · ${eventBuf.filter((e) => e.layer === "tool").length} sources/tools` : "");
       compTab = "report"; renderComputer();
       enableScrubber();
       $("launchBtn").textContent = "Generate report →";
@@ -492,6 +543,12 @@ async function loadTasks() {
 }
 function openCompletedJob(jobId) {
   activeJob = jobId; activeJobState = "loading"; compTab = "report";
+  // Load the run's whole recorded stream so the Steps tab is the full "in the order it
+  // happened" record for a finished report, not an empty checklist.
+  eventBuf = []; lastSince = 0;
+  api("GET", `/jobs/${jobId}/events`).then((ev) => {
+    if (ev && ev.events) { eventBuf = ev.events.slice(-EVENT_BUF_MAX); renderWire(); }
+  }).catch(() => {});
   $("compStatus").textContent = "Loading report…";
   if (pollTimer) clearInterval(pollTimer);
   api("GET", `/jobs/${jobId}`).then((j) => {
