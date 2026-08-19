@@ -43,6 +43,52 @@ LEGACY_OWNER = "legacy"
 def _reset_for_tests() -> None:
     """Drop any cached connection so a test can point JOBS_DB_PATH somewhere new."""
     globals().pop("_cached_conn", None)
+    _initialised.clear()
+
+
+# Databases whose schema this process has already ensured. The migration below is
+# idempotent, so it belongs once per (process, path) — not on every query. It used to run
+# CREATE TABLE IF NOT EXISTS, PRAGMA table_info and CREATE INDEX IF NOT EXISTS on EVERY
+# connection, and DDL takes SQLite's schema lock even when it changes nothing. Combined with
+# a process-wide lock on reads, GET /jobs serialized: measured against the running server,
+# wall time grew linearly with concurrency (1x=289ms, 10x=577ms, 20x=1380ms, 30x=1682ms)
+# while per-request work stayed flat near 60ms.
+_initialised: set[str] = set()
+_init_lock = threading.Lock()
+
+
+def _ensure_schema(conn, path: str) -> None:
+    """Create the table and apply the ownership migration, once per database per process."""
+    if path in _initialised:
+        return
+    with _init_lock:
+        if path in _initialised:            # another thread won the race
+            return
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS jobs (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                state TEXT NOT NULL,
+                params_json TEXT NOT NULL,
+                result_json TEXT,
+                error TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        # Ownership migration. Added after the fact, so existing rows are backfilled to
+        # LEGACY_OWNER rather than left NULL — a NULL owner would either be invisible to
+        # everyone (reads as data loss on Charlie's local library) or visible to everyone
+        # (the exact leak the column exists to close).
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
+        if "owner_id" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN owner_id TEXT")
+            conn.execute("UPDATE jobs SET owner_id = ? WHERE owner_id IS NULL", (LEGACY_OWNER,))
+            log.info("jobs: added owner_id and backfilled existing rows to %r", LEGACY_OWNER)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_owner ON jobs(owner_id, created_at)")
+        _initialised.add(path)
 
 
 def _conn():
@@ -60,30 +106,7 @@ def _conn():
     # is the right trade for a regenerable artifact.
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS jobs (
-            id TEXT PRIMARY KEY,
-            kind TEXT NOT NULL,
-            state TEXT NOT NULL,
-            params_json TEXT NOT NULL,
-            result_json TEXT,
-            error TEXT,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
-        )
-        """
-    )
-    # Ownership migration. Added after the fact, so existing rows are backfilled to
-    # LEGACY_OWNER rather than left NULL — a NULL owner would either be invisible to
-    # everyone (reads as data loss on Charlie's local library) or visible to everyone
-    # (the exact leak the column exists to close).
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
-    if "owner_id" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN owner_id TEXT")
-        conn.execute("UPDATE jobs SET owner_id = ? WHERE owner_id IS NULL", (LEGACY_OWNER,))
-        log.info("jobs: added owner_id and backfilled existing rows to %r", LEGACY_OWNER)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_owner ON jobs(owner_id, created_at)")
+    _ensure_schema(conn, str(path))
     return conn
 
 
@@ -138,18 +161,22 @@ def get(job_id: str, owner_id: str | None = None) -> dict | None:
     HTTP paths must never pass None. get_unscoped() is the honest name for that door, and
     a test asserts no endpoint reaches past the owner-scoped helper in api.py.
     """
-    with _lock:
-        c = _conn()
-        if owner_id is None:
-            row = c.execute(
-                "SELECT id, kind, state, params_json, result_json, error, created_at, "
-                "updated_at, owner_id FROM jobs WHERE id = ?", (job_id,)).fetchone()
-        else:
-            row = c.execute(
-                "SELECT id, kind, state, params_json, result_json, error, created_at, "
-                "updated_at, owner_id FROM jobs WHERE id = ? "
-                "AND COALESCE(owner_id, ?) = ?", (job_id, LEGACY_OWNER, owner_id)).fetchone()
-        c.close()
+        # READS DO NOT TAKE THE PROCESS-WIDE LOCK. Under WAL, SQLite gives readers
+        # full concurrency with the single writer, so serializing them in Python
+        # bought nothing and made every library page queue behind every other one.
+        # Writes keep the lock (see create/update): WAL permits one writer, and
+        # serializing in-process avoids a busy-timeout retry storm.
+    c = _conn()
+    if owner_id is None:
+        row = c.execute(
+            "SELECT id, kind, state, params_json, result_json, error, created_at, "
+            "updated_at, owner_id FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    else:
+        row = c.execute(
+            "SELECT id, kind, state, params_json, result_json, error, created_at, "
+            "updated_at, owner_id FROM jobs WHERE id = ? "
+            "AND COALESCE(owner_id, ?) = ?", (job_id, LEGACY_OWNER, owner_id)).fetchone()
+    c.close()
     if not row:
         return None
     return {
@@ -174,18 +201,22 @@ def get_unscoped(job_id: str) -> dict | None:
 def list_recent(limit: int = 50, owner_id: str | None = None) -> list[dict]:
     """Recent jobs for ONE owner. owner_id=None lists everything and is for internal use
     only — the library endpoint always scopes."""
-    with _lock:
-        c = _conn()
-        if owner_id is None:
-            rows = c.execute(
-                "SELECT id, kind, state, created_at, updated_at FROM jobs "
-                "ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
-        else:
-            rows = c.execute(
-                "SELECT id, kind, state, created_at, updated_at FROM jobs "
-                "WHERE COALESCE(owner_id, ?) = ? ORDER BY created_at DESC LIMIT ?",
-                (LEGACY_OWNER, owner_id, limit)).fetchall()
-        c.close()
+        # READS DO NOT TAKE THE PROCESS-WIDE LOCK. Under WAL, SQLite gives readers
+        # full concurrency with the single writer, so serializing them in Python
+        # bought nothing and made every library page queue behind every other one.
+        # Writes keep the lock (see create/update): WAL permits one writer, and
+        # serializing in-process avoids a busy-timeout retry storm.
+    c = _conn()
+    if owner_id is None:
+        rows = c.execute(
+            "SELECT id, kind, state, created_at, updated_at FROM jobs "
+            "ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+    else:
+        rows = c.execute(
+            "SELECT id, kind, state, created_at, updated_at FROM jobs "
+            "WHERE COALESCE(owner_id, ?) = ? ORDER BY created_at DESC LIMIT ?",
+            (LEGACY_OWNER, owner_id, limit)).fetchall()
+    c.close()
     return [
         {"id": r[0], "kind": r[1], "state": r[2], "created_at": r[3], "updated_at": r[4]}
         for r in rows
