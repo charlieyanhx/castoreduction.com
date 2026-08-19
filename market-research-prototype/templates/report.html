@@ -4,100 +4,165 @@
 <meta charset="utf-8"/>
 <title>Market Research Report — {{ profile.name or 'Untitled' }}</title>
 <style>
+/* ============================================================================
+   THE REPORT'S REGISTER: equity research, not web app. Ink on paper, ONE accent
+   (the verdict green), amber strictly for qualifications, red strictly for
+   failures — all three used as thin rules and small-caps labels, never as
+   pastel fills. No border radius in the document body: rounded pastel cards
+   are the single loudest "generated web page" tell in print.
+   ============================================================================ */
 @page { size: letter; margin: 0.75in; @bottom-right { content: counter(page) " / " counter(pages); font-size: 9pt; color: #6b7280; } }
 :root {
-  --ink: #16181d; --ink-soft: #3f444d; --muted: #6b7280; --line: #e7e5e4;
-  --paper: #fbfaf8; --surface: #ffffff;
-  /* System editorial pairing — no remote fonts (robust on restricted networks). */
+  --ink: #16181d; --ink-soft: #383d46; --muted: #6b7280; --line: #e2ded8;
+  --paper: #fbfaf7; --surface: #ffffff;
+  --accent: #047857;              /* the verdict green — the report's one voice of confidence */
+  --qualify: #92400e;             /* amber ink: a claim the report qualifies */
+  --fail: #b91c1c;                /* red ink: a failure or withholding          */
   --serif: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-body { font-family: var(--sans); color: var(--ink); line-height: 1.65; max-width: 760px; margin: 0 auto; padding: 56px 32px 96px; font-size: 15px; background: var(--paper); -webkit-font-smoothing: antialiased; }
-/* Editorial heading pairing: serif display over a clean sans body. */
-h1, h2, h3, .cover h1, .viability-hero .headline { font-family: var(--serif); letter-spacing: -0.01em; }
-h2 { font-weight: 500; font-size: 25px !important; color: var(--ink) !important; margin-top: 52px !important; padding-bottom: 10px !important; border-bottom: 1px solid var(--line) !important; }
-h3 { font-weight: 600; }
+body { font-family: var(--sans); color: var(--ink); line-height: 1.62; max-width: 760px; margin: 0 auto;
+       padding: 56px 32px 96px; font-size: 14.5px; background: var(--paper);
+       -webkit-font-smoothing: antialiased; counter-reset: sec; }
 p { color: var(--ink-soft); }
-a { color: #2563eb; text-decoration: none; } a:hover { text-decoration: underline; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+strong { color: var(--ink); }
+
+/* ---- numbered section heads: serif title under a small-caps numeral rule ---- */
+h1, h2, h3, .cover h1, .viability-hero .headline { font-family: var(--serif); letter-spacing: -0.01em; }
+h2 { counter-increment: sec; font-weight: 600; font-size: 21px; color: var(--ink);
+     margin: 56px 0 14px; padding-top: 14px; border-top: 2px solid var(--ink); border-bottom: none; }
+h2::before { content: counter(sec, decimal-leading-zero); display: block;
+     font-family: var(--sans); font-size: 10px; font-weight: 700; letter-spacing: .22em;
+     color: var(--accent); margin-bottom: 6px; }
+h3 { font-weight: 600; font-size: 15.5px; color: var(--ink); margin-top: 24px; }
+
+/* ---- tables: hairlines, small-caps heads, tabular numerals, no zebra ---- */
+table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th { font-family: var(--sans); font-size: 9.5px; font-weight: 700; letter-spacing: .08em;
+     text-transform: uppercase; color: var(--muted); }
 @media print { body { background: #fff; padding: 0; } .nav, link { display: none; } }
-.cover { page-break-after: always; padding: 80px 0; }
-.cover .label { font-size: 10pt; letter-spacing: 0.18em; text-transform: uppercase; color: #6b7280; }
-.cover h1 { font-size: 36pt; font-weight: 700; color: #0f172a; margin: 16px 0 8px; line-height: 1.15; }
-.cover .subtitle { font-size: 14pt; color: #4b5563; font-weight: 400; }
-.cover .meta { margin-top: 80px; font-size: 10pt; color: #6b7280; }
-.cover .meta strong { color: #1f2937; }
 
-.viability-hero { display: flex; align-items: center; gap: 30px; padding: 24px; background: #f9fafb; border-radius: 12px; margin: 30px 0; border-left: 6px solid {{ viability_color }}; }
-.viability-hero .score { font-size: 64pt; font-weight: 800; color: {{ viability_color }}; line-height: 1; }
-.viability-hero .label { font-size: 9pt; text-transform: uppercase; letter-spacing: 0.12em; color: #6b7280; }
-.viability-hero .tier { font-size: 12pt; font-weight: 600; text-transform: uppercase; color: {{ viability_color }}; margin-top: 4px; }
-.viability-hero .headline { font-size: 16pt; font-weight: 600; color: #0f172a; margin-top: 8px; }
+/* ---- cover ---- */
+.cover { page-break-after: always; padding: 72px 0; }
+.cover .label { font-size: 10pt; letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); }
+.cover h1 { font-size: 34pt; font-weight: 700; color: var(--ink); margin: 18px 0 10px; line-height: 1.12;
+            padding-top: 18px; border-top: 3px solid var(--ink); }
+.cover .subtitle { font-size: 13pt; color: var(--ink-soft); font-weight: 400; max-width: 56ch; }
+.cover .meta { margin-top: 72px; font-size: 10pt; color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px; }
+.cover .meta strong { color: var(--ink); }
 
-h2 { font-size: 18pt; color: #0f172a; margin-top: 36px; padding-bottom: 6px; border-bottom: 2px solid #e5e7eb; }
-h3 { font-size: 13pt; color: #1f2937; margin-top: 22px; }
+/* ---- the verdict: the one large object, flat and typographic ---- */
+.viability-hero { display: flex; align-items: baseline; gap: 30px; padding: 22px 0; margin: 30px 0;
+                  border-top: 2px solid var(--ink); border-bottom: 1px solid var(--line); }
+.viability-hero .score { font-family: var(--serif); font-size: 58pt; font-weight: 700;
+                         color: {{ viability_color }}; line-height: 1; }
+.viability-hero .label { font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.16em; color: var(--muted); }
+.viability-hero .tier { font-size: 10.5pt; font-weight: 700; text-transform: uppercase;
+                        letter-spacing: .1em; color: {{ viability_color }}; margin-top: 4px; }
+.viability-hero .headline { font-size: 16pt; font-weight: 600; color: var(--ink); margin-top: 8px; }
 
-.exec-summary { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 18px 22px; border-radius: 6px; margin: 20px 0; }
-.exec-summary h2 { color: #78350f; border: none; padding: 0; margin: 0 0 8px; font-size: 12pt; text-transform: uppercase; letter-spacing: 0.08em; }
-.exec-summary ul { margin: 0; padding-left: 22px; }
-.exec-summary li { margin: 6px 0; color: #422006; font-size: 11.5pt; }
+/* ---- ruled asides replace every pastel card ---- */
+.exec-summary { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--line);
+                padding: 16px 0 14px; margin: 24px 0; }
+.exec-summary h2 { border: none; padding: 0; margin: 0 0 10px; font-family: var(--sans);
+                   font-size: 10pt; font-weight: 700; text-transform: uppercase;
+                   letter-spacing: 0.14em; color: var(--ink); counter-increment: none; }
+.exec-summary h2::before { content: none; }
+.exec-summary ul { margin: 0; padding-left: 20px; }
+.exec-summary li { margin: 7px 0; color: var(--ink-soft); font-size: 11.5pt; }
 
-.method-box { background: #f3f4f6; border: 1px solid #e5e7eb; padding: 12px 18px; border-radius: 6px; margin: 16px 0; font-size: 10.5pt; color: #4b5563; }
-.method-box strong { color: #1f2937; }
+.method-box { border-left: 2px solid var(--line); padding: 4px 0 4px 16px; margin: 16px 0;
+              font-size: 10.5pt; color: var(--muted); }
+.method-box strong { color: var(--ink-soft); }
 
-.p-section { margin: 22px 0; padding: 20px 24px; border-radius: 8px; page-break-inside: avoid; }
-.p-section.product { background: #eff6ff; border-left: 4px solid #2563eb; }
-.p-section.price { background: #ecfdf5; border-left: 4px solid #10b981; }
-.p-section.place { background: #f5f3ff; border-left: 4px solid #7c3aed; }
-.p-section.promotion { background: #fef3c7; border-left: 4px solid #f59e0b; }
-.p-section h3 { margin: 0 0 10px; color: #0f172a; font-size: 14pt; text-transform: uppercase; letter-spacing: 0.06em; }
-.p-section .narrative { color: #1f2937; }
-.p-section .takeaways { margin-top: 14px; padding: 10px 16px; background: rgba(255,255,255,0.6); border-radius: 4px; }
-.p-section .takeaways .label { font-size: 9pt; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #4b5563; }
+.p-section { margin: 26px 0; padding: 0 0 4px 20px; border-left: 2px solid var(--ink);
+             page-break-inside: avoid; }
+.p-section h3 { margin: 0 0 10px; color: var(--ink); font-family: var(--sans); font-size: 10.5pt;
+                font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; }
+.p-section h3::before { content: ""; display: inline-block; width: 18px; height: 3px;
+                        background: var(--accent); margin-right: 9px; vertical-align: 3px; }
+.p-section .narrative { color: var(--ink-soft); }
+.p-section .takeaways { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.p-section .takeaways .label { font-size: 8.5pt; font-weight: 700; text-transform: uppercase;
+                               letter-spacing: 0.12em; color: var(--muted); }
 .p-section .takeaways ul { margin: 4px 0 0; padding-left: 20px; }
-.p-section .takeaways li { font-size: 11pt; margin: 3px 0; }
+.p-section .takeaways li { font-size: 11pt; margin: 4px 0; }
 
-.split { display: flex; gap: 16px; margin: 16px 0; }
-.split > div { flex: 1; padding: 14px 18px; border-radius: 6px; }
-.split .strengths { background: #ecfdf5; border-left: 3px solid #10b981; }
-.split .risks { background: #fef2f2; border-left: 3px solid #ef4444; }
-.split h4 { margin: 0 0 6px; font-size: 10pt; text-transform: uppercase; letter-spacing: 0.08em; }
-.split .strengths h4 { color: #047857; } .split .risks h4 { color: #b91c1c; }
+.split { display: flex; gap: 28px; margin: 18px 0; }
+.split > div { flex: 1; padding: 10px 0 0; border-top: 2px solid var(--line); }
+.split h4 { margin: 0 0 8px; font-size: 9.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; }
+.split .strengths { border-top-color: var(--accent); }
+.split .risks { border-top-color: var(--fail); }
+.split .strengths h4 { color: var(--accent); } .split .risks h4 { color: var(--fail); }
 .split ul { margin: 0; padding-left: 18px; font-size: 11pt; }
 
 .competitors { margin-top: 20px; }
-.comp-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid #e5e7eb; font-size: 11pt; }
-.comp-row .rank { width: 22px; height: 22px; border-radius: 50%; background: #1f2937; color: #fff; font-weight: 700; font-size: 10pt; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.comp-row .brand { flex: 1; font-weight: 600; color: #0f172a; }
-.comp-row .domain { color: #6b7280; font-size: 10pt; }
-.comp-row .score { font-weight: 700; color: #2563eb; min-width: 50px; text-align: right; }
+.comp-row { display: flex; align-items: baseline; gap: 12px; padding: 10px 0;
+            border-bottom: 1px solid var(--line); font-size: 11pt; }
+.comp-row .rank { font-family: var(--serif); font-weight: 700; font-size: 12pt; color: var(--muted);
+                  min-width: 22px; }
+.comp-row .brand { flex: 1; font-weight: 600; color: var(--ink); }
+.comp-row .domain { color: var(--muted); font-size: 10pt; font-family: var(--mono); }
+.comp-row .score { font-weight: 700; color: var(--ink); min-width: 50px; text-align: right;
+                   font-variant-numeric: tabular-nums; }
 
-.pricing-tiers { display: flex; gap: 12px; margin: 14px 0; }
-.tier-card { flex: 1; padding: 14px; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; }
-.tier-card .name { font-size: 10pt; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; }
-.tier-card .price { font-size: 22pt; font-weight: 700; color: #10b981; margin: 4px 0; }
-.tier-card .for-whom { font-size: 10pt; color: #4b5563; }
+.pricing-tiers { display: flex; gap: 0; margin: 14px 0; border-top: 2px solid var(--ink); }
+.tier-card { flex: 1; padding: 14px 16px 14px 0; border-right: 1px solid var(--line); }
+.tier-card:last-child { border-right: none; }
+.tier-card + .tier-card { padding-left: 16px; }
+.tier-card .name { font-size: 9pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.tier-card .price { font-family: var(--serif); font-size: 21pt; font-weight: 700; color: var(--ink); margin: 4px 0; }
+.tier-card .for-whom { font-size: 10pt; color: var(--ink-soft); }
 
-sup { color: #2563eb; font-weight: 600; cursor: pointer; }
+sup { color: var(--accent); font-weight: 600; cursor: pointer; }
 
-.citations { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 10pt; color: #4b5563; }
-.citations h2 { font-size: 12pt; color: #1f2937; border: none; padding: 0; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+.citations { margin-top: 40px; padding-top: 16px; border-top: 2px solid var(--ink); font-size: 10pt; color: var(--ink-soft); }
+.citations h2 { font-size: 10pt; color: var(--ink); border: none; padding: 0; margin: 0 0 8px;
+                font-family: var(--sans); text-transform: uppercase; letter-spacing: 0.14em;
+                counter-increment: none; }
+.citations h2::before { content: none; }
 .citations ol { padding-left: 22px; }
 .citations li { margin: 4px 0; }
-.citations .source { color: #2563eb; font-weight: 600; }
+.citations .source { color: var(--accent); font-weight: 600; }
 
-.flags { background: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 18px; border-radius: 4px; margin: 16px 0; }
-.flags .label { font-size: 10pt; font-weight: 700; color: #b91c1c; text-transform: uppercase; }
-.flags ul { margin: 4px 0 0; padding-left: 18px; font-size: 10.5pt; color: #991b1b; }
+.flags { border-left: 2px solid var(--fail); padding: 4px 0 4px 16px; margin: 16px 0; }
+.flags .label { font-size: 9.5pt; font-weight: 700; color: var(--fail); text-transform: uppercase; letter-spacing: .1em; }
+.flags ul { margin: 4px 0 0; padding-left: 18px; font-size: 10.5pt; color: var(--ink-soft); }
 
-footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 9pt; color: #9ca3af; text-align: center; }
+footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
+         font-size: 9pt; color: var(--muted); text-align: center; }
+
+/* ============================================================================
+   INLINE-STYLE NORMALIZERS. 627 style attributes live in this template; the
+   pastel-card families repeat exact background literals. Until each site is
+   properly classed (the follow-up), these de-escalate whole families in one
+   place: fills become paper, radii flatten, and the color moves to a left
+   rule. Deliberately attribute-keyed so ONE rule professionalizes ~15 sites.
+   ============================================================================ */
+[style*="background:#fef3c7"], [style*="background:#fffbeb"], [style*="background:#fff7ed"] {
+  background: transparent !important; border: none !important; border-left: 2px solid #b45309 !important;
+  border-radius: 0 !important; }
+[style*="background:#fef2f2"] {
+  background: transparent !important; border: none !important; border-left: 2px solid var(--fail) !important;
+  border-radius: 0 !important; }
+[style*="background:#f0fdf4"], [style*="background:#ecfdf5"] {
+  background: transparent !important; border: none !important; border-left: 2px solid var(--accent) !important;
+  border-radius: 0 !important; }
+[style*="background:#f3f4f6"], [style*="background:#f9fafb"], [style*="background:#fafafa"],
+[style*="background:#eef2ff"], [style*="background:#f5f3ff"], [style*="background:#eff6ff"] {
+  background: transparent !important; border: none !important; border-left: 2px solid var(--line) !important;
+  border-radius: 0 !important; }
 
 @media print {
   body { margin: 0; padding: 0; max-width: none; }
   .no-print { display: none; }
   .p-section, .split, .viability-hero { break-inside: avoid; }
 }
-.print-bar { position: sticky; top: 0; background: #1f2937; color: white; padding: 10px 20px; text-align: center; font-size: 12px; }
-.print-bar a { color: #93c5fd; margin-left: 12px; }
+.print-bar { position: sticky; top: 0; background: var(--ink); color: white; padding: 10px 20px;
+             text-align: center; font-size: 12px; }
+.print-bar a { color: #a7f3d0; margin-left: 12px; }
 </style>
 </head>
 <body>
@@ -262,7 +327,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     <p><strong>Pipeline:</strong> {{ steps_completed|length }} steps completed ({{ ', '.join(steps_completed) }})</p>
     {% if refine_audit %}
     <p><strong>Quality loop:</strong>
-      {% if refine_audit.passed %}<span style="color:#047857">✓ passed evaluator contract</span>{% else %}<span style="color:#b45309">⚠ {{ refine_audit.weak_dims|join(', ') }} below contract</span>{% endif %}
+      {% if refine_audit.passed %}<span style="color:#047857">✓ passed evaluator contract</span>{% else %}<span style="color:#b45309">{{ refine_audit.weak_dims|join(', ') }} below contract</span>{% endif %}
       after {{ refine_audit.rounds }} refine round(s){% if refine_audit.score_trajectory %} · score {{ refine_audit.score_trajectory|join(' → ') }}{% endif %}
     </p>
     {% endif %}
@@ -273,7 +338,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <!-- cycle36: degraded-run banner. Never let $0 / blank read as a real finding. -->
 <div style="margin:0 0 22px;border:2px solid {{ '#dc2626' if run_health.severity == 'severe' else '#d97706' }};border-radius:12px;background:{{ '#fef2f2' if run_health.severity == 'severe' else '#fffbeb' }};padding:16px 18px">
   <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:12pt;color:{{ '#991b1b' if run_health.severity == 'severe' else '#92400e' }};margin-bottom:6px">
-    ⚠ {{ 'Incomplete report — regenerate before relying on it' if run_health.severity == 'severe' else 'Partial report — some sections did not generate' }}
+    {{ 'Incomplete report — regenerate before relying on it' if run_health.severity == 'severe' else 'Partial report — some sections did not generate' }}
   </div>
   <div style="font-size:10pt;color:#374151;line-height:1.55">
     {{ run_health.n_failed }} part(s) of this report could not be generated due to a transient LLM/network failure during this run, and are shown as blank or zero — <strong>those are not real findings</strong>. Re-run the report (same input → cached steps return instantly) for a complete version.
@@ -331,7 +396,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <!-- ITER 40 (#3c): Cannot-decode audience flag — honest visibility into what we tried but couldn't decode -->
 {% if audiences_undecodable %}
 <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin:12px 0">
-  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#92400e;margin-bottom:6px">⚠ Audience could not be decoded for {{ audiences_undecodable|length }} brand(s)</div>
+  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#92400e;margin-bottom:6px">Audience could not be decoded for {{ audiences_undecodable|length }} brand(s)</div>
   {% for u in audiences_undecodable %}
   <div style="font-size:11pt;color:#1f2937;margin-top:4px"><strong>{{ u.brand }}</strong> — {{ u.reason }}</div>
   {% endfor %}
@@ -407,7 +472,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     {{ chip(ok, '✓ Reproducible', 'deterministic — same input, same numbers') }}
     {% if integrity.validation.ran %}
       {% if integrity.validation.passed %}
-        {% if integrity.validation.n_warns %}{{ chip(warn, '⚠ Validated with warnings', integrity.validation.n_warns|string + ' advisory warning(s) — see Market Size') }}
+        {% if integrity.validation.n_warns %}{{ chip(warn, 'Validated with warnings', integrity.validation.n_warns|string + ' advisory warning(s) — see Market Size') }}
         {% else %}{{ chip(ok, '✓ Validated', 'passed the integrity gate') }}{% endif %}
       {% else %}{{ chip(bad, '✗ Failed validation', integrity.validation.n_blocks|string + ' blocking issue(s) — figures withheld') }}{% endif %}
     {% endif %}
@@ -442,7 +507,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <!-- VALIDATION FLAGS -->
 {% if validation.flags %}
 <div class="flags">
-  <div class="label">⚠ Validation flags · Pipeline confidence {{ (validation.confidence_score * 100)|round|int }}%</div>
+  <div class="label">Validation flags · Pipeline confidence {{ (validation.confidence_score * 100)|round|int }}%</div>
   <ul>
     {% for f in validation.flags %}<li>{{ f }}</li>{% endfor %}
   </ul>
@@ -583,7 +648,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:14px;margin:14px 0;max-width:340px">
   <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#047857">Willingness to pay (single estimate)</div>
   <div style="font-size:24px;font-weight:800;color:#064e3b;font-variant-numeric:tabular-nums">{{ format_currency(wtp.point) }}<span style="font-size:11px;color:#6b7280">{{ wtp_unit }}</span></div>
-  <div style="font-size:9pt;color:#b45309;margin-top:4px">⚠ Only {{ wtp.n_would_pay }} of {{ wtp.n_total }} simulated segments named a price — not enough for a range.{% if wtp_is_monthly and business_model_kind in ('transactional', 'ecommerce', 'services', 'hybrid') %} (A per-visit business may not fit a monthly model.){% endif %}</div>
+  <div style="font-size:9pt;color:#b45309;margin-top:4px">Only {{ wtp.n_would_pay }} of {{ wtp.n_total }} simulated segments named a price — not enough for a range.{% if wtp_is_monthly and business_model_kind in ('transactional', 'ecommerce', 'services', 'hybrid') %} (A per-visit business may not fit a monthly model.){% endif %}</div>
 </div>
 {% elif wtp.thin %}
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0;max-width:360px">
@@ -596,7 +661,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     <div style="font-size:20px;font-weight:700;color:#065f46;font-variant-numeric:tabular-nums">{{ format_currency(wtp.high) }}<span style="font-size:11px;color:#6b7280">{{ wtp_unit }}</span></div>
   </div>
 </div>
-<p style="font-size:9pt;color:#b45309;margin:-4px 0 10px">⚠ Only {{ wtp.n_would_pay }} of {{ wtp.n_total }} simulated segments named a price — an indicative two-point range, not a median.</p>
+<p style="font-size:9pt;color:#b45309;margin:-4px 0 10px">Only {{ wtp.n_would_pay }} of {{ wtp.n_total }} simulated segments named a price — an indicative two-point range, not a median.</p>
 {% else %}
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:14px 0">
   <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:14px;text-align:center">
@@ -616,7 +681,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 {% endif %}
 {% endif %}
 {% if syn.wtp_price_mismatch %}
-<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:12px;font-size:10pt;color:#92400e;margin:6px 0">⚠ {{ syn.wtp_price_mismatch.note }}</div>
+<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:12px;font-size:10pt;color:#92400e;margin:6px 0">{{ syn.wtp_price_mismatch.note }}</div>
 {% endif %}
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0">
@@ -667,7 +732,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 {% set sizing_blocked = market_sizing.validation and market_sizing.validation.passed == false %}
 {% if sizing_blocked %}
 <div style="border:2px solid #b91c1c;background:rgba(185,28,28,0.08);border-radius:8px;padding:14px;margin:10px 0">
-  <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#991b1b;margin-bottom:6px">⚠ Numbers failed validation — do not rely on these figures</div>
+  <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#991b1b;margin-bottom:6px">Numbers failed validation — do not rely on these figures</div>
   <div style="font-size:10pt;color:#7f1d1d">The sizing below did not pass the integrity gate and is flagged unpublishable. Issues:</div>
   <ul style="margin:6px 0 0;padding-left:18px;font-size:10pt;color:#7f1d1d">
   {% for b in market_sizing.validation.blocks %}<li>{{ b.msg }}</li>{% endfor %}
@@ -677,7 +742,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <!-- VALIDATION WARNS -->
 {% if market_sizing.validation and market_sizing.validation.warns %}
 <div style="border:1px solid #f59e0b;background:rgba(245,158,11,0.08);border-radius:8px;padding:14px;margin:10px 0">
-  <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#92400e;margin-bottom:6px">⚠ Validation warnings — advisory, not blocking</div>
+  <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#92400e;margin-bottom:6px">Validation warnings — advisory, not blocking</div>
   <div style="font-size:10pt;color:#78350f">These figures passed the hard gate but carry unresolved consistency warnings — weigh them before relying on the numbers:</div>
   <ul style="margin:6px 0 0;padding-left:18px;font-size:10pt;color:#78350f">
   {% for w in market_sizing.validation.warns %}<li>{{ w.msg }}</li>{% endfor %}
@@ -697,7 +762,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     {% if m.get('mid') is not none %}
     <div style="font-size:24pt;font-weight:700;color:#1f2937;margin:6px 0">{{ format_currency(m.mid) }}</div>
     <div style="font-size:9pt;color:#6b7280">Range: {{ format_currency(m.low) }} – {{ format_currency(m.high) }}</div>
-    {% if m.clamp_note %}<div style="font-size:8pt;color:#b45309;margin-top:4px;font-style:italic">⚠ {{ m.clamp_note }}</div>{% endif %}
+    {% if m.clamp_note %}<div style="font-size:8pt;color:#b45309;margin-top:4px;font-style:italic">{{ m.clamp_note }}</div>{% endif %}
     {% else %}
     <div style="font-size:14pt;color:#9ca3af;margin:6px 0;font-style:italic">— not estimated</div>
     {% endif %}
@@ -750,7 +815,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   </div>
   <div style="font-size:10.5pt;color:#1f2937">
     Headline TAM is the <strong>median across independent data origins</strong> ({{ format_currency(tri.point) }}), not an average of correlated estimates.
-    {% if tri.flag %}<span style="color:{{ conf_color.get(tri.confidence,'#6b7280') }}"> ⚠ {{ tri.flag }}.</span>{% endif %}
+    {% if tri.flag %}<span style="color:{{ conf_color.get(tri.confidence,'#6b7280') }}"> {{ tri.flag }}.</span>{% endif %}
   </div>
   {% if tri.cross_origin %}
   <div style="font-size:9pt;color:#6b7280;margin-top:6px">By origin: {% for c in tri.cross_origin %}{{ c.origin }} = {{ format_currency(c.value) }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
@@ -851,7 +916,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
 <!-- 3-YEAR FINANCIAL PROJECTIONS -->
 <h2>3-Year Revenue Scenarios</h2>
 {% if financials.cost_caveat %}
-<p style="margin:6px 0 0;font-size:9pt;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 10px">⚠ {{ financials.cost_caveat }}</p>
+<p style="margin:6px 0 0;font-size:9pt;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 10px">{{ financials.cost_caveat }}</p>
 {% endif %}
 <!-- SCENARIOS WITHHOLD BANNER -->
 {% if financials.derived_from_withheld_sizing %}
@@ -860,7 +925,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
    the same withheld funnel. The stamp travels on the financials dict (the data-layer
    decision); this banner is its rendering. #}
 <div style="background:#fef2f2;border:1px solid #fca5a5;padding:12px 16px;border-radius:8px;font-size:10pt;color:#991b1b;margin:10px 0">
-  <strong>⚠ {{ financials.withhold_note or 'Derived from figures that failed the integrity gate — do not rely on these projections.' }}</strong>
+  <strong>{{ financials.withhold_note or 'Derived from figures that failed the integrity gate — do not rely on these projections.' }}</strong>
 </div>
 {% endif %}
 <!-- END SCENARIOS WITHHOLD BANNER -->
@@ -1018,7 +1083,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     <div style="font-size:9pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:{% if entries %}#166534{% else %}#9ca3af{% endif %};margin-bottom:6px">{{ label }} <span style="font-weight:400">({{ entries|length }})</span></div>
     {% if entries %}
     <ul style="margin:0;padding-left:18px;font-size:10pt">
-      {% for d in entries %}<li style="margin-bottom:4px"><strong>{{ d.feature }}</strong>{% if d.why_unique %} — <span style="color:#4b5563">{{ d.why_unique }}</span>{% endif %}{% if d._backstopped %} <span style="font-size:8pt;color:#b45309;background:#fef3c7;padding:1px 4px;border-radius:2px;margin-left:4px">⚠ heuristic — validate</span>{% endif %}</li>{% endfor %}
+      {% for d in entries %}<li style="margin-bottom:4px"><strong>{{ d.feature }}</strong>{% if d.why_unique %} — <span style="color:#4b5563">{{ d.why_unique }}</span>{% endif %}{% if d._backstopped %} <span style="font-size:8pt;color:#b45309;background:#fef3c7;padding:1px 4px;border-radius:2px;margin-left:4px">heuristic — validate</span>{% endif %}</li>{% endfor %}
     </ul>
     {% else %}
     <div style="font-size:10pt;color:#9ca3af;font-style:italic">No differentiator found on this dimension. Either competitors all do this OR our offer doesn't push here.</div>
@@ -1116,7 +1181,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
     {% for r in segment_ranking.top_5 %}
     <tr style="{% if loop.first %}background:#f0fdf4{% endif %}">
       <td style="padding:8px;border:1px solid #e5e7eb;font-weight:700">#{{ loop.index }}{% if loop.first and not r.error %} ⭐{% endif %}</td>
-      <td style="padding:8px;border:1px solid #e5e7eb"><strong>{{ r.label }}</strong>{% if r.description %}<div style="font-size:9pt;color:#6b7280">{{ r.description[:100] }}{% if r.description|length > 100 %}…{% endif %}</div>{% endif %}{% if r.error %}<div style="font-size:9pt;color:#dc2626;margin-top:4px">⚠ Scoring failed: {{ r.error }}</div>{% endif %}{% if r._scores_were_defaulted %}<div style="font-size:9pt;color:#b45309;margin-top:4px">⚠ LLM declined to score — values defaulted to 0.5 (median). Treat as directional placeholder.</div>{% endif %}</td>
+      <td style="padding:8px;border:1px solid #e5e7eb"><strong>{{ r.label }}</strong>{% if r.description %}<div style="font-size:9pt;color:#6b7280">{{ r.description[:100] }}{% if r.description|length > 100 %}…{% endif %}</div>{% endif %}{% if r.error %}<div style="font-size:9pt;color:#dc2626;margin-top:4px">Scoring failed: {{ r.error }}</div>{% endif %}{% if r._scores_were_defaulted %}<div style="font-size:9pt;color:#b45309;margin-top:4px">LLM declined to score — values defaulted to 0.5 (median). Treat as directional placeholder.</div>{% endif %}</td>
       {% if r.error %}
       <td colspan="5" style="padding:8px;border:1px solid #e5e7eb;text-align:center;color:#9ca3af;font-style:italic">scoring unavailable</td>
       {% else %}
@@ -1159,7 +1224,7 @@ footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid #e5e7eb; fon
   {{ competitor_chart|safe }}
 </div>
 {% if clustering and clustering.n_dropped %}
-<p style="font-size:9pt;color:#b45309;margin-top:-8px">⚠ {{ clustering.n_competitors }} of {{ clustering.n_input }} competitors are positioned above; {{ clustering.n_dropped }} had descriptions too thin to place on the map.</p>
+<p style="font-size:9pt;color:#b45309;margin-top:-8px">{{ clustering.n_competitors }} of {{ clustering.n_input }} competitors are positioned above; {{ clustering.n_dropped }} had descriptions too thin to place on the map.</p>
 {% endif %}
 {% if whitespace and whitespace.whitespace_found %}
 <p style="font-size:10pt;color:#6b7280;margin-top:-8px">

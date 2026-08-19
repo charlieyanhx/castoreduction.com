@@ -197,8 +197,11 @@ body { font: 10.5pt/1.55 Georgia, "Times New Roman", serif; color: #1f2937;
 .pdf-cover .meta div { margin: 3px 0; }
 
 .pdf-toc { page-break-after: always; break-after: page; }
-.pdf-toc h2 { font-size: 13pt; letter-spacing: .1em; text-transform: uppercase;
+/* The TOC is furniture, not a section: it must not consume a section number.
+   (Measured: the first restyled PDF numbered CONTENTS "01".) */
+.pdf-toc h2 { counter-increment: none; font-size: 13pt; letter-spacing: .1em; text-transform: uppercase;
   color: #111827; border-bottom: 1px solid #d1d5db; padding-bottom: 8px; }
+.pdf-toc h2::before { content: none; }
 .pdf-toc ol { list-style: none; padding: 0; margin: 18px 0 0; }
 .pdf-toc li { margin: 0 0 9px; font-size: 10.5pt; }
 .pdf-toc a { text-decoration: none; color: #1f2937; }
