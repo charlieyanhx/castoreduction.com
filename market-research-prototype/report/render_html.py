@@ -45,7 +45,8 @@ def _ladder_period(r: dict) -> str:
         return "day"
 
 
-def render_report_html(result: dict, job_id: str = "", debug: int = 0) -> str:
+def render_report_html(result: dict, job_id: str = "", debug: int = 0,
+                       annotate: int = 0) -> str:
     """Render one report to HTML from its result dict. Pure: no DB, no request."""
     from api import SafeUndefined, display_title   # local: api imports plan, plan imports us
     j = {"result": result or {}}
@@ -103,7 +104,20 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0) -> str:
 
     from market_sizing import format_currency
 
+    # The refinement layer (iteration.py): reader annotations, Q&A, revision stamp. Loaded
+    # here so BOTH the HTML route and the PDF derive the revised page from artifact + layer
+    # — the original result JSON is never touched.
+    try:
+        import iteration as _iteration
+        _iter_state = _iteration.get_state(job_id) if job_id else None
+        if _iter_state is not None and not _iteration.has_content(_iter_state):
+            _iter_state = None
+    except Exception:                                # noqa: BLE001 - the layer is optional
+        _iter_state = None
+
     html = tpl.render(
+        iteration=_iter_state,
+        annotate=bool(annotate),
         job_id=job_id,
         profile=profile,
         market_sizing=r.get("market_sizing"),

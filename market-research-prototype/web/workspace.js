@@ -334,7 +334,8 @@ async function launch() {
 function setTabs(showReport) {
   $("compTabs").innerHTML =
     `<span class="tab ${compTab === "steps" ? "on" : ""}" data-t="steps">Steps</span>` +
-    (showReport ? `<span class="tab ${compTab === "report" ? "on" : ""}" data-t="report">Report</span>` : "");
+    (showReport ? `<span class="tab ${compTab === "report" ? "on" : ""}" data-t="report">Report</span>` +
+                  `<span class="tab ${compTab === "refine" ? "on" : ""}" data-t="refine">Refine</span>` : "");
   $("compTabs").querySelectorAll(".tab").forEach((el) =>
     el.onclick = () => { compTab = el.dataset.t; renderComputer(); });
 }
@@ -365,8 +366,9 @@ function renderTimeline(uptoIdx) {
 let activeJobState = "idle";
 function renderComputer() {
   setTabs(activeJobState === "complete");
-  if (compTab === "report" && activeJob) {
-    $("compBody").innerHTML = `<iframe class="report-frame" src="/jobs/${activeJob}/report.html"></iframe>`;
+  if ((compTab === "report" || compTab === "refine") && activeJob) {
+    const q = compTab === "refine" ? "?annotate=1&force=1" : "";
+    $("compBody").innerHTML = `<iframe class="report-frame" src="/jobs/${activeJob}/report.html${q}"></iframe>`;
     $("compBody").style.padding = "0";
   } else {
     $("compBody").style.padding = "18px 20px";
