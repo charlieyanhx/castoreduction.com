@@ -318,6 +318,41 @@
     font-family: var(--serif); font-size: 15px; color: var(--text-dim);
     max-width: 34ch; line-height: 1.5; text-align: center;
   }
+
+  /* ---- intake tree (task #115): pack chips, why-lines, not-sure, provenance ---- */
+  .chip.assumed { border-color: oklch(62% 0.12 70); color: oklch(50% 0.12 70); }
+  .bubble-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .bubble-why { font-size: 11px; color: var(--text-faint); padding: 0 4px 0 12px; }
+  .not-sure {
+    border: 1px solid var(--line); background: var(--surface);
+    color: var(--text-dim); border-radius: 10px; padding: 0 12px;
+    cursor: pointer; font-size: 12px; white-space: nowrap;
+  }
+  .not-sure:hover { color: var(--text); border-color: var(--text-dim); }
+  .cf-prov { font-size: 10px; border-radius: 6px; padding: 1px 7px; margin-left: 6px;
+             font-weight: 600; letter-spacing: .01em; }
+  .prov-stated   { background: var(--accent-soft); color: var(--accent); }
+  .prov-inferred { background: oklch(94% 0.03 250); color: oklch(48% 0.14 250); }
+  .prov-assumed  { background: oklch(95% 0.03 70);  color: oklch(50% 0.12 70); }
+
+  /* ---- the live wire: the stream the panel's tagline promises ---- */
+  .steps-list { flex: 0 0 auto; }
+  .wire {
+    display: none; margin-top: 14px; border-top: 1px solid var(--line);
+    padding: 10px 12px 6px; max-height: 40vh; overflow-y: auto;
+    font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--surface-2); border-radius: 10px;
+  }
+  .wire.on { display: block; }
+  .w-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .w-tool  { color: var(--text); }
+  .w-skill { color: oklch(48% 0.14 250); font-weight: 600; }
+  .w-llm   { color: var(--text-faint); }
+  .w-step  { color: var(--text-dim); margin: 7px 0 3px; letter-spacing: .05em;
+             font-weight: 600; text-transform: uppercase; font-size: 10px; }
+  .w-err   { color: oklch(55% 0.19 25); font-weight: 600; }
+  .w-det   { color: var(--text-faint); }
+  .w-dur   { color: var(--text-faint); opacity: .8; }
   </style>
 </head>
 <body>
