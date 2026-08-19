@@ -387,3 +387,77 @@ def verify_report(result: dict, html: Optional[str] = None,
         log.info("[verifier] no rendered page supplied: %d/%d invariants could not answer",
                  coverage.not_applicable, coverage.answered + coverage.not_applicable)
     return VerificationResult(findings=findings, coverage=coverage)
+
+def rulebook_fingerprint() -> str:
+    """A short hash of the invariant set that judged a report.
+
+    A stored verdict had no age and no provenance, so nothing could distinguish one reached
+    under today's gates from one reached under a rulebook since corrected — which is how job
+    d62bc04f stayed withheld by D55 for a defect inside D55 itself. Hashing each invariant's
+    id AND its source means any edit to a gate body moves the fingerprint, so a verdict whose
+    fingerprint no longer matches is visibly stale without re-running anything.
+    """
+    import hashlib
+    import inspect as _inspect
+    try:
+        from gates import INVARIANTS
+    except Exception:                                    # pragma: no cover — import guard
+        return "unknown"
+    h = hashlib.sha256()
+    for inv in INVARIANTS:
+        h.update((getattr(inv, "id", "") or "").encode())
+        try:
+            h.update(_inspect.getsource(inv.check).encode())
+        except (OSError, TypeError):
+            h.update(b"?")
+    return h.hexdigest()[:12]
+
+
+def reverify(result: dict, html: str | None = None, *, dry_run: bool = False,
+             use_llm: bool = False) -> dict:
+    """Re-judge a finished report under the CURRENT rulebook. Returns a new dict.
+
+    ADDITIVE BY CONSTRUCTION. The superseded verdict moves to `verification_history` and is
+    never overwritten: it is the record of what a buyer was actually told, and the remedy for
+    "a gate was wrong" cannot be erasing the evidence that we said so.
+
+    Never mutates its input — `dry_run` returns the new verdict while the caller's report is
+    untouched, so an operator can see what re-issuing WOULD say before deciding to.
+
+    Deliberately not called on render. A verdict that silently changes under the reader is a
+    different failure, not a fix: two people opening one URL an hour apart would reach
+    different conclusions with no way to tell why.
+    """
+    import copy
+    import datetime as _dt
+
+    out = copy.deepcopy(result or {})
+    if html is None:
+        try:
+            from report.render_html import render_report_html
+            html = render_report_html(out)
+        except Exception as e:                           # a render fault must not fail this
+            log.warning("[reverify] render failed, judging without the page: %s", e)
+
+    vr = verify_report(out, html, use_llm=use_llm)
+    fresh = {
+        "summary": vr.summary(),
+        "findings": [{"invariant": f.invariant, "severity": f.severity,
+                      "detail": f.detail, "audit_class": f.audit_class}
+                     for f in vr.findings],
+        "verified_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+        "rulebook": rulebook_fingerprint(),
+    }
+    if dry_run:
+        preview = copy.deepcopy(out)
+        preview["verification"] = fresh
+        return preview
+
+    prior = out.get("verification")
+    history = list(out.get("verification_history") or [])
+    if prior:
+        history.append(prior)
+    out["verification"] = fresh
+    out["verification_history"] = history
+    return out
+
