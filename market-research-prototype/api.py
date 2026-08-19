@@ -1138,7 +1138,8 @@ def _blocking_list_html(blocking: list) -> str:
         for f in blocking)
 
 
-def _withheld_page(job_id: str, blocking: list) -> str:
+def _withheld_page(job_id: str, blocking: list, remedies: list | None = None,
+                   description: str = "") -> str:
     """Shown instead of a report the verifier declared unpublishable.
 
     It NAMES every blocking finding: a report withheld without a reason is unusable to the
@@ -1156,6 +1157,7 @@ def _withheld_page(job_id: str, blocking: list) -> str:
         "not delivered by default — the findings below have to be resolved, or the run "
         "regenerated.</p>"
         f"<ul style=\"color:#4b5563\">{_blocking_list_html(blocking)}</ul>"
+        + _remedy_form_html(remedies or [], description) +
         "<p style=\"font-size:13px;color:#9ca3af\">Job "
         f"{job_id}</p>"
         "<p><a href=\"?force=1\" style=\"display:inline-block;margin-top:.5rem;padding:.55rem 1rem;"
@@ -1164,6 +1166,55 @@ def _withheld_page(job_id: str, blocking: list) -> str:
         "<a href=\"/\" style=\"display:inline-block;margin-top:.5rem;margin-left:.5rem;"
         "padding:.55rem 1rem;background:#1f2937;color:#fff;border-radius:8px;"
         "text-decoration:none\">Start a new report</a></p></div>")
+
+
+def _remedy_form_html(remedies: list, description: str) -> str:
+    """The repair form, when any blocking finding traces to a missing INPUT.
+
+    The operator's architecture point (job b98df066): a block whose root cause is input fires
+    ten minutes after the gap was knowable, and a dead-end page makes the operator pay for the
+    pipeline's late discovery. Each remedy asks its one question; the answers are appended to
+    the brief in the phrasing their consumers parse, and a NEW run starts (delta-linked to
+    this one by find_previous_plan). Pipeline-caused blocks get no form — an answer would not
+    fix them, and pretending otherwise is theatre."""
+    if not remedies:
+        return ""
+    import html as _h
+    import json as _json
+    rows = "".join(
+        f'<div style="margin:10px 0"><label style="font-weight:600;font-size:14px">'
+        f'{_h.escape(r["ask"])}</label>'
+        f'<input data-append="{_h.escape(r["append"])}" style="display:block;width:100%;'
+        f'margin-top:6px;padding:9px 11px;border:1px solid #e5e7eb;border-radius:8px;'
+        f'font:inherit" placeholder="your answer"></div>'
+        for r in remedies)
+    return (
+        '<div style="margin:18px 0;padding:16px 18px;border:1px solid #d1d5db;'
+        'border-left:3px solid #047857;border-radius:10px;background:#fff">'
+        '<div style="font-weight:700;font-size:15px">Fix the input, not the report</div>'
+        f'<p style="color:#4b5563;font-size:13.5px;margin:.4rem 0 0">{len(remedies)} of the '
+        'blocking issues trace to information the brief never gave. Answer below and rerun — '
+        'the rest of the brief is kept as-is.</p>'
+        f'{rows}'
+        '<button id="remedyGo" style="margin-top:8px;padding:.6rem 1.1rem;background:#047857;'
+        'color:#fff;border:none;border-radius:8px;font:inherit;font-weight:600;cursor:pointer">'
+        'Answer &amp; rerun</button>'
+        '<span id="remedyMsg" style="margin-left:10px;font-size:13px;color:#6b7280"></span>'
+        "<script>document.getElementById('remedyGo').onclick=async function(){"
+        "var d=" + _json.dumps(description) + ";"
+        "var inputs=document.querySelectorAll('[data-append]');var n=0;"
+        "inputs.forEach(function(el){var v=el.value.trim();"
+        "if(v){d+=' '+el.dataset.append.replace('{}',v);n++;}});"
+        "if(!n){document.getElementById('remedyMsg').textContent='answer at least one';return;}"
+        "this.disabled=true;this.textContent='Starting new run…';"
+        "try{var r=await fetch('/plan',{method:'POST',headers:{'Content-Type':'application/json'},"
+        "body:JSON.stringify({description:d,operator_weights:{}})});"
+        "if(!r.ok)throw new Error((await r.json()).detail||r.statusText);"
+        "document.getElementById('remedyMsg').textContent='rerunning — watch it in the workspace';"
+        "setTimeout(function(){location.href='/workspace';},900);}"
+        "catch(e){this.disabled=false;this.textContent='Answer & rerun';"
+        "document.getElementById('remedyMsg').textContent='failed: '+e.message;}};</script>"
+        "</div>")
 
 
 def _inject_forced_banner(html: str, blocking: list) -> str:
@@ -1252,7 +1303,11 @@ def get_job_report_html(job_id: str, debug: int = 0, force: int = 0,
     if _blocking and not force:
         log.warning("[api] withholding report %s — %d blocking finding(s)",
                     job_id, len(_blocking))
-        return HTMLResponse(content=_withheld_page(job_id, _blocking), status_code=409)
+        from remedy import input_remedies
+        _remedies = input_remedies(_blocking, j["result"] or {})
+        return HTMLResponse(content=_withheld_page(job_id, _blocking, _remedies,
+                                                   (j.get("params") or {}).get("description")
+                                                   or ""), status_code=409)
 
     from report.render_html import render_report_html
     html = render_report_html(j["result"] or {}, job_id=job_id, debug=debug,
@@ -1293,7 +1348,11 @@ def get_job_report_pdf(job_id: str, force: int = 0):
     if _blocking and not force:
         log.warning("[api] withholding PDF %s — %d blocking finding(s)",
                     job_id, len(_blocking))
-        return HTMLResponse(content=_withheld_page(job_id, _blocking), status_code=409)
+        from remedy import input_remedies
+        _remedies = input_remedies(_blocking, j["result"] or {})
+        return HTMLResponse(content=_withheld_page(job_id, _blocking, _remedies,
+                                                   (j.get("params") or {}).get("description")
+                                                   or ""), status_code=409)
 
     # Reuse the HTML endpoint by calling its function directly
     html_response = get_job_report_html(job_id, force=force)
