@@ -621,9 +621,11 @@ def confirmation_items(extracted: dict | None) -> list[dict]:
         "drives": ("the 1.5 km trade area — the households, local spending and competitor "
                    "census every market-size figure is built from"),
         "warning": (None if geo_precise else
-                    "This is a city, not a site — and reports without a specific site are "
-                    "routinely WITHHELD by the verifier (it cannot count households or "
-                    "competitors around a whole city). Which neighbourhood or cross-streets?"),
+                    "This is a city, not a site. The trade area is a 1.5 km ring, so two "
+                    "addresses in the same city can produce completely different households "
+                    "and competitor counts — and reports without a specific site are "
+                    "routinely WITHHELD by the verifier. Which neighbourhood or "
+                    "cross-streets?"),
         "ask": "Which neighbourhood, or the nearest cross-streets?",
     })
 
