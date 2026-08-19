@@ -621,9 +621,9 @@ def confirmation_items(extracted: dict | None) -> list[dict]:
         "drives": ("the 1.5 km trade area — the households, local spending and competitor "
                    "census every market-size figure is built from"),
         "warning": (None if geo_precise else
-                    "This is a city, not a site. The trade area is a 1.5 km ring, so two "
-                    "addresses in the same city can produce completely different "
-                    "households and competitor counts. Which neighbourhood or cross-streets?"),
+                    "This is a city, not a site — and reports without a specific site are "
+                    "routinely WITHHELD by the verifier (it cannot count households or "
+                    "competitors around a whole city). Which neighbourhood or cross-streets?"),
         "ask": "Which neighbourhood, or the nearest cross-streets?",
     })
 
@@ -640,8 +640,9 @@ def confirmation_items(extracted: dict | None) -> list[dict]:
         "drives": ("break-even volume, the daily planning target and the obtainable "
                    "ceiling — without a figure the report cannot state any of them"),
         "warning": (None if price_precise else
-                    ("No number captured. A description of how you charge is not a price: "
-                     "without a figure there is no break-even line and no daily target.")),
+                    ("No number captured — and without a figure the verifier often WITHHOLDS "
+                     "the report, because break-even and the daily target cannot be stated. "
+                     "A rough number beats none; it will be labeled as yours.")),
         "ask": "Roughly what will one unit cost a customer?",
     })
     return items
