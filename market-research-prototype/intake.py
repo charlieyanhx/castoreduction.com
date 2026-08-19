@@ -40,7 +40,29 @@ log = get("intake")
 
 REQUIRED_FIELDS = ("product", "target_customer", "business_model", "geography")
 NICE_TO_HAVE_FIELDS = ("pricing", "differentiation", "stage", "key_features")
-ALL_FIELDS = REQUIRED_FIELDS + NICE_TO_HAVE_FIELDS
+
+# The decision tree's fields (intake_tree.py). Which of these a session is actually asked
+# depends on what KIND of business it is — a cafe gets capacity/site/rent, a SaaS gets the
+# per-seat question, a marketplace gets its take — plus founder-only core facts the pipeline
+# used to guess (status quo, costs, customer evidence, competitors, success target).
+TREE_FIELDS = (
+    "status_quo", "monthly_cost_estimate", "customer_evidence", "named_competitors",
+    "success_target",
+    "capacity", "avg_ticket", "rent_estimate",
+    "pricing_unit_scope", "seats_per_account", "sales_motion",
+    "avg_order", "unit_cost", "channel",
+    "team_size", "rate_basis",
+    "take_rate", "side_first", "avg_transaction",
+    "payer", "audience_threshold", "hybrid_legs",
+    "site", "locations_count", "local_anchor", "real_traction", "regulatory",
+    "kind_fork",
+)
+ALL_FIELDS = REQUIRED_FIELDS + NICE_TO_HAVE_FIELDS + TREE_FIELDS
+
+# The escape hatch: a founder who answers vaguely forever must not be trapped in the
+# interview. After this many user turns, every still-open tree question is marked as an
+# assumption and the session goes ready — the report then discloses what was assumed.
+MAX_TREE_TURNS = 14
 
 
 INTAKE_PROMPT = """You are an analyst interviewing a founder to gather just enough information to run a market-research pipeline. Be conversational, warm, and concise — never interrogative.
@@ -71,6 +93,14 @@ Rules:
 - After 6 user messages with critical gaps still open, lower the bar — go ready with what you have and note the gaps in the final paragraph.
 - The `final_description` (when ready) must be a single coherent paragraph (~80-150 words) suitable as input to a market-research pipeline. Don't pad, don't add fictional detail.
 
+PENDING FIELD: {pending_field}
+OTHER FIELDS THIS VENTURE'S INTERVIEW USES (store any answer that fits one, whatever was
+asked): {active_fields}
+The interviewer's LAST question asked about this specific field. If the user's message
+answers it — even partially, even just a number — store the answer under exactly this key in
+`extracted`. If the user clearly says they don't know, leave it null (the system records the
+"don't know" separately). Any OTHER facts in the message still go to their own fields.
+
 CONVERSATION SO FAR:
 {transcript}
 
@@ -89,7 +119,8 @@ Return JSON:
     "pricing": "..." or null,
     "differentiation": "..." or null,
     "stage": "..." or null,
-    "key_features": ["..."] or null
+    "key_features": ["..."] or null,
+    "<the pending field, when one is named above>": "..." or null
   }},
   "next_action": "ask" or "ready",
   "next_question": "your next question (when next_action=ask)" or null,
@@ -120,6 +151,7 @@ def start_session(initial_message: str | None = None) -> dict:
         "created_at": int(time.time()),
         "messages": [],   # [{role, content}]
         "extracted": {f: None for f in ALL_FIELDS},
+        "pending_field": None,   # which tree field the last question asked about
         "ready": False,
         "final_description": None,
         # W6-3: how much depth this report deserves. Set at intake because that is
@@ -186,8 +218,11 @@ def process_message(session_id: str, user_message: str) -> dict:
     # Retry on transient LLM hiccups (empty / _parse_error) before salvaging — a
     # single flaky response must NOT dead-end the chat into re-asking given info.
     prompt = INTAKE_PROMPT.format(
+        pending_field=session.get("pending_field") or "(none)",
+        active_fields=", ".join(session.get("active_fields") or []) or "(none yet)",
         transcript=_format_transcript(session["messages"]),
-        extracted=json.dumps(session["extracted"], indent=2),
+        extracted=json.dumps({k: v for k, v in session["extracted"].items()
+                              if v not in (None, "", [])}, indent=2),
         user_msg_count=user_msg_count,
     )
     resp = {}
@@ -219,14 +254,47 @@ def process_message(session_id: str, user_message: str) -> dict:
             "user_msg_count": user_msg_count,
         }
 
-    # Merge extracted state — only overwrite if new value is non-null
+    # Merge extracted state — only overwrite if new value is non-null, and never
+    # overwrite an explicit "not sure" marker with a model hallucination.
+    from intake_tree import is_unknown as _tree_unknown
     new_extracted = resp.get("extracted") or {}
     for k in ALL_FIELDS:
         v = new_extracted.get(k)
-        if v not in (None, "", []):
+        if v not in (None, "", []) and not _tree_unknown(session["extracted"].get(k)):
             session["extracted"][k] = v
 
+    # THE TREE. The LLM above only extracts; which question comes next is decided here,
+    # deterministically, from what kind of business this is — the pipeline's own
+    # classifiers, run during the conversation instead of after the founder is gone.
+    from intake_tree import (classify_turn, mark_unknown, next_question, tree_fields,
+                             utterance_is_not_sure)
+
+    # "Not sure" is an ANSWER: the pending field becomes a disclosed assumption instead of
+    # being re-asked forever or force-filled with fake precision.
+    pending = session.get("pending_field")
+    if pending and utterance_is_not_sure(user_message) and             not session["extracted"].get(pending):
+        mark_unknown(session["extracted"], pending)
+
+    cls = classify_turn(session["extracted"])
+    tree_q = next_question(session["extracted"], cls)
+    from intake_tree import plan_questions as _plan_qs
+    session["active_fields"] = [q["field"] for q in _plan_qs(session["extracted"], cls)]
+
+    # The escape hatch: after MAX_TREE_TURNS user messages, every still-open tree question
+    # becomes an assumption and the interview ends — vagueness must not trap anyone.
+    if tree_q and user_msg_count >= MAX_TREE_TURNS:
+        from intake_tree import plan_questions
+        for q in plan_questions(session["extracted"], cls):
+            if not session["extracted"].get(q["field"]):
+                mark_unknown(session["extracted"], q["field"])
+        tree_q = None
+
     next_action = resp.get("next_action") or "ask"
+    if tree_q is not None:
+        next_action = "ask"          # the venture's own pack still has open questions
+    session["classification"] = {k: cls.get(k) for k in
+                                 ("kind", "explicit", "needs_fork", "is_physical",
+                                  "multi_location", "non_us", "launched", "regulated")}
 
     # Safety: don't end session before user has spoken at least 2 times
     # (otherwise a verbose first message can shortcut critical clarifications)
@@ -239,10 +307,15 @@ def process_message(session_id: str, user_message: str) -> dict:
     # question verbatim, so the session never reached ready and report generation
     # was blocked. Once the 4 required fields are present and the user has spoken
     # at least twice, force ready rather than waiting for the model to volunteer it.
-    if next_action != "ready" and not missing_required and user_msg_count >= 2:
+    if (next_action != "ready" and not missing_required and user_msg_count >= 2
+            and tree_q is None):
         log.info("intake force-ready (session=%s): all required filled but model kept asking",
                  session_id[:8])
         next_action = "ready"
+    # The mirror guard: the LLM may declare ready while the venture's own pack still has
+    # open questions. The tree outranks it — that is the whole point of the tree.
+    if next_action == "ready" and tree_q is not None:
+        next_action = "ask"
 
     if next_action == "ready":
         final = resp.get("final_description") or ""
@@ -273,18 +346,30 @@ def process_message(session_id: str, user_message: str) -> dict:
             "extracted": session["extracted"],
             "ready": True,
             "final_description": final,
+            # The final chip state too — without it the progress chips freeze one turn
+            # stale (measured: "success target" showed open on a ready session).
+            "tree_fields": tree_fields(session["extracted"], cls),
+            "classification": session.get("classification"),
             "user_msg_count": user_msg_count,
         }
 
-    # Otherwise — ask next question
-    next_q = (resp.get("next_question") or "").strip()
-    if not next_q:
-        # Fallback question targeting the first missing required field
-        next_q = _fallback_question(session["extracted"])
+    # Otherwise — ask. The tree's question wins; the LLM's own suggestion is only used
+    # when the pack is exhausted but required fields are still missing (early turns).
+    asked_field = asked_why = None
+    if tree_q is not None:
+        next_q = tree_q["question"]
+        asked_field, asked_why = tree_q["field"], tree_q["drives"]
+    else:
+        next_q = (resp.get("next_question") or "").strip() or             _fallback_question(session["extracted"])
+    session["pending_field"] = asked_field
     session["messages"].append({"role": "assistant", "content": next_q})
     return {
         "session_id": session_id,
         "assistant_message": next_q,
+        "asked_field": asked_field,
+        "asked_why": asked_why,
+        "classification": session.get("classification"),
+        "tree_fields": tree_fields(session["extracted"], cls),
         "extracted": session["extracted"],
         "ready": False,
         "user_msg_count": user_msg_count,
@@ -345,6 +430,56 @@ def _synthesize_from_extracted(ex: dict) -> str:
         feats = ex["key_features"]
         if isinstance(feats, list):
             parts.append("Key features: " + ", ".join(feats) + ".")
+
+    # THE TREE'S FACTS. Each rides the brief in a phrasing a downstream consumer already
+    # parses — "Named competitors:" seeds discover._union_named_competitors via the profile
+    # extractor, price figures are read by brief.extract_price, location counts by
+    # plan.extract_location_count. A fact phrased unreadably is a fact not collected.
+    from intake_tree import is_unknown as _unk
+    def _val(k):
+        v = ex.get(k)
+        return None if (v in (None, "", []) or _unk(v)) else v
+    _tree_lines = (
+        ("site", "The exact site: {}."),
+        ("locations_count", "{}."),
+        ("capacity", "Capacity: {}."),
+        ("avg_ticket", "Typical price: {} per visit."),
+        ("avg_order", "Typical order value: {}."),
+        ("avg_transaction", "Typical transaction: {}."),
+        ("rate_basis", "Charges {}."),
+        ("pricing_unit_scope", "The fee is charged {}."),
+        ("seats_per_account", "Typically {} users per customer."),
+        ("take_rate", "The platform keeps {} of each transaction."),
+        ("side_first", "Supply/demand priority: {}."),
+        ("team_size", "Team who can deliver the work: {}."),
+        ("sales_motion", "Sales motion: {}."),
+        ("channel", "Sales channel: {}."),
+        ("payer", "Revenue comes from: {}."),
+        ("audience_threshold", "Audience needed before revenue: {}."),
+        ("hybrid_legs", "Revenue legs: {}."),
+        ("named_competitors", "Named competitors: {}."),
+        ("status_quo", "What customers do today instead: {}."),
+        ("monthly_cost_estimate", "Founder's estimated monthly operating cost: {}."),
+        ("customer_evidence", "Customer conversations so far: {}."),
+        ("success_target", "The founder's year-one goal: {}."),
+        ("real_traction", "Traction to date: {}."),
+        ("regulatory", "Known regulatory requirements: {}."),
+        ("local_anchor", "Founder-supplied local figure: {}."),
+    )
+    for field, tpl in _tree_lines:
+        v = _val(field)
+        if v is not None:
+            parts.append(tpl.format(v))
+
+    # "Not sure" answers become DISCLOSED assumptions, not silence. The report's own
+    # honesty machinery (data_origin, UNSOURCED labels) keys off knowing a figure was
+    # never given — a dropped unknown reads downstream as "nothing to say" instead of
+    # "asked, and the founder does not know yet".
+    assumed = [f.replace("_", " ") for f in ALL_FIELDS
+               if _unk(ex.get(f)) and f != "kind_fork"]
+    if assumed:
+        parts.append("The founder does not know yet (treat as assumptions and label them): "
+                     + ", ".join(assumed) + ".")
     return " ".join(parts)
 
 
@@ -388,6 +523,19 @@ def _is_physical(business_model: str | None) -> bool:
     return any(h in low for h in _PHYSICAL_HINTS)
 
 
+# The taxonomy in the founder's words. The card must never say "subscription" or
+# "transactional" — the orbital founder answered our vocabulary with "Undetermined".
+_KIND_IN_FOUNDER_WORDS = {
+    "transactional": "customers pay per visit or per item, like a shop",
+    "subscription": "customers pay a recurring fee, like Netflix",
+    "ecommerce": "customers buy products you ship, like an online store",
+    "services": "customers pay for your team's time, like a contractor",
+    "marketplace": "you keep a cut of sales between other people, like Uber",
+    "ad_supported": "free for users — advertisers or sponsors pay",
+    "hybrid": "customers pay in more than one way (an up-front part and an ongoing part)",
+}
+
+
 def confirmation_items(extracted: dict | None) -> list[dict]:
     """The few answers whose value changes a published number, with what each one drives.
 
@@ -399,16 +547,76 @@ def confirmation_items(extracted: dict | None) -> list[dict]:
     reason to actually read it. `precise` is False when the value fills the field but not
     the need, which is the failure a required-field check cannot see.
     """
+    from intake_tree import classify_turn, is_unknown as _unk
     ex = extracted or {}
-    physical = _is_physical(ex.get("business_model"))
+    cls = classify_turn(ex)
+    physical = _is_physical(ex.get("business_model")) or cls.get("is_physical")
     items: list[dict] = []
 
-    geo = (ex.get("geography") or "").strip()
+    # THE KIND DECISION — the line job d62bc04f never got. The classifier's pick is shown
+    # in the founder's words, labelled stated when their brief named a revenue shape and
+    # inferred when the classifier derived it. An inference the founder never sees is a
+    # silent pick, and the last silent pick shipped a seat-priced report for a venture
+    # whose brief said "Undetermined".
+    kind = cls.get("kind") or "transactional"
+    items.append({
+        "field": "kind",
+        "label": "How the money works",
+        "value": _KIND_IN_FOUNDER_WORDS.get(kind, kind),
+        "provenance": "stated" if cls.get("explicit") else "inferred",
+        "precise": bool(cls.get("explicit")),
+        "drives": "which financial tables get built — every projection takes this shape",
+        "warning": (None if cls.get("explicit") else
+                    "You didn't say this directly — I worked it out from your description. "
+                    "If it's wrong, every number will be."),
+        "ask": "How will customers pay you?",
+    })
+
+    # THE COMPETITOR SEED — always on the card, even (especially) when empty. One real
+    # name anchors discovery; the last run without one fabricated three competitors that
+    # were all the same website.
+    comp = ex.get("named_competitors")
+    comp = None if (_unk(comp) or not comp) else str(comp)
+    items.append({
+        "field": "named_competitors",
+        "label": "Competitors you know of",
+        "value": comp,
+        "provenance": "stated" if comp else ("assumed" if _unk(ex.get("named_competitors"))
+                                             else None),
+        "precise": bool(comp),
+        "drives": "the competitor research starts from real names instead of guesses",
+        "warning": (None if comp else
+                    "None named. If you know even one company doing something close, it "
+                    "anchors the whole competitive section."),
+        "ask": "Any company doing something close? One name is enough.",
+    })
+
+    # ASSUMED LINES — every "not sure" the founder gave, so the card is the last place to
+    # change their mind before those become labeled assumptions in the report.
+    for f in ALL_FIELDS:
+        if f in ("kind_fork", "named_competitors"):
+            continue
+        if _unk(ex.get(f)):
+            items.append({
+                "field": f,
+                "label": f.replace("_", " ").capitalize(),
+                "value": None,
+                "provenance": "assumed",
+                "precise": False,
+                "drives": "the report will estimate this and label everything built on it",
+                "warning": None,
+                "ask": "Know it now? Type it — otherwise I'll estimate and say so.",
+            })
+
+    geo = (ex.get("site") if ex.get("site") and not _unk(ex.get("site"))
+           else ex.get("geography"))
+    geo = ("" if _unk(geo) else (geo or "")).strip()
     geo_precise = bool(geo) and (not physical or bool(_SITE_MARKERS.search(geo)))
     items.append({
         "field": "geography",
         "label": "Location",
         "value": geo or None,
+        "provenance": "stated" if geo else "assumed",
         "precise": geo_precise,
         "drives": ("the 1.5 km trade area — the households, local spending and competitor "
                    "census every market-size figure is built from"),
@@ -419,12 +627,15 @@ def confirmation_items(extracted: dict | None) -> list[dict]:
         "ask": "Which neighbourhood, or the nearest cross-streets?",
     })
 
-    price = (ex.get("pricing") or "").strip()
+    _praw = ex.get("pricing") or ex.get("avg_ticket") or ex.get("avg_order") \
+        or ex.get("rate_basis") or ex.get("avg_transaction")
+    price = ("" if _unk(_praw) else str(_praw or "")).strip()
     price_precise = bool(_PRICE_FIGURE.search(price))
     items.append({
         "field": "pricing",
         "label": "Price per unit",
         "value": price or None,
+        "provenance": "stated" if price else "assumed",
         "precise": price_precise,
         "drives": ("break-even volume, the daily planning target and the obtainable "
                    "ceiling — without a figure the report cannot state any of them"),

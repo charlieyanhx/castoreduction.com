@@ -121,12 +121,20 @@ function stepDetail(key, r) {
 }
 
 /* ---------------- conversation ---------------- */
-function addMsg(role, text) {
+function addMsg(role, text, why) {
   const m = document.createElement("div");
   m.className = `msg ${role}`;
   m.innerHTML = `<div class="av">${role === "bot" ? "C" : "you"}</div>` +
-    `<div class="bubble"></div>`;
+    `<div class="bubble-wrap"><div class="bubble"></div></div>`;
   m.querySelector(".bubble").textContent = text;
+  if (why) {
+    // The reason under the question — "confirm your location" is a chore, "this sets the
+    // ring we count competitors in" is a reason to answer carefully.
+    const w = document.createElement("div");
+    w.className = "bubble-why";
+    w.textContent = "→ decides " + why;
+    m.querySelector(".bubble-wrap").appendChild(w);
+  }
   $("convo").appendChild(m);
   $("convo").scrollTop = $("convo").scrollHeight;
 }
@@ -139,11 +147,29 @@ const FIELD_LABELS = {
 const REQUIRED = ["product", "target_customer", "business_model", "geography"];
 
 function renderFields() {
-  $("fields").innerHTML = Object.entries(FIELD_LABELS).map(([k, lbl]) => {
-    const done = extracted[k] && String(extracted[k]).toLowerCase() !== "null";
-    return `<span class="chip ${done ? "done" : ""}">${done ? "✓ " : ""}${lbl}</span>`;
-  }).join("");
-  const ready = REQUIRED.every((k) => extracted[k] && String(extracted[k]).toLowerCase() !== "null");
+  /* The chips are the venture's OWN question pack (a cafe shows capacity/site/rent, a
+     SaaS shows the per-seat question) — the server sends them per turn. Three states:
+     open, answered, and "assumed" for a 'not sure', which the report will label. The
+     hardcoded list remains only for the pre-first-message render. */
+  if (window._treeFields && window._treeFields.length) {
+    $("fields").innerHTML = window._treeFields.map((f) => {
+      const cls = f.state === "done" ? "done" : (f.state === "assumed" ? "assumed" : "");
+      const mark = f.state === "done" ? "✓ " : (f.state === "assumed" ? "≈ " : "");
+      return `<span class="chip ${cls}" title="${f.state === "assumed"
+        ? "you said you weren't sure — the report will estimate this and label it"
+        : ""}">${mark}${f.label}</span>`;
+    }).join("");
+  } else {
+    $("fields").innerHTML = Object.entries(FIELD_LABELS).map(([k, lbl]) => {
+      const done = extracted[k] && String(extracted[k]).toLowerCase() !== "null";
+      return `<span class="chip ${done ? "done" : ""}">${done ? "✓ " : ""}${lbl}</span>`;
+    }).join("");
+  }
+  /* Server-side ready, not the old local 4-field rule: the tree can still have open
+     questions (capacity, competitors, costs) after a verbose first message fills all four
+     generic fields — measured live, the card appeared after ONE message while eight pack
+     questions were still open, burying the interview it exists to conclude. */
+  const ready = !!window._serverReady;
   // Ready is NOT the same as confirmed. The required fields can all be filled and still
   // point the run at the wrong neighbourhood — measured, "San Francisco" satisfies the
   // geography field and geocodes 2.3 km from the Mission, against a 1.5 km trade-area ring.
@@ -174,24 +200,31 @@ async function showConfirmation() {
     // Never strand the operator behind a card that failed to load.
     window._confirmed = true; renderFields(); return;
   }
-  const rows = (payload.items || []).map((it) => `
+  const PROV = {stated: ["said by you", "prov-stated"],
+                inferred: ["worked out from your answers", "prov-inferred"],
+                assumed: ["will be estimated + labelled", "prov-assumed"]};
+  const rows = (payload.items || []).map((it) => {
+    const [ptext, pcls] = PROV[it.provenance] || ["", ""];
+    return `
     <div class="cf-row ${it.precise ? "" : "warn"}">
       <div class="cf-head">
         <span class="cf-label">${it.label}</span>
-        <span class="cf-state">${it.precise ? "✓" : "needs a moment"}</span>
+        ${ptext ? `<span class="cf-prov ${pcls}">${ptext}</span>` : ""}
+        <span class="cf-state">${it.precise ? "✓" : "check this"}</span>
       </div>
       <input class="cf-input" data-field="${it.field}"
              value="${(it.value || "").replace(/"/g, "&quot;")}"
              placeholder="${it.ask}" aria-label="${it.label}">
       <div class="cf-why">Sets ${it.drives}</div>
       ${it.warning ? `<div class="cf-warn">${it.warning}</div>` : ""}
-    </div>`).join("");
+    </div>`; }).join("");
   const card = document.createElement("div");
   card.className = "confirm-card";
   card.id = "confirmCard";
   card.innerHTML = `
     <div class="cf-title">Before I spend six minutes on this</div>
-    <div class="cf-sub">These two decide the numbers. Everything else I can infer.</div>
+    <div class="cf-sub">These decisions shape every number. Anything marked
+    "worked out" is my inference — correct it if I got it wrong.</div>
     ${rows}
     <button class="cf-go" id="confirmBtn">Looks right — continue</button>`;
   $("convo").appendChild(card);
@@ -246,6 +279,7 @@ function startIntake() {
   // page never hangs on a slow/rate-limited intake call.
   resetCenter();
   session = null; extracted = {}; window._rigorShown = false;
+  window._serverReady = false; window._treeFields = null; window._confirmed = false;
   addMsg("bot", "Hi — I'll put together a market-research report. In a sentence or two, what does your product do and who is it for?");
   renderFields();
 }
@@ -262,11 +296,23 @@ async function sendMessage() {
     }
     const r = await api("POST", "/intake/message", { session_id: session, user_message: text });
     extracted = r.extracted || extracted;
-    addMsg("bot", r.assistant_message); renderFields();
+    window._treeFields = r.tree_fields || window._treeFields;
+    window._serverReady = !!r.ready;
+    addMsg("bot", r.assistant_message, r.asked_why);
+    setNotSureVisible(!!r.asked_field && !r.ready);
+    renderFields();
   } catch (e) {
     addMsg("bot", "⚠ " + (e.name === "AbortError" ? "the model is busy (rate limit) — try again in a moment" : e.message));
   }
   $("sendBtn").disabled = false; $("input").focus();
+}
+
+/* "Not sure" is a first-class answer: it records an assumption the report must label,
+   instead of stalling a founder who genuinely doesn't know their rent yet. One click
+   sends the literal phrase the server's not-sure detector reads. */
+function setNotSureVisible(on) {
+  const b = $("notSureBtn");
+  if (b) b.style.display = on ? "" : "none";
 }
 
 async function launch() {
@@ -517,6 +563,7 @@ document.querySelectorAll(".nav-item").forEach((n) =>
 /* ---------------- wire up ---------------- */
 $("newBtn").onclick = () => { setView("workspace"); startIntake(); };
 $("sendBtn").onclick = sendMessage;
+$("notSureBtn").onclick = () => { $("input").value = "not sure"; sendMessage(); };
 $("launchBtn").onclick = launch;
 $("input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }

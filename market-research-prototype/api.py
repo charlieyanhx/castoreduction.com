@@ -389,8 +389,17 @@ def post_intake_confirm(session_id: str, body: dict | None = None):
     s = get_session(session_id)
     if not s:
         raise HTTPException(status_code=404, detail="session not found")
+    from intake import ALL_FIELDS
     for field, value in ((body or {}).get("corrections") or {}).items():
-        if field in ("geography", "pricing") and isinstance(value, str) and value.strip():
+        # Any extracted field is correctable — the old whitelist of two meant a wrong
+        # business-model inference on the card could be SEEN but not FIXED, which makes
+        # the card a spectator to the exact decision it exists to catch. "kind" maps back
+        # to the business_model text the classifier reads.
+        if not (isinstance(value, str) and value.strip()):
+            continue
+        if field == "kind":
+            s.setdefault("extracted", {})["business_model"] = value.strip()
+        elif field in ALL_FIELDS:
             s.setdefault("extracted", {})[field] = value.strip()
     mark_confirmed(s)
     return {"ok": True, "confirmed_facts": s.get("confirmed_facts"),
