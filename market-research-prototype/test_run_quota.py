@@ -157,5 +157,28 @@ class TestTheEndpointEnforcesIt(_QuotaBase):
         self.assertIn("3", r.text)
 
 
+class TestDevOverride(unittest.TestCase):
+    """CASTOR_DAILY_RUNS: MEASURED 2026-08-20, the operator dogfooding on their own
+    machine hit their own 3-run cap mid-iteration. The env override is configuration
+    for a self-hosted box; invalid values must fall back to the free tier rather than
+    open the gate by accident."""
+
+    def _limit(self, value):
+        import os
+        from unittest.mock import patch
+        import quota
+        with patch.dict(os.environ, {"CASTOR_DAILY_RUNS": value}):
+            return quota._daily_limit("legacy")
+
+    def test_a_valid_override_raises_the_limit(self):
+        self.assertEqual(self._limit("50"), 50)
+
+    def test_garbage_and_nonpositive_fall_back_to_free(self):
+        import quota
+        for bad in ("many", "0", "-3", ""):
+            self.assertEqual(self._limit(bad) if bad else quota.DAILY_RUNS_FREE,
+                             quota.DAILY_RUNS_FREE, bad)
+
+
 if __name__ == "__main__":
     unittest.main()
