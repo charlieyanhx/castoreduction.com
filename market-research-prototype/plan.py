@@ -1297,6 +1297,23 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
                        for p in rest])[:30]
                 _n_same_category = op.get("n_same_category")
                 _competitors_source = op.get("source")
+                # Adoption #3: ratings/review-counts/price joined onto the roster from
+                # ONE bounded gosom query (measured: 16 venues in ~90s). Enrichment
+                # only — a missing binary, a timeout, or a blocked scrape leaves the
+                # roster exactly as it was.
+                try:
+                    gr = get_tool("gmaps_ratings").fn(
+                        query=cat or "restaurants", lat=_lat, lng=_lng,
+                        radius_m=max(radius_m, 2000))
+                    if not gr.skeleton and (gr.payload or {}).get("venues"):
+                        from tools.gmaps_reviews import join_ratings
+                        joined = join_ratings(geo_competitors,
+                                              gr.payload["venues"])
+                        if joined:
+                            _competitors_source += (
+                                f" + Google Maps ratings via gosom ({joined} joined)")
+                except Exception as e:
+                    log.info("[plan] ratings enrichment skipped: %s", e)
             else:
                 ne = get_tool("osm_named_competitors").fn(
                     lat=_lat, lng=_lng, osm_key=osm_key, osm_value=osm, limit=30)

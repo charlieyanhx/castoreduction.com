@@ -42,6 +42,7 @@ from . import ads             # noqa: F401  — Meta Ad Library
 from . import geo             # noqa: F401  — Census geocoder/ACS + OSM (trade-area sizing)
 from . import econ            # noqa: F401  — BLS CEX spend (authoritative per-household spend)
 from . import overture        # noqa: F401  — Overture Maps places (cuisine-grade venue census)
+from . import gmaps_reviews   # noqa: F401  — Google Maps ratings via gosom subprocess
 
 __all__ = [
     "Evidence", "ToolMeta", "TOOL_REGISTRY", "tool",

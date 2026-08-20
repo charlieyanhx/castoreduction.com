@@ -10,3 +10,4 @@ out/
 jobs.db
 .cex_curve_cache.json
 .session_secret
+.bin/
