@@ -217,18 +217,20 @@ class TestFounderVolumeBesideTheModel(unittest.TestCase):
             self.assertEqual(ms["founder_estimate"]["annual_usd"],
                              round(float(text.split()[0]) * factor * 10), text)
 
-    def test_the_fermi_check_flags_a_thousand_tacos_through_ten_seats(self):
-        """Operator spec (2026-08-20): '1000 tacos a day is too much since you only
-        have 15 seats... a little fermi.' Deterministic arithmetic, stated as a
-        tension, never a correction."""
+    def test_the_fermi_check_uses_meal_window_assumptions(self):
+        """Operator spec (2026-08-20, refined): 'it is a meal — have more rigorous
+        assumptions.' Quick-service meal model: 3 turns/hour across 6 effective
+        meal-window hours, every assumption printed so the reader can re-run the
+        arithmetic. Stated as tension, never a correction."""
         from plan import _apply_founder_volume
         ms = self._ms(anchor={"method": "x", "sourced": False})
         _apply_founder_volume(ms, self._result(
             {"expected_volume": "1000 per day", "avg_ticket": "$6",
-             "capacity": "maybe 10 people at once"}))
+             "capacity": "15 seats"}))
         p = ms["founder_estimate"]["plausibility"]
-        self.assertIn("480", p)                       # 10 seats x 4/hr x 12h
-        self.assertIn("2.1x", p)
+        self.assertIn("270", p)                       # 15 seats x 3/hr x 6h
+        self.assertIn("meal-window", p)
+        self.assertIn("3.7x", p)
         self.assertIn("takeout", p.lower())
         for judgy in ("wrong", "unrealistic", "impossible"):
             self.assertNotIn(judgy, p.lower())
@@ -237,7 +239,7 @@ class TestFounderVolumeBesideTheModel(unittest.TestCase):
         from plan import _apply_founder_volume
         ms = self._ms(anchor={"method": "x", "sourced": False})
         _apply_founder_volume(ms, self._result(
-            {"expected_volume": "200 per day", "avg_ticket": "$6",
+            {"expected_volume": "150 per day", "avg_ticket": "$6",
              "capacity": "10 seats"}))
         self.assertIn("fits", ms["founder_estimate"]["plausibility"])
 

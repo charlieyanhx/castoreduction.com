@@ -1082,29 +1082,33 @@ def _apply_founder_volume(ms: dict, result: dict) -> None:
             price = float(pm.group(1).replace(",", ""))
             break
     annual = round(n * factor * price) if (n and factor and price) else None
-    # The Fermi screen (operator spec 2026-08-20: "1000 tacos a day is too much since you
-    # only have 15 seats... just to help determine if that estimate is reasonable").
-    # Deterministic arithmetic, disclosed as arithmetic: a GENEROUS seated ceiling of
-    # seats x 4 turns/hour x 12 hours. Takeout can beat it, which is why exceeding the
-    # ceiling is a stated tension, never a correction — the survey listens, the report
-    # checks likelihood.
+    # The Fermi screen (operator spec 2026-08-20, refined same day: "it is a meal —
+    # have more rigorous assumptions"). Deterministic arithmetic with NAMED assumptions:
+    # meal venues serve in windows, not flat 12-hour days. Quick-service meal model:
+    # ~3 seat-turns/hour across ~6 effective meal-window hours (lunch + dinner peaks
+    # with shoulders). Every assumption is printed so the reader can re-run the
+    # arithmetic; exceeding the ceiling is a stated tension, never a correction.
     plausibility = None
     cap_m = _VOLUME_RE.search(str(facts.get("capacity") or ""))
     daily = n * (1 if factor == 360 else (1 / 7 if factor == 52 else 1 / 30)) \
         if (n and factor) else None
     if cap_m and daily:
         seats = float(cap_m.group(1).replace(",", ""))
-        ceiling = round(seats * 4 * 12)          # seats x 4 turns/hour x 12 hours
-        if daily > ceiling:
+        turns_hr, hours = 3, 6           # quick-service meal windows, stated below
+        seated = round(seats * turns_hr * hours)
+        _assump = (f"{seats:.0f} seats x {turns_hr} turns an hour x {hours} effective "
+                   f"meal-window hours (lunch and dinner peaks with shoulders)")
+        if daily > seated:
             plausibility = (
-                f"a Fermi check: {seats:.0f} seats turning 4x an hour for 12 hours "
-                f"serves about {ceiling:,} a day, and the founder expects "
-                f"{daily:,.0f}. That is {daily / ceiling:.1f}x a generous seated "
-                f"ceiling — it implies heavy takeout volume, or the estimate is high.")
+                f"a Fermi check on the seated ceiling: {_assump} serves about "
+                f"{seated:,} meals a day, and the founder expects {daily:,.0f} — "
+                f"{daily / seated:.1f}x that ceiling. The gap has to come from "
+                f"takeout and delivery volume; if walk-away sales are not central "
+                f"to the plan, the estimate is high.")
         else:
             plausibility = (
-                f"a Fermi check: {daily:,.0f} a day fits within {seats:.0f} seats "
-                f"turning 4x an hour for 12 hours (about {ceiling:,} a day).")
+                f"a Fermi check on the seated ceiling: {daily:,.0f} a day fits within "
+                f"{_assump} (about {seated:,} meals a day).")
     ms["founder_estimate"] = {
         "volume_text": vol_text,
         "annual_usd": annual,
