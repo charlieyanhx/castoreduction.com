@@ -32,7 +32,9 @@ python-whois>=0.9         # domain age + registrar signals
 
 # Iter 38 scraping stack overhaul
 crawl4ai>=0.8             # browser pool + robots.txt + rate limit + markdown output
-requests-cache>=1.3       # SQLite-backed HTTP cache (auto-installed at app start)
+requests-cache>=1.3.3     # SQLite-backed HTTP cache; 1.3.1 + attrs 26 broke response
+                          # serialization (NameError: RequestsCookieJar), and request()'s
+                          # bare except turned EVERY fresh fetch into a silent None
 waybackpy>=3.0            # Wayback Machine fallback for timed-out sources
 selectolax>=0.4           # 5-25× faster HTML parsing than bs4 (used in hot paths)
 playwright>=1.40          # headless browser fallback for sites with JS challenges (Trustpilot AWS WAF)
