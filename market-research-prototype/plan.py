@@ -1783,7 +1783,8 @@ def run_sizing_stage(result: dict, profile: dict, *, description: str, geo: str,
 
 def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progress=None,
              operator_weights: dict | None = None, refine: bool = False,
-             resume_from: dict | None = None, effort: str | None = None) -> dict:
+             resume_from: dict | None = None, effort: str | None = None,
+             intake: dict | None = None) -> dict:
     """
     Run the full market research pipeline on a raw description.
 
@@ -1828,6 +1829,12 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     # full run rather than propagating holes.
     result: dict = dict(resume_from or {})
     result.setdefault("_steps_completed", [])
+    # Wave A: the intake record lands on the result BEFORE any step runs, because the
+    # profile step is its first consumer (confirmed facts beat LLM re-extraction) and
+    # the verifier its last (declared unknowns are disclosed, not hidden). A fresh
+    # record wins over a resumed one; absent both, old behavior is untouched.
+    if intake:
+        result["intake"] = intake
     result["_effort"] = _effort
     if resume_from:
         log.info("[plan] resuming with %d completed step(s): %s",

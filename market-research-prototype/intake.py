@@ -663,6 +663,30 @@ def is_confirmed(session: dict) -> bool:
     return bool((session or {}).get("confirmed"))
 
 
+def intake_record(session: dict) -> dict:
+    """The structured survivor of the survey: what the founder knew, declared unknown,
+    and was warned about, in a shape the run and its gates can read.
+
+    MEASURED origin (b98df066, audit 2026-08-19): everything the intake learned used to
+    flatten into prose. A downstream LLM re-read that prose and turned the confirmed
+    "Los Angeles, CA" into geography="US"; declared unknowns and proceeded-past warnings
+    were unrecoverable after launch, so the verifier blamed the report for gaps the
+    survey had already resolved. This record is the fix: it rides POST /plan into
+    result["intake"], where confirmed facts are authoritative and declared unknowns are
+    disclosed limitations rather than hidden ones.
+    """
+    from intake_tree import is_unknown
+    ex = (session or {}).get("extracted") or {}
+    facts = {f: v for f, v in ex.items()
+             if not is_unknown(v) and isinstance(v, str) and v.strip()}
+    unknowns = sorted(f for f, v in ex.items() if is_unknown(v))
+    warnings_shown = [{"field": i["field"], "warning": i["warning"]}
+                      for i in confirmation_items(ex) if i.get("warning")]
+    return {"facts": facts, "unknowns": unknowns,
+            "warnings_shown": warnings_shown,
+            "confirmed": bool((session or {}).get("confirmed"))}
+
+
 def mark_confirmed(session: dict) -> dict:
     """Record the confirmation AND the values it was given for.
 
@@ -674,6 +698,7 @@ def mark_confirmed(session: dict) -> dict:
     session["confirmed"] = True
     session["confirmed_facts"] = {i["field"]: ex.get(i["field"])
                                   for i in confirmation_items(ex)}
+    session["intake_record"] = intake_record(session)
     # REBUILD. final_description is synthesised when the session goes ready, which is
     # BEFORE the operator sees the card — so a correction made on the card would never
     # reach the run, and the card would be theatre for the one field it exists to fix.

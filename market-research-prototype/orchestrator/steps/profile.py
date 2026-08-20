@@ -40,6 +40,17 @@ def run_profile_step(result: dict, description: str, geo: str) -> dict:
             profile["geography"] = geo
             profile["_geography_source"] = "request_default"
 
+        # Wave A: what the founder confirmed is what runs. MEASURED (b98df066): the brief
+        # said "Located in Los Angeles, CA (US)", the card confirmed "Los Angeles, CA",
+        # and this step's LLM re-extraction wrote geography="US" — the run was then sized
+        # nationally and withheld for a gap the survey had resolved. A confirmed fact is
+        # authoritative over any re-reading of the prose; a declared unknown is an
+        # absence, not a value, so the fallback chain above stays in charge for it.
+        confirmed_geo = ((result.get("intake") or {}).get("facts") or {}).get("geography")
+        if isinstance(confirmed_geo, str) and confirmed_geo.strip():
+            profile["geography"] = confirmed_geo.strip()
+            profile["_geography_source"] = "founder_confirmed"
+
         result["profile"] = profile
         step_done(result, "profile")
         return profile
