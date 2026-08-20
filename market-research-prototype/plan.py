@@ -1058,6 +1058,45 @@ _VOLUME_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)")
 _PERIOD_FACTORS = (("day", 360), ("week", 52), ("month", 12))
 _PRICE_FIELDS = ("avg_ticket", "avg_order", "avg_transaction", "pricing", "rate_basis")
 
+# The Fermi check's service model, by category class. GENERAL by construction (operator
+# rule, 2026-08-20: fixes must apply in other scenarios): the mechanism is always
+# stations x turns/hour x effective hours; only the parameters and nouns follow the
+# trade. A venture whose category matches nothing gets the generic service model, which
+# makes conservative claims in neutral words rather than lecturing a salon about lunch
+# peaks. Every parameter is printed so the reader can re-run the arithmetic.
+_FERMI_MODELS = (
+    # (category words) -> model
+    (("taco", "restaurant", "cafe", "café", "coffee", "food", "diner", "pizza",
+      "bakery", "sushi", "ramen", "bar", "grill", "deli", "eatery", "bistro", "stand",
+      "truck", "cart"),
+     {"turns_hr": 3, "hours": 6, "hours_label": "effective meal-window hours "
+                                                "(lunch and dinner peaks with shoulders)",
+      "station_noun": "seats", "unit_noun": "meals", "ceiling_noun": "seated ceiling",
+      "overflow_note": "The gap has to come from takeout and delivery volume; if "
+                       "walk-away sales are not central to the plan, the estimate "
+                       "is high."}),
+    (("salon", "barber", "spa", "nail", "clinic", "studio", "tattoo"),
+     {"turns_hr": 1, "hours": 8, "hours_label": "service hours",
+      "station_noun": "stations", "unit_noun": "appointments",
+      "ceiling_noun": "appointment ceiling",
+      "overflow_note": "Appointments cannot overflow their stations; the estimate "
+                       "is high unless services are much shorter than an hour."}),
+)
+_FERMI_DEFAULT = {"turns_hr": 2, "hours": 8, "hours_label": "service hours",
+                  "station_noun": "service slots", "unit_noun": "customers",
+                  "ceiling_noun": "capacity ceiling",
+                  "overflow_note": "The gap needs a channel that does not consume "
+                                   "capacity (self-serve, delivery, online); "
+                                   "otherwise the estimate is high."}
+
+
+def _fermi_service_model(category: str) -> dict:
+    low = (category or "").lower()
+    for words, model in _FERMI_MODELS:
+        if any(w in low for w in words):
+            return model
+    return _FERMI_DEFAULT
+
 
 def _apply_founder_volume(ms: dict, result: dict) -> None:
     """Wave D part 2: the founder's expected volume, printed beside the model and never
@@ -1094,21 +1133,22 @@ def _apply_founder_volume(ms: dict, result: dict) -> None:
         if (n and factor) else None
     if cap_m and daily:
         seats = float(cap_m.group(1).replace(",", ""))
-        turns_hr, hours = 3, 6           # quick-service meal windows, stated below
-        seated = round(seats * turns_hr * hours)
-        _assump = (f"{seats:.0f} seats x {turns_hr} turns an hour x {hours} effective "
-                   f"meal-window hours (lunch and dinner peaks with shoulders)")
-        if daily > seated:
+        model = _fermi_service_model(
+            ((result or {}).get("profile") or {}).get("category")
+            or facts.get("product") or "")
+        capacity_day = round(seats * model["turns_hr"] * model["hours"])
+        _assump = (f"{seats:.0f} {model['station_noun']} x {model['turns_hr']} turns an "
+                   f"hour x {model['hours']} {model['hours_label']}")
+        if daily > capacity_day:
             plausibility = (
-                f"a Fermi check on the seated ceiling: {_assump} serves about "
-                f"{seated:,} meals a day, and the founder expects {daily:,.0f} — "
-                f"{daily / seated:.1f}x that ceiling. The gap has to come from "
-                f"takeout and delivery volume; if walk-away sales are not central "
-                f"to the plan, the estimate is high.")
+                f"a Fermi check on the {model['ceiling_noun']}: {_assump} serves about "
+                f"{capacity_day:,} {model['unit_noun']} a day, and the founder expects "
+                f"{daily:,.0f} — {daily / capacity_day:.1f}x that ceiling. "
+                f"{model['overflow_note']}")
         else:
             plausibility = (
-                f"a Fermi check on the seated ceiling: {daily:,.0f} a day fits within "
-                f"{_assump} (about {seated:,} meals a day).")
+                f"a Fermi check on the {model['ceiling_noun']}: {daily:,.0f} a day fits "
+                f"within {_assump} (about {capacity_day:,} {model['unit_noun']} a day).")
     ms["founder_estimate"] = {
         "volume_text": vol_text,
         "annual_usd": annual,
