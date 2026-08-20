@@ -1257,19 +1257,52 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
                 "band_pct": 30, "band_note": "Range is a ±30% modeling band around the estimate, not a measured confidence interval.",
                 "unit": "annual revenue · trade area"}
 
-    # Named geographic competitors — a local venture's rivals are the nearby venues
-    # (OSM), not blocked web-search brands. Fetch the actual names so the report shows
-    # real competitors instead of "0 found".
+    # Named geographic competitors — a local venture's rivals are the nearby venues,
+    # not blocked web-search brands. Adoption #1 (operator-approved stack, 2026-08-20):
+    # Overture Maps places is the PREFERRED source because it knows cuisine — the OSM
+    # census ranked California Pizza Kitchen and two dining halls above every taqueria
+    # for a taco stand (bb08c5c3), while Overture tags 59 venues mexican_restaurant at
+    # that exact site. Same-category venues rank FIRST and are marked; OSM stays as the
+    # fallback (never-cost-the-census).
     geo_competitors: list[dict] = []
+    _n_same_category = None
+    _competitors_source = None
     try:
         from tools import get_tool
         g = get_tool("geocode_address").fn(location)
         if g.payload and g.payload.get("lat") is not None:
-            ne = get_tool("osm_named_competitors").fn(
-                lat=g.payload["lat"], lng=g.payload["lng"],
-                osm_key=osm_key, osm_value=osm, limit=30)
-            if not ne.skeleton and ne.payload:
-                geo_competitors = ne.payload
+            _lat, _lng = g.payload["lat"], g.payload["lng"]
+            try:
+                ov = get_tool("overture_places").fn(
+                    lat=_lat, lng=_lng, radius_m=radius_m, category=cat)
+            except Exception as e:
+                log.warning("[plan] overture census failed (non-fatal): %s", e)
+                ov = None
+            if ov is not None and not ov.skeleton and (ov.payload or {}).get("places"):
+                op = ov.payload
+                same = op.get("same_category") or []
+                same_names = {s.get("name") for s in same}
+                rest = [p for p in (op.get("places") or [])
+                        if p.get("name") not in same_names
+                        and p.get("category") and "restaurant" in str(p.get("category"))
+                        or p.get("name") not in same_names
+                        and str(p.get("category") or "") in ("cafe", "coffee_shop",
+                                                             "bakery", "fast_food", "bar")]
+                geo_competitors = (
+                    [{"name": s.get("name"), "category": s.get("category"),
+                      "category_match": True, "confidence": s.get("confidence")}
+                     for s in same]
+                    + [{"name": p.get("name"), "category": p.get("category"),
+                        "category_match": False, "confidence": p.get("confidence")}
+                       for p in rest])[:30]
+                _n_same_category = op.get("n_same_category")
+                _competitors_source = op.get("source")
+            else:
+                ne = get_tool("osm_named_competitors").fn(
+                    lat=_lat, lng=_lng, osm_key=osm_key, osm_value=osm, limit=30)
+                if not ne.skeleton and ne.payload:
+                    geo_competitors = ne.payload
+                    _competitors_source = "OpenStreetMap Overpass"
     except Exception as e:
         log.warning("[plan] named geo-competitors failed (non-fatal): %s", e)
 
@@ -1341,6 +1374,10 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
         "spend_income_adjustment": p.get("spend_income_adjustment"),
         "competitors": p.get("competitors") or len(geo_competitors),
         "geo_competitors": geo_competitors,
+        # Adoption #1: the same-trade split and the census source, disclosed. The
+        # ranking chip and the report's DIRECT labels read these.
+        "n_same_category": _n_same_category,
+        "competitors_source": _competitors_source,
         # One sentence reconciling the OSM fair-share denominator with the profiled roster —
         # run9 divided SOM by (102+1) while the prose said "30 competitors" twelve times.
         "notes": notes + ([n] if (n := _competitor_count_note(
