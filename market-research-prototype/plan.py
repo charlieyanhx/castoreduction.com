@@ -1054,6 +1054,47 @@ def _competitor_count_note(fair_share_n, roster_n) -> str | None:
             f"subset.")
 
 
+_VOLUME_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)")
+_PERIOD_FACTORS = (("day", 360), ("week", 52), ("month", 12))
+_PRICE_FIELDS = ("avg_ticket", "avg_order", "avg_transaction", "pricing", "rate_basis")
+
+
+def _apply_founder_volume(ms: dict, result: dict) -> None:
+    """Wave D part 2: the founder's expected volume, printed beside the model and never
+    blended in. MEASURED origin (b98df066): D59 blocked because the SOM sat on an
+    unsourced LLM revenue guess with no alternative beside it, while the one person who
+    HAD an independent estimate was never asked. The intake now asks; this wires the
+    answer to where D59 looks: ms.founder_estimate for the reader, and the som_anchor's
+    alternative slot when the pipeline produced no alternative of its own (an existing
+    alternative is never overwritten; two model estimates plus the founder's is richer
+    than swapping one out)."""
+    facts = ((result or {}).get("intake") or {}).get("facts") or {}
+    vol_text = str(facts.get("expected_volume") or "").strip()
+    if not ms or not vol_text:
+        return
+    m = _VOLUME_RE.search(vol_text)
+    n = float(m.group(1).replace(",", "")) if m else None
+    factor = next((f for word, f in _PERIOD_FACTORS if word in vol_text.lower()), None)
+    price = None
+    for f in _PRICE_FIELDS:
+        pm = _VOLUME_RE.search(str(facts.get(f) or ""))
+        if pm:
+            price = float(pm.group(1).replace(",", ""))
+            break
+    annual = round(n * factor * price) if (n and factor and price) else None
+    ms["founder_estimate"] = {
+        "volume_text": vol_text,
+        "annual_usd": annual,
+        "source": "founder",
+        "note": ("the founder's own expected volume, at their stated price; their "
+                 "number, printed beside the model's, never blended into it"),
+    }
+    anchor = ms.get("som_anchor")
+    if annual and isinstance(anchor, dict) and anchor and not anchor.get("alternative_usd"):
+        anchor["alternative_usd"] = annual
+        anchor["alternative_source"] = "founder_expected_volume"
+
+
 def _geo_level(location: str | None) -> str | None:
     """The geocoder's matched precision level for a location string: street /
     neighbourhood / city / zip / region / None. One light lookup; the chosen sizing
@@ -1792,6 +1833,9 @@ def run_sizing_stage(result: dict, profile: dict, *, description: str, geo: str,
     try:
         hl = size_by_scale(scale_decision, description, profile)
         if hl:
+            # Wave D part 2: the founder's expected volume rides in as the disclosed
+            # alternative D59 demands (see _apply_founder_volume).
+            _apply_founder_volume(hl, result)
             # The override REPLACES the sizing, so it must be re-gated. Measured on a fresh
             # run: gate_and_annotate_sizing had already stamped scale_skill_ran and the
             # grounded/not-grounded disclosure onto the digital sizing, and assigning `hl`
