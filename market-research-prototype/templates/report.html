@@ -757,11 +757,34 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 {# Wave D part 2: the founder's own expected volume, beside the model and never blended.
    This line is the disclosure D59 exists to force. #}
 {% if market_sizing.founder_estimate and market_sizing.founder_estimate.volume_text %}
+{# Operator spec 2026-08-20: the three ways of estimating this venture's revenue, side by
+   side, each named for what it is — plus the Fermi check on the founder's own number. #}
 <div class="method-box" style="margin:10px 0">
-  <strong>Founder's own estimate.</strong>
-  {{ market_sizing.founder_estimate.volume_text }}{% if market_sizing.founder_estimate.annual_usd %},
-  about ${{ '{:,.0f}'.format(market_sizing.founder_estimate.annual_usd) }}/yr at their stated
-  price{% endif %}. Their number, printed beside the model's, never blended into it.
+  <strong>Three estimates, one venture.</strong>
+  <table style="margin:8px 0 4px">
+    <tr><th>Method</th><th>What it is</th><th style="text-align:right">Annual</th></tr>
+    {% if market_sizing.som and market_sizing.som.mid %}
+    <tr><td>Area-average anchor</td>
+        <td>Economic Census mean receipts, adjusted; a county average, not this site</td>
+        <td style="text-align:right">${{ '{:,.0f}'.format(market_sizing.som.mid) }}</td></tr>
+    {% endif %}
+    {% if market_sizing.som_anchor and market_sizing.som_anchor.alternative_usd %}
+    <tr><td>Fair share</td>
+        <td>SAM split equally across every comparable venue in the trade area</td>
+        <td style="text-align:right">${{ '{:,.0f}'.format(market_sizing.som_anchor.alternative_usd) }}</td></tr>
+    {% endif %}
+    {% if market_sizing.founder_estimate.annual_usd %}
+    <tr><td>Founder's estimate</td>
+        <td>{{ market_sizing.founder_estimate.volume_text }} at their stated price; their
+            number, never blended into the model's</td>
+        <td style="text-align:right">${{ '{:,.0f}'.format(market_sizing.founder_estimate.annual_usd) }}</td></tr>
+    {% endif %}
+  </table>
+  {% if market_sizing.founder_estimate.plausibility %}
+  <div style="margin-top:6px">{{ market_sizing.founder_estimate.plausibility }}</div>
+  {% endif %}
+  <div style="margin-top:4px;color:var(--muted)">The spread between these is the honest
+  uncertainty. Real differentiation and location quality decide where in it a site lands.</div>
 </div>
 {% endif %}
 {% if not sizing_blocked %}
@@ -1937,8 +1960,17 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 <h2>Recommended Next Steps — 30/60/90 Day Roadmap</h2>
 {% set has_horizons = viability.recommended_next_steps[0] is mapping %}
 {% if has_horizons %}
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
-  {% for horizon in ['30d','60d','90d'] %}
+{# An empty horizon renders as a heading over nothing (measured: bb08c5c3 shipped a bare
+   "90d" label). Only horizons with at least one step get a column; a missing horizon is
+   the model's honest silence, not a slot to decorate. #}
+{% set _filled = [] %}
+{% for horizon in ['30d','60d','90d'] %}
+  {% if viability.recommended_next_steps | selectattr('horizon', 'equalto', horizon) | list %}
+    {% set _ = _filled.append(horizon) %}
+  {% endif %}
+{% endfor %}
+<div style="display:grid;grid-template-columns:repeat({{ _filled|length or 1 }},1fr);gap:14px">
+  {% for horizon in _filled %}
   <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px">
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#3730a3;margin-bottom:8px">{{ horizon }}</div>
     <ul style="margin:0;padding-left:18px;font-size:11pt;color:#1f2937">

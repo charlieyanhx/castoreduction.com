@@ -2166,7 +2166,11 @@ def d60_area_average_is_labelled(r: dict, html: Optional[str]) -> Finding:
             out.append("the word 'average'")
         if "mean" not in low:
             out.append("'mean' (the median is lower and unpublished)")
-        if not re.search(r"\b\d{1,3}(,\d{3})*\s+establishments\b", low):
+        # Any digit run counts — MEASURED (bb08c5c3): the producer writes the count bare
+        # ("9482 establishments") and this regex demanded thousands separators, so the
+        # gate withheld a report for missing a disclosure that sat in the very string
+        # its finding quoted. A formatting choice must never decide a withholding.
+        if not re.search(r"\b\d[\d,]*\s+establishments\b", low):
             out.append("the establishment count it averages over")
         if not re.search(r"\b(county|parish|borough|state|nation|united states)\b", low):
             out.append("the geography it averages over")

@@ -193,5 +193,40 @@ class TestD53AcceptsAnAuditableDerivation(unittest.TestCase):
         self.assertFalse(self._d53(r).ok)
 
 
+class TestTheCountNeedsNoCommas(unittest.TestCase):
+    """MEASURED live (taco run bb08c5c3, 2026-08-20): the producer writes the count bare
+    ("9482 establishments") and the gate's regex demanded thousands separators
+    (\d{1,3}(,\d{3})*) — so D60 withheld a report for missing a disclosure that sits in
+    the very string its finding quoted. The gate accepts any digit run now; the producer
+    also formats with commas for the reader, but a formatting choice must never decide a
+    withholding."""
+
+    _CALC = ("min(= $1,254,225: $1,577,855 average annual receipts per establishment "
+             "(Los Angeles County, California, 9482 establishments, 2022 Economic "
+             "Census, NAICS 722513) — an arithmetic mean across the county, not a "
+             "single store; the median is lower and the Census does not publish it)")
+
+    def _result(self, calc):
+        return {"market_sizing": {"method": "trade_area_catchment",
+                                  "som_anchor": {"method": "area_receipts_benchmark"},
+                                  "som": {"mid": 1_254_225, "calculation": calc}}}
+
+    def test_a_bare_count_satisfies_the_disclosure(self):
+        from gates import d60_area_average_is_labelled as d60
+        f = d60(self._result(self._CALC), None)
+        self.assertTrue(f.ok, f.detail)
+
+    def test_a_comma_count_still_satisfies_it(self):
+        from gates import d60_area_average_is_labelled as d60
+        f = d60(self._result(self._CALC.replace("9482", "9,482")), None)
+        self.assertTrue(f.ok, f.detail)
+
+    def test_a_missing_count_still_fails(self):
+        from gates import d60_area_average_is_labelled as d60
+        gone = self._CALC.replace("9482 establishments, ", "")
+        f = d60(self._result(gone), None)
+        self.assertFalse(f.ok, f.detail)
+
+
 if __name__ == "__main__":
     unittest.main()
