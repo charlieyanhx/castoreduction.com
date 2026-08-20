@@ -1701,7 +1701,9 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
   </div>
   {% endif %}
 </div>
-<p style="font-size:9pt;color:#9ca3af;margin-top:8px">Cost structure is a model estimate — {{ economics.cost_source }}. {{ economics.benchmark_note or ('Competitor per-' ~ economics.unit ~ ' price benchmark requires sampling rival list prices; operator should validate against direct local competitors.') }}</p>
+<p style="font-size:9pt;color:#9ca3af;margin-top:8px">Cost structure{{ ' is founder-stated' if economics.cost_sourced else ' is a model estimate' }}: {{ economics.cost_source }}.
+{% if economics.cost_benchmark_note %} {{ economics.cost_benchmark_note }}.{% endif %}
+{{ economics.benchmark_note or ('Competitor per-' ~ economics.unit ~ ' price benchmark requires sampling rival list prices; operator should validate against direct local competitors.') }}</p>
 
 <!-- cycle37: TRANSACTIONAL UNIT ECONOMICS (contribution margin + break-even volume, no CLV/CAC/churn) -->
 <h3 style="margin-top:22px" id="economics">Unit Economics</h3>

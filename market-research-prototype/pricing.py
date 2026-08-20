@@ -414,8 +414,31 @@ def build_benchmark_table(
     }
 
 
+_USD_RE = __import__("re").compile(r"(\d[\d,]*(?:\.\d+)?)")
+
+
+def founder_cost_anchor(result: dict | None) -> tuple[float | None, float | None]:
+    """(monthly_cost, rent) the FOUNDER entered, parsed from the intake record.
+    MEASURED (deddcd0f): the founder entered rent 5000 and monthly cost 5000, both in
+    result['intake'].facts, and financials shipped an unsourced LLM guess of $12,500
+    anyway. Operator's rule: founder input is the anchor; the model's figure is the
+    benchmark beside it."""
+    facts = ((result or {}).get("intake") or {}).get("facts") or {}
+
+    def _usd(field):
+        m = _USD_RE.search(str(facts.get(field) or ""))
+        if not m:
+            return None
+        v = float(m.group(1).replace(",", ""))
+        return v if v > 0 else None
+
+    return _usd("monthly_cost_estimate"), _usd("rent_estimate")
+
+
 def estimate_cost_structure(category: str, monthly_price: float | None = None,
-                            market_scale: str | None = None) -> dict:
+                            market_scale: str | None = None,
+                            founder_monthly_cost: float | None = None,
+                            founder_rent: float | None = None) -> dict:
     """Per-category estimate of the MONTHLY fixed cost and per-customer VARIABLE cost.
 
     cycle36 (audit): the old break-even used a universal hardcoded $5000/mo +
@@ -457,14 +480,42 @@ def estimate_cost_structure(category: str, monthly_price: float | None = None,
             f, v = raw.get("monthly_fixed_cost"), raw.get("variable_cost_per_customer")
             if (isinstance(f, (int, float)) and not isinstance(f, bool) and f > 0
                     and isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0):
-                return {"monthly_fixed_cost": float(f), "variable_cost_per_customer": float(v),
-                        "sourced": False, "basis": basis,
-                        "source": "LLM estimate (UNSOURCED — operator should validate)"}
+                out = {"monthly_fixed_cost": float(f), "variable_cost_per_customer": float(v),
+                       "sourced": False, "basis": basis,
+                       "source": "LLM estimate (UNSOURCED — operator should validate)"}
+                return _apply_founder_cost(out, founder_monthly_cost, founder_rent)
         except Exception:
             pass
-    return {"monthly_fixed_cost": 5000.0, "variable_cost_per_customer": 2.0, "sourced": False,
-            "basis": basis,
-            "source": "generic placeholder — operator should set real cost structure"}
+    out = {"monthly_fixed_cost": 5000.0, "variable_cost_per_customer": 2.0, "sourced": False,
+           "basis": basis,
+           "source": "generic placeholder — operator should set real cost structure"}
+    return _apply_founder_cost(out, founder_monthly_cost, founder_rent)
+
+
+def _apply_founder_cost(cost: dict, founder_monthly_cost: float | None,
+                        founder_rent: float | None) -> dict:
+    """The founder's stated monthly cost becomes THE fixed cost; the model's figure
+    stays beside it as the category benchmark, with the divergence stated so the
+    reader sees a 2.5x disagreement instead of a silent pick. The variable cost stays
+    model-estimated (the founder was not asked for it)."""
+    if not founder_monthly_cost:
+        return cost
+    model = cost.get("monthly_fixed_cost")
+    out = dict(cost)
+    out["monthly_fixed_cost"] = float(founder_monthly_cost)
+    out["sourced"] = True
+    rent_note = f" (rent component: ${founder_rent:,.0f})" if founder_rent else ""
+    out["basis"] = f"founder-stated monthly operating cost{rent_note}"
+    out["source"] = "founder-stated at intake (verify against the category benchmark)"
+    if isinstance(model, (int, float)) and model > 0:
+        out["model_benchmark_monthly_fixed"] = float(model)
+        ratio = max(model, founder_monthly_cost) / max(min(model, founder_monthly_cost), 1)
+        out["benchmark_note"] = (
+            f"the model's category benchmark is ${model:,.0f}/mo"
+            + (f" — {ratio:.1f}x apart from the founder's figure; worth validating "
+               f"rent and staffing before committing" if ratio >= 1.5 else
+               ", close to the founder's figure"))
+    return out
 
 
 def compute_break_even(monthly_price: float, monthly_fixed_cost: float = 5000,
