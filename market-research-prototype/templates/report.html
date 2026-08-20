@@ -1976,7 +1976,10 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
     <ul style="margin:0;padding-left:18px;font-size:11pt;color:#1f2937">
       {% for s in viability.recommended_next_steps %}
         {% if s is mapping and (s.horizon == horizon) %}
-        <li style="margin-bottom:6px">{{ s.action or s.text }}{% if s.owner_role %} <span style="font-size:9pt;color:#6b7280">({{ s.owner_role }})</span>{% endif %}</li>
+        <li style="margin-bottom:8px">{{ s.action or s.text }}{% if s.owner_role %} <span style="font-size:9pt;color:#6b7280">({{ s.owner_role }})</span>{% endif %}
+          {% if s.validates %}<div style="font-size:9pt;color:#6b7280;margin-top:2px">Tests: {{ s.validates }}</div>{% endif %}
+          {% if s.success_metric %}<div style="font-size:9pt;color:#374151;margin-top:1px"><strong>Pass:</strong> {{ s.success_metric }}</div>{% endif %}
+        </li>
         {% endif %}
       {% endfor %}
     </ul>
