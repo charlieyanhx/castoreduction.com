@@ -105,5 +105,96 @@ class TestAVenueIsPhysicalBeforeItHasAnAddress(unittest.TestCase):
         self.assertFalse(cls["is_physical"])
 
 
+class TestAnswersLandWhereTheQuestionPointed(unittest.TestCase):
+    """MEASURED live (second taco-stand transcript, 2026-08-20): answers to OTHER pack
+    questions carried mechanism words and clobbered business_model — '8 dollars per
+    taco' (the PRICE answer) and '500 per month' (the RENT answer) each became the
+    business model, and the rent's 'per month' read as recurring revenue, flipping the
+    venture to hybrid mid-interview. Meanwhile '1000 per day' answered the pending
+    expected_volume question and the LLM extractor filed it nowhere, so the question
+    repeated. The tree KNOWS what it asked; answers matching the question's shape are
+    filed deterministically, and business_model only changes from utterances that are
+    about the model."""
+
+    def _session(self, extracted=None, pending=None, founder_fields=None):
+        import intake
+        s = intake.start_session()
+        sid = s["session_id"]
+        sess = intake._sessions[sid]
+        sess["extracted"].update(extracted or {})
+        sess["pending_field"] = pending
+        if founder_fields:
+            sess["founder_fields"] = list(founder_fields)
+        return sid
+
+    def _turn(self, sid, text, llm_extracted=None):
+        import intake
+        from unittest.mock import patch
+        resp = {"extracted": llm_extracted or {}, "next_action": "ask",
+                "next_question": "next?"}
+        with patch.object(intake, "call_json", return_value=resp):
+            return intake.process_message(sid, text)
+
+    def test_the_rent_answer_never_becomes_the_business_model(self):
+        import intake
+        sid = self._session(
+            extracted={"product": "a taco stand",
+                       "business_model": "they just pay for tacos"},
+            pending="rent_estimate", founder_fields=["business_model"])
+        self._turn(sid, "500 per month")
+        ex = intake._sessions[sid]["extracted"]
+        self.assertEqual(ex["business_model"], "they just pay for tacos")
+        self.assertEqual(ex["rent_estimate"], "500 per month")
+
+    def test_the_price_answer_never_becomes_the_business_model(self):
+        import intake
+        sid = self._session(
+            extracted={"product": "a taco stand",
+                       "business_model": "they just pay for tacos"},
+            pending="avg_ticket", founder_fields=["business_model"])
+        self._turn(sid, "8 dollars per taco")
+        ex = intake._sessions[sid]["extracted"]
+        self.assertEqual(ex["business_model"], "they just pay for tacos")
+        self.assertEqual(ex["avg_ticket"], "8 dollars per taco")
+
+    def test_a_volume_answer_files_even_when_the_extractor_drops_it(self):
+        import intake
+        sid = self._session(extracted={"product": "a taco stand"},
+                            pending="expected_volume")
+        r = self._turn(sid, "1000 per day", llm_extracted={})
+        ex = intake._sessions[sid]["extracted"]
+        self.assertEqual(ex["expected_volume"], "1000 per day")
+        self.assertNotEqual(r.get("asked_field"), "expected_volume",
+                            "the answered question must not repeat")
+
+    def test_founder_words_survive_extractor_churn(self):
+        import intake
+        sid = self._session(
+            extracted={"product": "a taco stand",
+                       "business_model": "they just pay for tacos"},
+            pending=None, founder_fields=["business_model"])
+        self._turn(sid, "the tortillas are made fresh daily",
+                   llm_extracted={"business_model": "DTC quick-service retail"})
+        self.assertEqual(intake._sessions[sid]["extracted"]["business_model"],
+                         "they just pay for tacos")
+
+    def test_a_standalone_model_statement_still_lands(self):
+        import intake
+        sid = self._session(
+            extracted={"product": "a taco stand",
+                       "business_model": "DTC / Food service / Retail stand"},
+            pending=None)
+        self._turn(sid, "actually customers subscribe monthly for a taco pass")
+        self.assertIn("subscribe",
+                      intake._sessions[sid]["extracted"]["business_model"])
+
+    def test_a_non_number_reply_to_a_number_question_does_not_file(self):
+        import intake
+        sid = self._session(extracted={"product": "a taco stand"},
+                            pending="expected_volume")
+        self._turn(sid, "what does volume mean here?")
+        self.assertFalse(intake._sessions[sid]["extracted"].get("expected_volume"))
+
+
 if __name__ == "__main__":
     unittest.main()
