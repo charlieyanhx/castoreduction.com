@@ -79,17 +79,36 @@ def _haversine_m(lat1, lng1, lat2, lng2) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
-def _same_category_markers(category: Optional[str]) -> tuple[str, ...]:
-    """The Overture substrings that mean 'this venue is the same trade as the venture'."""
+_GENERIC_CATEGORY_WORDS = ("shop", "store", "stand", "place")
+
+
+def _split_category_markers(category: Optional[str]) -> tuple[tuple[str, ...],
+                                                              tuple[str, ...]]:
+    """(curated synonym markers, fallback tokens) for the same-trade test.
+
+    The two tiers carry different evidence weight. A curated _SYNONYMS marker was
+    hand-mapped to Overture's taxonomy, so ONE hit means same trade. A fallback token
+    is just a word from the founder's own phrasing — MEASURED (2026-08-20): the flat
+    single-hit rule let 'repair' out of 'quantum flux capacitor repair' claim 30 auto
+    body shops as the venture's own trade, the exact wrong-kind-of-business census the
+    D-gates exist to refuse. The matcher therefore requires fallback tokens to cover a
+    MAJORITY of the category's distinctive words ('taco stand' → taco, 1/1 still
+    matches taquerias; a lone form-word hit no longer fabricates a trade)."""
     words = [w.strip(".,()").lower() for w in (category or "").split()]
-    markers: list[str] = []
+    syn: list[str] = []
     for w in words:
-        markers.extend(_SYNONYMS.get(w, ()))
-    # Fallback: the venture's own distinctive words match category text directly
-    # ("ramen" in "ramen_restaurant"). Generic words stay out of the fallback.
-    markers.extend(w for w in words
-                   if len(w) >= 4 and w not in ("shop", "store", "stand", "place"))
-    return tuple(dict.fromkeys(markers))          # dedupe, keep order
+        syn.extend(_SYNONYMS.get(w, ()))
+    fallback = [w for w in words
+                if len(w) >= 4 and w not in _GENERIC_CATEGORY_WORDS]
+    return tuple(dict.fromkeys(syn)), tuple(dict.fromkeys(fallback))
+
+
+def _same_category_markers(category: Optional[str]) -> tuple[str, ...]:
+    """Flat marker view (curated + fallback), kept for callers/tests that only ask
+    'which substrings could indicate this trade'. The matching itself weighs the two
+    tiers differently — see _split_category_markers."""
+    syn, fallback = _split_category_markers(category)
+    return tuple(dict.fromkeys(list(syn) + list(fallback)))
 
 
 def _read_places(bbox: tuple[float, float, float, float]) -> list[dict]:
@@ -156,7 +175,10 @@ def overture_places(lat: float, lng: float, radius_m: int = 1500,
     except Exception as e:
         return Evidence(source="overture_places", category="geo", count=0,
                         skeleton=True, error=f"overture read failed: {e}")
-    markers = _same_category_markers(category)
+    syn_markers, fb_tokens = _split_category_markers(category)
+    # Majority of the founder's distinctive words, so a lone form-word ('repair',
+    # 'rental') can never claim a different trade on its own.
+    fb_needed = (len(fb_tokens) + 1) // 2
     places, same = [], []
     n_comparable = 0
     for r in rows:
@@ -172,7 +194,11 @@ def overture_places(lat: float, lng: float, radius_m: int = 1500,
         if any(m in cat_blob for m in _EAT_DRINK_MARKERS):
             n_comparable += 1
         name_low = str(r.get("name") or "").lower()
-        if markers and any(m in cat_blob or m in name_low for m in markers):
+        hit = any(m in cat_blob or m in name_low for m in syn_markers)
+        if not hit and fb_tokens:
+            n_hit = sum(1 for t in fb_tokens if t in cat_blob or t in name_low)
+            hit = n_hit >= fb_needed
+        if hit:
             same.append(r)
     same.sort(key=lambda r: -(r.get("confidence") or 0))
     return Evidence(
