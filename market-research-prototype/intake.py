@@ -275,7 +275,21 @@ def process_message(session_id: str, user_message: str) -> dict:
     if pending and utterance_is_not_sure(user_message) and             not session["extracted"].get(pending):
         mark_unknown(session["extracted"], pending)
 
-    cls = classify_turn(session["extracted"])
+    # Founder payment words land in business_model VERBATIM, overwriting any paraphrase.
+    # MEASURED (taco-stand transcript): the extractor invented "DTC / Food service /
+    # Retail stand", the founder corrected with "they just pay for tacos", and the merge
+    # refused the overwrite — so the same wrong question repeated. Founder words outrank
+    # the extractor's; a bare number does not count (it answers a price/volume question),
+    # so answers to number questions never clobber the model.
+    from intake_tree import founder_payment_words
+    if founder_payment_words(user_message) and not utterance_is_not_sure(user_message):
+        session["extracted"]["business_model"] = user_message.strip()
+
+    # The founder's own words, for the explicitness gate: extracted text the founder
+    # never typed must not manufacture a "stated" revenue model.
+    _founder_text = "\n".join(m["content"] for m in session["messages"]
+                              if m.get("role") == "user")
+    cls = classify_turn(session["extracted"], user_text=_founder_text)
     tree_q = next_question(session["extracted"], cls)
     from intake_tree import plan_questions as _plan_qs
     session["active_fields"] = [q["field"] for q in _plan_qs(session["extracted"], cls)]

@@ -57,7 +57,14 @@ def _is_multi_location(description: str) -> bool:
 _VENUE_RE = re.compile(
     r"\b(restaurant|pizzeria|pizza|cafe|café|coffee\s?shop|bar|pub|brewery|gym|"
     r"fitness|yoga|pilates|salon|barber|spa|clinic|dental|dentist|store|shop|"
-    r"boutique|bakery|deli|diner|grocery|food\s?truck|studio|gallery|nail\s?salon)s?\b",
+    r"boutique|bakery|deli|diner|grocery|food\s?truck|studio|gallery|nail\s?salon|"
+    # MEASURED (taco-stand transcript, 2026-08-20): "a chinese beef tripe taco stand"
+    # matched nothing here, so is_physical came back False and the venue-implies-
+    # pay-per-visit override never ran — a taco stand shipped as kind=hybrid. Bare
+    # "stand"/"stall" stay out ("the deal could stall", "stands for"); the food-anchored
+    # forms are unambiguous.
+    r"taqueria|kiosk|(?:taco|food|hot\s?dog|fruit|juice|snack|market)\s?stand|"
+    r"(?:food|market)\s?stall|food\s?cart|food\s?hall)s?\b",
     re.I)
 # Location: a street address, OR "in <Capitalized place>" (excluding country-level).
 _LOC_RE = re.compile(
