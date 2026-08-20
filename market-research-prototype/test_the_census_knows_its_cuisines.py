@@ -86,6 +86,24 @@ class TestCategoryMarkers(unittest.TestCase):
         self.assertNotIn("stand", markers)
         self.assertNotIn("shop", markers)
 
+    def test_a_lone_form_word_cannot_claim_a_different_trade(self):
+        """MEASURED (2026-08-20, unblocked by the requests-cache fix): 'repair' out
+        of 'quantum flux capacitor repair' single-hit-matched 30 auto body shops as
+        the venture's own trade. Fallback tokens now need a MAJORITY of the
+        category's distinctive words; curated synonyms still match on one hit."""
+        garage = [_place("Alioto's Garage", "auto_body_shop", 0.99,
+                         alternate=["auto_repair_shop"]),
+                  _place("Mission Auto Repair", "car_repair", 0.97)]
+        with patch("tools.overture._cached_places", return_value=garage):
+            ev = overture_places(lat=34.0837, lng=-118.3614, radius_m=1500,
+                                 category="quantum flux capacitor repair")
+        self.assertEqual(ev.payload["n_same_category"], 0)
+        # ...and a single-distinctive-word category still matches on that word alone
+        with patch("tools.overture._cached_places", return_value=list(_VENUES)):
+            ev2 = overture_places(lat=34.0837, lng=-118.3614, radius_m=1500,
+                                  category="taco stand")
+        self.assertEqual(ev2.payload["n_same_category"], 2)
+
 
 class TestRosterWiring(unittest.TestCase):
     def test_size_by_scale_prefers_overture_and_ranks_same_category_first(self):
