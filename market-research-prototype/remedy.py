@@ -27,10 +27,40 @@ from typing import Optional
 from brief import _SITE_PRECISE_RE as _SITE_RE
 _PRICE_FIGURE = re.compile(r"\d")
 
-# The trade-area gate family: all of them starve without a site precise enough to ring.
-_GEO_GATES = ("D07", "D40", "D49", "D52", "D56", "D57", "D60")
-# Gates that starve without a price FIGURE.
-_PRICE_GATES = ("D41", "D05", "D10", "D18")
+# Wave C narrowing, from the gate-code cross-check (2026-08-19 audit). The first draft
+# of these tables was written from the gates' SUBJECTS; the audit read their BODIES:
+# - D49/D56/D57/D60 ABSTAIN on missing input and fail only on a published defect
+#   (implausible density, missing adjustment record, absurd ratio, unlabeled average).
+#   When they fire, the pipeline made the numbers — a site answer fixes nothing.
+# - D05 passes on empty unit strings; D10/D18 abstain without both figures. Same story.
+# - D40's trigger is a mislabel, and MEASURED: no consumer parses a capacity answer out
+#   of the brief (supply_seats is a parameter size_by_scale never passes) — asking would
+#   collect a fact nothing reads, which this module's own contract forbids.
+# Only gates that genuinely STARVE without the input keep a question.
+_GEO_GATES = ("D07", "D52")
+_PRICE_GATES = ("D41",)
+
+# Which intake-record fields answer each remedy. Wave C: the withheld page must never
+# re-ask what the survey already resolved — a fact the founder GAVE that the run lost is
+# the pipeline's fault, and a fact DECLARED UNKNOWN was already asked once. geography is
+# deliberately NOT a site answer: every intake run has one, and only the tree's `site`
+# field narrows a city to a corner.
+_INTAKE_FIELDS = {
+    "site": ("site",),
+    "expected_volume": ("expected_volume",),
+    "pricing": ("pricing", "avg_ticket", "avg_order", "rate_basis", "avg_transaction"),
+}
+
+
+def _intake_resolved(result: dict, remedy_field: str) -> bool:
+    """True when the intake record already answered this question, either way. A result
+    without a record (old clients, CLI briefs, every stored artifact) resolves nothing,
+    so all questions stay available — the new key must never change old behavior."""
+    rec = (result or {}).get("intake") or {}
+    facts = rec.get("facts") or {}
+    unknowns = rec.get("unknowns") or []
+    return any(f in facts or f in unknowns
+               for f in _INTAKE_FIELDS.get(remedy_field, ()))
 
 
 def _geography(result: dict) -> str:
@@ -63,8 +93,10 @@ def input_remedies(blocking: Optional[list], result: Optional[dict]) -> list[dic
         if inv in _GEO_GATES and "site" not in seen:
             geo = _geography(result)
             # Confirmable gap only: a precise site that still failed is the pipeline's
-            # limitation (unmappable category, fetch failure) — no remedy.
-            if _is_trade_area_run(result) and geo and not _SITE_RE.search(geo):
+            # limitation (unmappable category, fetch failure) — no remedy. A site the
+            # intake already resolved (given, or declared unknown) is not re-asked.
+            if (_is_trade_area_run(result) and geo and not _SITE_RE.search(geo)
+                    and not _intake_resolved(result, "site")):
                 seen.add("site")
                 out.append({
                     "field": "site",
@@ -75,7 +107,8 @@ def input_remedies(blocking: Optional[list], result: Optional[dict]) -> list[dic
                     "append": "The exact site: {}.",
                 })
 
-        elif inv == "D59" and "expected_volume" not in seen:
+        elif inv == "D59" and "expected_volume" not in seen \
+                and not _intake_resolved(result, "expected_volume"):
             seen.add("expected_volume")
             out.append({
                 "field": "expected_volume",
@@ -88,7 +121,7 @@ def input_remedies(blocking: Optional[list], result: Optional[dict]) -> list[dic
             })
 
         elif inv in _PRICE_GATES and "pricing" not in seen:
-            if not _has_price_figure(result):
+            if not _has_price_figure(result) and not _intake_resolved(result, "pricing"):
                 seen.add("pricing")
                 out.append({
                     "field": "pricing",
