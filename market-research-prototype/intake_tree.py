@@ -73,6 +73,26 @@ def utterance_is_not_sure(text: str) -> bool:
     return bool(_NOT_SURE_RE.search(text or ""))
 
 
+# Payment MECHANISM language in the founder's own words. Deliberately excludes bare
+# numbers, currency, and periods-without-mechanism ("40 per day" answers a volume
+# question, not a model question). MEASURED origin (taco-stand transcript, 2026-08-20):
+# the extractor invented business_model="DTC / Food service / Retail stand" from a brief
+# that said nothing about payment, and the classifier read the fabricated keywords as a
+# STATED model — explicit=True, no fork, wrong pack.
+_PAYMENT_WORDS_RE = re.compile(
+    r"\b(pay(?:s|ing)?|paid|charge[sd]?|charging|subscri(?:be|bes|ption|bers?)|"
+    r"per\s+(?:visit|item|order|month|year|hour|project|seat|user|unit|session|class|"
+    r"taco|drink|cup|meal|ride)|one.?time|recurring|membership|fees?|commission|"
+    r"take\s+a\s+cut|cut\s+of|free\s+for|advertis\w*|sponsors?\w*|tips?|donations?)\b",
+    re.I)
+
+
+def founder_payment_words(text: str | None) -> bool:
+    """Did the FOUNDER name a payment mechanism, in their own words? The gate that stops
+    the extractor's paraphrase from manufacturing explicitness."""
+    return bool(_PAYMENT_WORDS_RE.search(text or ""))
+
+
 # ------------------------------------------------------------------------- the question --
 def _q(field: str, question: str, drives: str, consumer: str,
        consumer_kind: str = "module", **presentation) -> dict:
@@ -370,16 +390,23 @@ def _blob(extracted: dict) -> str:
     return " ".join(parts)
 
 
-def classify_turn(extracted: dict) -> dict:
+def classify_turn(extracted: dict, user_text: str | None = None) -> dict:
     """Run the pipeline's own deterministic classifiers on what intake knows so far.
 
     Same code as the run (classify_with_confidence; the sizing module's deterministic
     override helpers), so the preview and the pipeline cannot disagree. Kind is a PREVIEW —
     the run reclassifies on the final brief — which is why the confirmation card labels it
     'inferred' rather than asserting it.
+
+    `user_text` is the founder's OWN messages, joined. When given, `explicit` requires
+    founder payment language (or a founder-named venue, which grounds pay-per-visit):
+    MEASURED (taco-stand transcript, 2026-08-20), the extractor's fabricated paraphrase
+    carried model keywords and manufactured explicit=True, so the fork never fired and a
+    taco stand was interviewed as a hybrid. Callers without founder words (the pipeline
+    classifying a final brief) pass None and are unchanged.
     """
-    from skills.sizing.classify import (_is_client_services, _is_multi_location,
-                                        _is_physical_local)
+    from skills.sizing.classify import (_DIGITAL_RE, _VENUE_RE, _is_client_services,
+                                        _is_multi_location, _is_physical_local)
 
     ex = extracted or {}
     desc = _blob(ex)
@@ -388,7 +415,13 @@ def classify_turn(extracted: dict) -> dict:
     # signal is transactional); calling it without that signal sent a Portland coffee shop
     # down the digital branch and out as "subscription". A preview that calls the shared
     # classifier with a different shape than the pipeline is drift wearing a seatbelt.
-    physical = _is_physical_local(desc) and not _is_client_services(desc)
+    #
+    # INTAKE accepts venue-ness alone, where the pipeline's _is_physical_local also
+    # demands a location: pre-location is exactly when the SITE question must be planned,
+    # and a "taco stand" with no address yet is still a taco stand.
+    physical = ((_is_physical_local(desc)
+                 or (bool(_VENUE_RE.search(desc)) and not _DIGITAL_RE.search(desc)))
+                and not _is_client_services(desc))
     multi = _is_multi_location(desc)
 
     profile = {
@@ -411,11 +444,18 @@ def classify_turn(extracted: dict) -> dict:
     # The fork: the classifier inferred rather than read. `explicit` is False when nothing
     # in the brief named a revenue shape (the orbital "Undetermined" case) — exactly when a
     # silent pick shipped a seat-priced report for a venture that never chose seats.
-    needs_fork = (not cls.get("explicit")) and not is_unknown(ex.get("business_model"))
+    explicit = bool(cls.get("explicit"))
+    if user_text is not None and explicit and not physical \
+            and not founder_payment_words(user_text):
+        # The classifier's keywords fired on EXTRACTED text the founder never typed —
+        # the extractor's paraphrase cannot manufacture explicitness. A venue is exempt:
+        # "taco stand" is the founder's own word and grounds pay-per-visit.
+        explicit = False
+    needs_fork = (not explicit) and not is_unknown(ex.get("business_model"))
 
     return {
         "kind": kind,
-        "explicit": bool(cls.get("explicit")),
+        "explicit": explicit,
         "needs_fork": needs_fork,
         "fork_question": FORK_QUESTION if needs_fork else None,
         "is_physical": physical,
