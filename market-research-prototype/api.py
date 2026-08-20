@@ -291,6 +291,9 @@ class PlanRequest(BaseModel):
     # into result["intake"] where confirmed facts are authoritative over downstream
     # re-extraction (the b98df066 "US" bug class).
     intake: dict | None = None
+    # Wave E: an explicit delta link for revision runs, whose amended description
+    # would never match find_previous_plan's exact-text lookup.
+    previous_job_id: str | None = None
 
 
 class CrewRequest(BaseModel):
@@ -530,8 +533,9 @@ def post_plan(req: PlanRequest):
     # request context exists, so the owner must be captured at submit time.
     _owner = _current_owner()
 
-    # Look for previous run of same description (for delta tracking)
-    previous_job_id = find_previous_plan(req.description)
+    # Look for previous run of same description (for delta tracking). A revision run
+    # passes the link explicitly — its amended text would never match the lookup.
+    previous_job_id = req.previous_job_id or find_previous_plan(req.description)
 
     # Add previous_job_id to params so the worker can include it in result
     params = req.model_dump()
@@ -916,6 +920,59 @@ def patch_answer(job_id: str, question_id: int, body: dict):
         return iteration.set_answer(job_id, question_id, str((body or {}).get("a") or ""))
     except iteration.IterationError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.patch("/jobs/{job_id}/input-edits")
+def patch_input_edit(job_id: str, body: dict | None = None):
+    """Wave E channel 3: fix a wrong INPUT before the one regeneration. An empty value
+    clears the edit."""
+    if not _owned_job(job_id):
+        raise HTTPException(status_code=404, detail="job not found")
+    import iteration
+    try:
+        st = iteration.set_input_edit(job_id, str((body or {}).get("field") or ""),
+                                      str((body or {}).get("value") or ""))
+        return {"ok": True, "input_edits": st["input_edits"]}
+    except iteration.IterationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.post("/jobs/{job_id}/revise")
+def post_revise(job_id: str):
+    """Wave E: the ONE regeneration a report gets. Applies all three revision channels:
+    input edits and reader marks ride the amended brief; typed questions carry into the
+    new job's own Q&A to be answered against the NEW artifact. A report that already
+    revised, or that IS a revision, answers 402: pay for another cycle or take the
+    report as it is."""
+    import iteration
+    j = _owned_job(job_id)
+    if not j:
+        raise HTTPException(status_code=404, detail="job not found")
+    params = j.get("params") or {}
+    st = iteration.get_state(job_id)
+    if st.get("status") == "revised" or params.get("previous_job_id"):
+        raise HTTPException(
+            status_code=402,
+            detail="this report already used its one revision cycle; pay for an extra "
+                   "regeneration or take the report as it is")
+    description = str(params.get("description") or "")
+    if len(description) < 30:
+        raise HTTPException(status_code=422, detail="the original brief is missing")
+    amended = iteration.build_revision_brief(job_id, description)
+    # The intake record follows the edits: a corrected fact is a confirmed fact, and a
+    # correction resolves the field's unknown if it had one.
+    rec = params.get("intake")
+    edits = st.get("input_edits") or {}
+    if isinstance(rec, dict) and edits:
+        rec = dict(rec, facts=dict(rec.get("facts") or {}, **edits),
+                   unknowns=[u for u in (rec.get("unknowns") or []) if u not in edits])
+    out = post_plan(PlanRequest(description=amended, intake=rec,
+                                previous_job_id=job_id,
+                                operator_weights=OperatorWeights()))
+    new_id = out["job_id"]
+    iteration.carry_questions(job_id, new_id)
+    iteration.mark_revised(job_id, new_id)
+    return {"job_id": new_id, "revised_from": job_id}
 
 
 @app.post("/jobs/{job_id}/finalize")

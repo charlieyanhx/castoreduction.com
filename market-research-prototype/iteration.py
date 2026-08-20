@@ -28,8 +28,11 @@ from logger import get
 
 log = get("iteration")
 
-MAX_QUESTIONS = 10
-MAX_ANNOTATIONS = 40
+# Operator spec 2026-08-20: ONE revision cycle with tight budgets. 15 marks and 5
+# questions force triage toward what actually matters; 40/10 invited a laundry list the
+# regen could only half-honor.
+MAX_QUESTIONS = 5
+MAX_ANNOTATIONS = 15
 
 
 class IterationError(ValueError):
@@ -56,6 +59,8 @@ def _ensure(conn) -> None:
 
 def _empty() -> dict:
     return {"annotations": [], "questions": [], "notes": [],
+            "input_edits": {},              # Wave E: {field: corrected value}
+            "revised_to": None,             # Wave E: job id of the one regeneration
             "status": "draft", "revision": 1, "finalized_at": None, "next_id": 1}
 
 
@@ -257,6 +262,67 @@ def set_answer(job_id: str, question_id: int, answer: str) -> dict:
                 q["grounded"] = None
             return _save(job_id, st)
     raise IterationError("no such question")
+
+
+# ------------------------------------------------------------- Wave E: the one revision --
+def set_input_edit(job_id: str, field: str, value: str) -> dict:
+    """The third revision channel: fix a wrong INPUT, not just annotate its consequences.
+    An empty value clears the edit. Locked once the report has been revised; the next
+    cycle is paid."""
+    st = get_state(job_id)
+    if st.get("status") == "revised":
+        raise IterationError("this report already used its revision; pay for another "
+                             "cycle or take the report as it is")
+    field = (field or "").strip()
+    if not field:
+        raise IterationError("an input edit needs a field name")
+    edits = st.setdefault("input_edits", {})
+    if str(value or "").strip():
+        edits[field] = str(value).strip()
+    else:
+        edits.pop(field, None)
+    return _save(job_id, st)
+
+
+def build_revision_brief(job_id: str, description: str) -> str:
+    """The amended brief the regeneration runs on. Two of the three channels ride here:
+    input edits as correction lines in the phrasing the extractors parse, and
+    annotations as reader feedback the next run must address. Questions deliberately do
+    NOT ride the brief; they carry into the new job's own Q&A so they are answered
+    against the NEW artifact rather than steering its research."""
+    st = get_state(job_id)
+    parts = [description]
+    edits = st.get("input_edits") or {}
+    if edits:
+        parts.append("Corrections from the founder's review (these OVERRIDE anything "
+                     "contradictory above): "
+                     + " ".join(f"{f}: {v}." for f, v in sorted(edits.items())))
+    marks = st.get("annotations") or []
+    if marks:
+        lines = "; ".join(
+            f"on '{(a.get('quote') or '')[:80]}': {(a.get('comment') or '')[:200]}"
+            for a in marks[:MAX_ANNOTATIONS])
+        parts.append(f"Reader feedback the next run must address: {lines}")
+    return " ".join(p for p in parts if p.strip())
+
+
+def mark_revised(job_id: str, new_job_id: str) -> dict:
+    st = get_state(job_id)
+    st["status"] = "revised"
+    st["revised_to"] = new_job_id
+    return _save(job_id, st)
+
+
+def carry_questions(old_job_id: str, new_job_id: str) -> dict:
+    """The questions channel: typed against revision 1, answered against the regenerated
+    artifact. Carried unanswered so draft_answers grounds them in the NEW report."""
+    old = get_state(old_job_id)
+    new = get_state(new_job_id)
+    for q in (old.get("questions") or [])[:MAX_QUESTIONS]:
+        new["questions"].append({"id": _take_id(new), "q": q.get("q") or "",
+                                 "a": None, "a_origin": None, "based_on": [],
+                                 "grounded": None, "created_at": int(time.time())})
+    return _save(new_job_id, new)
 
 
 def finalize(job_id: str) -> dict:

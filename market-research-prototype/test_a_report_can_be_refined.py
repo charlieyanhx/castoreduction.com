@@ -66,8 +66,10 @@ class TestTheLayer(_TempDB):
         iteration.remove_annotation("j1", aid)
         self.assertEqual(iteration.get_state("j1")["annotations"], [])
 
-    def test_questions_capped_at_ten(self):
-        for i in range(10):
+    def test_questions_capped_at_five(self):
+        # Wave E (operator spec 2026-08-20): 5 questions, down from 10 — the point is
+        # the sharpest ones, and the single regen must be able to honor all of them.
+        for i in range(iteration.MAX_QUESTIONS):
             iteration.add_question("j1", f"question {i}?")
         with self.assertRaises(iteration.IterationError):
             iteration.add_question("j1", "one too many?")
