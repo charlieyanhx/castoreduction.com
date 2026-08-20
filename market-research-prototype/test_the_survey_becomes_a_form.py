@@ -157,5 +157,66 @@ class TestTheLocateEcho(unittest.TestCase):
         self.assertIn("city", body["echo"].lower())
 
 
+class TestFounderVolumeBesideTheModel(unittest.TestCase):
+    """Wave D part 2: the founder's expected volume becomes the disclosed alternative
+    D59 demands, printed beside the model's SOM and never blended into it. This is the
+    end-to-end fix for the run that started this redesign (b98df066: D59 blocked on an
+    unsourced anchor with no alternative shown)."""
+
+    def _ms(self, anchor=None):
+        return {"method": "trade_area_catchment", "som": {"mid": 400_000},
+                "som_anchor": anchor}
+
+    def _result(self, facts):
+        return {"intake": {"facts": facts, "unknowns": [], "confirmed": True}}
+
+    def test_volume_and_price_become_the_anchor_alternative(self):
+        from plan import _apply_founder_volume
+        ms = self._ms(anchor={"method": "single_unit_revenue_estimate",
+                              "sourced": False})
+        _apply_founder_volume(ms, self._result(
+            {"expected_volume": "40 per day", "avg_ticket": "$6.50"}))
+        fe = ms.get("founder_estimate") or {}
+        self.assertEqual(fe.get("annual_usd"), round(40 * 360 * 6.5))
+        self.assertEqual(ms["som_anchor"]["alternative_usd"], fe["annual_usd"])
+        self.assertEqual(ms["som_anchor"]["alternative_source"],
+                         "founder_expected_volume")
+        self.assertIn("founder", (fe.get("note") or "").lower())
+
+    def test_an_existing_alternative_is_not_overwritten(self):
+        from plan import _apply_founder_volume
+        ms = self._ms(anchor={"method": "single_unit_revenue_estimate",
+                              "sourced": False, "alternative_usd": 123_456})
+        _apply_founder_volume(ms, self._result(
+            {"expected_volume": "40 per day", "avg_ticket": "$6.50"}))
+        self.assertEqual(ms["som_anchor"]["alternative_usd"], 123_456)
+        self.assertNotIn("alternative_source", ms["som_anchor"])
+
+    def test_volume_without_a_price_still_ships_the_estimate_text(self):
+        from plan import _apply_founder_volume
+        ms = self._ms(anchor={"method": "single_unit_revenue_estimate",
+                              "sourced": False})
+        _apply_founder_volume(ms, self._result({"expected_volume": "40 per day"}))
+        fe = ms.get("founder_estimate") or {}
+        self.assertEqual(fe.get("volume_text"), "40 per day")
+        self.assertIsNone(fe.get("annual_usd"))
+        self.assertNotIn("alternative_usd", ms["som_anchor"])
+
+    def test_no_intake_record_is_a_no_op(self):
+        from plan import _apply_founder_volume
+        ms = self._ms()
+        _apply_founder_volume(ms, {})
+        self.assertNotIn("founder_estimate", ms)
+
+    def test_weekly_and_monthly_periods_annualize(self):
+        from plan import _apply_founder_volume
+        for text, factor in (("100 per week", 52), ("300 per month", 12)):
+            ms = self._ms(anchor={"method": "x", "sourced": False})
+            _apply_founder_volume(ms, self._result(
+                {"expected_volume": text, "pricing": "$10"}))
+            self.assertEqual(ms["founder_estimate"]["annual_usd"],
+                             round(float(text.split()[0]) * factor * 10), text)
+
+
 if __name__ == "__main__":
     unittest.main()

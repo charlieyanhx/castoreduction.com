@@ -754,6 +754,16 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
   {% for n in market_sizing.notes or [] %}{{ n }} {% endfor %}
 </div>
 {% endif %}
+{# Wave D part 2: the founder's own expected volume, beside the model and never blended.
+   This line is the disclosure D59 exists to force. #}
+{% if market_sizing.founder_estimate and market_sizing.founder_estimate.volume_text %}
+<div class="method-box" style="margin:10px 0">
+  <strong>Founder's own estimate.</strong>
+  {{ market_sizing.founder_estimate.volume_text }}{% if market_sizing.founder_estimate.annual_usd %},
+  about ${{ '{:,.0f}'.format(market_sizing.founder_estimate.annual_usd) }}/yr at their stated
+  price{% endif %}. Their number, printed beside the model's, never blended into it.
+</div>
+{% endif %}
 {% if not sizing_blocked %}
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:14px 0">
   {% for key, label in [('tam','TAM'), ('sam','SAM'), ('som','SOM')] %}
