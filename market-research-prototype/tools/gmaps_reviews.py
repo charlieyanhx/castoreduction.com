@@ -69,6 +69,22 @@ def _parse_rows(path: str) -> list[dict]:
                     continue
                 if not r.get("title"):
                     continue
+                snippets = []
+                for rv in (r.get("user_reviews") or [])[:8]:
+                    if isinstance(rv, dict):
+                        # MEASURED schema (gosom raw output, 2026-08-20, 20/20 rows):
+                        # text is "Description" (capital) with "text_original" beside
+                        # it; rating is "Rating". Lowercase variants kept as fallbacks
+                        # for older binary versions.
+                        txt = (rv.get("Description") or rv.get("text_original")
+                               or rv.get("description") or rv.get("text")
+                               or rv.get("review_text") or "")
+                        rating = rv.get("Rating") or rv.get("rating_float") or rv.get("rating")
+                    else:
+                        txt, rating = str(rv), None
+                    txt = str(txt).strip()
+                    if txt:
+                        snippets.append({"text": txt[:280], "rating": rating})
                 out.append({
                     "title": r.get("title"),
                     "rating": r.get("review_rating"),
@@ -76,6 +92,9 @@ def _parse_rows(path: str) -> list[dict]:
                     "price_range": r.get("price_range"),
                     "category": r.get("category"),
                     "address": r.get("address"),
+                    # gosom's raw key is "web_site" (measured); "website" kept as fallback
+                    "website": r.get("web_site") or r.get("website"),
+                    "reviews": snippets,
                 })
     except FileNotFoundError:
         pass
@@ -101,9 +120,14 @@ def gmaps_ratings(query: str, lat: float, lng: float, radius_m: int = 2000,
                 time.time() - os.path.getmtime(cache_path) < _CACHE_TTL_S:
             with open(cache_path) as fh:
                 venues = json.load(fh)
-            return Evidence(source="gmaps_ratings", category="geo", count=len(venues),
-                            payload={"venues": venues,
-                                     "source": "Google Maps via gosom scraper (cached)"})
+            # Schema-validate the hit: entries written by an older parser (no
+            # "reviews" key) would silently starve reviews_for() for the whole TTL.
+            # An old-format entry is a MISS and gets re-scraped once.
+            if venues and all("reviews" in v for v in venues):
+                return Evidence(source="gmaps_ratings", category="geo",
+                                count=len(venues),
+                                payload={"venues": venues,
+                                         "source": "Google Maps via gosom scraper (cached)"})
     except Exception:
         pass
     binary = _find_binary()
@@ -170,3 +194,25 @@ def join_ratings(roster: list[dict], venues: list[dict]) -> int:
             entry["price_range"] = best.get("price_range")
             joined += 1
     return joined
+
+
+def reviews_for(name: str, venues: list[dict]) -> tuple[list[dict], str]:
+    """(review snippets, website) for the venue best matching `name`, same conservative
+    threshold as join_ratings — a wrong match feeds another venue's customers into a
+    competitor's taste decode, which is worse than none."""
+    try:
+        from rapidfuzz import fuzz
+    except Exception:
+        return [], ""
+    name = (name or "").lower().strip()
+    best, best_score = None, 0
+    for v in venues or []:
+        t = str(v.get("title") or "").lower().strip()
+        if not t:
+            continue
+        score = fuzz.token_sort_ratio(name, t)
+        if score > best_score:
+            best, best_score = v, score
+    if best and best_score >= 87:
+        return list(best.get("reviews") or []), str((best.get("website") or ""))
+    return [], ""

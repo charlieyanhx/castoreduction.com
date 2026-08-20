@@ -48,7 +48,7 @@ TASTE_PROMPT = """You are decoding the audience taste profile for a brand from r
 Brand: {brand}
 Domain: {domain}
 
-Trustpilot reviews ({n_reviews} shown):
+Customer reviews — Google Maps + Trustpilot ({n_reviews} shown):
 {reviews}
 
 Reddit mentions ({n_reddit} shown):
@@ -235,12 +235,23 @@ def scrape_homepage_testimonials(domain: str, brand: str) -> list[dict]:
     return out
 
 
-def decode_taste(brand: str, domain: str) -> dict:
+def decode_taste(brand: str, domain: str,
+                 google_reviews: list | None = None) -> dict:
+    """`google_reviews` (P2, operator-approved stack): first-party review snippets
+    [{'text', 'rating'}] scraped from Google Maps via gosom — THE customer-voice
+    instrument for local venues, which rarely have Trustpilot pages or domains.
+    General by construction: any caller with review text can supply it; counts fold
+    into the same first-party thresholds as Trustpilot reviews and are itemized
+    separately in every disclosure."""
     log.info(f"[taste] brand={brand!r} domain={domain!r}")
 
-    # 1. Trustpilot
+    # 1. First-party reviews: Google Maps (supplied by the caller, scraped via gosom)
+    # + Trustpilot (skipped without a domain — local venues rarely have either).
+    greviews = [g for g in (google_reviews or []) if str(g.get("text") or "").strip()]
+    if greviews:
+        log.info(f"[taste] {len(greviews)} Google reviews supplied")
     log.info("[taste] scraping trustpilot...")
-    reviews = trustpilot_reviews(domain, max_pages=3)
+    reviews = trustpilot_reviews(domain, max_pages=3) if domain else []
     log.info(f"  got {len(reviews)} reviews")
 
     # 2. Reddit
@@ -268,12 +279,13 @@ def decode_taste(brand: str, domain: str) -> dict:
 
     # 5. Homepage testimonials (last resort)
     homepage_excerpts = []
-    if not reviews and not reddit and not articles and not hn:
+    if not reviews and not greviews and not reddit and not articles and not hn:
         log.info("[taste] scraping homepage for testimonials...")
         homepage_excerpts = scrape_homepage_testimonials(domain, brand)
         log.info(f"  got {len(homepage_excerpts)} homepage sections")
 
-    total_sources = len(reviews) + len(reddit) + len(articles) + len(hn) + len(homepage_excerpts)
+    total_sources = (len(reviews) + len(greviews) + len(reddit) + len(articles)
+                     + len(hn) + len(homepage_excerpts))
     # Hacker News is NOT customer voice, and it dominated the total. `hackernews_mentions`
     # takes limit=15 and the search is loose enough that nearly every brand saturates it:
     # measured, hn_count is exactly 15 in 34 of 36 real decodes, and the hits are things like
@@ -288,7 +300,7 @@ def decode_taste(brand: str, domain: str) -> dict:
     #
     # total_sources stays the honest count of everything scraped -- it is what the report
     # discloses. customer_voice_total is what the DECISION uses. Two questions, two fields.
-    customer_voice_total = (len(reviews) + len(reddit) + len(articles)
+    customer_voice_total = (len(reviews) + len(greviews) + len(reddit) + len(articles)
                             + len(homepage_excerpts))
     # Iter 40 (#3c): explicit cannot-decode flag when signal is too thin —
     # better to flag honestly than to produce a fake "purchase_motivation:
@@ -300,7 +312,7 @@ def decode_taste(brand: str, domain: str) -> dict:
         return f"{count} {noun}{'' if count == 1 else 's'}"
 
     _thin_total = customer_voice_total < MIN_TOTAL
-    _no_first_party = len(reviews) < MIN_REVIEWS and len(reddit) < 10
+    _no_first_party = (len(reviews) + len(greviews)) < MIN_REVIEWS and len(reddit) < 10
     # Only offer the Reddit bar when Reddit could actually be read. Citing "or 10 Reddit posts"
     # as an alternative threshold while the API is login-walled is a promise the pipeline
     # cannot keep, and it invites a reader to think the brand was checked there.
@@ -323,7 +335,8 @@ def decode_taste(brand: str, domain: str) -> dict:
                 f"Insufficient customer voice for confident taste decode: "
                 f"{_n(customer_voice_total, 'customer-voice signal')} against a "
                 f"threshold of {MIN_TOTAL} "
-                f"({_n(len(reviews), 'Trustpilot review')}, {_reddit_state}, "
+                f"({_n(len(greviews), 'Google review')}, "
+                f"{_n(len(reviews), 'Trustpilot review')}, {_reddit_state}, "
                 f"{_n(len(articles), 'review article')}, "
                 f"{_n(len(homepage_excerpts), 'homepage testimonial')})."
             )
@@ -361,13 +374,13 @@ def decode_taste(brand: str, domain: str) -> dict:
             "confidence": 0.0,
             "_evidence": {
                 "trustpilot_review_count": len(reviews),
+                "google_review_count": len(greviews),
                 "reddit_post_count": len(reddit),
                 "article_count": len(articles),
                 "hn_count": len(hn),
                 "homepage_excerpts": len(homepage_excerpts),
                 "total_sources": total_sources,
                 "customer_voice_total": customer_voice_total,
-        "reddit_unavailable": bool(reddit_unavailable),
                 "reddit_unavailable": bool(reddit_unavailable),
             },
         }
@@ -377,6 +390,12 @@ def decode_taste(brand: str, domain: str) -> dict:
         f"[{r.get('stars')}★] {r.get('title', '')} — {r.get('body', '')[:300]}"
         for r in reviews[:25]
     ) if reviews else "(none found)"
+    _gblob = "\n".join(
+        f"[{g.get('rating', '?')}★ Google] {str(g.get('text'))[:300]}"
+        for g in greviews[:20])
+    if _gblob:
+        reviews_blob = _gblob if reviews_blob == "(none found)" \
+            else _gblob + "\n" + reviews_blob
 
     reddit_blob = "\n".join(
         f"r/{p.get('subreddit')}: {p.get('title', '')} — {p.get('selftext', '')[:250]}"
@@ -407,7 +426,7 @@ def decode_taste(brand: str, domain: str) -> dict:
         user=TASTE_PROMPT.format(
             brand=brand,
             domain=domain,
-            n_reviews=len(reviews),
+            n_reviews=len(reviews) + len(greviews),
             reviews=reviews_blob[:5000],  # iter 35: trimmed from 7000
             n_reddit=len(reddit),
             reddit=reddit_blob[:2500],     # iter 35: trimmed from 3500
@@ -429,13 +448,20 @@ def decode_taste(brand: str, domain: str) -> dict:
             "_raw_preview": profile.get("_raw", "")[:500],
             "_evidence": {
                 "trustpilot_review_count": len(reviews),
+                "google_review_count": len(greviews),
                 "reddit_post_count": len(reddit),
                 "article_count": len(articles),
                 "homepage_excerpts": len(homepage_excerpts),
             },
         }
+    # Identity is an INPUT, not something the LLM answers. The refusal paths always
+    # stamped these; the success path shipped whatever the model echoed — measured
+    # 2026-08-20: two decoded venue audiences persisted with brand=None.
+    profile["brand"] = brand
+    profile["domain"] = domain
     profile["_evidence"] = {
         "trustpilot_review_count": len(reviews),
+        "google_review_count": len(greviews),
         "reddit_post_count": len(reddit),
         "article_count": len(articles),
         "hn_count": len(hn),

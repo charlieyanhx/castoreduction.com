@@ -223,7 +223,8 @@ def _evidence_patches(taste=None, channels=None, prices=None, reddit=None, hn=No
     from contextlib import ExitStack
 
     stack = ExitStack()
-    stack.enter_context(patch("taste.decode_taste", side_effect=taste or (lambda b, d: {})))
+    stack.enter_context(patch("taste.decode_taste",
+                            side_effect=taste or (lambda b, d, **kw: {})))
     stack.enter_context(patch("place.analyze_competitor_channels",
                               return_value=channels if channels is not None else {}))
     stack.enter_context(patch("competitor_pricing.gather_competitor_prices",
@@ -263,7 +264,7 @@ class TestEvidencePhaseStep(unittest.TestCase):
     def test_taste_decodes_land_with_the_undecodable_kept_apart(self):
         from orchestrator.steps.evidence import run_evidence_step
 
-        def fake_taste(brand, domain):
+        def fake_taste(brand, domain, **kw):
             if brand == "B1":
                 return {"cannot_decode": True, "brand": brand}
             return {"brand": brand, "confidence": 0.7}
