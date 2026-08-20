@@ -233,6 +233,32 @@ _STREET_RE = re.compile(
     r"\b\d{1,6}\s+[A-Z0-9][\w.'-]*(?:\s+[\w.'-]+){0,4}\s+"
     r"(?:St|Street|Ave|Avenue|Blvd|Boulevard|Rd|Road|Dr|Drive|Ln|Lane|Way|Ct|Court|Pl|Plaza)\b",
     re.I)
+
+# THE site predicate: does this location string narrow a city down to a trade area?
+# One function because it had already forked twice — intake._SITE_MARKERS and
+# remedy._SITE_RE were near-copies that drifted (the intake copy missed bare
+# cross-streets, "Melrose and Fairfax,", so a founder who gave a corner was warned
+# city-not-site). Advisory only: the RUN router trusts the geocoder's matched level,
+# not this regex, because a neighbourhood name like "Silver Lake" carries no textual
+# marker at all (geolocator audit 2026-08-19).
+_SITE_PRECISE_RE = re.compile(
+    r"\d|\bdistrict\b|\bneighbou?rhood\b|\bnear\b|\bcorner\b|\bcross.?street|"
+    r"\bstreet\b|\bst\b|\bave\b|\bavenue\b|\brd\b|\broad\b|\bblvd\b|"
+    r"\bmission\b|\bdowntown\b|\buptown\b|\bsoma\b|"
+    r"\bwest\b|\beast\b|\bnorth\b|\bsouth\b|"
+    r"\band\b.*\b(?:st|ave|blvd)\b|"
+    # Cross-streets named without suffixes — "Melrose and Fairfax," — are the most
+    # natural way people give a corner. Only ever applied to a GEOGRAPHY string,
+    # where "X and Y," almost always means streets.
+    r"\w+ (?:and|&) \w+\s*,", re.I)
+
+
+def is_site_precise(text: str | None) -> bool:
+    """True when a geography string is site-grade (street, corner, or named district)
+    rather than a bare city/region. Textual heuristic for instant advisory use
+    (intake card warnings, withheld-page remedies); routing decisions use the
+    geocoder's matched level instead."""
+    return bool(text) and bool(_SITE_PRECISE_RE.search(text))
 _PLACE_RE = re.compile(
     # "in <Neighborhood>[, <City>][, <State>]" — capture the full comma-chain of
     # Capitalized localities so an ambiguous neighborhood keeps its city qualifier

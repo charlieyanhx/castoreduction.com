@@ -153,7 +153,9 @@ def _validation_gate(result: dict) -> dict:
     # false alarm, so skip the check entirely for that path.
     ms_for_flags = result.get("market_sizing") or {}
     tam = ms_for_flags.get("tam") or {}
-    is_trade_area = ms_for_flags.get("method") == "trade_area_catchment"
+    # city_scan is single-method by design too (households × spend at county scale) —
+    # without it here, every city-only run is flagged "0/3 methods" and docked 0.08.
+    is_trade_area = ms_for_flags.get("method") in ("trade_area_catchment", "city_scan")
     if not is_trade_area:
         n_tam_methods = sum(
             1 for k in ("method_top_down", "method_bottom_up", "method_analog")
@@ -1052,6 +1054,21 @@ def _competitor_count_note(fair_share_n, roster_n) -> str | None:
             f"subset.")
 
 
+def _geo_level(location: str | None) -> str | None:
+    """The geocoder's matched precision level for a location string: street /
+    neighbourhood / city / zip / region / None. One light lookup; the chosen sizing
+    skill re-geocodes internally (two calls total, both free and sub-second). None on
+    any failure so the caller keeps today's behavior."""
+    if not location:
+        return None
+    try:
+        from tools import get_tool
+        g = get_tool("geocode_address").fn(location)
+        return (g.payload or {}).get("level")
+    except Exception:
+        return None
+
+
 def size_by_scale(scale_decision: dict | None, description: str, profile: dict) -> dict | None:
     """For physical ventures with a location, size by trade-area (size_hyperlocal) and
     adapt to the legacy tam/sam/som shape so the report + gate work. Returns None to
@@ -1106,6 +1123,16 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
     # inventing a multiplier is worse than declining — so an uncountable "chain" keeps the
     # single-site path and the C5 stamp lets D52 refuse it, which is the honest state.
     n_locations = extract_location_count(description) if _is_rollout else None
+    # Wave B: the trade-area-vs-city decision belongs to the GEOCODER's matched level,
+    # not the classifier's word and not a regex over the brief. The classifier folds
+    # local_metro into hyperlocal (so "Los Angeles, CA" used to get an arbitrary pin
+    # with a 1.5 km ring around it), and no text predicate can tell "Silver Lake" (a
+    # neighbourhood, no markers) from "Boise" (a city, no markers) — the geocoder can
+    # and does (audit 2026-08-19: suburb vs city matched levels, 12/14 ladder). A
+    # rollout keeps its own engine; an unknown level keeps today's path, where
+    # size_hyperlocal degrades honestly on its own.
+    _level = None if (n_locations and n_locations > 1) else _geo_level(location)
+    _downgrade = None
     _sized_by = "size_hyperlocal"
     try:
         if n_locations and n_locations > 1:
@@ -1115,6 +1142,17 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
                                planned_locations=n_locations,
                                category=cat or "food_away_from_home",
                                osm_value=osm, radius_m=radius_m)
+        elif _level in ("city", "region", "zip"):
+            # The founder named a city (or wider). Product decision 2026-08-19: an
+            # honest city-scale scan instead of a withheld report — per-site fair
+            # share, site_needed, pick-your-corner note. The reroute is DISCLOSED so
+            # D52 can tell a reasoned downgrade from a silent substitution.
+            from skills.sizing.citywide import size_citywide
+            _sized_by = "size_citywide"
+            _downgrade = (f"the location {location!r} geocodes at {_level} level, not a "
+                          f"site — city-scale scan ran instead of the trade-area model")
+            ev = size_citywide(place=location, category=cat or "food_away_from_home",
+                               osm_value=osm, osm_key=osm_key)
         else:
             from skills.sizing.hyperlocal import size_hyperlocal
             ev = size_hyperlocal(address=location, category=cat or "food_away_from_home",
@@ -1216,6 +1254,9 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
         # This does not wire size_regional. It converts a silent false claim into a loud
         # failure, which is the honest interim state.
         "sizing_skill_ran": _sized_by,
+        # Wave B: when the geocoder's level rerouted a city-only run to the city scan,
+        # say so — D52 passes a DISCLOSED downgrade and still fails a silent one.
+        **({"downgrade_reason": _downgrade} if _downgrade else {}),
         # How many premises the rollup covers, so the report can say "5 trade areas" rather
         # than presenting a sum as if it were one catchment.
         "n_locations": p.get("n_locations"),
@@ -1481,7 +1522,7 @@ def build_integrity_summary(result: dict) -> dict:
     # naming Census/BLS for numbers no fetch produced.
     methods = [tam.get(k) or {} for k in ("method_top_down", "method_bottom_up", "method_analog")]
     methods = [m for m in methods if isinstance(m.get("value_usd"), (int, float))]
-    if not methods and (ms.get("method") or "") == "trade_area_catchment":
+    if not methods and (ms.get("method") or "") in ("trade_area_catchment", "city_scan"):
         # HYPERLOCAL SIZING HAS NO method_* TRIPLE — its sourcing lives in figures[].data_origin.
         # This branch was missing, so the trust box on every hyperlocal report rendered
         # "Sourced: 0/0 — no sources at all · Model-estimated origins: llm" DIRECTLY ABOVE TAM

@@ -745,6 +745,15 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 </div>
 {% endif %}
 <!-- END VALIDATION WARNS -->
+{# Wave B: a city-only founder gets a city-scale scan, and the report says so up front.
+   The note is the shape's contract with the reader — the numbers below measure the CITY,
+   and the walk-in trade-area analysis exists one rerun away once a corner is chosen. #}
+{% if market_sizing.method == 'city_scan' %}
+<div class="method-box" style="margin:10px 0">
+  <strong>City-wide scan.</strong>
+  {% for n in market_sizing.notes or [] %}{{ n }} {% endfor %}
+</div>
+{% endif %}
 {% if not sizing_blocked %}
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:14px 0">
   {% for key, label in [('tam','TAM'), ('sam','SAM'), ('som','SOM')] %}
