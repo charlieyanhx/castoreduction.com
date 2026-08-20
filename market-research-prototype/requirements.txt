@@ -50,3 +50,4 @@ weasyprint>=62            # only engine that resolves target-counter() -> real T
                           # macOS also needs system libs: brew install pango
 pypdf>=5.0                # page-count assertions in test_report_pdf.py
 overturemaps
+praw
