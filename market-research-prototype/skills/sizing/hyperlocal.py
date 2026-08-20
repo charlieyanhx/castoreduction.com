@@ -185,9 +185,13 @@ def area_receipts_anchor(*, benchmark: Optional[dict], ratio: Optional[dict],
 
     usd = float(base) * float(r)
     geography = benchmark.get("geography_name") or "the local area"
+    # Comma-group the count for the reader (9,482 scans; 9482 reads as a code). D60
+    # accepts either form — a formatting choice must never decide a withholding.
+    _est = benchmark.get("establishments")
+    _est_str = f"{int(_est):,}" if isinstance(_est, (int, float)) else str(_est)
     parts = [
         f"${base:,.0f} average annual receipts per establishment "
-        f"({geography}, {benchmark.get('establishments')} establishments, "
+        f"({geography}, {_est_str} establishments, "
         f"{benchmark.get('vintage')} Economic Census, NAICS {benchmark.get('naics')} "
         f"{benchmark.get('naics_label')}) — an arithmetic mean across the county, not a "
         f"single store; the median is lower and the Census does not publish it",

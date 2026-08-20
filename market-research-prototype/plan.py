@@ -1082,10 +1082,34 @@ def _apply_founder_volume(ms: dict, result: dict) -> None:
             price = float(pm.group(1).replace(",", ""))
             break
     annual = round(n * factor * price) if (n and factor and price) else None
+    # The Fermi screen (operator spec 2026-08-20: "1000 tacos a day is too much since you
+    # only have 15 seats... just to help determine if that estimate is reasonable").
+    # Deterministic arithmetic, disclosed as arithmetic: a GENEROUS seated ceiling of
+    # seats x 4 turns/hour x 12 hours. Takeout can beat it, which is why exceeding the
+    # ceiling is a stated tension, never a correction — the survey listens, the report
+    # checks likelihood.
+    plausibility = None
+    cap_m = _VOLUME_RE.search(str(facts.get("capacity") or ""))
+    daily = n * (1 if factor == 360 else (1 / 7 if factor == 52 else 1 / 30)) \
+        if (n and factor) else None
+    if cap_m and daily:
+        seats = float(cap_m.group(1).replace(",", ""))
+        ceiling = round(seats * 4 * 12)          # seats x 4 turns/hour x 12 hours
+        if daily > ceiling:
+            plausibility = (
+                f"a Fermi check: {seats:.0f} seats turning 4x an hour for 12 hours "
+                f"serves about {ceiling:,} a day, and the founder expects "
+                f"{daily:,.0f}. That is {daily / ceiling:.1f}x a generous seated "
+                f"ceiling — it implies heavy takeout volume, or the estimate is high.")
+        else:
+            plausibility = (
+                f"a Fermi check: {daily:,.0f} a day fits within {seats:.0f} seats "
+                f"turning 4x an hour for 12 hours (about {ceiling:,} a day).")
     ms["founder_estimate"] = {
         "volume_text": vol_text,
         "annual_usd": annual,
         "source": "founder",
+        "plausibility": plausibility,
         "note": ("the founder's own expected volume, at their stated price; their "
                  "number, printed beside the model's, never blended into it"),
     }

@@ -465,6 +465,8 @@ Return JSON (every score must be an integer 1-100; explain WHY for each):
   "recommended_next_steps": [
     {{"horizon": "30d|60d|90d", "action": "verb-first action ≤15 words", "owner_role": "founder|head_of_growth|engineering|other"}}
   ],
+  // recommended_next_steps: at least one step per horizon (30d AND 60d AND 90d) — a
+  // roadmap with an empty quarter reads as an unfinished report, not a light quarter.
   "kill_criteria": [
     "What evidence in the next 90 days would make you abandon this venture? 2-3 falsifiable bullets."
   ],

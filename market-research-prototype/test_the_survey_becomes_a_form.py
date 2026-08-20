@@ -217,6 +217,37 @@ class TestFounderVolumeBesideTheModel(unittest.TestCase):
             self.assertEqual(ms["founder_estimate"]["annual_usd"],
                              round(float(text.split()[0]) * factor * 10), text)
 
+    def test_the_fermi_check_flags_a_thousand_tacos_through_ten_seats(self):
+        """Operator spec (2026-08-20): '1000 tacos a day is too much since you only
+        have 15 seats... a little fermi.' Deterministic arithmetic, stated as a
+        tension, never a correction."""
+        from plan import _apply_founder_volume
+        ms = self._ms(anchor={"method": "x", "sourced": False})
+        _apply_founder_volume(ms, self._result(
+            {"expected_volume": "1000 per day", "avg_ticket": "$6",
+             "capacity": "maybe 10 people at once"}))
+        p = ms["founder_estimate"]["plausibility"]
+        self.assertIn("480", p)                       # 10 seats x 4/hr x 12h
+        self.assertIn("2.1x", p)
+        self.assertIn("takeout", p.lower())
+        for judgy in ("wrong", "unrealistic", "impossible"):
+            self.assertNotIn(judgy, p.lower())
+
+    def test_a_volume_within_the_ceiling_reads_as_a_fit(self):
+        from plan import _apply_founder_volume
+        ms = self._ms(anchor={"method": "x", "sourced": False})
+        _apply_founder_volume(ms, self._result(
+            {"expected_volume": "200 per day", "avg_ticket": "$6",
+             "capacity": "10 seats"}))
+        self.assertIn("fits", ms["founder_estimate"]["plausibility"])
+
+    def test_no_capacity_means_no_fermi_claim(self):
+        from plan import _apply_founder_volume
+        ms = self._ms(anchor={"method": "x", "sourced": False})
+        _apply_founder_volume(ms, self._result(
+            {"expected_volume": "1000 per day", "avg_ticket": "$6"}))
+        self.assertIsNone(ms["founder_estimate"]["plausibility"])
+
 
 if __name__ == "__main__":
     unittest.main()
