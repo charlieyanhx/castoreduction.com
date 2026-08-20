@@ -218,15 +218,37 @@ async function showConfirmation() {
       <div class="cf-why">Sets ${it.drives}</div>
       ${it.warning ? `<div class="cf-warn">${it.warning}</div>` : ""}
     </div>`; }).join("");
+  /* Wave D (operator spec): the card is now the full review FORM. The load-bearing rows
+     keep their warnings and provenance up top; every other answered question follows as
+     an editable row, so a mistake anywhere is fixable here. Ready confirms, launches,
+     and locks the intake side in one press. */
+  const covered = new Set((payload.items || []).map((it) => it.field));
+  const label = (f) => f.replace(/_/g, " ");
+  const restRows = Object.entries(extracted || {})
+    .filter(([f, v]) => !covered.has(f) && v !== null && v !== "" && f !== "kind_fork")
+    .map(([f, v]) => {
+      const unknown = v && typeof v === "object" && v.unknown === true;
+      const val = unknown ? "" : String(v);
+      return `
+    <div class="cf-row cf-row--rest">
+      <div class="cf-head"><span class="cf-label">${label(f)}</span>
+        ${unknown ? '<span class="cf-prov prov-assumed">will be estimated + labelled</span>' : ""}
+      </div>
+      <input class="cf-input" data-field="${f}" value="${val.replace(/"/g, "&quot;")}"
+             placeholder="${unknown ? "not sure; a labeled benchmark will stand in" : ""}"
+             aria-label="${label(f)}">
+    </div>`; }).join("");
   const card = document.createElement("div");
   card.className = "confirm-card";
   card.id = "confirmCard";
   card.innerHTML = `
-    <div class="cf-title">Before I spend six minutes on this</div>
-    <div class="cf-sub">These decisions shape every number. Anything marked
-    "worked out" is my inference — correct it if I got it wrong.</div>
+    <div class="cf-title">Review everything before the run</div>
+    <div class="cf-sub">These answers shape every number. Anything marked
+    "worked out" is my inference; correct anything that reads wrong. Once you press
+    Ready, this side locks and the report starts.</div>
     ${rows}
-    <button class="cf-go" id="confirmBtn">Looks right — continue</button>`;
+    ${restRows ? `<div class="cf-rest-title">Everything else you told me</div>${restRows}` : ""}
+    <button class="cf-go" id="confirmBtn">Ready. Generate the report</button>`;
   $("convo").appendChild(card);
   $("convo").scrollTop = $("convo").scrollHeight;
   $("confirmBtn").addEventListener("click", async () => {
@@ -249,10 +271,21 @@ async function showConfirmation() {
     } catch (e) { /* confirmation is a checkpoint, not a gate that can strand you */ }
     window._confirmed = true;
     card.classList.add("done");
-    btn.textContent = "Confirmed ✓";
-    addMsg("bot", "Locked in. Hit Generate when you're ready.");
+    btn.textContent = "Ready ✓";
     renderFields();
+    lockIntake();
+    launch();
   });
+}
+
+/* Wave D: once Ready is pressed the intake side is read-only until the report exists.
+   The revision cycle (edits, comments, questions) reopens after generation. */
+function lockIntake() {
+  $("input").disabled = true;
+  $("input").placeholder = "Intake locked while the report generates.";
+  $("sendBtn").disabled = true;
+  setNotSureVisible(false);
+  clearAskedInput();
 }
 
 /* The SERVER owns this string now. It used to be assembled here as well, identically and
@@ -290,6 +323,7 @@ function startIntake() {
 async function sendMessage() {
   const text = $("input").value.trim();
   if (!text) return;
+  clearAskedInput();
   $("input").value = ""; addMsg("user", text);
   $("sendBtn").disabled = true;
   /* The moment of silence that reads as "frozen": the LLM chain can legitimately take
@@ -308,6 +342,7 @@ async function sendMessage() {
     window._serverReady = !!r.ready;
     hideTyping();
     addMsg("bot", r.assistant_message, r.asked_why);
+    renderAskedInput(r.asked_input, r.asked_field);
     setNotSureVisible(!!r.asked_field && !r.ready);
     renderFields();
   } catch (e) {
@@ -315,6 +350,74 @@ async function sendMessage() {
     addMsg("bot", "⚠ " + (e.name === "AbortError" ? "the model is busy (rate limit) — try again in a moment" : e.message));
   }
   $("sendBtn").disabled = false; $("input").focus();
+}
+
+/* Wave D: the question's form contract, rendered under the bubble. Choice questions get
+   option chips (click = answer); number questions get a unit badge and an optional
+   period selector; the location question gets a live "check" echo against
+   POST /intake/{sid}/locate so the founder hears what their entry resolves to BEFORE
+   answering. Everything still flows through the one chat input: chips and checks only
+   fill or send it, so the extraction path stays single. */
+let _askedEl = null;
+function clearAskedInput() { if (_askedEl) { _askedEl.remove(); _askedEl = null; } }
+function renderAskedInput(spec, field) {
+  clearAskedInput();
+  if (!spec || !field) return;
+  const box = document.createElement("div");
+  box.className = "asked-input";
+  if (spec.input_kind === "choice" && Array.isArray(spec.options)) {
+    spec.options.forEach((o) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "chip-opt"; b.textContent = o.label;
+      b.onclick = () => { $("input").value = o.label; clearAskedInput(); sendMessage(); };
+      box.appendChild(b);
+    });
+    if (spec.write_in) {
+      const hint = document.createElement("span");
+      hint.className = "chip-hint"; hint.textContent = "or type your own answer below";
+      box.appendChild(hint);
+    }
+  } else if (spec.input_kind === "number") {
+    const badge = document.createElement("span");
+    badge.className = "unit-badge"; badge.textContent = spec.unit_hint || "a number";
+    box.appendChild(badge);
+    (spec.period_choices || []).forEach((p) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "chip-opt chip-opt--period"; b.textContent = p;
+      b.onclick = () => {
+        const v = $("input").value.trim();
+        $("input").value = v ? `${v} ${p}` : "";
+        if (v) { clearAskedInput(); sendMessage(); } else { $("input").focus(); }
+      };
+      box.appendChild(b);
+    });
+  } else if (spec.input_kind === "location") {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip-opt"; b.textContent = "Check what it resolves to";
+    b.onclick = async () => {
+      const q = $("input").value.trim();
+      if (!q || !session) return;
+      b.disabled = true; b.textContent = "Checking…";
+      try {
+        const r = await api("POST", `/intake/${session}/locate`, { q });
+        addMsg("bot", r.echo);
+      } catch (e) { addMsg("bot", "Could not check that: " + e.message); }
+      b.disabled = false; b.textContent = "Check what it resolves to";
+    };
+    box.appendChild(b);
+  } else {
+    return;
+  }
+  if (spec.optional) {
+    const skip = document.createElement("button");
+    skip.type = "button"; skip.className = "chip-opt chip-opt--skip";
+    skip.textContent = "Skip this one";
+    skip.onclick = () => { $("input").value = "not sure"; clearAskedInput(); sendMessage(); };
+    box.appendChild(skip);
+  }
+  $("convo").appendChild(box);
+  $("convo").scrollTop = $("convo").scrollHeight;
+  _askedEl = box;
 }
 
 /* "Not sure" is a first-class answer: it records an assumption the report must label,

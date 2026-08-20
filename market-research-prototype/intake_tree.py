@@ -75,9 +75,41 @@ def utterance_is_not_sure(text: str) -> bool:
 
 # ------------------------------------------------------------------------- the question --
 def _q(field: str, question: str, drives: str, consumer: str,
-       consumer_kind: str = "module") -> dict:
-    return {"field": field, "question": question, "drives": drives,
-            "consumer": consumer, "consumer_kind": consumer_kind}
+       consumer_kind: str = "module", **presentation) -> dict:
+    """A planned question. `presentation` carries the form contract the client renders
+    from (Wave D): input_kind (text | number | choice | location), options, write_in,
+    unit_hint, optional, period_choices. Defaults keep every question a plain text ask."""
+    out = {"field": field, "question": question, "drives": drives,
+           "consumer": consumer, "consumer_kind": consumer_kind,
+           "input_kind": "text", "optional": False}
+    out.update(presentation)
+    return out
+
+
+# The form spec per field, applied in plan_questions so the packs stay about CONTENT and
+# this table stays the one place the input contract lives. A field absent here keeps the
+# plain text ask.
+_INPUT_SPECS: dict[str, dict] = {
+    "avg_ticket": {"input_kind": "number", "unit_hint": "$ per visit"},
+    "avg_order": {"input_kind": "number", "unit_hint": "$ per order"},
+    "avg_transaction": {"input_kind": "number", "unit_hint": "$ per transaction"},
+    "rate_basis": {"input_kind": "number", "unit_hint": "$ per hour or per project"},
+    "take_rate": {"input_kind": "number", "unit_hint": "% you keep"},
+    "capacity": {"input_kind": "number", "unit_hint": "seats or stations"},
+    "seats_per_account": {"input_kind": "number", "unit_hint": "people per customer"},
+    "rent_estimate": {"input_kind": "number", "unit_hint": "$ per month"},
+    "monthly_cost_estimate": {"input_kind": "number", "unit_hint": "$ per month"},
+    "audience_threshold": {"input_kind": "number", "unit_hint": "users"},
+    "expected_volume": {"input_kind": "number", "unit_hint": "sales",
+                        "period_choices": ["per day", "per week", "per month"]},
+    "site": {"input_kind": "location"},
+    "named_competitors": {"optional": True},
+    "status_quo": {"optional": True},
+}
+
+
+def _apply_input_specs(plan: list[dict]) -> list[dict]:
+    return [dict(q, **_INPUT_SPECS.get(q["field"], {})) for q in plan]
 
 
 # THE CORE PACK — founder-only facts every venture is asked, because the pipeline cannot
@@ -89,27 +121,31 @@ def _q(field: str, question: str, drives: str, consumer: str,
 #   success target    -> the S-curve targets were derived from nothing the founder said
 CORE_PACK: tuple[dict, ...] = (
     _q("status_quo",
-       "What do your customers do today instead — before you exist? Even 'nothing, they "
-       "just put up with it' is a real answer.",
-       "what we compare your price against — the value story is built on this",
+       "Worth a thought if you have one: what do your customers do today instead, before "
+       "you exist? Even 'nothing, they just put up with it' is a real answer, and it "
+       "sharpens the whole value story.",
+       "what we compare your price against; the value story is built on this",
        "economics.compute_evc reference alternative", "brief"),
     _q("monthly_cost_estimate",
-       "Roughly what will it cost you to run each month? Even 'just me and a laptop' or a "
-       "single rent guess counts.",
-       "the break-even line — without your number we have to guess, and we label guesses",
+       "Roughly what will it cost you to run each month? Even 'just me and a laptop' or "
+       "a single rent guess counts. Not sure is fine too; we will use a benchmark range "
+       "and label it.",
+       "the break-even line; without your number we use a labeled benchmark",
        "financials break-even fixed cost", "brief"),
     _q("customer_evidence",
-       "Have you talked to any potential customers yet? What happened when money came up?",
-       "how much weight the price findings deserve — one real quote beats a simulation",
+       "What feedback have you gotten so far, if any? A conversation, a waitlist "
+       "signup, a sale, anything counts. None yet is a perfectly good answer.",
+       "how much weight the price findings deserve; one real quote beats a simulation",
        "pricing WTP anchor + validation flags", "brief"),
     _q("named_competitors",
-       "Which companies do the closest thing to this? Even one name helps — or say 'I "
-       "looked and found nobody.'",
+       "A bonus if you know one: which company does the closest thing to this? Most "
+       "founders can't name one and that's fine, but even a single name anchors the "
+       "whole competitive section.",
        "the competitor list starts from real names instead of guesses",
        "discover._union_named_competitors", "module"),
     _q("success_target",
-       "If this works, what does the first year look like — a rough revenue figure or "
-       "customer count you'd be happy with?",
+       "If this works, what does the first year look like? A rough revenue figure or "
+       "customer count you'd be happy with.",
        "whether the market the report finds is big enough for YOUR goal, not a generic one",
        "viability framing", "brief"),
 )
@@ -119,23 +155,23 @@ CORE_PACK: tuple[dict, ...] = (
 KIND_PACKS: dict[str, tuple[dict, ...]] = {
     "transactional": (
         _q("capacity",
-           "How many people could you serve at once — seats, chairs, stations?",
-           "the ceiling on daily sales — targets above what the room holds are fantasy",
+           "How many people could you serve at once? Seats, chairs, stations.",
+           "the ceiling on daily sales; targets above what the room holds are fantasy",
            "business_model capacity checks", "brief"),
         _q("avg_ticket",
            "Roughly what does one visit cost a customer?",
-           "every volume figure — daily targets, break-even, the whole ladder",
+           "every volume figure: daily targets, break-even, the whole ladder",
            "brief.extract_price via the synthesized brief", "module"),
         _q("rent_estimate",
            "What might the space cost you monthly? A guess from local listings is fine.",
-           "the largest cost in the break-even math — today we guess it if you don't say",
+           "the largest cost in the break-even math; today we guess it if you don't say",
            "financials break-even fixed cost", "brief"),
     ),
     "subscription": (
         _q("pricing_unit_scope",
-           "When a customer pays the monthly fee — is that for the whole company, or per "
+           "When a customer pays the monthly fee, is that for the whole company, or per "
            "person using it?",
-           "the difference between 100 customers and 100 individual users — it changes "
+           "the difference between 100 customers and 100 individual users; it changes "
            "every projection",
            "financials.ladder_inputs price basis", "brief"),
         _q("seats_per_account",
@@ -155,7 +191,7 @@ KIND_PACKS: dict[str, tuple[dict, ...]] = {
            "brief.extract_price via the synthesized brief", "module"),
         _q("unit_cost",
            "What does it cost YOU to make and ship one order, roughly?",
-           "the profit on each sale — without it margins are a guess, and labeled as one",
+           "the profit on each sale; without it margins are a guess, and labeled as one",
            "financials margin inputs", "brief"),
         _q("channel",
            "Selling from your own website, through Amazon, or in shops?",
@@ -164,8 +200,8 @@ KIND_PACKS: dict[str, tuple[dict, ...]] = {
     ),
     "services": (
         _q("team_size",
-           "How many people can actually do the work — is it just you?",
-           "the hard ceiling on revenue — hours don't scale past the people who bill them",
+           "How many people can actually do the work? Is it just you?",
+           "the hard ceiling on revenue; hours don't scale past the people who bill them",
            "financials.capacity_withhold_reason", "module"),
         _q("rate_basis",
            "Do you charge by the hour, by the project, or a monthly amount? Roughly how "
@@ -176,10 +212,10 @@ KIND_PACKS: dict[str, tuple[dict, ...]] = {
     "marketplace": (
         _q("take_rate",
            "When someone pays $100 through you, how much do you keep?",
-           "your actual revenue — the money moving through you is not the money you earn",
-           "the GMV-vs-revenue guard (C10) — built for exactly this input", "brief"),
+           "your actual revenue; the money moving through you is not the money you earn",
+           "the GMV-vs-revenue guard (C10), built for exactly this input", "brief"),
         _q("side_first",
-           "Which side do you need first — the people selling, or the people buying? "
+           "Which side do you need first: the people selling, or the people buying? "
            "Which is harder to get?",
            "the chicken-and-egg risk every marketplace lives or dies on",
            "viability risk framing", "brief"),
@@ -190,8 +226,8 @@ KIND_PACKS: dict[str, tuple[dict, ...]] = {
     ),
     "ad_supported": (
         _q("payer",
-           "If users don't pay, who does — advertisers, sponsors, someone else?",
-           "where the money actually comes from — the report prices to THEM, not to users",
+           "If users don't pay, who does? Advertisers, sponsors, someone else?",
+           "where the money actually comes from; the report prices to THEM, not to users",
            "business_model.venture_has_a_customer_price routing", "brief"),
         _q("audience_threshold",
            "Roughly how many users would you need before that money starts arriving?",
@@ -200,9 +236,9 @@ KIND_PACKS: dict[str, tuple[dict, ...]] = {
     ),
     "hybrid": (
         _q("hybrid_legs",
-           "So customers pay more than one way — say the up-front part and the ongoing "
+           "So customers pay more than one way. Say the up-front part and the ongoing "
            "part separately, with rough numbers for each?",
-           "both revenue streams get computed — last time the ongoing one was promised in "
+           "both revenue streams get computed; last time the ongoing one was promised in "
            "prose and never made it into the math",
            "the C11 recurring-leg computation", "brief"),
     ),
@@ -237,26 +273,35 @@ _REGULATED_RE = re.compile(
 
 MODIFIER_PACKS: dict[str, dict] = {
     "site": _q("site",
-               "Where will this actually be? The nearest cross-streets or neighbourhood is "
-               "ideal — the report counts real households and competitors within walking "
-               "distance of that exact spot.",
-               "the walking-distance ring every local market figure is built from",
-               "plan.extract_location -> size_hyperlocal", "module"),
+               "Which corner? A neighbourhood or cross-streets is enough. 'Melrose and "
+               "Fairfax' beats 'Los Angeles'. A zip, a street address, or just the city "
+               "all work too; I'll check what it resolves to. If you haven't picked yet, "
+               "say so and I'll size the whole city so you can compare corners later.",
+               "the walking-distance ring every local market figure is built from; "
+               "without a corner you get the city-wide report instead",
+               "plan.extract_location -> size_hyperlocal / size_citywide", "module"),
     "locations_count": _q("locations_count",
                           "How many locations are you planning, and where's the first one?",
                           "whether we size one neighbourhood or the whole footprint",
                           "plan.extract_location_count -> size_regional", "module"),
+    "expected_volume": _q("expected_volume",
+                          "On a normal day, how many sales do you expect, per machine or "
+                          "location? Your own guess. It's printed as the founder's "
+                          "estimate next to our model, never mixed in silently.",
+                          "the reality check beside the model's volume estimate; D59 "
+                          "blocks reports that hide this disagreement",
+                          "size_hyperlocal som_anchor alternative", "module"),
     "local_anchor": _q("local_anchor",
                        "One honest limitation: our household-spending data is US-only, so "
                        "for your location we'll say so and estimate. Do you happen to know "
-                       "any local figure — like what people typically spend on this in "
+                       "any local figure, like what people typically spend on this in "
                        "your city?",
                        "replaces a US-average stand-in with a real local number",
                        "hyperlocal.spend_provenance disclosure", "brief"),
     "real_traction": _q("real_traction",
-                        "You're already live — what are the real numbers so far? Customers, "
+                        "You're already live. What are the real numbers so far? Customers, "
                         "monthly revenue, anything you track.",
-                        "real figures anchor every projection — 15 actual customers beat "
+                        "real figures anchor every projection; 15 actual customers beat "
                         "any forecast",
                         "SOM anchor context", "brief"),
     "regulatory": _q("regulatory",
@@ -264,6 +309,25 @@ MODIFIER_PACKS: dict[str, dict] = {
                      "the risk section states what YOU know instead of guessing from afar",
                      "viability risks + kill criteria", "brief"),
 }
+
+
+# The taxonomy in the founder's words, ONE place (intake.py's card imports this). The
+# card and the fork must never say "subscription" or "transactional": the orbital
+# founder answered our vocabulary with "Undetermined".
+KIND_IN_FOUNDER_WORDS = {
+    "transactional": "customers pay per visit or per item, like a shop",
+    "subscription": "customers pay a recurring fee, like Netflix",
+    "ecommerce": "customers buy products you ship, like an online store",
+    "services": "customers pay for your team's time, like a contractor",
+    "marketplace": "you keep a cut of sales between other people, like Uber",
+    "ad_supported": "free for users; advertisers or sponsors pay",
+    "hybrid": "customers pay in more than one way (an up-front part and an ongoing part)",
+}
+
+# Wave D: the fork is a choice, not an essay. Options in founder words with a write-in
+# escape, because a founder who knows very little should recognise their answer, not
+# compose it.
+KIND_OPTIONS = [{"value": k, "label": v} for k, v in KIND_IN_FOUNDER_WORDS.items()]
 
 
 # ------------------------------------------------------------------------ classification --
@@ -275,7 +339,7 @@ _KIND_EXAMPLES = (
     "free for users, with someone else paying (like ads)",
 )
 
-FORK_QUESTION = ("One thing I want to get right, since it changes all the math — how will "
+FORK_QUESTION = ("One thing I want to get right, since it changes all the math: how will "
                  "the money come in? For example: customers "
                  + "; ".join(_KIND_EXAMPLES)
                  + ". Or tell me if you haven't decided yet.")
@@ -372,7 +436,8 @@ def plan_questions(extracted: dict, cls: dict) -> list[dict]:
     if cls.get("needs_fork"):
         plan.append(_q("kind_fork", cls.get("fork_question") or FORK_QUESTION,
                        "every financial table takes a different shape depending on this",
-                       "business_model.classify_with_confidence", "module"))
+                       "business_model.classify_with_confidence", "module",
+                       input_kind="choice", options=KIND_OPTIONS, write_in=True))
 
     plan.extend(KIND_PACKS.get(cls.get("kind") or "", ()))
 
@@ -381,6 +446,12 @@ def plan_questions(extracted: dict, cls: dict) -> list[dict]:
             plan.append(MODIFIER_PACKS["locations_count"])
         else:
             plan.append(MODIFIER_PACKS["site"])
+        # Wave D (operator spec Q7): the founder's own expected volume, number plus a
+        # period. Printed as the founder's estimate next to the model, never mixed in;
+        # this is also the input whose absence D59 keeps surfacing.
+        plan.append(MODIFIER_PACKS["expected_volume"])
+    elif cls.get("kind") in ("ecommerce", "marketplace"):
+        plan.append(MODIFIER_PACKS["expected_volume"])
     if cls.get("non_us"):
         plan.append(MODIFIER_PACKS["local_anchor"])
     if cls.get("launched"):
@@ -390,10 +461,20 @@ def plan_questions(extracted: dict, cls: dict) -> list[dict]:
 
     plan.extend(CORE_PACK)
 
+    # Wave D (operator spec Q13): a quantified year-one target earns the how question.
+    # The survey listens; the REPORT is where likelihood gets checked, respectfully.
+    tgt = ex.get("success_target")
+    if _answered(tgt) and not is_unknown(tgt) and re.search(r"\d", str(tgt)):
+        plan.append(_q("target_basis",
+                       "How did you arrive at that number? A sentence is plenty; the "
+                       "report will compare it against what the market data supports.",
+                       "whether your target is read as a goal or a forecast",
+                       "viability framing", "brief"))
+
     # A free product's pack must not inherit a price question from elsewhere (C7).
     if cls.get("kind") == "ad_supported":
         plan = [q for q in plan if q["field"] not in ("avg_ticket", "avg_order")]
-    return plan
+    return _apply_input_specs(plan)
 
 
 # A pack question is also satisfied by a GENERIC field that already answers it — the
