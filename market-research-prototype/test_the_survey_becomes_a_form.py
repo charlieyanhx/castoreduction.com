@@ -167,8 +167,9 @@ class TestFounderVolumeBesideTheModel(unittest.TestCase):
         return {"method": "trade_area_catchment", "som": {"mid": 400_000},
                 "som_anchor": anchor}
 
-    def _result(self, facts):
-        return {"intake": {"facts": facts, "unknowns": [], "confirmed": True}}
+    def _result(self, facts, category="taco stand"):
+        return {"intake": {"facts": facts, "unknowns": [], "confirmed": True},
+                "profile": {"category": category}}
 
     def test_volume_and_price_become_the_anchor_alternative(self):
         from plan import _apply_founder_volume
@@ -234,6 +235,28 @@ class TestFounderVolumeBesideTheModel(unittest.TestCase):
         self.assertIn("takeout", p.lower())
         for judgy in ("wrong", "unrealistic", "impossible"):
             self.assertNotIn(judgy, p.lower())
+
+    def test_the_fermi_model_is_general_not_a_taco_special_case(self):
+        """Operator rule (2026-08-20): 'make sure all these fixes are general.' The
+        mechanism is stations x turns x hours everywhere; only parameters and nouns
+        follow the trade. A salon never hears about lunch peaks; an unknown category
+        gets the neutral service model."""
+        from plan import _apply_founder_volume
+        ms = self._ms(anchor={"method": "x", "sourced": False})
+        _apply_founder_volume(ms, self._result(
+            {"expected_volume": "100 per day", "avg_ticket": "$60",
+             "capacity": "8 stations"}, category="hair salon"))
+        p = ms["founder_estimate"]["plausibility"]
+        self.assertIn("appointments", p)
+        self.assertNotIn("meal", p.lower())
+        ms2 = self._ms(anchor={"method": "x", "sourced": False})
+        _apply_founder_volume(ms2, self._result(
+            {"expected_volume": "500 per day", "avg_ticket": "$10",
+             "capacity": "4 kiosks"}, category="parcel pickup point"))
+        p2 = ms2["founder_estimate"]["plausibility"]
+        self.assertIn("customers", p2)
+        self.assertIn("capacity ceiling", p2)
+        self.assertNotIn("meal", p2.lower())
 
     def test_a_volume_within_the_ceiling_reads_as_a_fit(self):
         from plan import _apply_founder_volume
