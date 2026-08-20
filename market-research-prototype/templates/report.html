@@ -768,7 +768,13 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
         <td>Economic Census mean receipts, adjusted; a county average, not this site</td>
         <td style="text-align:right">${{ '{:,.0f}'.format(market_sizing.som.mid) }}</td></tr>
     {% endif %}
-    {% if market_sizing.som_anchor and market_sizing.som_anchor.alternative_usd %}
+    {# The alternative row renders ONLY when the alternative is the model's own second
+       method. MEASURED (deddcd0f): Wave D2 fills this slot with the FOUNDER'S number
+       when the pipeline computed no alternative, and the unconditional 'Fair share'
+       label printed the founder's $5.4M twice, once wearing the model's name — the
+       exact laundering this table exists to prevent. #}
+    {% if market_sizing.som_anchor and market_sizing.som_anchor.alternative_usd
+          and market_sizing.som_anchor.alternative_source != 'founder_expected_volume' %}
     <tr><td>Fair share</td>
         <td>SAM split equally across every comparable venue in the trade area</td>
         <td style="text-align:right">${{ '{:,.0f}'.format(market_sizing.som_anchor.alternative_usd) }}</td></tr>
