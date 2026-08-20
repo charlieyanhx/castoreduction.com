@@ -463,10 +463,16 @@ Return JSON (every score must be an integer 1-100; explain WHY for each):
   ],
   "critical_assumptions": ["2-3 assumptions that, if wrong, tank the score"],
   "recommended_next_steps": [
-    {{"horizon": "30d|60d|90d", "action": "verb-first action ≤15 words", "owner_role": "founder|head_of_growth|engineering|other"}}
+    {{"horizon": "30d|60d|90d", "action": "verb-first action ≤15 words",
+      "validates": "WHICH figure or assumption in this report the step tests, named with its number (e.g. 'the 27/day break-even', 'the $6 ticket vs the $4.50-$9 WTP band')",
+      "success_metric": "a falsifiable threshold with a number and a deadline (e.g. '≥40 orders/day by day 21')",
+      "owner_role": "founder|head_of_growth|engineering|other"}}
   ],
-  // recommended_next_steps: at least one step per horizon (30d AND 60d AND 90d) — a
-  // roadmap with an empty quarter reads as an unfinished report, not a light quarter.
+  // recommended_next_steps rules: 2-3 steps per horizon, and ALL THREE horizons (30d AND
+  // 60d AND 90d) — an empty quarter reads as an unfinished report. Every step must test
+  // a NUMBER this report computed (break-even, WTP band, fair-share floor, the founder's
+  // own volume estimate, competitor density) — 'talk to customers' with no threshold is
+  // filler, not a step. The 90d steps should be the ones that depend on 30d/60d results.
   "kill_criteria": [
     "What evidence in the next 90 days would make you abandon this venture? 2-3 falsifiable bullets."
   ],
