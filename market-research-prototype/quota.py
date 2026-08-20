@@ -72,7 +72,21 @@ def _db() -> sqlite3.Connection:
 
 def _daily_limit(owner_id: str) -> int:
     """Per-tier, once billing exists. Until then every account is on the free tier —
-    stated here rather than scattered, so raising it is one edit."""
+    stated here rather than scattered, so raising it is one edit.
+
+    CASTOR_DAILY_RUNS overrides for self-hosted/dev instances: MEASURED 2026-08-20,
+    the operator dogfooding on their own machine hit their own 3-run cap mid-iteration
+    (POST /plan 429). The cap protects the SHARED SaaS budget; an explicit env override
+    on a box you run yourself is configuration, not a bypass. Invalid or non-positive
+    values fall back to the free tier rather than opening the gate by accident."""
+    raw = os.environ.get("CASTOR_DAILY_RUNS")
+    if raw:
+        try:
+            n = int(raw)
+            if n > 0:
+                return n
+        except ValueError:
+            pass
     return DAILY_RUNS_FREE
 
 
