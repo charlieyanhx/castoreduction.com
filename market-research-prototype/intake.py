@@ -139,6 +139,44 @@ def _format_transcript(messages: list[dict]) -> str:
     return "\n".join(f"{m['role'].upper()}: {m['content']}" for m in messages)
 
 
+def _mark_founder_owned(session: dict, field: str) -> None:
+    """Record that this field's value is the founder's verbatim words. The extraction
+    merge never overwrites founder-owned fields (extractor churn re-fabricated
+    business_model AFTER a founder correction — second taco transcript, 2026-08-20)."""
+    owned = session.setdefault("founder_fields", [])
+    if field not in owned:
+        owned.append(field)
+
+
+_HAS_DIGIT = re.compile(r"\d")
+
+
+def _file_pending_answer(session: dict, pending: str | None, utterance: str) -> None:
+    """File an answer into the field its question asked about, deterministically.
+
+    The tree knows what it asked; relying on the extraction LLM to route the answer is
+    the authorship trap again (it filed '1000 per day' nowhere and the question
+    repeated). Shape rules keep off-topic replies out: a number question files only an
+    utterance carrying a digit, and any question files only when the LLM merge left the
+    field empty — when the extractor DID file something for the pending field, the
+    verbatim utterance still wins, because the founder's words outrank a paraphrase of
+    them."""
+    from intake_tree import utterance_is_not_sure
+    u = (utterance or "").strip()
+    if not pending or not u or utterance_is_not_sure(u):
+        return
+    from intake_tree import _INPUT_SPECS, is_unknown
+    input_kind = (_INPUT_SPECS.get(pending) or {}).get("input_kind", "text")
+    if input_kind == "number" and not _HAS_DIGIT.search(u):
+        return                       # not a number answer; leave it to conversation
+    current = session["extracted"].get(pending)
+    if is_unknown(current):
+        return                       # an explicit "not sure" stays a disclosed unknown
+    if input_kind in ("number", "location", "choice") or not current:
+        session["extracted"][pending] = u
+        _mark_founder_owned(session, pending)
+
+
 def start_session(initial_message: str | None = None) -> dict:
     """
     Start a new intake conversation. Returns the opening assistant question.
@@ -255,12 +293,17 @@ def process_message(session_id: str, user_message: str) -> dict:
         }
 
     # Merge extracted state — only overwrite if new value is non-null, and never
-    # overwrite an explicit "not sure" marker with a model hallucination.
+    # overwrite an explicit "not sure" marker with a model hallucination. Fields the
+    # FOUNDER authored verbatim (filed answers, model statements, card corrections) are
+    # frozen against extractor churn: MEASURED (second taco transcript), the extractor
+    # re-fabricated business_model on a later turn after the founder had corrected it.
     from intake_tree import is_unknown as _tree_unknown
+    _founder_owned = set(session.get("founder_fields") or [])
     new_extracted = resp.get("extracted") or {}
     for k in ALL_FIELDS:
         v = new_extracted.get(k)
-        if v not in (None, "", []) and not _tree_unknown(session["extracted"].get(k)):
+        if (v not in (None, "", []) and k not in _founder_owned
+                and not _tree_unknown(session["extracted"].get(k))):
             session["extracted"][k] = v
 
     # THE TREE. The LLM above only extracts; which question comes next is decided here,
@@ -275,15 +318,25 @@ def process_message(session_id: str, user_message: str) -> dict:
     if pending and utterance_is_not_sure(user_message) and             not session["extracted"].get(pending):
         mark_unknown(session["extracted"], pending)
 
-    # Founder payment words land in business_model VERBATIM, overwriting any paraphrase.
-    # MEASURED (taco-stand transcript): the extractor invented "DTC / Food service /
-    # Retail stand", the founder corrected with "they just pay for tacos", and the merge
-    # refused the overwrite — so the same wrong question repeated. Founder words outrank
-    # the extractor's; a bare number does not count (it answers a price/volume question),
-    # so answers to number questions never clobber the model.
+    # THE TREE KNOWS WHAT IT ASKED. An answer matching the pending question's shape is
+    # filed verbatim, deterministically, AFTER the LLM merge so the founder's words win
+    # over the extractor's opinion of them. MEASURED (second taco transcript): '1000 per
+    # day' answered the pending expected_volume question, the extractor filed it nowhere,
+    # and the question repeated.
+    _file_pending_answer(session, pending, user_message)
+
+    # Founder payment words land in business_model VERBATIM, overwriting any paraphrase —
+    # but ONLY when the utterance is ABOUT the model: a standalone statement, or an answer
+    # to the fork. MEASURED (second taco transcript): the first draft fired on answers to
+    # OTHER pack questions — '8 dollars per taco' (the PRICE) and '500 per month' (the
+    # RENT) each became the business model, and the rent's 'per month' read as recurring
+    # revenue, flipping the venture to hybrid mid-interview.
     from intake_tree import founder_payment_words
-    if founder_payment_words(user_message) and not utterance_is_not_sure(user_message):
+    if (pending in (None, "kind_fork", "business_model")
+            and founder_payment_words(user_message)
+            and not utterance_is_not_sure(user_message)):
         session["extracted"]["business_model"] = user_message.strip()
+        _mark_founder_owned(session, "business_model")
 
     # The founder's own words, for the explicitness gate: extracted text the founder
     # never typed must not manufacture a "stated" revenue model.
