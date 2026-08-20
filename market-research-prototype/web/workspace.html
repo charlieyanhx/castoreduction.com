@@ -346,6 +346,18 @@
   .unit-badge { font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
     text-transform: uppercase; color: var(--text-dim, #6b7280);
     padding: 4px 9px; border: 1px solid var(--line, #e2e2df); border-radius: 4px; }
+  .num-entry { font: inherit; font-size: 13px; width: 110px; padding: 6px 10px;
+    color: var(--text, #1f2430); background: var(--panel, #fff);
+    border: 1px solid var(--line, #e2e2df); border-radius: 8px; }
+  .num-entry:focus { outline: none; border-color: var(--accent, #2563eb);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #2563eb) 14%, transparent); }
+  .chip-opt--period.on { border-color: var(--accent, #2563eb);
+    background: color-mix(in srgb, var(--accent, #2563eb) 10%, transparent);
+    font-weight: 600; }
+  .chip-opt--go { color: #fff; background: var(--accent, #2563eb);
+    border-color: var(--accent, #2563eb); font-weight: 600; }
+  .chip-opt--go:hover { opacity: .92; background: var(--accent, #2563eb); }
+  .need-period .chip-opt--period { border-color: #d97706; }
 
   /* The Generate button is now gated on confirmation, so its disabled state is a state the
      operator will actually sit in — it has to look deliberate rather than broken. */

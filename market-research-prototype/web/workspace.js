@@ -378,19 +378,51 @@ function renderAskedInput(spec, field) {
       box.appendChild(hint);
     }
   } else if (spec.input_kind === "number") {
+    /* MEASURED (expected_volume dogfood, 2026-08-20): a unit badge plus period chips
+       with no entry field read as a broken form — the chips did nothing until a number
+       sat in the CHAT box, and a number typed there sent alone on Enter. A number
+       question now IS a small form: entry field, selectable period, Answer. The answer
+       still flows through the one chat path so extraction stays single. */
+    const field = document.createElement("input");
+    field.type = "text"; field.inputMode = "decimal"; field.className = "num-entry";
+    field.placeholder = "number"; field.setAttribute("aria-label", spec.unit_hint || "number");
+    box.appendChild(field);
     const badge = document.createElement("span");
-    badge.className = "unit-badge"; badge.textContent = spec.unit_hint || "a number";
+    badge.className = "unit-badge"; badge.textContent = spec.unit_hint || "";
     box.appendChild(badge);
-    (spec.period_choices || []).forEach((p) => {
+    let period = "";
+    const periods = spec.period_choices || [];
+    periods.forEach((p) => {
       const b = document.createElement("button");
       b.type = "button"; b.className = "chip-opt chip-opt--period"; b.textContent = p;
+      b.setAttribute("aria-pressed", "false");
       b.onclick = () => {
-        const v = $("input").value.trim();
-        $("input").value = v ? `${v} ${p}` : "";
-        if (v) { clearAskedInput(); sendMessage(); } else { $("input").focus(); }
+        period = p;
+        box.querySelectorAll(".chip-opt--period").forEach((x) => {
+          x.classList.remove("on"); x.setAttribute("aria-pressed", "false");
+        });
+        b.classList.add("on"); b.setAttribute("aria-pressed", "true");
+        field.focus();
       };
       box.appendChild(b);
     });
+    const go = document.createElement("button");
+    go.type = "button"; go.className = "chip-opt chip-opt--go"; go.textContent = "Answer";
+    const submit = () => {
+      const v = field.value.trim();
+      if (!v) { field.focus(); return; }
+      if (periods.length && !period) {
+        box.classList.add("need-period");
+        setTimeout(() => box.classList.remove("need-period"), 900);
+        return;
+      }
+      $("input").value = period ? `${v} ${period}` : v;
+      sendMessage();
+    };
+    go.onclick = submit;
+    field.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } };
+    box.appendChild(go);
+    setTimeout(() => field.focus(), 0);
   } else if (spec.input_kind === "location") {
     const b = document.createElement("button");
     b.type = "button"; b.className = "chip-opt"; b.textContent = "Check what it resolves to";
