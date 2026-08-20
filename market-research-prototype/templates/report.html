@@ -2324,7 +2324,9 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
   <div class="rf-body" id="rfBody"></div>
   <div class="rf-foot">
     <button class="rf-btn ghost" id="rfDraft">Draft answers</button>
-    <button class="rf-btn" id="rfFinal">Finalize → v2</button>
+    <button class="rf-btn ghost" id="rfEdit">Fix an input</button>
+    <button class="rf-btn" id="rfRevise">Regenerate with revisions</button>
+    <button class="rf-btn ghost" id="rfFinal">Finalize v2 (no rerun)</button>
   </div>
 </div>
 <script>
@@ -2339,9 +2341,16 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
   function render() {
     const b = document.getElementById("rfBody");
     document.getElementById("rfCount").textContent =
-      `${st.questions.length}/10 questions · ${st.annotations.length} marks` +
-      (st.status === "final" ? " · v2" : "");
+      `${st.questions.length}/5 questions · ${st.annotations.length}/15 marks` +
+      (st.status === "final" ? " · v2" : "") +
+      (st.status === "revised" ? " · revised" : "");
     let h = "";
+    const edits = st.input_edits || {};
+    for (const f of Object.keys(edits)) {
+      h += `<div class="rf-item"><button class="rf-x" data-del-e="${f}">✕</button>` +
+        `<div class="rf-meta">input fix</div>` +
+        `<div><b>${f}:</b> ${edits[f]}</div></div>`;
+    }
     for (const a of st.annotations) {
       h += `<div class="rf-item"><button class="rf-x" data-del-a="${a.id}">✕</button>` +
         `<div class="rf-meta">${a.section}</div>` +
@@ -2358,11 +2367,14 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
         `${q.grounded === false ? " · beyond this report's data" : ""}</div></div>`;
     }
     h += `<div class="rf-add"><input id="rfNewQ" maxlength="600" ` +
-         `placeholder="Ask a question (${10 - st.questions.length} left)…">` +
+         `placeholder="Ask a question (${Math.max(0, 5 - st.questions.length)} left)…">` +
          `<button class="rf-btn" id="rfAsk">Ask</button></div>` +
          `<div class="rf-meta">Tip: select any text in the report to attach a comment to it.</div>`;
     b.innerHTML = h;
 
+    b.querySelectorAll("[data-del-e]").forEach(el => el.onclick =
+      () => api("PATCH", `/jobs/${JOB}/input-edits`,
+                {field: el.dataset.delE, value: ""}).then(load));
     b.querySelectorAll("[data-del-a]").forEach(el => el.onclick =
       () => api("DELETE", `/jobs/${JOB}/annotations/${el.dataset.delA}`).then(load));
     b.querySelectorAll("[data-del-q]").forEach(el => el.onclick =
@@ -2389,6 +2401,33 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
   document.getElementById("rfFinal").onclick = async (e) => {
     try { await api("POST", `/jobs/${JOB}/finalize`); location.href = location.pathname; }
     catch (err) { alert(err.message); }
+  };
+  /* Wave E channel 3: fix a wrong input. The prompt pair matches the drawer's existing
+     comment flow; a proper composer is queued. */
+  document.getElementById("rfEdit").onclick = async () => {
+    const f = prompt("Which input is wrong? (e.g. pricing, site, expected_volume, "
+                     + "monthly_cost_estimate)");
+    if (!f) return;
+    const v = prompt(`Corrected value for ${f.trim()}:`);
+    if (v === null) return;
+    try { await api("PATCH", `/jobs/${JOB}/input-edits`, {field: f.trim(), value: v.trim()});
+          await load(); }
+    catch (err) { alert(err.message); }
+  };
+  /* Wave E: the ONE regeneration. Edits and marks ride the amended brief; questions are
+     answered against the new artifact. A second attempt is pay-or-take. */
+  document.getElementById("rfRevise").onclick = async (e) => {
+    if (!confirm("Regenerate the report with your input fixes, comments and questions? "
+                 + "This is the one included revision.")) return;
+    e.target.disabled = true; e.target.textContent = "Starting…";
+    try {
+      const r = await api("POST", `/jobs/${JOB}/revise`);
+      alert("Regeneration started. The new report will appear in your reports list.");
+      location.href = "/workspace";
+    } catch (err) {
+      alert(err.message);
+      e.target.disabled = false; e.target.textContent = "Regenerate with revisions";
+    }
   };
 
   /* selection -> comment. The section is the nearest preceding h2; the quote is the
