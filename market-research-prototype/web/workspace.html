@@ -325,6 +325,27 @@
   .cf-go:hover { opacity: .92; }
   .cf-go:active { transform: translateY(1px); }
   .cf-go:disabled { opacity: .6; cursor: progress; }
+  .cf-rest-title { margin: 14px 0 4px; font-size: 10.5px; font-weight: 700;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--text-dim, #6b7280); }
+  .cf-row--rest .cf-input { font-size: 12.5px; }
+
+  /* Wave D: the question's form contract rendered under the bubble. Chips answer or
+     fill the one chat input; nothing bypasses the extraction path. */
+  .asked-input { display: flex; flex-wrap: wrap; gap: 7px; align-items: center;
+    margin: 2px 0 10px 44px; }
+  .chip-opt { font: inherit; font-size: 12.5px; padding: 6px 12px; cursor: pointer;
+    color: var(--text, #1f2430); background: var(--panel, #fff);
+    border: 1px solid var(--line, #e2e2df); border-radius: 999px;
+    transition: border-color .12s ease, background .12s ease; }
+  .chip-opt:hover { border-color: var(--accent, #2563eb);
+    background: color-mix(in srgb, var(--accent, #2563eb) 6%, transparent); }
+  .chip-opt:disabled { opacity: .6; cursor: progress; }
+  .chip-opt--period { font-size: 11.5px; padding: 4px 10px; }
+  .chip-opt--skip { color: var(--text-dim, #6b7280); border-style: dashed; }
+  .chip-hint { font-size: 11.5px; color: var(--text-dim, #6b7280); }
+  .unit-badge { font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--text-dim, #6b7280);
+    padding: 4px 9px; border: 1px solid var(--line, #e2e2df); border-radius: 4px; }
 
   /* The Generate button is now gated on confirmation, so its disabled state is a state the
      operator will actually sit in — it has to look deliberate rather than broken. */

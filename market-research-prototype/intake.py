@@ -356,9 +356,16 @@ def process_message(session_id: str, user_message: str) -> dict:
     # Otherwise — ask. The tree's question wins; the LLM's own suggestion is only used
     # when the pack is exhausted but required fields are still missing (early turns).
     asked_field = asked_why = None
+    asked_input = None
     if tree_q is not None:
         next_q = tree_q["question"]
         asked_field, asked_why = tree_q["field"], tree_q["drives"]
+        # Wave D: the form contract rides with the question so the client can render
+        # choice chips, a number entry with its unit, a period selector, or the
+        # location entry with the live locate echo. Text-only clients ignore it.
+        asked_input = {k: tree_q[k] for k in
+                       ("input_kind", "options", "write_in", "unit_hint",
+                        "optional", "period_choices") if tree_q.get(k) is not None}
     else:
         next_q = (resp.get("next_question") or "").strip() or             _fallback_question(session["extracted"])
     session["pending_field"] = asked_field
@@ -368,6 +375,7 @@ def process_message(session_id: str, user_message: str) -> dict:
         "assistant_message": next_q,
         "asked_field": asked_field,
         "asked_why": asked_why,
+        "asked_input": asked_input,
         "classification": session.get("classification"),
         "tree_fields": tree_fields(session["extracted"], cls),
         "extracted": session["extracted"],
@@ -523,17 +531,9 @@ def _is_physical(business_model: str | None) -> bool:
     return any(h in low for h in _PHYSICAL_HINTS)
 
 
-# The taxonomy in the founder's words. The card must never say "subscription" or
-# "transactional" — the orbital founder answered our vocabulary with "Undetermined".
-_KIND_IN_FOUNDER_WORDS = {
-    "transactional": "customers pay per visit or per item, like a shop",
-    "subscription": "customers pay a recurring fee, like Netflix",
-    "ecommerce": "customers buy products you ship, like an online store",
-    "services": "customers pay for your team's time, like a contractor",
-    "marketplace": "you keep a cut of sales between other people, like Uber",
-    "ad_supported": "free for users — advertisers or sponsors pay",
-    "hybrid": "customers pay in more than one way (an up-front part and an ongoing part)",
-}
+# The taxonomy in the founder's words, defined ONCE in intake_tree (Wave D: the fork's
+# choice options and this card must never drift apart).
+from intake_tree import KIND_IN_FOUNDER_WORDS as _KIND_IN_FOUNDER_WORDS  # noqa: E402
 
 
 def confirmation_items(extracted: dict | None) -> list[dict]:

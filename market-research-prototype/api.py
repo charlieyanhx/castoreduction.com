@@ -367,6 +367,42 @@ def get_intake(session_id: str):
     return s
 
 
+@app.post("/intake/{session_id}/locate")
+def post_intake_locate(session_id: str, body: dict | None = None):
+    """The live echo behind the location entry (Wave D, operator spec Q4): the founder
+    types whatever they have (zip, city, street, cross-streets, region) and hears back
+    what it resolves to and at which precision level, BEFORE confirming. The level is the
+    geocoder's own matched grade (tools.geo), the same signal the run's router uses, so
+    what the founder approves here is what the pipeline will do."""
+    from intake import get_session
+    if not get_session(session_id):
+        raise HTTPException(status_code=404, detail="session not found")
+    q = str((body or {}).get("q") or "").strip()
+    if not q:
+        raise HTTPException(status_code=422, detail="q required")
+    from tools import get_tool
+    try:
+        g = get_tool("geocode_address").fn(q)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"geocoder unavailable: {e}")
+    p = g.payload or {}
+    level, matched = p.get("level"), p.get("matched_address")
+    if not matched:
+        return {"level": None, "matched": None,
+                "echo": ("I couldn't place that. A neighbourhood, cross-streets, zip, "
+                         "or city name all work.")}
+    _CONSEQUENCE = {
+        "street": "walk-in trade-area analysis around that exact spot",
+        "neighbourhood": "walk-in trade-area analysis for that neighbourhood",
+        "city": "city-wide report; pick a corner later and rerun for the walk-in analysis",
+        "zip": "city-wide report; pick a corner later and rerun for the walk-in analysis",
+        "region": "regional report",
+    }
+    return {"level": level, "matched": matched,
+            "echo": (f"That resolves to {matched} ({level or 'unknown'} level): "
+                     f"{_CONSEQUENCE.get(level, 'standard analysis')}.")}
+
+
 @app.get("/intake/{session_id}/confirmation")
 def get_intake_confirmation(session_id: str):
     """The load-bearing answers, and what each one drives, for the confirmation card.
