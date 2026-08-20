@@ -45,10 +45,14 @@ def run_economics_step(result: dict, profile: dict, *, psm_result: dict, biz_kin
     with step_scope("economics"):
         # cycle36/37: cost structure is category-estimated + disclosed (not a hidden
         # $5000/$2), computed ONCE here and shared by break-even + unit economics.
-        from pricing import estimate_cost_structure
+        # P6 (operator rule, deddcd0f): a founder-entered monthly cost is THE anchor,
+        # sourced and labeled; the model's figure survives as the benchmark beside it.
+        from pricing import estimate_cost_structure, founder_cost_anchor
+        _f_cost, _f_rent = founder_cost_anchor(result)
         _cost = estimate_cost_structure(
             profile.get("category", ""), opt,
             market_scale=(result.get("market_scale") or {}).get("scale"),
+            founder_monthly_cost=_f_cost, founder_rent=_f_rent,
         ) if opt else None
 
         # --- Break-even (subscription only — retail break-even lives in unit economics) ---
@@ -118,6 +122,11 @@ def run_economics_step(result: dict, profile: dict, *, psm_result: dict, biz_kin
                     business_model=profile.get("business_model", ""),
                     kind=biz_kind,  # R6: model = the real kind, not hardcoded
                 )
+                # P6: the founder-vs-benchmark divergence reaches the reader.
+                if _cost.get("benchmark_note"):
+                    econ["cost_benchmark_note"] = _cost["benchmark_note"]
+                if _cost.get("sourced"):
+                    econ["cost_sourced"] = True
             elif biz_kind == "subscription":
                 from economics import full_economics
                 log.info("[plan] Step 10: CLV + CAC + EVC economics (subscription)")
