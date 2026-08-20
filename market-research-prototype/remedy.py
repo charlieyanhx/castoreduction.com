@@ -22,16 +22,9 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-# Site markers, aligned with intake._SITE_MARKERS: a digit (street numbers, ordinals),
-# a named district, or a directional — anything that narrows a city to a trade area.
-_SITE_RE = re.compile(
-    r"\d|\bdistrict\b|\bneighbou?rhood\b|\bcorner\b|\bcross.?street|\bstreet\b|\bave\b|"
-    r"\bavenue\b|\brd\b|\broad\b|\bblvd\b|\bdowntown\b|\buptown\b|\bmission\b|\bsoma\b|"
-    r"\bwest\b|\beast\b|\bnorth\b|\bsouth\b|\band\b.*\b(?:st|ave|blvd)\b|"
-    # Cross-streets named without suffixes — "Melrose and Fairfax" — are the most natural
-    # way people give a corner, and the first draft of this regex missed exactly that form.
-    # Only ever applied to the GEOGRAPHY field, where "X and Y" almost always means streets.
-    r"\w+ (?:and|&) \w+\s*,", re.I)
+# One predicate, shared: brief.is_site_precise. This module's copy and intake's were
+# near-duplicates that drifted apart within a day of each other (Wave B consolidation).
+from brief import _SITE_PRECISE_RE as _SITE_RE
 _PRICE_FIGURE = re.compile(r"\d")
 
 # The trade-area gate family: all of them starve without a site precise enough to ring.

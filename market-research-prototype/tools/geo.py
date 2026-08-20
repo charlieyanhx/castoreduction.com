@@ -166,17 +166,48 @@ def _fcc_fips(lat: float, lng: float) -> Optional[dict]:
             "source": "FCC Census Block API"}
 
 
-@tool(category="geo", returns="{lat, lng, state_fips, county_fips, tract}",
+# Which precision LEVEL a Nominatim match represents. The router that separates a
+# trade-area run from a city-scale scan reads this, so the buckets are deliberately
+# coarse: street-grade, neighbourhood-grade, city-grade, zip, region. Types come from
+# Nominatim's documented place taxonomy; anything unrecognised maps to None rather
+# than a guess (a router given None keeps today's behavior).
+_NOMINATIM_LEVELS = {
+    "house": "street", "building": "street", "road": "street", "highway": "street",
+    "suburb": "neighbourhood", "neighbourhood": "neighbourhood",
+    "quarter": "neighbourhood", "borough": "neighbourhood", "hamlet": "neighbourhood",
+    "city": "city", "town": "city", "village": "city", "municipality": "city",
+    "postcode": "zip",
+    "administrative": "region", "county": "region", "state": "region",
+    "region": "region", "country": "region",
+}
+
+_BARE_ZIP = re.compile(r"^\d{5}(?:-\d{4})?$")
+
+
+@tool(category="geo", returns="{lat, lng, state_fips, county_fips, tract, level}",
       args_model=GeocodeAddressArgs)
 def geocode_address(address: str) -> Evidence:
     """Geocode a US street address to lat/lng + Census geography (free, no key).
 
     Do NOT use for non-US addresses — Census/FCC FIPS lookups are US-only (the
     Nominatim fallback still yields lat/lng, but ACS demographics then degrade).
+
+    `level` reports WHICH precision matched: street | neighbourhood | city | zip |
+    region | None. A Census street match is street-grade by construction; Nominatim
+    matches map through its place taxonomy. MEASURED (geolocator audit 2026-08-19):
+    without this field no router could tell a suburb from a city, so "Los Angeles, CA"
+    got an arbitrary pin with a 1.5 km trade-area ring drawn around it.
     """
+    # MEASURED (same audit): a bare ZIP fell through to the unconstrained global
+    # fallback and matched another country's postcode — "90036" resolved 9,310 km from
+    # Los Angeles. The Census geocoder cannot match a bare ZIP either way, so pin the
+    # fallback query to the US before any backend sees it.
+    query = address
+    if _BARE_ZIP.match((address or "").strip()):
+        query = f"{address.strip()}, USA"
     data = _http_json(
         "GET", _GEOCODER_URL,
-        params={"address": address, "benchmark": "Public_AR_Current",
+        params={"address": query, "benchmark": "Public_AR_Current",
                 "vintage": "Current_Current", "format": "json"},
         timeout=12,
     )
@@ -185,20 +216,22 @@ def geocode_address(address: str) -> Evidence:
         # Fallback: OSM Nominatim (a different host than the Census geocoder, so it
         # survives when Census is unreachable). Gives lat/lng — enough for OSM
         # competitor lookups — but no Census FIPS, so ACS demographics degrade.
-        nom = _nominatim(address)
+        nom = _nominatim(query)
         if nom:
             lat, lng = float(nom["lat"]), float(nom["lon"])
             # Recover Census FIPS via the FCC area API (different host → not WAF-blocked) so ACS
             # demographics still work when the Census geocoder itself is unreachable.
             fips = _fcc_fips(lat, lng) or {}
             src = "OSM Nominatim + FCC FIPS" if fips else "OSM Nominatim (fallback)"
+            nom_type = nom.get("addresstype") or nom.get("type") or ""
             return Evidence(
                 source="geocode_address", category="geo", count=1,
                 payload={"lat": lat, "lng": lng,
                          "matched_address": nom.get("display_name"),
                          "state_fips": fips.get("state_fips"),
                          "county_fips": fips.get("county_fips"),
-                         "tract": fips.get("tract")},
+                         "tract": fips.get("tract"),
+                         "level": _NOMINATIM_LEVELS.get(nom_type)},
                 cost_meta={"source": src})
         return Evidence(source="geocode_address", category="geo", count=0,
                         skeleton=True, error=f"no geocoder match for {address!r}")
@@ -213,6 +246,9 @@ def geocode_address(address: str) -> Evidence:
         "state_fips": tract.get("STATE"),
         "county_fips": tract.get("COUNTY"),
         "tract": tract.get("TRACT"),
+        # The Census geocoder only ever matches street addresses and intersections,
+        # so a match here is street-grade by construction.
+        "level": "street",
     }
     return Evidence(source="geocode_address", category="geo", count=1,
                     payload=payload, cost_meta={"source": "US Census Geocoder"})

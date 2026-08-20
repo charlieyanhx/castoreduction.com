@@ -505,10 +505,10 @@ def _fallback_question(ex: dict) -> str:
 # "Mission District of San Francisco" lands on tract 017700 (lat 37.7675) — 2.3 km apart,
 # so the two 1.5 km catchments barely intersect and every household, income and competitor
 # figure would belong to a neighbourhood the operator is not opening in.
-_SITE_MARKERS = re.compile(
-    r"\d|\bdistrict\b|\bneighbou?rhood\b|\bnear\b|\bcorner\b|\band\b.*\bst\b|"
-    r"\bstreet\b|\bave\b|\bavenue\b|\brd\b|\broad\b|\bblvd\b|\bmission\b|\bdowntown\b|"
-    r"\buptown\b|\bsoma\b|\bwest\b|\beast\b|\bnorth\b|\bsouth\b", re.I)
+# One predicate, shared: brief.is_site_precise. This local copy drifted from
+# remedy.py's — it missed bare cross-streets ("Melrose and Fairfax,"), so a founder
+# who gave a corner was warned city-not-site (Wave B consolidation).
+from brief import _SITE_PRECISE_RE as _SITE_MARKERS  # noqa: E402
 
 _PHYSICAL_HINTS = ("brick", "mortar", "retail", "store", "shop", "cafe", "restaurant",
                    "storefront", "walk-in", "salon", "studio", "gym", "clinic")

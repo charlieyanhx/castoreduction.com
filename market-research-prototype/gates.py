@@ -1614,6 +1614,17 @@ def d52_chosen_sizing_skill_actually_ran(r: dict, html: str | None) -> Finding:
     # measured the wrong thing.
     ran = ms.get("sizing_skill_ran")
     if ran and ran != skill:
+        # Wave B: a DISCLOSED downgrade is not a substitution. When the geocoder said
+        # the location is city-grade, the router runs the city scan instead of drawing
+        # a 1.5 km ring around an arbitrary pin, and stamps why. The figures then
+        # describe what they claim to describe (method=city_scan, no trade-area
+        # footprint), which is the exact property this gate protects. A reroute
+        # WITHOUT the stamp stays a failure — silence is still substitution.
+        if (ran == "size_citywide" and ms.get("downgrade_reason")
+                and ms.get("method") == "city_scan"):
+            return Finding(True,
+                           f"{skill} was rerouted to {ran} and disclosed: "
+                           f"{ms['downgrade_reason']}")
         return Finding(False,
                        f"classifier chose {skill} for this {scale} venture and "
                        f"{ran} produced the numbers instead — the published figures "
