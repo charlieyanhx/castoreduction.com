@@ -118,7 +118,10 @@ class TestNamedCompetitorsTool(unittest.TestCase):
             if "nominatim" in url:
                 return [{"lat": "34.09", "lon": "-118.27", "display_name": "Silver Lake, LA"}]
             return {"result": {"addressMatches": []}}  # Census empty
-        with patch("tools.geo._http_json", side_effect=http):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td, \
+             patch("tools.geo._GEO_CACHE_DIR", td), \
+             patch("tools.geo._http_json", side_effect=http):
             e = get_tool("geocode_address").fn("Silver Lake, Los Angeles")
         self.assertEqual(e.count, 1)
         self.assertAlmostEqual(e.payload["lat"], 34.09)

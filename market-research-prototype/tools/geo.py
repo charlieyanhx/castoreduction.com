@@ -182,6 +182,78 @@ _NOMINATIM_LEVELS = {
 }
 
 _BARE_ZIP = re.compile(r"^\d{5}(?:-\d{4})?$")
+# A ZIP living inside a longer founder-entered string ('90024 ucla', 'the stand at
+# 3rd St 90036') — the degrade ladder retries on this alone when the full string misses.
+_EMBEDDED_ZIP = re.compile(r"\b(\d{5})(?:-\d{4})?\b")
+
+_ZIPPO_URL = "https://api.zippopotam.us/us/{zip5}"
+
+
+def _zip_geocode(zip5: str) -> tuple[Optional[dict], Optional[str]]:
+    """US ZIP centroid via Zippopotam (keyless, purpose-built for postcodes).
+    MEASURED (2026-08-20): the Census geocoder cannot match a bare ZIP by design and
+    Nominatim both rate-limits this machine and is documented-unreliable for bare
+    postcodes — so ZIPs get their own backend. FCC recovers FIPS from the centroid
+    so ACS demographics still work."""
+    data = _http_json("GET", _ZIPPO_URL.format(zip5=zip5), timeout=10)
+    places = (data or {}).get("places") or []
+    if not places:
+        return None, None
+    p0 = places[0]
+    try:
+        lat, lng = float(p0["latitude"]), float(p0["longitude"])
+    except (KeyError, TypeError, ValueError):
+        return None, None
+    fips = _fcc_fips(lat, lng) or {}
+    return ({"lat": lat, "lng": lng,
+             "matched_address": (f"{p0.get('place name')}, "
+                                 f"{p0.get('state abbreviation')} {zip5}"),
+             "state_fips": fips.get("state_fips"),
+             "county_fips": fips.get("county_fips"),
+             "tract": fips.get("tract"),
+             "level": "zip"},
+            "Zippopotam ZIP centroid + FCC FIPS" if fips
+            else "Zippopotam ZIP centroid")
+
+# Geocode cache. MEASURED (P5 diagnosis, 2026-08-20): every run geocodes the same
+# address ~4x across steps (routing level, sizing, roster, promotion), and Nominatim
+# throttled this machine hard enough that even known-good neighbourhoods returned
+# no-match — which silently degraded households to an LLM estimate. Successful results
+# cache for 30 days (addresses do not move); misses cache for 1 hour only, so a
+# throttled window never bakes in as a permanent no-match.
+_GEO_CACHE_DIR = os.environ.get("CASTOR_GEO_CACHE_DIR",
+                                os.path.join("out", ".cache", "geocode"))
+_GEO_CACHE_TTL_OK_S = 30 * 24 * 3600
+_GEO_CACHE_TTL_MISS_S = 3600
+
+
+def _geo_cache_path(address: str) -> str:
+    key = re.sub(r"[^a-z0-9]+", "_", (address or "").lower().strip())[:120]
+    return os.path.join(_GEO_CACHE_DIR, key + ".json")
+
+
+def _geo_cache_get(address: str) -> Optional[dict]:
+    path = _geo_cache_path(address)
+    try:
+        if not os.path.exists(path):
+            return None
+        with open(path) as fh:
+            entry = json.load(fh)
+        ttl = _GEO_CACHE_TTL_OK_S if entry.get("payload") else _GEO_CACHE_TTL_MISS_S
+        if time.time() - entry.get("at", 0) > ttl:
+            return None
+        return entry
+    except Exception:
+        return None
+
+
+def _geo_cache_put(address: str, payload: Optional[dict], source: str) -> None:
+    try:
+        os.makedirs(_GEO_CACHE_DIR, exist_ok=True)
+        with open(_geo_cache_path(address), "w") as fh:
+            json.dump({"at": time.time(), "payload": payload, "source": source}, fh)
+    except Exception:
+        pass
 
 
 @tool(category="geo", returns="{lat, lng, state_fips, county_fips, tract, level}",
@@ -202,9 +274,48 @@ def geocode_address(address: str) -> Evidence:
     # fallback and matched another country's postcode — "90036" resolved 9,310 km from
     # Los Angeles. The Census geocoder cannot match a bare ZIP either way, so pin the
     # fallback query to the US before any backend sees it.
-    query = address
-    if _BARE_ZIP.match((address or "").strip()):
-        query = f"{address.strip()}, USA"
+    cached = _geo_cache_get(address)
+    if cached is not None:
+        cp = cached.get("payload")
+        if cp:
+            return Evidence(source="geocode_address", category="geo", count=1,
+                            payload=cp, cost_meta={"source": cached.get("source", "cache")})
+        return Evidence(source="geocode_address", category="geo", count=0,
+                        skeleton=True, error=f"no geocoder match for {address!r} (cached miss)")
+    stripped = (address or "").strip()
+    if _BARE_ZIP.match(stripped):
+        # A bare ZIP goes straight to the ZIP backend — Census cannot match one and
+        # Nominatim once resolved "90036" to another country's postcode 9,310 km away.
+        payload, src = _zip_geocode(stripped[:5])
+        if payload is None:
+            payload, src = _try_geocode(f"{stripped}, USA")
+    else:
+        payload, src = _try_geocode(address)
+    if payload is None:
+        # Degrade ladder (MEASURED 2026-08-20): a founder's confirmed site can be a
+        # compound both geocoders reject whole — '90024 ucla' matched nothing on
+        # Census OR Nominatim — while its embedded ZIP pins the same neighbourhood.
+        # Retry on the ZIP alone before declaring a miss. General to any site string
+        # carrying a ZIP; strings without one keep today's behavior.
+        z = _EMBEDDED_ZIP.search(address or "")
+        if z and not _BARE_ZIP.match(stripped):
+            payload, src = _zip_geocode(z.group(1))
+            if payload is not None:
+                payload["query_used"] = (
+                    f"embedded ZIP {z.group(1)} (full site string did not geocode)")
+    if payload is None:
+        _geo_cache_put(address, None, "miss")
+        return Evidence(source="geocode_address", category="geo", count=0,
+                        skeleton=True, error=f"no geocoder match for {address!r}")
+    _geo_cache_put(address, payload, src)
+    return Evidence(source="geocode_address", category="geo", count=1,
+                    payload=payload, cost_meta={"source": src})
+
+
+def _try_geocode(query: str) -> tuple[Optional[dict], Optional[str]]:
+    """One query through the backend pair: Census first, then Nominatim.
+    Returns (payload, source) on a match, (None, None) on a miss. No caching here —
+    geocode_address caches under the ORIGINAL address so ladder retries stay free."""
     data = _http_json(
         "GET", _GEOCODER_URL,
         params={"address": query, "benchmark": "Public_AR_Current",
@@ -212,46 +323,40 @@ def geocode_address(address: str) -> Evidence:
         timeout=12,
     )
     matches = ((data or {}).get("result") or {}).get("addressMatches") or []
-    if not matches:
-        # Fallback: OSM Nominatim (a different host than the Census geocoder, so it
-        # survives when Census is unreachable). Gives lat/lng — enough for OSM
-        # competitor lookups — but no Census FIPS, so ACS demographics degrade.
-        nom = _nominatim(query)
-        if nom:
-            lat, lng = float(nom["lat"]), float(nom["lon"])
-            # Recover Census FIPS via the FCC area API (different host → not WAF-blocked) so ACS
-            # demographics still work when the Census geocoder itself is unreachable.
-            fips = _fcc_fips(lat, lng) or {}
-            src = "OSM Nominatim + FCC FIPS" if fips else "OSM Nominatim (fallback)"
-            nom_type = nom.get("addresstype") or nom.get("type") or ""
-            return Evidence(
-                source="geocode_address", category="geo", count=1,
-                payload={"lat": lat, "lng": lng,
-                         "matched_address": nom.get("display_name"),
-                         "state_fips": fips.get("state_fips"),
-                         "county_fips": fips.get("county_fips"),
-                         "tract": fips.get("tract"),
-                         "level": _NOMINATIM_LEVELS.get(nom_type)},
-                cost_meta={"source": src})
-        return Evidence(source="geocode_address", category="geo", count=0,
-                        skeleton=True, error=f"no geocoder match for {address!r}")
-    m = matches[0]
-    coords = m.get("coordinates") or {}
-    geos = (m.get("geographies") or {})
-    tract = (geos.get("Census Tracts") or [{}])[0]
-    payload = {
-        "lat": coords.get("y"),
-        "lng": coords.get("x"),
-        "matched_address": m.get("matchedAddress"),
-        "state_fips": tract.get("STATE"),
-        "county_fips": tract.get("COUNTY"),
-        "tract": tract.get("TRACT"),
-        # The Census geocoder only ever matches street addresses and intersections,
-        # so a match here is street-grade by construction.
-        "level": "street",
-    }
-    return Evidence(source="geocode_address", category="geo", count=1,
-                    payload=payload, cost_meta={"source": "US Census Geocoder"})
+    if matches:
+        m = matches[0]
+        coords = m.get("coordinates") or {}
+        geos = (m.get("geographies") or {})
+        tract = (geos.get("Census Tracts") or [{}])[0]
+        return ({
+            "lat": coords.get("y"),
+            "lng": coords.get("x"),
+            "matched_address": m.get("matchedAddress"),
+            "state_fips": tract.get("STATE"),
+            "county_fips": tract.get("COUNTY"),
+            "tract": tract.get("TRACT"),
+            # The Census geocoder only ever matches street addresses and
+            # intersections, so a match here is street-grade by construction.
+            "level": "street",
+        }, "US Census Geocoder")
+    # Fallback: OSM Nominatim (a different host than the Census geocoder, so it
+    # survives when Census is unreachable). Gives lat/lng — enough for OSM
+    # competitor lookups — but no Census FIPS, so ACS demographics degrade.
+    nom = _nominatim(query)
+    if nom:
+        lat, lng = float(nom["lat"]), float(nom["lon"])
+        # Recover Census FIPS via the FCC area API (different host → not WAF-blocked)
+        # so ACS demographics still work when the Census geocoder is unreachable.
+        fips = _fcc_fips(lat, lng) or {}
+        src = "OSM Nominatim + FCC FIPS" if fips else "OSM Nominatim (fallback)"
+        nom_type = nom.get("addresstype") or nom.get("type") or ""
+        return ({"lat": lat, "lng": lng,
+                 "matched_address": nom.get("display_name"),
+                 "state_fips": fips.get("state_fips"),
+                 "county_fips": fips.get("county_fips"),
+                 "tract": fips.get("tract"),
+                 "level": _NOMINATIM_LEVELS.get(nom_type)}, src)
+    return None, None
 
 
 @tool(category="geo", returns="{households, median_hh_income, population}",

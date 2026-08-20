@@ -44,22 +44,29 @@ class TestGeocodeLevel(unittest.TestCase):
             "matchedAddress": "6333 W 3RD ST, LOS ANGELES, CA, 90036",
             "geographies": {"Census Tracts": [{"STATE": "06", "COUNTY": "037",
                                                "TRACT": "219500"}]}}]}}
-        with patch.object(geo, "_http_json", return_value=census):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td, \
+             patch.object(geo, "_GEO_CACHE_DIR", td), \
+             patch.object(geo, "_http_json", return_value=census):
             out = geo.geocode_address("6333 W 3rd St, Los Angeles, CA 90036")
         self.assertEqual(out.payload.get("level"), "street")
 
     def _nominatim_case(self, nom_type, addresstype=None):
+        import tempfile
         from tools import geo
         nom = {"lat": "34.087", "lon": "-118.270", "display_name": "somewhere",
                "type": nom_type, "class": "place",
                "addresstype": addresstype or nom_type}
-        with patch.object(geo, "_http_json", return_value=None), \
+        # unique address + isolated cache dir: geocode results now cache on disk
+        with tempfile.TemporaryDirectory() as td, \
+             patch.object(geo, "_GEO_CACHE_DIR", td), \
+             patch.object(geo, "_http_json", return_value=None), \
              patch.object(geo, "_nominatim", return_value=nom), \
              patch.object(geo, "_fcc_fips", return_value={"state_fips": "06",
                                                           "county_fips": "037",
                                                           "tract": None,
                                                           "source": "FCC"}):
-            return geo.geocode_address("whatever")
+            return geo.geocode_address(f"somewhere-{nom_type}")
 
     def test_nominatim_suburb_is_neighbourhood_level(self):
         for t in ("suburb", "neighbourhood", "quarter"):
@@ -85,7 +92,10 @@ class TestGeocodeLevel(unittest.TestCase):
             seen["q"] = q
             return None
 
-        with patch.object(geo, "_http_json", return_value=None), \
+        import tempfile
+        with tempfile.TemporaryDirectory() as td, \
+             patch.object(geo, "_GEO_CACHE_DIR", td), \
+             patch.object(geo, "_http_json", return_value=None), \
              patch.object(geo, "_nominatim", side_effect=fake_nominatim):
             geo.geocode_address("90036")
         self.assertIn("USA", seen.get("q", ""),

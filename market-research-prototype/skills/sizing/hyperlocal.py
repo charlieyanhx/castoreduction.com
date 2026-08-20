@@ -392,6 +392,22 @@ def spend_provenance(value, from_bls: bool,
     return False, "llm", spend_source_label(False, "llm", address)
 
 
+# Venture words -> the BLS CEX line item that surveys their spend. Food venues of every
+# description share one line item (food away from home); the words cover what founders
+# actually type, not a taxonomy they were never shown.
+_CEX_FOOD_WORDS = ("taco", "taqueria", "restaurant", "cafe", "café", "coffee", "bakery",
+                   "pizza", "pizzeria", "diner", "deli", "food", "sushi", "ramen", "bar",
+                   "brunch", "sandwich", "burger", "bbq", "grill", "eatery", "bistro",
+                   "juice", "smoothie", "ice cream", "dessert", "stand", "truck", "cart")
+
+
+def _cex_category(category: str) -> str:
+    low = (category or "").lower()
+    if any(w in low for w in _CEX_FOOD_WORDS):
+        return "food_away_from_home"
+    return category
+
+
 def resolve_annual_spend(category: str) -> tuple[Optional[float], bool]:
     """Annual household spend ($/yr) for a category.
 
@@ -407,6 +423,12 @@ def resolve_annual_spend(category: str) -> tuple[Optional[float], bool]:
     """
     if not category:
         return None, False
+    # P5 (deddcd0f): resolve_annual_spend('taco stand') returned None while
+    # 'food_away_from_home' answers with real BLS data — the venture's own words never
+    # mapped to the CEX line item, so spend silently fell to an LLM estimate and the
+    # report recommended the operator validate against the source WE failed to use.
+    # Deterministic pre-map, same philosophy as the Overture category synonyms.
+    category = _cex_category(category)
     # 1) Real source: BLS Consumer Expenditure Survey (module-level get_tool).
     try:
         ev = get_tool("bls_cex_spend").fn(category=category)
