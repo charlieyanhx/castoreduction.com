@@ -1134,7 +1134,8 @@ def _geo_level(location: str | None) -> str | None:
         return None
 
 
-def size_by_scale(scale_decision: dict | None, description: str, profile: dict) -> dict | None:
+def size_by_scale(scale_decision: dict | None, description: str, profile: dict,
+                  location: str | None = None) -> dict | None:
     """For physical ventures with a location, size by trade-area (size_hyperlocal) and
     adapt to the legacy tam/sam/som shape so the report + gate work. Returns None to
     let the caller keep the legacy digital sizing. cycle35 (F3, location path).
@@ -1147,7 +1148,9 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
     # Only a scale the classifier called multi-site may route to the rollout engine. A
     # hyperlocal brief that happens to mention "our two espresso machines" must not.
     _is_rollout = scale_decision.get("scale") in ("regional", "national_physical")
-    location = extract_location(description)
+    # The confirmed site outranks the prose regex (see _venture_location) — the caller
+    # passes it; the regex survives as the no-record fallback.
+    location = location or extract_location(description)
     if not location:
         return None  # caller keeps legacy + the existing "needs an address" caveat
     # Disambiguate a bare neighborhood with the venture's geography so geocoding doesn't
@@ -1413,43 +1416,77 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict) 
     }
 
 
+def _venture_location(result: dict | None, description: str) -> str | None:
+    """THE location resolver. The intake record's confirmed facts outrank any
+    re-derivation from prose: MEASURED (deddcd0f), the founder confirmed site
+    '90024 ucla' and extract_location grabbed 'UCLA' out of 'students and locals near
+    UCLA' in the same brief — the authorship defect class, regex edition. The prose
+    regex survives only as the no-record fallback (CLI briefs, old clients)."""
+    facts = ((result or {}).get("intake") or {}).get("facts") or {}
+    for f in ("site", "geography"):
+        v = str(facts.get(f) or "").strip()
+        if v:
+            return v
+    return extract_location(description)
+
+
 def geo_competitor_opps(description: str, profile: dict, market_scale: dict | None,
-                        limit: int = 30) -> list[dict]:
-    """M1 (audit): the REAL competitors of a physical-local venture are the nearby venues
-    (OpenStreetMap), not LLM-guessed national DTC brands. Returns them in the canonical
-    `opps` shape (brand/name/rank/geo_sourced) so they can feed clustering, differentiators,
-    personas, and pricing — or [] when this isn't a physical-local venture, has no location,
-    or the category doesn't map to a known OSM amenity (fail safe: never fabricate a
-    wrong-category set). Deterministic given (location, category); pure OSM/geocode, no LLM."""
+                        limit: int = 30, location: str | None = None) -> list[dict]:
+    """M1 (audit): the REAL competitors of a physical-local venture are the nearby venues,
+    not LLM-guessed national DTC brands. Returns them in the canonical `opps` shape
+    (brand/name/rank/geo_sourced) so they can feed clustering, differentiators, personas,
+    and pricing — or [] when this isn't a physical-local venture or has no location.
+
+    `location` comes from the caller's _venture_location (the confirmed site); the prose
+    regex runs only when no location was passed. When the category has no OSM tag, or
+    the OSM census is thin, the Overture same-category census covers (adoption #1):
+    MEASURED (deddcd0f), 'taco stand' has no OSM tag, so this function returned [] and
+    D07 withheld a report while Overture knew 56 taquerias at the site. Fewer than 3
+    same-category venues still returns [] — never fabricate a roster."""
     ms = market_scale or {}
     is_physical = bool((ms.get("signals") or {}).get("is_physical")) or ms.get("scale") in ("hyperlocal", "regional")
     if not is_physical:
         return []
-    location = extract_location(description)
+    location = location or extract_location(description)
     if not location:
         return []
     geog = str((profile or {}).get("geography") or "").strip()
-    if "," not in location and geog and geog.lower() not in ("us", "u.s.", "usa", "united states", "global", ""):
+    if "," not in location and geog and geog.lower() not in ("us", "u.s.", "usa", "united states", "global", "") \
+            and geog.lower() != location.lower():
         location = f"{location}, {geog}"
-    tag = _resolve_osm_tag((profile or {}).get("category") or "")
-    if not tag:
-        return []  # unknown category → skip, don't guess wrong-category competitors
-    osm_key, osm_value = tag
+    cat = (profile or {}).get("category") or ""
+    tag = _resolve_osm_tag(cat)
     try:
         from tools import get_tool
         g = get_tool("geocode_address").fn(location)
         if not (g.payload and g.payload.get("lat") is not None):
             return []
-        ne = get_tool("osm_named_competitors").fn(
-            lat=g.payload["lat"], lng=g.payload["lng"],
-            osm_key=osm_key, osm_value=osm_value, limit=limit)
-        if ne.skeleton or not ne.payload:
+        _lat, _lng = g.payload["lat"], g.payload["lng"]
+        rows: list[dict] = []
+        if tag:
+            osm_key, osm_value = tag
+            ne = get_tool("osm_named_competitors").fn(
+                lat=_lat, lng=_lng, osm_key=osm_key, osm_value=osm_value, limit=limit)
+            if not ne.skeleton and ne.payload:
+                rows = [c for c in ne.payload if c.get("brand")]
+        if len(rows) < 3:
+            ov = get_tool("overture_places").fn(lat=_lat, lng=_lng, category=cat)
+            same = [] if ov.skeleton else ((ov.payload or {}).get("same_category") or [])
+            seen = {str(r.get("brand") or "").lower() for r in rows}
+            for s in same:
+                name = s.get("name")
+                if name and name.lower() not in seen:
+                    rows.append({"brand": name, "name": name,
+                                 "category": s.get("category"),
+                                 "confidence": s.get("confidence"),
+                                 "source": "Overture Maps places"})
+        if len(rows) < 3:
             return []
         # Promote to the opps shape. No domain/signals (these are physical venues, not web
         # brands) — which is correct: downstream pricing then SKIPS web scraping instead of
         # mislabeling a competitor's bagged-goods/subscription price as a per-unit price.
         return [{**c, "rank": i + 1, "geo_sourced": True}
-                for i, c in enumerate(ne.payload) if c.get("brand")]
+                for i, c in enumerate(rows[:limit])]
     except Exception as e:
         log.warning("[plan] geo_competitor_opps failed (non-fatal): %s", e)
         return []
@@ -1476,7 +1513,8 @@ def _promote_geo_competitors(result: dict, description: str, profile: dict, geo:
             result["market_scale"] = classify_market_scale(description, geo).payload
             if "market_scale" not in result["_steps_completed"]:
                 _step_done(result, "market_scale")
-        geo_opps = geo_competitor_opps(description, profile, result.get("market_scale"))
+        geo_opps = geo_competitor_opps(description, profile, result.get("market_scale"),
+                                       location=_venture_location(result, description))
         if len(geo_opps) >= 3:
             opps = geo_opps
             disc.setdefault("synthesis", {})["ranked_opportunities"] = geo_opps
@@ -1909,7 +1947,8 @@ def run_sizing_stage(result: dict, profile: dict, *, description: str, geo: str,
     # sizing with a real trade-area model (Census households × BLS spend, OSM competitor
     # density). Falls back silently to the digital sizing if no location / unavailable.
     try:
-        hl = size_by_scale(scale_decision, description, profile)
+        hl = size_by_scale(scale_decision, description, profile,
+                           location=_venture_location(result, description))
         if hl:
             # Wave D part 2: the founder's expected volume rides in as the disclosed
             # alternative D59 demands (see _apply_founder_volume).
