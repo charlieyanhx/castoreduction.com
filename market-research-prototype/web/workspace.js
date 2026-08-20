@@ -243,6 +243,9 @@ async function showConfirmation() {
       // The description the run will actually receive, rebuilt server-side from the
       // corrected answers. Without this the card could not fix the field it exists for.
       if (res && res.final_description) window._serverDescription = res.final_description;
+      // Wave A: the structured record rides POST /plan so confirmed facts survive the
+      // prose. Downstream, result.intake.facts outrank any LLM re-extraction.
+      if (res && res.intake_record) window._intakeRecord = res.intake_record;
     } catch (e) { /* confirmation is a checkpoint, not a gate that can strand you */ }
     window._confirmed = true;
     card.classList.add("done");
@@ -341,7 +344,9 @@ async function launch() {
   if (!description) return;
   $("launchBtn").disabled = true; $("launchBtn").textContent = "Starting…";
   try {
-    const r = await api("POST", "/plan", { description, operator_weights: {} });
+    const body = { description, operator_weights: {} };
+    if (window._intakeRecord) body.intake = window._intakeRecord;
+    const r = await api("POST", "/plan", body);
     addMsg("bot", "Report started — watch it build in the Castor Computer →");
     openJob(r.job_id, true);
     loadTasks();

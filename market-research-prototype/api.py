@@ -285,6 +285,12 @@ class PlanRequest(BaseModel):
     # (capabilities/effort.py) rather than being rejected — a typo should not fail a
     # submitted brief, and it must never resolve DOWN to quick.
     effort: str = "standard"
+    # Wave A (shift-left): the structured survivor of the intake survey — confirmed
+    # facts, declared unknowns, warnings shown at confirm time. Optional so old
+    # clients, the CLI, and corpus tooling keep working; when present it is stamped
+    # into result["intake"] where confirmed facts are authoritative over downstream
+    # re-extraction (the b98df066 "US" bug class).
+    intake: dict | None = None
 
 
 class CrewRequest(BaseModel):
@@ -405,7 +411,10 @@ def post_intake_confirm(session_id: str, body: dict | None = None):
     return {"ok": True, "confirmed_facts": s.get("confirmed_facts"),
             # The rebuilt brief, so the browser sends the run the CORRECTED description
             # rather than one synthesised before the operator saw the card.
-            "final_description": s.get("final_description")}
+            "final_description": s.get("final_description"),
+            # Wave A: the structured record the browser must send with POST /plan so
+            # confirmed facts survive the prose (they become result["intake"]).
+            "intake_record": s.get("intake_record")}
 
 
 @app.get("/healthz")
@@ -517,6 +526,7 @@ def post_plan(req: PlanRequest):
                 operator_weights=req.operator_weights.model_dump(),
                 refine=req.refine,
                 effort=req.effort,
+                intake=req.intake,
             )
         finally:
             # finally, not the happy path: a run that raised would otherwise hold its
