@@ -88,19 +88,35 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
     sigs = (r.get("discover", {}).get("steps", {}) or {}).get("signals", [])
     audience = r.get("audience", {})
     cp = r.get("competitor_pricing", {})
+    _geo_sourced = bool((r.get("discover", {}) or {}).get("geo_sourced"))
+    _census_src = str((r.get("market_sizing") or {}).get("competitors_source") or "").lower()
+    _aud_ev = audience.get("_evidence", {}) or {}
     sources_used = {
         "google_trends": any(s.get("trend_slope") is not None for s in sigs),
-        "trustpilot": any(s.get("trustpilot_reviews") is not None for s in sigs) or (audience.get("_evidence", {}) or {}).get("trustpilot_review_count", 0) > 0,
-        "reddit": any((s.get("reddit_mentions") or 0) > 0 for s in sigs) or (audience.get("_evidence", {}) or {}).get("reddit_post_count", 0) > 0,
+        "trustpilot": any(s.get("trustpilot_reviews") is not None for s in sigs) or _aud_ev.get("trustpilot_review_count", 0) > 0,
+        "google_reviews": _aud_ev.get("google_review_count", 0) > 0
+                          or "google maps" in _census_src,
+        "overture_maps": "overture" in _census_src,
+        "reddit": any((s.get("reddit_mentions") or 0) > 0 for s in sigs) or _aud_ev.get("reddit_post_count", 0) > 0,
         "wayback_machine": any(s.get("wayback_avg_per_month") is not None for s in sigs),
         "instagram": any(s.get("ig_followers") is not None for s in sigs),
         "domain_age_rdap": any(s.get("domain_age_days") is not None for s in sigs),
-        "review_articles": (audience.get("_evidence", {}) or {}).get("article_count", 0) > 0,
+        "review_articles": _aud_ev.get("article_count", 0) > 0,
         "competitor_homepage_scrape": len(sigs) > 0,
         "competitor_pricing": (cp.get("competitors_with_prices", 0) or 0) > 0,
         "clustering": clustering is not None and not clustering.get("error"),
         "market_sizing": (r.get("market_sizing") is not None) and not (r.get("market_sizing") or {}).get("error"),
     }
+    # P3: the chip row lists what the venture's SHAPE could use, not every instrument
+    # the codebase owns — a struck-through chip reads as a pipeline failure. Web-brand
+    # instruments are omitted on geo-sourced rosters (venues rarely own a web presence);
+    # the geo instruments are omitted on web-brand rosters. Fired chips always stay.
+    _WEB_BRAND_ONLY = ("google_trends", "wayback_machine", "instagram",
+                       "domain_age_rdap")
+    _GEO_ONLY = ("overture_maps", "google_reviews")
+    _inapplicable = _WEB_BRAND_ONLY if _geo_sourced else _GEO_ONLY
+    sources_used = {k: v for k, v in sources_used.items()
+                    if v or k not in _inapplicable}
 
     from market_sizing import format_currency
 

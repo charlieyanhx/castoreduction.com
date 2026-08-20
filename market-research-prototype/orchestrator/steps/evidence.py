@@ -50,6 +50,41 @@ def run_evidence_step(result: dict, profile: dict, opps: list,
     checkpoint = checkpoint or (lambda: None)
     competitor_domains = [o["domain"] for o in opps if o.get("domain")][:8]
     top_3_comps = [o for o in opps if o.get("domain")][:3]
+
+    # P2 (operator-approved stack): for a GEO-SOURCED roster the venues rarely carry a
+    # domain, and Trustpilot/press are the wrong instruments anyway — the customer voice
+    # of a local venue lives in its Google reviews, which the gosom pass already scrapes
+    # (tool-cached, so the sizing stage's later call is free). The taste decode then
+    # runs on the top venues with their review text supplied directly. General: any
+    # geo-sourced venture takes this path; domain-bearing rosters are unchanged.
+    _gmaps_venues: list[dict] = []
+    if (result.get("discover") or {}).get("geo_sourced") and len(top_3_comps) < 3:
+        try:
+            from plan import _venture_location
+            from tools import get_tool
+            _loc = _venture_location(result, "")
+            if _loc:
+                g = get_tool("geocode_address").fn(_loc)
+                if g.payload and g.payload.get("lat") is not None:
+                    gr = get_tool("gmaps_ratings").fn(
+                        query=profile.get("category") or "restaurants",
+                        lat=g.payload["lat"], lng=g.payload["lng"])
+                    if not gr.skeleton:
+                        _gmaps_venues = (gr.payload or {}).get("venues") or []
+        except Exception as e:
+            log.info("[plan] geo voice fetch skipped (non-fatal): %s", e)
+    _geo_taste_comps = []
+    if _gmaps_venues:
+        from tools.gmaps_reviews import reviews_for
+        for o in opps[:6]:
+            snippets, website = reviews_for(o.get("brand") or o.get("name") or "",
+                                            _gmaps_venues)
+            if snippets:
+                _geo_taste_comps.append({"brand": o.get("brand") or o.get("name"),
+                                         "domain": website, "google_reviews": snippets})
+            if len(_geo_taste_comps) + len(top_3_comps) >= 3:
+                break
+
     # A roster with no domains silently skips FOUR sections -- audiences, personas, channels
     # and competitor prices -- because every one of them needs something to fetch. Measured:
     # run1 had 8/8 competitors with a domain and produced 3 taste decodes; run2 had 0/30
@@ -57,18 +92,19 @@ def run_evidence_step(result: dict, profile: dict, opps: list,
     # "cannot_decode" record the taste step writes when it tries and finds no voice. The
     # absence of a refusal is what made this hard to see: it looked like the step was never
     # meant to run.
-    if opps and not top_3_comps:
+    if opps and not top_3_comps and not _geo_taste_comps:
         record_dropped_output(
             result, "audiences",
-            f"no competitor carries a domain ({len(opps)} in the roster), so there was "
-            "nothing to fetch customer voice from; audiences, personas, channel analysis "
-            "and competitor pricing all depend on it")
+            f"no competitor carries a domain or scrapable Google reviews ({len(opps)} in "
+            "the roster), so there was nothing to fetch customer voice from; audiences, "
+            "personas, channel analysis and competitor pricing all depend on it")
     channel_data = {}
 
     def _taste_task_for(comp):
         from taste import decode_taste
         log.info(f"[plan] Step 6: decoding audience for {comp['brand']}")
-        return decode_taste(comp["brand"], comp["domain"])
+        return decode_taste(comp["brand"], comp.get("domain") or "",
+                            google_reviews=comp.get("google_reviews"))
 
     def _channels_task():
         if not competitor_domains:
@@ -147,7 +183,8 @@ def run_evidence_step(result: dict, profile: dict, opps: list,
     multisrc_data: dict = {}
     with ThreadPoolExecutor(max_workers=8) as pool:
         # Submit one taste decode per top brand (1, 2, or 3 in parallel)
-        taste_futs = [pool.submit(_taste_task_for, c) for c in top_3_comps]
+        taste_futs = [pool.submit(_taste_task_for, c)
+                      for c in (top_3_comps + _geo_taste_comps)[:3]]
         channels_fut = pool.submit(_channels_task)
         prices_fut = pool.submit(_prices_task)
         reddit_fut = pool.submit(_reddit_task)
