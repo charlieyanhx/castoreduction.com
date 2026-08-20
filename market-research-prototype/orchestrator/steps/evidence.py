@@ -94,7 +94,11 @@ def run_evidence_step(result: dict, profile: dict, opps: list,
         if not target:
             return {}
         log.info(f"[plan] Step 6c: pulling Reddit signal for '{target}'")
-        return fetch_signal(target, max_threads=10, days_back=180)
+        # Adoption #2: geography + category steer the archive tier's subreddit
+        # derivation (city-food subs beat global search for local ventures).
+        return fetch_signal(target, max_threads=10, days_back=180,
+                            geography=profile.get("geography"),
+                            category=profile.get("category"))
 
     def _hn_task():
         """cycle25 (issue 6/7): also pull HackerNews mentions as customer voice."""
