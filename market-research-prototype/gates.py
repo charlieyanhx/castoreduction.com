@@ -2212,12 +2212,15 @@ def _singular(noun: str) -> str:
 
 
 def _volume_claim_re(unit_noun: str | None) -> re.Pattern:
-    """The phrasing matcher, widened by the venture's own noun and its own period."""
+    """The phrasing matcher, widened by the venture's own noun and its own period.
+
+    The optional word between number and noun is CAPTURED (f1), because it decides what
+    kind of claim this is — see _stated_volumes."""
     nouns = sorted({_singular(n) for n in (*_GENERIC_UNIT_NOUNS, unit_noun or "") if n},
                    key=len, reverse=True)
     alt = "|".join(re.escape(n) + "s?" for n in nouns)
     return re.compile(
-        rf"(?P<n1>\d[\d,]*(?:\.\d+)?)\s*(?:\w+\s+)?(?:{alt})\s*"
+        rf"(?P<n1>\d[\d,]*(?:\.\d+)?)\s*(?:(?P<f1>\w+)\s+)?(?:{alt})\s*"
         rf"(?:(?P<d1>{_PER_DAY})|(?P<m1>{_PER_MONTH}))"
         rf"|(?:reach|target(?:ing)?|hit)\s+(?P<n2>\d[\d,]*(?:\.\d+)?)\s+"
         rf"(?:(?P<d2>daily)|(?P<m2>monthly))",
@@ -2225,16 +2228,25 @@ def _volume_claim_re(unit_noun: str | None) -> re.Pattern:
 
 
 def _stated_volumes(four_ps: dict, unit_noun: str | None = None
-                    ) -> list[tuple[str, float, str]]:
-    """(section, number, period) for every operating-volume figure the 4Ps prose states.
+                    ) -> list[tuple[str, float, str, str | None]]:
+    """(section, number, period, qualifier) for every volume figure the 4Ps prose states.
 
     The PERIOD is captured rather than assumed. A daily figure inside a monthly business is
     not a missing match — it is a claim, and one worth checking, because a section that
     writes "23 bookings per day" against a 57/month plan is off by 12x and used to read as
     "no section states a daily volume".
+
+    The QUALIFIER is the non-demand modifier between number and noun, when one exists.
+    MEASURED (job 6d1e27a2, 2026-08-21): place wrote 'Set a target of 5 creator visits per
+    month' — influencer visits, a marketing cadence — and the report was WITHHELD because
+    5/month is no rung. '15 referral bookings monthly' and '120 digital transactions daily'
+    are the same shape: slices and cadences, not the total the ladder prices. A modifier
+    that is itself a demand noun ('100 drink sales per day') does NOT qualify the claim —
+    both words say demand, and that figure is the operating volume.
     """
     pattern = _volume_claim_re(unit_noun)
-    out: list[tuple[str, float, str]] = []
+    nouns = {_singular(n) for n in (*_GENERIC_UNIT_NOUNS, unit_noun or "") if n}
+    out: list[tuple[str, float, str, str | None]] = []
     for section in ("product", "price", "place", "promotion"):
         body = four_ps.get(section)
         if body is None:
@@ -2243,8 +2255,10 @@ def _stated_volumes(four_ps: dict, unit_noun: str | None = None
         for m in pattern.finditer(text):
             raw = m.group("n1") or m.group("n2")
             period = "month" if (m.group("m1") or m.group("m2")) else "day"
+            filler = m.group("f1") if m.group("n1") else None
+            qualifier = filler if (filler and _singular(filler) not in nouns) else None
             try:
-                out.append((section, float(str(raw).replace(",", "")), period))
+                out.append((section, float(str(raw).replace(",", "")), period, qualifier))
             except (TypeError, ValueError):
                 continue
     return out
@@ -2252,7 +2266,7 @@ def _stated_volumes(four_ps: dict, unit_noun: str | None = None
 
 def _stated_daily_volumes(four_ps: dict) -> list[tuple[str, float]]:
     """Back-compat shim: the pre-#100 signature, daily claims only."""
-    return [(s, v) for s, v, p in _stated_volumes(four_ps) if p == "day"]
+    return [(s, v) for s, v, p, _q in _stated_volumes(four_ps) if p == "day"]
 
 
 def d61_volume_targets_match_the_ladder(r: dict, html: Optional[str]) -> Finding:
@@ -2341,11 +2355,23 @@ def d61_volume_targets_match_the_ladder(r: dict, html: Optional[str]) -> Finding
         return abs(value - rung) <= max(0.51, 0.005 * rung)
 
     bad = []
-    for section, value, period in stated:
+    ceiling_bound = max(rungs.values())
+    for section, value, period, qualifier in stated:
         # Restate the prose's figure in the ladder's period before comparing. "23 bookings
         # per day" beside a 57/month plan is a claim of 690/month, and comparing 23 to 57
         # would have called it merely low rather than 12x the plan.
         as_ladder = value * (per_year[period] / per_year[ladder_period])
+        if qualifier is not None:
+            # A qualified claim ('5 creator visits/month', '15 referral bookings monthly')
+            # is a slice or cadence the ladder cannot demand rung-equality of — but demand
+            # arithmetic still bounds it: a segment of demand cannot exceed all demand
+            # (run6 claimed 100 commuter drinks/day against a 13.5/day ceiling).
+            if as_ladder > ceiling_bound * 1.005:
+                bad.append(f"{section} states {value:g} {qualifier} "
+                           f"{unit_noun or 'units'}/{period}, which would exceed the "
+                           f"obtainable ceiling ({ceiling_bound:,.1f}/{ladder_period}) — "
+                           f"a segment of demand cannot be bigger than all demand")
+            continue
         if not any(_is_rung(as_ladder, v) for v in rungs.values()):
             bad.append(f"{section} states {value:g}/{period}")
     if bad:

@@ -190,6 +190,41 @@ class TestD61NoInventedVolumes(unittest.TestCase):
         f = self._d61(self._report({"place": "Focus on community events."}))
         self.assertIsNone(f.ok)
 
+    def test_a_marketing_cadence_is_not_an_operating_volume(self):
+        """MEASURED (job 6d1e27a2, 2026-08-21): place wrote 'Set a target of 5 creator
+        visits per month' — influencer visits, a marketing cadence — and the report was
+        WITHHELD because 5/month is not a rung. A qualified noun phrase (a non-demand
+        modifier between number and unit noun) is a slice or cadence the ladder cannot
+        grade; the gate must not demand rung-equality of it."""
+        f = self._d61(self._report({
+            "place": "Plan for 195 drinks per day. Set a target of 5 creator visits "
+                     "per month to drive awareness."}))
+        self.assertTrue(f.ok, f.detail)
+
+    def test_a_channel_slice_below_the_ceiling_passes(self):
+        # c48497fa wrote '15 referral bookings monthly' — a channel contribution,
+        # legitimately not the total operating volume.
+        f = self._d61(self._report({
+            "place": "Plan for 195 drinks per day, including 15 referral drinks "
+                     "per month from partner cafes."}))
+        self.assertTrue(f.ok, f.detail)
+
+    def test_a_slice_cannot_exceed_total_demand(self):
+        """run6 wrote '100 commuter drinks daily' against a 13.5/day ceiling. A segment
+        of demand cannot be bigger than all demand — the one thing the ladder CAN say
+        about a qualified claim."""
+        f = self._d61(self._report({
+            "place": "Capture 999 commuter drinks per day at the morning peak."}))
+        self.assertFalse(f.ok)
+        self.assertIn("exceed", f.detail.lower())
+
+    def test_a_demand_noun_modifier_is_still_a_bare_claim(self):
+        # run13 wrote '100 drink sales per day' — both words are demand nouns; that IS
+        # the operating volume, and an invented one still fails.
+        f = self._d61(self._report({
+            "place": "Target 100 drink sales per day."}))
+        self.assertFalse(f.ok)
+
 
 if __name__ == "__main__":
     unittest.main()
