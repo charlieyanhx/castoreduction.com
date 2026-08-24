@@ -1740,7 +1740,9 @@ class TestRedditSignal(unittest.TestCase):
             {"title": "Acme Issue", "selftext": "Acme broken", "subreddit": "PPC", "score": 8, "url": "u3",
              "comments": [{"body": "Acme tracking is awful", "score": 2}]},
         ]
-        with patch("reddit_signal._pullpush_search", return_value=threads_payload), \
+        with patch("reddit_signal._praw_search", return_value=[]), \
+             patch("reddit_signal._arctic_search", return_value=[]), \
+             patch("reddit_signal._pullpush_search", return_value=threads_payload), \
              patch("reddit_signal._ddg_reddit_search", return_value=[]), \
              patch("reddit_signal._fetch_thread_json", side_effect=thread_data), \
              patch("reddit_signal._llm_label_themes", return_value={
@@ -1764,7 +1766,14 @@ class TestRedditSignal(unittest.TestCase):
 
     def test_fetch_signal_uses_ddg_when_pullpush_short(self):
         from unittest.mock import patch
-        with patch("reddit_signal._pullpush_search", return_value=[]), \
+        # The praw/arctic tiers sit ABOVE pullpush (adoption #2) and MUST be pinned:
+        # unmocked, _arctic_search queries the LIVE archive (r/smallbusiness is always
+        # derived) and whether these tests passed depended on what the live API
+        # returned for 'Acme' that day. Measured: green 2026-08-20, red 2026-08-21,
+        # same code.
+        with patch("reddit_signal._praw_search", return_value=[]), \
+             patch("reddit_signal._arctic_search", return_value=[]), \
+             patch("reddit_signal._pullpush_search", return_value=[]), \
              patch("reddit_signal._ddg_reddit_search", return_value=["https://reddit.com/r/x/comments/aa/q/"]) as mddg, \
              patch("reddit_signal._fetch_thread_json", return_value={
                  "title": "Acme T", "subreddit": "x", "comments": [{"body": "Acme ok"}], "url": "u"
