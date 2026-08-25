@@ -282,10 +282,19 @@ def extract_differentiators(
     clustering: dict,
     competitors: list[dict],
     evidence: dict | None = None,
+    founder_claim: str | None = None,
 ) -> dict:
     """
     Spec step 3d. Returns structured differentiators + gaps + positioning summary.
     Degrades to empty dict on LLM failure — non-fatal.
+
+    `founder_claim` (R3, 88b416f6): the differentiation the FOUNDER declared in the
+    brief. It is a hypothesis to verify, never auto-accepted — but it must also never
+    vanish: that run printed "0 differentiators ... commodity copycat" while the
+    founder's claim ("Bespoke RAG pipelines ... versus generic standard LLMs") sat
+    unread in the description. The claim rides the output verbatim so the report can
+    say "claimed, not confirmed against the roster" instead of insulting the founder
+    with their own dropped input.
     """
     profile_blob = json.dumps({
         # THE seam where a placeholder became prose: a live report read "As an emerging
@@ -300,6 +309,10 @@ def extract_differentiators(
     }, indent=2)[:800]
 
     our_features_blob = "\n".join(f"  - {f}" for f in (our_features or [])[:10]) or "  (no features listed)"
+    if founder_claim:
+        our_features_blob += (
+            f"\n  - FOUNDER-CLAIMED DIFFERENTIATION (verify against the competitor "
+            f"evidence; keep only if the evidence supports it): {founder_claim[:300]}")
 
     clusters_blob = ""
     for c in (clustering.get("clusters") or [])[:6]:
@@ -424,6 +437,9 @@ def extract_differentiators(
         "differentiation_strength": strength,
         "strength_reasoning": strength_reasoning,
     }
+    if founder_claim:
+        result["founder_claimed"] = founder_claim
+        result["founder_claim_confirmed"] = bool(all_diffs)
 
     # Normalize list-of-strings inputs from LLMs that deviate from the schema
     def _normalize_items(items, key_a, key_b):

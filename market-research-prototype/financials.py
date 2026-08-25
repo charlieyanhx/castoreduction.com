@@ -22,6 +22,9 @@ Why the old shape was wrong (measured on the full 16-venture corpus):
 Deterministic math over upstream estimates — no LLM call, zero added cost.
 """
 from __future__ import annotations
+
+import re as _re
+
 from logger import get
 
 log = get("financials")
@@ -633,3 +636,55 @@ def ladder_inputs(economics: dict | None, market_sizing: dict | None,
         "is_stock": price_basis == "per_period","unit": unit, "price": price, "period": period,
             "measure": (target or {}).get("measure") or ("units" if price else "revenue"),
             "target": target, "rungs": rungs}
+
+
+# R3 (88b416f6): the Q13 contract — the survey LISTENS to the founder's year-one
+# goal; the report CHECKS it. That run's founder stated "100 customers / units in
+# Year 1" and the artifact never mentioned it: no consumer existed, on any entry
+# path. This is the consumer. Deterministic, unit-aware where the facts allow,
+# honest about unit uncertainty where they do not.
+_GOAL_N_RE = _re.compile(r"(\d[\d,]*(?:\.\d+)?)")
+
+
+def founder_goal_check(facts: dict | None, financials: dict | None) -> dict | None:
+    """Grade the founder's stated year-one goal against the model's base-case Y1.
+
+    Returns {stated, goal_units, plan_units, unit, ratio, verdict} or None when
+    either side is missing. `goal_units` converts customers→seats via the
+    seats_per_account fact when the plan counts seats; without that fact the
+    comparison stays in the founder's own unit and says so."""
+    facts = facts or {}
+    stated = str(facts.get("success_target") or "").strip()
+    scenarios = ((financials or {}).get("scenarios") or {})
+    plan_y1 = ((scenarios.get("base") or {}).get("year_1") or {}).get("customers")
+    if not stated or not isinstance(plan_y1, (int, float)) or plan_y1 <= 0:
+        return None
+    m = _GOAL_N_RE.search(stated)
+    if not m:
+        return None
+    goal_n = float(m.group(1).replace(",", ""))
+    unit_note = ""
+    goal_units = goal_n
+    seats_m = _GOAL_N_RE.search(str(facts.get("seats_per_account") or ""))
+    if seats_m and "customer" in stated.lower():
+        # The plan's Y1 figure counts seats for per-seat models; the founder said
+        # customers. Convert with the founder's own seats-per-account answer.
+        goal_units = goal_n * float(seats_m.group(1))
+        unit_note = (f"{goal_n:g} customers x {seats_m.group(1)} seats each = "
+                     f"{goal_units:g} seats")
+    ratio = goal_units / float(plan_y1)
+    if 0.75 <= ratio <= 1.33:
+        verdict = "in line with the model's base case"
+    elif ratio < 0.75:
+        verdict = "more conservative than the model's base case"
+    else:
+        verdict = ("above the model's base case — reaching it needs the aggressive "
+                   "scenario's assumptions")
+    return {
+        "stated": stated,
+        "goal_units": round(goal_units, 1),
+        "plan_units": round(float(plan_y1), 1),
+        "ratio": round(ratio, 2),
+        "unit_note": unit_note,
+        "verdict": verdict,
+    }

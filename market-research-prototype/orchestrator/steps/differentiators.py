@@ -45,6 +45,10 @@ def run_differentiators_step(result: dict, profile: dict, opps: list, *,
                 clustering=result.get("clustering") or {},
                 competitors=opps,
                 evidence=_diff_evidence,
+                # R3 (88b416f6): the founder's declared differentiation is a
+                # hypothesis this step must test — not input to drop on the floor.
+                founder_claim=str(((result.get("intake") or {}).get("facts") or {})
+                                  .get("differentiation") or "") or None,
             )
             if "error" not in diffs:
                 result["differentiators"] = diffs
