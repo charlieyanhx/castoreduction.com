@@ -177,18 +177,30 @@ class TestWebGroundedDiscovery(unittest.TestCase):
         self.assertLessEqual(len(out), 18)
 
     def test_signal_gathering_pulls_in_web_competitors(self):
-        # End-to-end at the function level: _run_signal_gathering_and_synthesis must
-        # union web competitors, so they land in the enriched/ranked set + density.
+        # End-to-end at the function level. 4268900 moved the web fan-out OUT of
+        # _run_signal_gathering_and_synthesis — it is now the PRIMARY sourcing step
+        # (_web_fanout_primary in discover(), with _union_web_discovered_competitors
+        # as the additive path) — so the invariant is pinned at its new home: web
+        # competitors reach the candidate set that signal gathering consumes.
         import discover
         web = [{"name": "WebRivalCo", "domain": "webrival.com"}]
-        with patch("discover._msd", return_value=self._ev(web)), \
-             patch("discover._verify_competitor_completeness",
+        with patch("discover._msd", return_value=self._ev(web)):
+            primary = discover._web_fanout_primary("CRM", "US", 10)
+        self.assertIn("WebRivalCo", {c.get("name") for c in primary})
+        with patch("discover._msd", return_value=self._ev(web)):
+            unioned = discover._union_web_discovered_competitors(
+                [{"name": "AlphaCo"}], "CRM", "US", 10)
+        names = {c.get("name") for c in unioned}
+        self.assertIn("WebRivalCo", names)
+        self.assertIn("AlphaCo", names)
+        # ...and the enrichment stage still carries whatever candidates it is handed.
+        with patch("discover._verify_competitor_completeness",
                    side_effect=lambda cands, *a, **k: cands), \
              patch("discover._gather_signals", side_effect=lambda brand, category, geo:
                    {"brand": brand.get("name"), "_score": 10}), \
              patch("discover.call_json", return_value={"ranked_opportunities": []}):
             result = discover._run_signal_gathering_and_synthesis(
-                {"steps": {}}, [{"name": "AlphaCo"}], "CRM", "US", 10)
+                {"steps": {}}, unioned, "CRM", "US", 10)
         enriched_names = {e.get("brand") for e in result["steps"]["signals"]}
         self.assertIn("WebRivalCo", enriched_names)
         self.assertIn("AlphaCo", enriched_names)
