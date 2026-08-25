@@ -179,14 +179,47 @@ def _ddgs(query: str, max_results: int = 8) -> list[dict]:
     return out
 
 
+# Hosts that host MANY companies' content and therefore can never be ONE brand's
+# identity domain. MEASURED (88b416f6 audit): Dify.ai rostered with github.com had
+# its personas decoded from GitHub's Trustpilot reviews, its "low customer
+# satisfaction" claim from github.com's 1.93 stars, and its firmographics from
+# GitHub Inc's org. Worse than no domain — every identity consumer refuses these.
+SHARED_PLATFORM_HOSTS = frozenset({
+    "github.com", "github.io", "gitlab.com", "gitlab.io", "bitbucket.org",
+    "sourceforge.net", "npmjs.com", "pypi.org", "readthedocs.io",
+    "apps.apple.com", "play.google.com", "chrome.google.com",
+    "wordpress.com", "wixsite.com", "squarespace.com", "webflow.io",
+    "notion.site", "sites.google.com", "carrd.co", "gumroad.com",
+    "huggingface.co", "streamlit.app", "vercel.app", "netlify.app",
+    "herokuapp.com", "pages.dev", "shopify.com", "myshopify.com",
+    "etsy.com", "gofundme.com", "kickstarter.com", "patreon.com",
+    "eventbrite.com", "meetup.com", "discord.gg", "discord.com", "slack.com",
+    "t.me", "telegram.org", "docs.google.com", "drive.google.com",
+})
+
+
+def is_shared_platform_host(host: str) -> bool:
+    """True when `host` (bare domain or www-prefixed) is a shared platform that can
+    never serve as one company's identity domain."""
+    h = (host or "").lower().strip().lstrip(".")
+    if h.startswith("www."):
+        h = h[4:]
+    if h in SHARED_PLATFORM_HOSTS:
+        return True
+    # subdomain of a shared host (brand.github.io, shop.myshopify.com):
+    # the registrable identity is still the platform's, not the brand's.
+    return any(h.endswith("." + p) for p in SHARED_PLATFORM_HOSTS)
+
+
 def filter_aggregator_domains(results: Iterable[dict]) -> list[dict]:
-    """Strip noise hosts like reddit/wikipedia/g2/medium that aren't real companies."""
+    """Strip noise hosts like reddit/wikipedia/g2/medium that aren't real companies,
+    plus shared platform hosts that are never ONE company's identity."""
     SKIP = (
         "reddit.com", "linkedin.com", "wikipedia.org", "g2.com", "capterra.com",
         "medium.com", "substack.com", "quora.com", "youtube.com", "youtu.be",
         "producthunt.com", "crunchbase.com", "glassdoor.com", "forbes.com",
         "techcrunch.com", "hackernews.com", "news.ycombinator.com",
-    )
+    ) + tuple(SHARED_PLATFORM_HOSTS)
     out = []
     for r in results:
         try:

@@ -411,15 +411,25 @@ def d28_domain_identity_verified(r: dict, html: Optional[str]) -> Finding:
     if not ops:
         return Finding(None, "no ranked competitors")
     from sources import brand_names_match
+    from scrape.search import is_shared_platform_host
     bad = []
+    shared = []
     for op in ops:
         if not isinstance(op, dict):
             continue
+        # R1 (88b416f6): a shared platform host can never be a competitor's identity.
+        # Dify.ai rostered with github.com had five report surfaces describe GitHub.
+        dom = str(op.get("domain") or "")
+        if dom and is_shared_platform_host(dom):
+            shared.append(f"{op.get('brand')} -> {dom}")
         if (op.get("domain_source") == "pattern_probe"
                 and op.get("domain_confidence") == "medium"):
-            label = str(op.get("domain") or "").split(".")[0]
+            label = dom.split(".")[0]
             if label and not brand_names_match(str(op.get("brand") or ""), label):
-                bad.append(f"{op.get('brand')} -> {op.get('domain')}")
+                bad.append(f"{op.get('brand')} -> {dom}")
+    if shared:
+        return Finding(False, "roster domain is a shared platform host, not the "
+                              "brand's identity: " + "; ".join(shared[:3]))
     if bad:
         return Finding(False, "pattern-probed domain fails the brand-identity match: "
                               + "; ".join(bad[:3]))
@@ -2308,6 +2318,7 @@ def d61_volume_targets_match_the_ladder(r: dict, html: Optional[str]) -> Finding
     # obeyed it, and the gate is back to being a second owner of the number.
     shown = fp.get("_volume_ladder")
     stamped_ladder = False
+    stamped_stock = False
     if isinstance(shown, dict) and isinstance(shown.get("rungs"), dict):
         stamped_rungs = {k: float(v) for k, v in shown["rungs"].items()
                          if isinstance(v, (int, float)) and not isinstance(v, bool)}
@@ -2315,6 +2326,10 @@ def d61_volume_targets_match_the_ladder(r: dict, html: Optional[str]) -> Finding
             rungs, stamped_ladder = stamped_rungs, True
             ladder_period = shown.get("period") or ladder_period
             unit_noun = shown.get("unit") or unit_noun
+            # R4 (88b416f6): present ONLY on post-fix artifacts, whose prompt taught
+            # the stock/flow distinction. Legacy stamps lack the key and keep their
+            # old grading — a report is graded against the ladder it was written from.
+            stamped_stock = bool(shown.get("is_stock"))
     if not stamped_ladder and ladder_period == "day" and "obtainable ceiling" in rungs:
         # An artifact from before the ladder was stamped had its ceiling written as
         # som/price/365; the model divides by 360 open days. Un-stamped reports are graded
@@ -2356,6 +2371,18 @@ def d61_volume_targets_match_the_ladder(r: dict, html: Optional[str]) -> Finding
 
     bad = []
     ceiling_bound = max(rungs.values())
+    if stamped_stock and stated:
+        # R4: on a stock ladder every per-period phrasing is wrong BY FORM, rung value
+        # or not — "320 seats/month" states a 12x-larger acquisition flow than the
+        # 320-active-seat stock the model planned. (Only per-period claims reach this
+        # gate at all; "320 active seats" carries no period marker and never matches.)
+        flow_claims = [f"{s_} states {v:g} {unit_noun or 'unit'}s/{p_}"
+                       for s_, v, p_, _q in stated]
+        return Finding(False,
+                       "; ".join(flow_claims[:4]) + " — but this model's ladder counts "
+                       f"a STOCK ({unit_noun or 'unit'}s held at once), and phrasing a "
+                       "stock as a per-period flow overstates the acquisition rate "
+                       "(320 active seats is not 320 seats acquired every month)")
     for section, value, period, qualifier in stated:
         # Restate the prose's figure in the ladder's period before comparing. "23 bookings
         # per day" beside a 57/month plan is a claim of 690/month, and comparing 23 to 57

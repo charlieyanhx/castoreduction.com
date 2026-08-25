@@ -477,12 +477,27 @@ def probe_domain_patterns(brand: str, context_keyword: str = "") -> Optional[dic
     return best
 
 
-@cached("brand_domain")
 def resolve_brand_domain(brand: str, context: str = "") -> Optional[str]:
     """
     Searches DuckDuckGo for '{brand} {context}' and returns the first non-social
     result domain. Free, no key required. Falls back to None if nothing usable.
+
+    R1 (88b416f6): the shared-host guard sits OUTSIDE the cache on purpose — the
+    Dify.ai->github.com binding was already sitting in the brand_domain cache, and a
+    guard inside the cached body would have kept serving the poisoned entry for its
+    whole TTL. A cached shared-host value returns None (null-beats-wrong); the entry
+    re-resolves correctly once it expires.
     """
+    got = _resolve_brand_domain_uncached(brand, context)
+    if got:
+        from scrape.search import is_shared_platform_host
+        if is_shared_platform_host(got):
+            return None
+    return got
+
+
+@cached("brand_domain")
+def _resolve_brand_domain_uncached(brand: str, context: str = "") -> Optional[str]:
     q = f"{brand} {context}".strip()
     url = "https://html.duckduckgo.com/html/"
     blocked_hosts = {
@@ -525,6 +540,12 @@ def resolve_brand_domain(brand: str, context: str = "") -> Optional[str]:
             host = m2.group(1).lower()
             root = root_domain(host)  # W2-3: multi-part-TLD aware
             if root in blocked_hosts or host in blocked_hosts:
+                continue
+            # R1 (88b416f6): a shared platform host (github.com et al.) is never a
+            # brand's identity — Dify.ai resolved to github.com and five report
+            # surfaces then described GitHub. Skip to the next organic result.
+            from scrape.search import is_shared_platform_host
+            if is_shared_platform_host(host):
                 continue
             return host  # first organic non-blocked result
     except Exception:
