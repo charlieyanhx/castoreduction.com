@@ -71,7 +71,8 @@ class TestPriceIntelEvidenceIsPublished(unittest.TestCase):
              patch.dict("os.environ", {"CASTOR_SCRAPE_PRICE": "1"}), \
              patch("skills.price_intel.scrape_market_price", return_value=evidence):
             return plan.ground_sizing_bottom_up(
-                dict(self._SIZING), "a team analytics saas", {"geography": "US"},
+                dict(self._SIZING), "a team analytics saas",
+                {"geography": "US", "target_customer": "software teams"},
                 arpu_monthly_fallback=99.0, biz_kind="subscription", result=result)
 
     def test_a_successful_scrape_is_stored_for_the_reader(self):

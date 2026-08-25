@@ -120,7 +120,8 @@ class TestCensusStampRequiresARealArpu(unittest.TestCase):
              patch("skills.sizing.bottom_up.grounded_bottom_up", _fake_bottom_up):
             out = plan.ground_sizing_bottom_up(
                 {"tam": {"mid": 1e9, "method_top_down": {"value_usd": 1e9}}},
-                "a saas", {}, arpu_monthly_fallback=arpu_fallback, biz_kind=biz_kind)
+                "a saas", {"target_customer": "b2b software teams"},
+                arpu_monthly_fallback=arpu_fallback, biz_kind=biz_kind)
         return out["tam"]["method_bottom_up"]
 
     def test_a_stated_price_earns_the_census_stamp(self):
@@ -157,7 +158,8 @@ class TestCensusStampRequiresARealArpu(unittest.TestCase):
              patch.dict("os.environ", {"CASTOR_SCRAPE_PRICE": "0"}), \
              patch("skills.sizing.bottom_up.grounded_bottom_up", _fake_bottom_up):
             out = plan.ground_sizing_bottom_up(
-                {"tam": {"mid": 1e9}}, "a saas", {},
+                {"tam": {"mid": 1e9}}, "a saas",
+                {"target_customer": "b2b software teams"},
                 arpu_monthly_fallback=99.0, biz_kind="subscription")
         self.assertTrue(any("modeled" in n.lower() or "modelled" in n.lower()
                             for n in (out.get("notes") or [])),

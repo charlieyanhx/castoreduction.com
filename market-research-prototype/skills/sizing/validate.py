@@ -209,6 +209,11 @@ def safe_eval_formula(formula: str, refs: Optional[dict] = None) -> Optional[flo
     # one. The SOM is min(supply, demand) BY CONSTRUCTION, that being what a
     # binding-constraint model means, so the reconciler was structurally blind to exactly
     # one figure and it happened to be the headline.
+    # R9 (88b416f6): "~2.0%" made the analog TAM formula unparseable, so the verifier
+    # published "formula could not be reconciled — the figure is unverified" over
+    # arithmetic that reconciles exactly (39M ÷ 0.02 = 1.95B). Approximation marks
+    # are prose, not operators.
+    formula = formula.replace("~", "").replace("≈", "").replace("approx.", "")
     raw_norm = formula.lower().replace("×", "*").replace("÷", "/").replace("·", "*")
     picked = _eval_min_max(raw_norm, refs)
     if picked is not None:

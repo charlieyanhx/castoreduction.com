@@ -109,6 +109,12 @@ def _run_section(section_name: str, prompt_text: str) -> dict:
         out["key_takeaways"] = _derive_takeaways_from_narrative(out.get("narrative", ""))
     if not out.get("citations"):
         out["citations"] = []
+    # R9 (88b416f6): a KEY TAKEAWAY shipped '$2,3424.0' — an unparseable currency
+    # amount ($23,424.0 garbled by the model). Renormalize malformed thousands
+    # grouping deterministically; well-formed amounts pass through untouched.
+    out["narrative"] = _fix_malformed_currency(out.get("narrative", "") or "")
+    out["key_takeaways"] = [_fix_malformed_currency(str(t))
+                            for t in (out.get("key_takeaways") or [])]
     nar = out.get("narrative", "") or ""
     if nar and not nar.rstrip().endswith((".", "!", "?", '"', "”", "’", ")", "*", ":")):
         out["narrative"] = nar.rstrip() + " …[truncated]"
@@ -1355,6 +1361,31 @@ def _first_sentence(text: str) -> str:
     return (text[:180] + "…") if len(text) > 180 else text
 
 
+def _fix_malformed_currency(text: str) -> str:
+    """Re-group dollar amounts whose comma placement is not thousands grouping
+    ('$2,3424.0' -> '$23,424.00' -> printed as '$23,424.0' semantics preserved).
+    Only fires when the existing grouping is malformed."""
+    import re as _re
+
+    def _regroup(m):
+        token = m.group(1)
+        whole = token.split(".", 1)[0]
+        # Already-correct thousands grouping passes through untouched.
+        if _re.fullmatch(r"\d{1,3}(?:,\d{3})*", whole):
+            return "$" + token
+        digits = token.replace(",", "")
+        w, _, frac = digits.partition(".")
+        try:
+            regrouped = "{:,}".format(int(w))
+        except ValueError:
+            return "$" + token
+        return "$" + regrouped + ("." + frac if frac else "")
+
+    # Any $ token that CONTAINS a comma is a grouping candidate; well-formed ones
+    # are returned verbatim inside _regroup.
+    return _re.sub(r"\$(\d[\d,]*,[\d,]*\d(?:\.\d+)?)(?!\d)", _regroup, text)
+
+
 def _derive_takeaways_from_narrative(narrative: str) -> list[str]:
     """
     Iter 41 (#2): when LLM truncated before key_takeaways, salvage 3 bullets
@@ -1441,7 +1472,13 @@ def score_viability(
         real_metrics.append(
             f"- MARKET SIZING (authoritative — score market_opportunity against THIS, not "
             f"the national category): scale='{_scale}', method='{_method}', "
-            f"TAM={_t}, obtainable SOM={_s}, confidence='{ms.get('data_quality') or ms.get('confidence')}'. "
+            f"TAM={_t}, obtainable SOM={_s}, confidence='{ms.get('data_quality') or ms.get('confidence')}'"
+            + (lambda _tri: (
+                f", triangulation: converged={_tri.get('converged')}, "
+                f"confidence='{_tri.get('confidence')}'"
+                + (f", flag: {_tri.get('flag')}" if _tri.get("flag") else "")
+               ) if isinstance(_tri, dict) and _tri else "")
+              ((ms.get("tam") or {}).get("triangulation")) + ". "
             + ("This is a HYPERLOCAL single-location venture — apply the scale-awareness "
                "rule in DIMENSION 1; do NOT use national $-buckets."
                if _method == "trade_area_catchment" else
@@ -1454,6 +1491,22 @@ def score_viability(
         real_metrics.append(f"- EVC verdict: '{economics_evc}'. **Anchor unit_economics_health to this** — 'data-thin' or 'over-priced' should pull score below 50.")
     if economics_clv is not None:
         real_metrics.append(f"- CLV: ${economics_clv}.")
+    # R9 (88b416f6): max_sustainable_cac is CLV/3 BY CONSTRUCTION, so "CLV supports a
+    # viable 3:1 ratio" is tautologically true of any CLV — while the estimated
+    # typical CAC ($1,850, 2.7x the ceiling, CLV:CAC 1.09) never reached this prompt
+    # and unit_economics_health scored 58. The model must grade against the ESTIMATE.
+    _typ_cac = ((economics or {}).get("unit_economics") or {}).get("typical_cac_usd")
+    _max_cac = ((economics or {}).get("cac_target") or {}).get("max_sustainable_cac_usd")
+    if isinstance(_typ_cac, (int, float)) and _typ_cac > 0:
+        _cac_line = (f"- ESTIMATED typical CAC: ${_typ_cac:,.0f}. Grade CLV:CAC "
+                     "against THIS estimate — the 'max sustainable CAC' is CLV/3 by "
+                     "construction and proves nothing.")
+        if isinstance(_max_cac, (int, float)) and _max_cac > 0 and _typ_cac > _max_cac:
+            _cac_line += (f" WARNING: the estimated CAC exceeds the sustainability "
+                          f"ceiling (${_max_cac:,.0f}) by {_typ_cac / _max_cac:.1f}x — "
+                          "unit_economics_health must reflect that (the subscription "
+                          "rubric puts CLV:CAC under 3:1 in the 26-50 band).")
+        real_metrics.append(_cac_line)
     # D22 item 2: economics_evc/economics_clv are subscription-only keys — for every
     # other kind, real_metrics had NOTHING for unit_economics_health. Surface the
     # actual computed economics object (retail_unit_economics' contribution margin,

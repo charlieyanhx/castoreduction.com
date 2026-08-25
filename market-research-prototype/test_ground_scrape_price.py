@@ -32,7 +32,8 @@ class TestScrapedArpuBasis(unittest.TestCase):
         def fake_gb(**kw): cap.update(kw); return _GB
         with patch("skills.price_intel.scrape_market_price", return_value=scrape) as sp, \
              patch("skills.sizing.bottom_up.grounded_bottom_up", side_effect=fake_gb):
-            ground_sizing_bottom_up(_SIZING, "a CRM at $99/month", {"geography": "US"})
+            ground_sizing_bottom_up(_SIZING, "a CRM at $99/month",
+                                    {"geography": "US", "target_customer": "crm software buyers"})
         self.assertEqual(cap["annual_arpu"], 99.0 * 12)             # stated wins
         sp.assert_not_called()                                       # scrape skipped
 
@@ -46,7 +47,8 @@ class TestScrapedArpuBasis(unittest.TestCase):
             # biz_kind is now load-bearing: the modeled price carries the VENTURE's unit,
             # so it may only be annualized for a genuinely monthly model. This test always
             # meant a subscription CRM — it just never had to say so before.
-            ground_sizing_bottom_up(_SIZING, "a CRM, no price", {"geography": "US"},
+            ground_sizing_bottom_up(_SIZING, "a CRM, no price",
+                                    {"geography": "US", "target_customer": "crm software buyers"},
                                     arpu_monthly_fallback=80.0,
                                     biz_kind="subscription")
         self.assertEqual(cap["annual_arpu"], 80.0 * 12)            # modeled fallback used

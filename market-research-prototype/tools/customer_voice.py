@@ -43,7 +43,11 @@ def hackernews_mentions(query: str, limit: int = 20) -> Evidence:
     reddit_mentions or vertical_publication_mentions instead.
     """
     from sources import hackernews_mentions as _impl
-    items = _impl(query, limit=limit) or []
+    items = _impl(query, limit=limit)
+    if items is None:                      # R5: transport failure, not emptiness
+        return Evidence(source="hackernews_mentions", category="customer_voice",
+                        count=0, skeleton=True,
+                        error="source unavailable (fetch failed) — not an empty result")
     return Evidence(
         source="hackernews_mentions",
         category="customer_voice",
