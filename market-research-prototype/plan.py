@@ -62,6 +62,7 @@ from orchestrator.steps import (record_dropped_output, run_with_timeout as _run_
                                 skip_step as _skip_step, step_done as _step_done)
 from orchestrator.steps.clustering import run_clustering_step
 from orchestrator.steps.competitors import run_discover_step
+from orchestrator.steps.competitor_refinement import run_competitor_refinement_step
 from orchestrator.steps.customer_universe import run_customer_universe_step
 from orchestrator.steps.differentiators import run_differentiators_step
 from orchestrator.steps.economics_step import ensure_nonpriced_economics, run_economics_step
@@ -2157,6 +2158,21 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                              competitor_pricing_data=competitor_pricing_data,
                              reddit_data=reddit_data, channel_data=channel_data,
                              checkpoint=checkpoint)
+
+    # --- Step 3e: Gap-seeded competitor refinement --- (→ orchestrator/steps/competitor_refinement.py)
+    # Reads the gaps differentiators just identified, runs targeted round-2 searches
+    # ("who already solves this gap?"), and unions any new rivals into the roster.
+    # Non-fatal: if search is unavailable or no gaps exist, the existing roster is untouched.
+    run_competitor_refinement_step(result, profile, opps, checkpoint=checkpoint)
+
+    # If refinement found new competitors, re-run differentiators so gaps/positioning
+    # reflect the enriched landscape rather than the initial (potentially incomplete) set.
+    if result.get("_refinement_added_competitors"):
+        opps = (result.get("discover", {}).get("synthesis") or {}).get("ranked_opportunities") or opps
+        run_differentiators_step(result, profile, opps,
+                                 competitor_pricing_data=competitor_pricing_data,
+                                 reddit_data=reddit_data, channel_data=channel_data,
+                                 checkpoint=checkpoint)
 
     # segment_summary feeds max_diff, the PSM task and subscription economics — built
     # once here, passed explicitly to each.
