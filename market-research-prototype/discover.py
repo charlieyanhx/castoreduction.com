@@ -394,6 +394,54 @@ def _msd(*args, **kwargs):
     return multi_strategy_discovery(*args, **kwargs)
 
 
+def _union_candidates(base: list[dict], additions: list[dict],
+                      ceiling: int = 30) -> list[dict]:
+    """Merge two candidate lists, deduplicating by lowercased name. Preserves base order;
+    additions are appended only when their name is not already present and the ceiling
+    has not been reached."""
+    out = list(base)
+    existing = {(c.get("name") or "").strip().lower() for c in out}
+    for c in additions:
+        if len(out) >= ceiling:
+            break
+        name = (c.get("name") or "").strip()
+        if not name or name.lower() in existing:
+            continue
+        out.append(c)
+        existing.add(name.lower())
+    return out
+
+
+def _web_fanout_primary(category: str, geo: str, max_candidates: int) -> list[dict]:
+    """Run multi-strategy web fan-out as the PRIMARY competitor sourcing step (was
+    additive cleanup inside _run_signal_gathering_and_synthesis). Returns a list of
+    candidates — empty when search backends are unavailable, so callers always get a
+    list they can union into. Generous ceiling (max_candidates * 2) because
+    collapse_near_dupes and signal scoring trim the roster afterwards."""
+    try:
+        ev = _msd(description=category, geo=geo, max_candidates=max_candidates)
+        web = (getattr(ev, "payload", None) or {}).get("competitors") or []
+    except Exception as e:
+        log.warning("[discover] web fan-out primary failed (non-fatal): %s", e)
+        return []
+    candidates: list[dict] = []
+    existing: set[str] = set()
+    for c in web[:max_candidates * 2]:
+        name = (c.get("name") or "").strip()
+        if not name or name.lower() in existing:
+            continue
+        candidates.append({
+            "name": name,
+            "domain": c.get("domain"),
+            "query_evidence": "web_search",
+            "_seed": "web_fanout_primary",
+            "relationship": c.get("relationship"),
+        })
+        existing.add(name.lower())
+    log.info("[discover] web fan-out primary: %d candidates", len(candidates))
+    return candidates
+
+
 def _union_web_discovered_competitors(candidates: list[dict], category: str, geo: str,
                                       max_candidates: int, ceiling: int = 18) -> list[dict]:
     """Item 2 (scraper audit): ground the competitor SET in LIVE WEB SEARCH, not only
@@ -465,11 +513,16 @@ def _verify_competitor_completeness(candidates: list[dict], category: str, geo: 
     try:
         from tools.scrape import web_search, filter_aggregator_domains
         existing = [(c.get("name") or "").strip() for c in candidates if c.get("name")]
-        queries = [f"top {category} companies", f"{category} competitors"]
-        for seed in existing[:2]:
+        queries = [
+            f"top {category} companies",
+            f"{category} competitors",
+            f"best {category} software",
+            f"{category} market leaders",
+        ]
+        for seed in existing[:4]:  # was [:2] — more seeds surface rivals single-query misses
             queries.append(f"alternatives to {seed}")
         hits: list[dict] = []
-        for q in queries[:4]:
+        for q in queries[:8]:  # was [:4]
             ev = web_search(q, max_results=6)
             rows = (filter_aggregator_domains(ev.payload or []).payload) or []
             hits.extend(r for r in rows if isinstance(r, dict))
@@ -827,18 +880,15 @@ def _gather_signals(brand: dict, category: str, geo: str) -> dict:
 
 
 def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category: str, geo: str, max_candidates: int) -> dict:
-    """Shared logic for steps 3-5: gather signals, optional Meta, LLM synthesis."""
-    # Item 2 (scraper audit): ground the candidate set in live web search before
-    # enrichment — both candidate paths (Trends-extraction and LLM-generation) funnel
-    # through here, so this is the single point that makes the shipped competitor set
-    # web-grounded instead of LLM-recall-only. Best-effort; leaves candidates unchanged
-    # if search is unavailable.
-    candidates = _union_web_discovered_competitors(candidates, category, geo, max_candidates)
+    """Shared logic for steps 3-5: gather signals, optional Meta, LLM synthesis.
 
-    # Item 4 (scraper audit): a second, adversarial completeness pass — 'alternatives to
-    # <known competitor>' searches + an LLM 'what did we miss?' critic grounded in the
-    # fresh results — surfaces real rivals the fan-out / LLM recall both missed. Runs
-    # before enrichment so any additions get the same signal gathering + hygiene.
+    Web fan-out is no longer called here — it runs as the PRIMARY sourcing step in
+    discover() before candidates reach this function. The completeness critic below
+    is retained as a final safety net: it seeds from the already-known set, so it
+    adds only genuine stragglers, not duplicates."""
+    # Adversarial completeness pass: 'alternatives to <known competitor>' + category
+    # queries → LLM 'what did we miss?' critic grounded in fresh search results.
+    # Runs before enrichment so any additions get the same signal gathering + hygiene.
     candidates = _verify_competitor_completeness(candidates, category, geo)
 
     # 3. Gather signals for each candidate.
@@ -989,136 +1039,137 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
 
 
 def discover(category: str, geo: str = "US", max_candidates: int = 10, business_model: str = "", named_competitors: list[str] | None = None) -> dict:
+    """Discover the competitor set for a category.
+
+    Sourcing order (web-first, introduced to fix relevance):
+      1. Web fan-out PRIMARY  — multi-strategy parallel search (best X, alternatives to Y,
+                                G2/Capterra angles). Most relevant source; non-fatal if keys absent.
+      2. Google Trends SUPPLEMENT — adds trending brands not already found. Was the primary
+                                    source; demoted because trending ≠ relevant. Non-fatal.
+      3. LLM generation FALLBACK  — only fires when web + trends together yield < 4 brands.
+      4. named_competitors union  — operator-named brands guaranteed to appear regardless.
+      5. Completeness critic      — adversarial 'what did we miss?' pass (in signal step).
+    """
     log.info(f"[discover] category={category!r} geo={geo}")
     result: dict = {"category": category, "geo": geo, "steps": {}}
 
-    # 1. Category-level trends
-    log.info("[discover] step 1/5: google trends category scan")
+    # --- Step 1: Web fan-out PRIMARY ---
+    log.info("[discover] step 1/5: web fan-out (primary source)")
+    candidates = _web_fanout_primary(category, geo, max_candidates)
+
+    # --- Step 2: Google Trends SUPPLEMENT ---
+    # Non-fatal: if Trends fails or returns nothing, we keep whatever the web fan-out gave us.
+    log.info("[discover] step 2/5: google trends supplement")
     try:
         trends = google_trends_rising(category, geo=geo)
         result["steps"]["trends"] = trends
+        rising = trends.get("rising_queries", [])
+        if not isinstance(rising, list):
+            rising = []
+        if rising:
+            queries_str = "\n".join(
+                f'- "{q.get("query")}" (+{q.get("value")}%)' for q in rising[:30]
+            )
+            try:
+                brands_resp = call_json(
+                    system="You extract brand names from search trend data.",
+                    user=EXTRACT_BRANDS_PROMPT.format(category=category, queries=queries_str),
+                    max_tokens=1500,
+                )
+                trend_brands = brands_resp.get("brands", [])
+                pre = len(candidates)
+                candidates = _union_candidates(candidates, trend_brands, ceiling=max_candidates * 2)
+                log.info("[discover] trends supplement added %d brand(s)", len(candidates) - pre)
+                result["brand_extraction_method"] = (
+                    "web_primary+trends" if candidates else "trends_only"
+                )
+            except Exception as e:
+                log.warning("[discover] trends brand extraction failed (non-fatal): %s", e)
+
+            # Rule-based fallback if LLM extraction failed and trends returned queries
+            if len(candidates) == 0:
+                cat_words = set(category.lower().split()) | {
+                    "best", "review", "reviews", "healthy", "the", "are", "where",
+                    "to", "buy", "how", "why", "is", "new", "top", "for", "vs",
+                    "good", "bad", "cheap", "online", "near", "free", "does", "what",
+                    "can", "should", "which", "your", "our", "with", "without",
+                    "natural", "organic", "premium", "safe", "effective",
+                    "app", "apps", "tracking", "tracker", "device", "tool", "tools",
+                    "supplement", "supplements", "vitamin", "vitamins", "pill", "pills",
+                    "capsule", "capsules", "powder", "gummy", "gummies", "cream",
+                    "serum", "oil", "spray", "mask", "patch", "tape",
+                    "melatonin", "magnesium", "theanine", "ashwagandha", "valerian",
+                    "zinc", "iron", "calcium", "collagen", "retinol", "niacinamide",
+                    "caffeine", "creatine", "protein", "fiber", "probiotic",
+                }
+                seen: set[str] = set()
+                rule_candidates: list[dict] = []
+                for q in rising:
+                    words = [w for w in re.findall(r"[a-z]+", q.get("query", "").lower())
+                             if w not in cat_words and len(w) > 2]
+                    if words:
+                        name = " ".join(words[:2]).title()
+                        if name not in seen:
+                            seen.add(name)
+                            rule_candidates.append({"name": name, "query_evidence": q.get("query")})
+                    if len(rule_candidates) >= max_candidates:
+                        break
+                candidates = _union_candidates(candidates, rule_candidates, ceiling=max_candidates * 2)
+                result["brand_extraction_method"] = "rule_based"
     except Exception as e:
         result["steps"]["trends"] = {"error": str(e)}
-        return result
+        log.warning("[discover] google trends failed (non-fatal): %s", e)
 
-    rising = trends.get("rising_queries", [])
-    # Guard: rising_queries can be a dict {"error": ...} if the API failed
-    if not isinstance(rising, list):
-        rising = []
-
-    # If Google Trends failed or returned nothing, use LLM to generate brand candidates directly
-    if not rising:
-        log.info("[discover] Google Trends returned no data — using LLM brand generation fallback")
+    # --- Step 3: LLM generation FALLBACK (web + trends both thin) ---
+    _MIN_BEFORE_LLM = 4
+    if len(candidates) < _MIN_BEFORE_LLM:
+        log.info("[discover] step 3/5: LLM brand generation (only %d candidates so far)",
+                 len(candidates))
         try:
+            prompt = (LLM_BRAND_GENERATION_PROMPT_B2B
+                      if "b2b" in (business_model or "").lower()
+                      else LLM_BRAND_GENERATION_PROMPT)
             llm_brands = call_json(
                 system="You are a DTC market research analyst with deep knowledge of emerging consumer brands.",
-                # Switch prompt for B2B SaaS / B2B services to avoid surfacing consumer brands
-                user=(LLM_BRAND_GENERATION_PROMPT_B2B if "b2b" in (business_model or "").lower() else LLM_BRAND_GENERATION_PROMPT).format(category=category, geo=geo),
+                user=prompt.format(category=category, geo=geo),
                 max_tokens=2000,
             )
-            candidates = llm_brands.get("brands", [])[:max_candidates]
-            if candidates:
+            llm_candidates = llm_brands.get("brands", [])
+            candidates = _union_candidates(candidates, llm_candidates, ceiling=max_candidates * 2)
+            if not result.get("brand_extraction_method"):
                 result["brand_extraction_method"] = "llm_generated"
-                result["steps"]["trends"] = {
-                    "category": category, "geo": geo,
-                    "slope_12m": None,
-                    "rising_queries": [],
-                    "note": "Google Trends unavailable — brands generated by LLM"
-                }
-                # cycle29: union operator-named competitors here too
-                if named_competitors:
-                    existing_names = {(c.get("name") or "").lower() for c in candidates}
-                    for nc in named_competitors:
-                        nc_clean = (nc or "").strip()
-                        if nc_clean and nc_clean.lower() not in existing_names:
-                            candidates.append({"name": nc_clean, "query_evidence": "named_in_description", "_seed": "operator"})
-                            existing_names.add(nc_clean.lower())
-                    max_candidates = max(max_candidates, len(candidates))
-                # Skip to signal gathering (step 3)
-                log.info(f"  → {len(candidates)} LLM-generated candidates: {[c.get('name') for c in candidates]}")
-                # Jump ahead — set rising to skip the normal extraction
-                result["steps"]["keywords"] = [c.get("name") for c in candidates]
-                # Go directly to signal gathering
-                return _run_signal_gathering_and_synthesis(result, candidates, category, geo, max_candidates)
+            result["steps"]["trends"] = result["steps"].get("trends") or {
+                "category": category, "geo": geo, "slope_12m": None,
+                "rising_queries": [],
+                "note": "Google Trends unavailable — brands generated by LLM",
+            }
         except Exception as e:
-            log.warning("LLM brand generation also failed: %s", e)
+            log.warning("[discover] LLM brand generation failed: %s", e)
 
-        result["error"] = "Could not find opportunities — Google Trends is rate-limited and LLM fallback failed. Try again in a few minutes."
-        return result
-
-    # 2. Extract brand candidates — prefer LLM, fall back to rule-based
-    log.info(f"[discover] step 2/5: extract brand candidates from {len(rising)} rising queries")
-    queries_str = "\n".join(
-        f'- "{q.get("query")}" (+{q.get("value")}%)' for q in rising[:30]
-    )
-    candidates = []
-    try:
-        brands_resp = call_json(
-            system="You extract brand names from search trend data.",
-            user=EXTRACT_BRANDS_PROMPT.format(category=category, queries=queries_str),
-            max_tokens=1500,
+    if not candidates:
+        result["error"] = (
+            "Could not find competitors — web search unavailable, "
+            "Google Trends is rate-limited, and LLM fallback failed."
         )
-        candidates = brands_resp.get("brands", [])[:max_candidates]
-        result["brand_extraction_method"] = "llm"
-    except Exception as e:
-        log.warning("LLM brand extraction failed (%s), using rule-based fallback", e)
-        result["brand_extraction_warning"] = str(e)
-
-    # Fallback: rule-based extraction (strip category words, keep brand names)
-    if not candidates:
-        log.info("  → using rule-based brand extraction fallback")
-        cat_words = set(category.lower().split()) | {
-            # Common filler words
-            "best", "review", "reviews", "healthy", "the", "are", "where",
-            "to", "buy", "how", "why", "is", "new", "top", "for", "vs",
-            "good", "bad", "cheap", "online", "near", "free", "does", "what",
-            "can", "should", "which", "your", "our", "with", "without",
-            "natural", "organic", "premium", "safe", "effective",
-            # Generic product descriptors (not brands)
-            "app", "apps", "tracking", "tracker", "device", "tool", "tools",
-            "supplement", "supplements", "vitamin", "vitamins", "pill", "pills",
-            "capsule", "capsules", "powder", "gummy", "gummies", "cream",
-            "serum", "oil", "spray", "mask", "patch", "tape",
-            # Common ingredients (not brands)
-            "melatonin", "magnesium", "theanine", "ashwagandha", "valerian",
-            "zinc", "iron", "calcium", "collagen", "retinol", "niacinamide",
-            "caffeine", "creatine", "protein", "fiber", "probiotic",
-        }
-        seen: set[str] = set()
-        for q in rising:
-            words = [w for w in re.findall(r"[a-z]+", q.get("query", "").lower())
-                     if w not in cat_words and len(w) > 2]
-            if words:
-                name = " ".join(words[:2]).title()
-                if name not in seen:
-                    seen.add(name)
-                    candidates.append({"name": name, "query_evidence": q.get("query")})
-            if len(candidates) >= max_candidates:
-                break
-        result["brand_extraction_method"] = "rule_based"
-
-    if not candidates:
-        result["error"] = "no brand candidates found from rising queries"
         return result
 
-    # W2-4: collapse near-duplicate trends candidates ('Calm'/'Calm App') before the
+    # --- Step 4: Collapse near-dupes + named competitors ---
+    # W2-4: collapse near-duplicate candidates ('Calm' / 'Calm App') before the
     # operator union so enrichment never runs twice for one company.
     from sources import collapse_near_dupes
     candidates = collapse_near_dupes(candidates)
 
-    # cycle29: union explicit named_competitors from the venture description
-    # so they are GUARANTEED to flow through. Was losing Calm Business / Lyra /
-    # Big Health / BetterUp because trends-based discovery surfaced different
-    # brands than the operator named.
+    # cycle29: operator-named competitors are GUARANTEED to flow through.
     if named_competitors:
         candidates = _union_named_competitors(candidates, named_competitors)
-        # Bump max_candidates so we don't immediately truncate operator seeds
         max_candidates = max(max_candidates, len(candidates))
-        log.info(f"  → seeded {len(named_competitors)} operator-named competitors; total candidates: {len(candidates)}")
+        log.info("  → seeded %d operator-named competitors; total: %d",
+                 len(named_competitors), len(candidates))
 
-    log.info(f"  → {len(candidates)} candidates: {[c.get('name') for c in candidates]}")
+    log.info("  → %d candidates before signal gathering: %s",
+             len(candidates), [c.get("name") for c in candidates])
 
-    # Steps 3-5: gather signals, meta enrichment, synthesis
+    # --- Steps 3-5: Signal gathering, Meta enrichment, LLM synthesis ---
     return _run_signal_gathering_and_synthesis(result, candidates, category, geo, max_candidates)
 
 
