@@ -130,13 +130,22 @@ class TestTheLadderSpeaksTheVenturesLanguage(unittest.TestCase):
     def test_the_header_and_rule_name_the_period_they_mean(self):
         """MEASURED: a monthly venture's ladder was titled "CANONICAL DAILY-VOLUME LADDER"
         and ruled "the ONLY daily volumes you may state" — so a section that obeyed the
-        rule literally would state no volume at all, and run18's sections did exactly that."""
+        rule literally would state no volume at all, and run18's sections did exactly that.
+
+        R4 (88b416f6) refined the contract: a per-period-priced model's ladder counts a
+        STOCK, and its header/rule name the stockness ("ACTIVE ... LADDER", "held at
+        once") instead of a period — "320 seats/month" was a 12x acquisition
+        overstatement wearing the ladder's own numbers. Rate models keep the period."""
         for kind in ("subscription", "services", "marketplace"):
             with self.subTest(kind=kind):
                 txt = _ladder(kind).lower()
                 self.assertNotIn("daily-volume ladder", txt)
                 self.assertNotIn("only daily volumes", txt)
-                self.assertIn("monthly", txt)
+                if "active-" in txt:              # stock ladder (per-period price)
+                    self.assertIn("held at once", txt)
+                    self.assertNotIn("s/month", txt)
+                else:                             # rate ladder keeps its period
+                    self.assertIn("monthly", txt)
 
 
 class TestTheGateCanSeeWhatTheSectionsWrite(unittest.TestCase):

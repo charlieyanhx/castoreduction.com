@@ -701,11 +701,19 @@ def _r_volume_ladder(facts: dict) -> str:
     # one, left the operator with a floor and a roof and nothing in between. The model
     # already knows the answer; it was simply never handed over.
     _n = ladder_number
+    # R4 (88b416f6): a per-period price makes SOM/price/periods a CONCURRENT count — a
+    # STOCK. ladder_inputs already said so (is_stock) and this writer ignored it, so
+    # every section preached "320 seats/month" and "4,000 seats/month": a 12x
+    # overstatement of the acquisition rate, dressed in the ladder's own numbers.
+    _stock = bool(lad.get("is_stock"))
+    _sfx = (f" active {unit}s (held at once)" if _stock else f" {unit}s/{period}")
     parts = []
     if "break-even" in rungs:
-        parts.append(f"break-even ≈ {_n(rungs['break-even'])} {unit}s/{period}")
+        parts.append(f"break-even ≈ {_n(rungs['break-even'])}{_sfx}")
     if "planning target" in rungs:
-        parts.append(f"PLANNING TARGET ≈ {_n(rungs['planning target'])} {unit}s/{period} "
+        _t_sfx = (f" active {unit}s by END of year 1" if _stock
+                  else f" {unit}s/{period}")
+        parts.append(f"PLANNING TARGET ≈ {_n(rungs['planning target'])}{_t_sfx} "
                      f"({target['basis']})")
     elif target and target.get("measure") == "revenue":
         # No unit price anywhere in the economics, so a unit count would be invented. Say
@@ -713,8 +721,9 @@ def _r_volume_ladder(facts: dict) -> str:
         parts.append(f"PLANNING TARGET ≈ ${target['value']:,.0f} revenue/{period} "
                      f"({target['basis']})")
     if "obtainable ceiling" in rungs:
+        _c_sfx = (f" active {unit}s (the year-3 stock)" if _stock else f" {unit}s/{period}")
         parts.append(f"obtainable ceiling (SOM) ≈ "
-                     f"{_n(rungs['obtainable ceiling'])} {unit}s/{period}")
+                     f"{_n(rungs['obtainable ceiling'])}{_c_sfx}")
     if not parts:
         return ""
 
@@ -722,6 +731,15 @@ def _r_volume_ladder(facts: dict) -> str:
     # a monthly venture was told "the ONLY daily volumes you may state are the ones above"
     # over a ladder containing none, so a section obeying the rule literally states no
     # volume at all — which is exactly what run18's sections did.
+    if _stock:
+        rule = (f"HARD RULE: these are ACTIVE {unit} counts — stocks held at once, "
+                f"never rates. Write '{_n(rungs.get('planning target', 0))} active "
+                f"{unit}s by end of year 1'; NEVER attach 'per {period}' to any of "
+                "these numbers — a stock written as a flow overstates the acquisition "
+                "rate twelvefold. Quote the PLANNING TARGET when you need an operating "
+                "number — never a figure of your own. NEVER invent a volume target.")
+        return ("CANONICAL ACTIVE-" + unit.upper() + " LADDER (stocks, not rates) — "
+                + " · ".join(parts) + ". " + rule)
     label = "DAILY" if period == "day" else "MONTHLY"
     rule = (f"HARD RULE: the ONLY {period}-level volumes you may state are the ones above. "
             "Quote the PLANNING TARGET when you need an operating number — never a figure "
@@ -871,6 +889,9 @@ def _volume_ladder_for_artifact(economics, market_sizing, business_model_kind):
         if not lad["rungs"]:
             return None
         return {"unit": lad["unit"], "period": lad["period"],
+                # R4: stockness rides the stamp so D61 can fail per-period phrasing
+                # of a stock on artifacts whose prompt taught the distinction.
+                "is_stock": bool(lad.get("is_stock")),
                 "rungs": {k: round(v, 4) for k, v in lad["rungs"].items()}}
     except Exception:                                        # noqa: BLE001
         return None
