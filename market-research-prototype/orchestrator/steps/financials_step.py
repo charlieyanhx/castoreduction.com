@@ -140,7 +140,13 @@ def run_financials_step(result: dict, profile: dict, *, psm_result: dict, biz_ki
             if not proj.get("error"):
                 # R4 rank 5: a projection computed from a withheld SOM carries the
                 # withhold with it — the data-layer decision the template banner renders.
-                from financials import mark_derived_from_withheld
+                from financials import mark_derived_from_withheld, founder_goal_check
+                # R3 (88b416f6): the Q13 contract's missing half — the founder's
+                # year-one goal, graded against the base case it never used to meet.
+                _goal = founder_goal_check(
+                    ((result.get("intake") or {}).get("facts") or {}), proj)
+                if _goal:
+                    proj["founder_goal_check"] = _goal
                 result["financials"] = mark_derived_from_withheld(
                     proj, result.get("market_sizing"))
                 step_done(result, "financials")

@@ -1104,6 +1104,10 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
   {% if financials.assumptions.break_even_monthly_fixed_cost %}<br><strong>Break-even basis:</strong>
   assumes ${{ '{:,.0f}'.format(financials.assumptions.break_even_monthly_fixed_cost) }}/mo fixed cost and ${{ financials.assumptions.break_even_variable_cost_per_customer }}/customer variable cost
   <span style="color:#9ca3af">({{ financials.assumptions.break_even_cost_source }})</span>. The break-even column is illustrative until the operator sets a real cost structure.{% endif %}
+  {% if financials.founder_goal_check %}<br><strong>Your year-one goal, checked:</strong>
+  you said "{{ financials.founder_goal_check.stated }}"{% if financials.founder_goal_check.unit_note %} ({{ financials.founder_goal_check.unit_note }}){% endif %} —
+  that is {{ financials.founder_goal_check.goal_units }} against the base case's {{ financials.founder_goal_check.plan_units }}
+  ({{ (financials.founder_goal_check.ratio * 100) | round | int }}%), {{ financials.founder_goal_check.verdict }}.{% endif %}
 </div>
 {% endif %}
 {% endif %}

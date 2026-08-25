@@ -558,6 +558,87 @@ def _synthesize_from_extracted(ex: dict) -> str:
     return " ".join(parts)
 
 
+# R3 (88b416f6): the INVERSE of _synthesize_from_extracted, kept beside it so the two
+# stay in sync. Run 88b416f6's description carried this composer's labels verbatim but
+# the client never sent intake_record, so result["intake"] was {} and every
+# intake-driven mechanism went blind: the founder's $1,000/month operating cost never
+# reached the cost anchor (an UNSOURCED $22,000 LLM guess shipped instead), the
+# year-one goal appeared nowhere, the declared differentiation was dropped and the
+# report called the venture a "commodity copycat". Exact labels only — a free-prose
+# description yields {} rather than guesses.
+_PARSE_LABELS: tuple[tuple[str, str], ...] = (
+    ("target_customer", "Target customer:"),
+    ("business_model", "Business model:"),
+    ("geography", "Located in"),
+    ("pricing", "Pricing:"),
+    ("differentiation", "Differentiation:"),
+    ("stage", "Stage:"),
+    ("key_features", "Key features:"),
+    ("site", "The exact site:"),
+    ("capacity", "Capacity:"),
+    ("avg_ticket", "Typical price:"),
+    ("avg_order", "Typical order value:"),
+    ("avg_transaction", "Typical transaction:"),
+    ("pricing_unit_scope", "The fee is charged"),
+    ("seats_per_account", "Typically"),
+    ("side_first", "Supply/demand priority:"),
+    ("team_size", "Team who can deliver the work:"),
+    ("sales_motion", "Sales motion:"),
+    ("channel", "Sales channel:"),
+    ("payer", "Revenue comes from:"),
+    ("audience_threshold", "Audience needed before revenue:"),
+    ("hybrid_legs", "Revenue legs:"),
+    ("named_competitors", "Named competitors:"),
+    ("status_quo", "What customers do today instead:"),
+    ("monthly_cost_estimate", "Founder's estimated monthly operating cost:"),
+    ("customer_evidence", "Customer conversations so far:"),
+    ("success_target", "The founder's year-one goal:"),
+    ("real_traction", "Traction to date:"),
+    ("regulatory", "Known regulatory requirements:"),
+    ("local_anchor", "Founder-supplied local figure:"),
+    ("_assumptions", "The founder does not know yet"),
+)
+
+
+def facts_from_description(description: str) -> dict:
+    """Reconstruct the intake facts from a brief this module's own composer wrote.
+
+    Each value spans from its label to the next known label (or end of text), with
+    the sentence-final period trimmed. Fields whose templates are too generic to
+    invert safely (bare "{}." lines) are simply not recovered — a missing fact beats
+    a wrong one. Returns {} for text that carries none of the composer's labels."""
+    text = (description or "").strip()
+    if not text:
+        return {}
+    hits: list[tuple[int, int, str]] = []      # (label_start, value_start, field)
+    for field, label in _PARSE_LABELS:
+        idx = text.find(label)
+        if idx < 0:
+            continue
+        # Labels must start a sentence (or the text) — "typically ~2 seats" inside a
+        # pricing value must not read as the seats_per_account label.
+        if idx and text[max(0, idx - 2):idx] not in (". ", "! ", "? "):
+            continue
+        hits.append((idx, idx + len(label), field))
+    if not hits:
+        return {}
+    hits.sort()
+    facts: dict = {}
+    for n, (start, vstart, field) in enumerate(hits):
+        end = hits[n + 1][0] if n + 1 < len(hits) else len(text)
+        value = text[vstart:end].strip()
+        if value.endswith("."):
+            value = value[:-1].rstrip()
+        # Un-invertible template suffixes, trimmed where distinctive.
+        if field == "seats_per_account" and value.endswith("users per customer"):
+            value = value[: -len("users per customer")].strip()
+        if field == "_assumptions":
+            continue                          # disclosure line, not a fact
+        if value:
+            facts[field] = value
+    return facts
+
+
 def _fallback_question(ex: dict) -> str:
     if not ex.get("product"):
         return "Could you describe what your product does in one or two sentences?"
