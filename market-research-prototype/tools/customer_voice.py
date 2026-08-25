@@ -61,7 +61,11 @@ def stackexchange_mentions(query: str, limit: int = 15, site: str = "stackoverfl
     Q&A prefer hackernews_mentions or reddit_mentions.
     """
     from sources import stackexchange_mentions as _impl
-    items = _impl(query, limit=limit, site=site) or []
+    items = _impl(query, limit=limit, site=site)
+    if items is None:                      # R5: transport failure, not emptiness
+        return Evidence(source="stackexchange_mentions", category="customer_voice",
+                        count=0, skeleton=True,
+                        error="source unavailable (fetch failed) — not an empty result")
     return Evidence(
         source="stackexchange_mentions",
         category="customer_voice",
@@ -79,7 +83,11 @@ def devto_mentions(query: str, limit: int = 15) -> Evidence:
     threads or Q&A signal — that is hackernews_mentions / stackexchange_mentions.
     """
     from sources import devto_mentions as _impl
-    items = _impl(query, limit=limit) or []
+    items = _impl(query, limit=limit)
+    if items is None:                      # R5: transport failure, not emptiness
+        return Evidence(source="devto_mentions", category="customer_voice",
+                        count=0, skeleton=True,
+                        error="source unavailable (fetch failed) — not an empty result")
     return Evidence(
         source="devto_mentions",
         category="customer_voice",
@@ -96,7 +104,11 @@ def lobsters_mentions(query: str, limit: int = 15) -> Evidence:
     zero hits here mean little; pair with hackernews_mentions for coverage.
     """
     from sources import lobsters_mentions as _impl
-    items = _impl(query, limit=limit) or []
+    items = _impl(query, limit=limit)
+    if items is None:                      # R5: transport failure, not emptiness
+        return Evidence(source="lobsters_mentions", category="customer_voice",
+                        count=0, skeleton=True,
+                        error="source unavailable (fetch failed) — not an empty result")
     return Evidence(
         source="lobsters_mentions",
         category="customer_voice",
@@ -114,7 +126,11 @@ def vertical_publication_mentions(brand: str, category: str, limit: int = 10) ->
     it returns [] by design; those are covered by the HN/SO/Reddit chain.
     """
     from sources import vertical_publication_mentions as _impl
-    items = _impl(brand, category, limit=limit) or []
+    items = _impl(brand, category, limit=limit)
+    if items is None:                      # R5: transport failure, not emptiness
+        return Evidence(source="vertical_publication_mentions",
+                        category="customer_voice", count=0, skeleton=True,
+                        error="source unavailable (fetch failed) — not an empty result")
     return Evidence(
         source="vertical_publication_mentions",
         category="customer_voice",

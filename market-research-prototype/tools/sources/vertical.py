@@ -78,9 +78,12 @@ def vertical_publication_mentions(brand: str, category: str, limit: int = 10) ->
         from scrape import search as _search
     except ImportError:
         return []
+    # R5 (88b416f6): None = every search failed (UNAVAILABLE); [] = searched, nothing.
+    _any_search_ok = False
     for pub in matched_pubs[:5]:
         try:
             hits = _search.search(f'site:{pub} "{brand}"', max_results=4)
+            _any_search_ok = True
             for h in hits:
                 url = h.get("url") or ""
                 if url in seen or not url.startswith("http"):
@@ -96,4 +99,4 @@ def vertical_publication_mentions(brand: str, category: str, limit: int = 10) ->
                     return out
         except Exception:
             continue
-    return out
+    return out if _any_search_ok else None

@@ -161,7 +161,8 @@ def run_evidence_step(result: dict, profile: dict, opps: list,
         category = profile.get("category", "")
         is_tech = _is_tech_venture(profile)
         log.info("[plan] Step 6e: customer-voice sources for '%s' (tech_forums=%s)", target, is_tech)
-        out = {"stackoverflow": [], "devto": [], "lobsters": [], "vertical_pubs": [], "_tech": is_tech}
+        out = {"stackoverflow": [], "devto": [], "lobsters": [], "vertical_pubs": [],
+               "_tech": is_tech, "_unavailable": {}}
         with ThreadPoolExecutor(max_workers=4) as p:
             futs = {"vertical_pubs": p.submit(vertical_publication_mentions, target, category, 10)}
             if is_tech:  # dev forums only help tech/dev/SaaS ventures
@@ -170,10 +171,18 @@ def run_evidence_step(result: dict, profile: dict, opps: list,
                 futs["lobsters"] = p.submit(lobsters_mentions, target, 10)
             for name, fut in futs.items():
                 try:
-                    out[name] = fut.result(timeout=25) or []
+                    res = fut.result(timeout=25)
                 except Exception as e:
                     log.warning(f"[plan] {name} fetch failed (non-fatal): {e}")
+                    res = None
+                # R5 (88b416f6): None = transport failure. "0 of 6 sources returned
+                # data" once described an outage; unavailable and empty must never
+                # share a value.
+                if res is None:
                     out[name] = []
+                    out["_unavailable"][name] = True
+                else:
+                    out[name] = res
         return out
 
     taste_results: list[dict] = []
@@ -258,6 +267,10 @@ def run_evidence_step(result: dict, profile: dict, opps: list,
         _is_tech_run = bool(multisrc_data.get("_tech"))
         result["multi_source_signal"] = {
             "query": target_for_voice,
+            # R5 (88b416f6): the template's tech clause gates on _tech; the allowlist
+            # dropped it, so a SaaS report claimed dev forums were "skipped for
+            # non-tech ventures" while the artifact showed all three queried.
+            "_tech": _is_tech_run,
             "stackoverflow": (multisrc_data.get("stackoverflow") or [])[:8],
             "devto": (multisrc_data.get("devto") or [])[:6],
             "lobsters": (multisrc_data.get("lobsters") or [])[:6],
@@ -281,6 +294,9 @@ def run_evidence_step(result: dict, profile: dict, opps: list,
                 "lobsters": _is_tech_run,
                 "vertical_pubs": True,
             },
+            # R5: queried-and-FAILED, the third state. The report says "source
+            # unavailable", never "returned no data", for these.
+            "unavailable": dict(multisrc_data.get("_unavailable") or {}),
         }
         step_done(result, "multi_source_signal")
         checkpoint()
