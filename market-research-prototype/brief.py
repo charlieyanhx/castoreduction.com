@@ -30,20 +30,47 @@ from typing import Optional  # noqa: F401  (kept for the moved signatures)
 _STATED_PRICE_RE = re.compile(
     r"\$\s*(\d[\d,]*\.?\d*)\s*(?:/|\s*per\s*)?\s*(?:mo|month|monthly|/mo\b|/month\b)",
     re.I)
+
+# R2 (88b416f6): venture-EXPENSE vocabulary. A dollar figure in a sentence about the
+# founder's own spending is what the business pays, not what a customer pays — the
+# only $/month in that brief was "Founder's estimated monthly operating cost:
+# $1,000/month", and binding it to price fabricated a -95% pricing banner and a 10x
+# Census-badged TAM. The bare verb "costs" is deliberately absent ("the hardware
+# costs $249" prices the product); only expense NOUNS qualify.
+_COST_CONTEXT_RE = re.compile(
+    r"operating\s+costs?|running\s+costs?|monthly\s+(?:operating\s+)?costs?|"
+    r"cost\s+structure|overhead|rent\b|payroll|salar(?:y|ies)|utilit|opex|"
+    r"burn\s*rate|expenses?\b|budget\b", re.I)
+
+
+def _in_cost_context(text: str, start: int) -> bool:
+    """True when the sentence leading up to a $-match talks about the venture's own
+    expenses. Window: back to the previous sentence break, capped at 120 chars."""
+    win_start = max(0, start - 120)
+    window = text[win_start:start]
+    brk = max(window.rfind(". "), window.rfind("! "), window.rfind("? "),
+              window.rfind("\n"))
+    if brk >= 0:
+        window = window[brk + 1:]
+    return bool(_COST_CONTEXT_RE.search(window))
+
+
 def extract_stated_price(text: str) -> float | None:
     """Pull the user's stated monthly price from free text ($99/month, $99/mo, …).
 
-    Returns the first monthly price found, or None. cycle33 / C5.
+    Returns the first monthly price found OUTSIDE cost context, or None. cycle33 / C5;
+    cost-context guard added for R2 (88b416f6).
     """
     if not text:
         return None
-    m = _STATED_PRICE_RE.search(text)
-    if not m:
-        return None
-    try:
-        return float(m.group(1).replace(",", ""))
-    except ValueError:
-        return None
+    for m in _STATED_PRICE_RE.finditer(text):
+        if _in_cost_context(text, m.start()):
+            continue
+        try:
+            return float(m.group(1).replace(",", ""))
+        except ValueError:
+            continue
+    return None
 
 
 # --------------------------------------------------------------------------------------
@@ -165,6 +192,8 @@ def extract_price(text: str, unit_noun: str | None = None) -> dict | None:
         for m in re.finditer(pattern, text, re.I):
             if fixed_period is None and re.search(recurring, m.group(0), re.I):
                 continue        # this occurrence IS the recurring leg, not the unit price
+            if _in_cost_context(text, m.start()):
+                continue        # R2: the venture's own expense, not a customer price
             try:
                 value = float(m.group("amt").replace(",", ""))
             except (TypeError, ValueError):

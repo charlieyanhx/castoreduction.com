@@ -195,7 +195,13 @@ def _validation_gate(result: dict) -> dict:
     # cycle30 NEW: differentiator coverage — if 0 found, that's a critical finding
     diffs = (result.get("differentiators") or {}).get("differentiators") or []
     if len(diffs) == 0:
-        flags.append("No differentiators identified — venture may be a commodity copycat")
+        _fc = (result.get("differentiators") or {}).get("founder_claimed")
+        if _fc:
+            flags.append("No differentiators confirmed — the founder's claimed "
+                         f"differentiation ({str(_fc)[:80]}) could not be verified "
+                         "against the competitor roster")
+        else:
+            flags.append("No differentiators identified — venture may be a commodity copycat")
         confidence -= 0.10
 
     return {
@@ -873,6 +879,23 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
     # geographic, origin='scrape') → (3) LLM-modeled fallback (PSM optimal). Preferring a
     # scraped price over the modeled one grounds the soft multiplier in real data (M2).
     stated = extract_stated_price(description)
+    # R2 (88b416f6): a stated figure that disagrees with the modeled price by more
+    # than 3x is graded, not trusted — the mis-bound $1,000/mo operating cost became
+    # a $12,000/yr "stated" ARPU and multiplied the Census-badged TAM 10x. (P6 rule:
+    # founder input is an anchor to verify, and 20x apart is not verification.)
+    if stated and arpu_monthly_fallback and arpu_monthly_fallback > 0:
+        _ratio = stated / arpu_monthly_fallback
+        if _ratio > 3 or _ratio < (1 / 3):
+            log.info("[plan] stated $%s/mo diverges %.1fx from modeled $%s/mo — "
+                     "demoting the stated ARPU basis", stated, _ratio,
+                     arpu_monthly_fallback)
+            sizing = dict(sizing)
+            sizing["notes"] = list(sizing.get("notes") or []) + [
+                f"The brief's ${stated:,.0f}/mo figure diverges "
+                f"{max(_ratio, 1 / _ratio):.0f}x from the modeled price "
+                f"(${arpu_monthly_fallback:,.0f}/mo) and was not used as the "
+                f"bottom-up ARPU."]
+            stated = None
     arpu_monthly = stated
     arpu_sourced = "stated price"
     arpu_origin = "stated"
@@ -2082,6 +2105,25 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     # record wins over a resumed one; absent both, old behavior is untouched.
     if intake:
         result["intake"] = intake
+    elif not (result.get("intake") or {}).get("facts"):
+        # R3 (88b416f6): a brief composed by the intake form arrived WITHOUT its
+        # record (the client is supposed to send intake_record with POST /plan, and
+        # did not). The composer's templates are lossless, so reconstruct the facts
+        # spine rather than letting every intake-driven mechanism go blind — that run
+        # shipped an UNSOURCED $22,000/mo cost guess over the founder's stated
+        # $1,000/month, dropped the year-one goal, and called a venture with declared
+        # differentiation a commodity copycat. Free-prose briefs yield {} and keep
+        # today's behavior.
+        try:
+            from intake import facts_from_description
+            _re_facts = facts_from_description(description)
+            if _re_facts:
+                result["intake"] = {"facts": _re_facts, "confirmed": False,
+                                    "reconstructed_from_brief": True}
+                log.info("[plan] intake record reconstructed from the brief's own "
+                         "labels: %d fact(s)", len(_re_facts))
+        except Exception as e:                       # noqa: BLE001 - never block a run
+            log.warning("[plan] intake reconstruction skipped: %s", e)
     result["_effort"] = _effort
     if resume_from:
         log.info("[plan] resuming with %d completed step(s): %s",
