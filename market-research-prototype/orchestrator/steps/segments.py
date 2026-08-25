@@ -40,6 +40,24 @@ def run_segment_ranking_step(result: dict, profile: dict, opps: list,
                 competition_context=competition_ctx,
                 weights=weights,
             )
+            # R7 (88b416f6): the #1 pick was the buyer the report's own simulated
+            # interview disqualified (regulated enterprise: 'would not buy' without
+            # BAA/SOC 2), and no surface reconciled the two. The deterministic
+            # cross-check attaches the disqualifier beside the recommendation.
+            try:
+                from segment_scoring import objection_check
+                _ivs = ((result.get("consumer_research") or {}).get("interviews")
+                        or [])
+                _note = objection_check(ranking, _ivs)
+                if _note:
+                    ranking["top_pick_objection"] = _note
+                    if str(ranking.get("confidence", "")).lower() == "high":
+                        ranking["confidence"] = "medium"
+                        ranking["confidence_note"] = (
+                            "downgraded from high: an interview matching the top "
+                            "pick declined to buy as offered")
+            except Exception as e:                       # noqa: BLE001
+                log.warning("[plan] objection check skipped: %s", e)
             result["segment_ranking"] = ranking
             if "error" not in ranking:
                 step_done(result, "segment_ranking")

@@ -1241,6 +1241,11 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
     {% endfor %}
   </tbody>
 </table>
+{% if segment_ranking.top_pick_objection %}
+<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px;font-size:10pt;color:#991b1b;margin-top:8px">
+  <strong>Your own interview data pushes back:</strong> {{ segment_ranking.top_pick_objection }}
+</div>
+{% endif %}
 {% if segment_ranking.top_pick and segment_ranking.top_pick.key_risk %}
 <div style="margin-top:10px;background:#fef2f2;border-left:3px solid #dc2626;padding:8px 12px;font-size:10pt">
   <strong>Risk of targeting #{{ 1 }} ({{ segment_ranking.top_pick.label }}):</strong> {{ segment_ranking.top_pick.key_risk }}

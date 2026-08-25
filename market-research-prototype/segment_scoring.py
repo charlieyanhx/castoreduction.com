@@ -239,3 +239,43 @@ def rank_segments(
         "weights_applied": weights,
         "methodology": "LLM-estimated 5-metric scoring (WTP×size, elasticity, competition-gap, reach, growth), weighted sum normalized 0-1.",
     }
+
+
+# R7 (88b416f6): the #1 recommended segment was the buyer the report's own simulated
+# interview disqualified — segment_ranking said regulated enterprises "would subscribe"
+# (confidence: high) while consumer_research's regulated-enterprise persona said
+# "would not buy" without a signed BAA and SOC 2, and no surface reconciled the two.
+_OBJECTION_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "that", "this", "our", "their", "your",
+    "organizations", "organisations", "companies", "teams", "lead", "leads",
+    "management", "innovation", "solo", "technical", "requiring", "needing",
+})
+
+
+def objection_check(ranking: dict, interviews: list[dict] | None) -> str | None:
+    """A deterministic cross-check: when a would-not-buy interview persona shares
+    distinctive vocabulary with the top-pick segment, the ranking must carry the
+    disqualifier beside the recommendation. Returns the note, or None."""
+    top = (ranking or {}).get("top_pick") or {}
+    top_blob = f"{top.get('name') or ''} {top.get('description') or ''}".lower()
+    top_tokens = {t for t in _re_tokens(top_blob) if t not in _OBJECTION_STOPWORDS}
+    if not top_tokens:
+        return None
+    for iv in interviews or []:
+        if iv.get("would_buy") is not False:
+            continue
+        iv_blob = f"{iv.get('segment_name') or ''} {iv.get('quote') or ''}".lower()
+        iv_tokens = {t for t in _re_tokens(iv_blob) if t not in _OBJECTION_STOPWORDS}
+        if len(top_tokens & iv_tokens) >= 2:
+            quote = (iv.get("quote") or "").strip()
+            return (f"The simulated interview for a closely-matching buyer "
+                    f"({iv.get('segment_name')}) said they WOULD NOT BUY as offered"
+                    + (f': "{quote[:200]}"' if quote else "")
+                    + " — closing this segment first requires resolving that "
+                      "objection, not just reach.")
+    return None
+
+
+def _re_tokens(text: str) -> list[str]:
+    import re as _re
+    return [t for t in _re.findall(r"[a-z]{4,}", text)]

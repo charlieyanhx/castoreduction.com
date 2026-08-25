@@ -1449,7 +1449,7 @@ def score_viability(
     if differentiators_strength is not None:
         real_metrics.append(f"- Differentiators block: strength='{differentiators_strength}', {differentiators_count or 0} concrete differentiators found across the 5-dimension analysis. **Anchor differentiation_strength score against THIS finding** — if 0 differentiators were found by the dimension-by-dimension audit, do NOT score >40 for differentiation.")
     if customer_universe_count is not None:
-        real_metrics.append(f"- Customer universe: {customer_universe_count} real companies identified as ICP-matching. **Anchor execution_data_confidence to this** — <5 is genuinely thin.")
+        real_metrics.append(f"- Customer universe: {customer_universe_count} candidate entities harvested (ICP match not verified — no step performs one). **Anchor execution_data_confidence to this** — <5 is genuinely thin.")
     if economics_evc is not None:
         real_metrics.append(f"- EVC verdict: '{economics_evc}'. **Anchor unit_economics_health to this** — 'data-thin' or 'over-priced' should pull score below 50.")
     if economics_clv is not None:
