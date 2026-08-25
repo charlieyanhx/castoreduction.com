@@ -228,14 +228,60 @@ def run_competitor_refinement_step(
         # expensive and slow.  Instead we build minimal records that carry the Python-
         # computed score, signals, and provenance, and sort them into the existing list.
         from discover import _signal_score  # already computed in _enrich_candidate
-        new_entries = []
+        # C1 (9201627d audit): a record with NO gathered signal is a keyword mention,
+        # not a measured competitor. 13 of this run's 35 printed 0.0 with every signal
+        # null, and "35 entrenched competitors" then drove the viability score, the
+        # differentiation verdict and every 4Ps section. Those records are disclosed
+        # separately (unverified_mentions) instead of ranked.
+        _SIGNAL_KEYS = ("trend_slope", "trustpilot_reviews", "trustpilot_avg_stars",
+                        "ig_followers", "wayback_avg_per_month", "domain_age_days",
+                        "reddit_mentions", "hn_mentions")
+
+        def _has_signal(rec: dict) -> bool:
+            return any(rec.get(k) is not None for k in _SIGNAL_KEYS)
+
+        # C1: the founder's OWN declared stack is not a rival. This run listed Mem0 —
+        # the framework named in intake.differentiation ("built on frameworks like
+        # mem0") — as a direct competitor.
+        _own_stack = set()
+        _facts = ((result.get("intake") or {}).get("facts") or {})
+        for _f in ("differentiation", "key_features", "product"):
+            for _w in str(_facts.get(_f) or "").replace(",", " ").split():
+                _w = _w.strip(".;:()").lower()
+                if len(_w) >= 3 and _w not in ("the", "and", "like", "for", "with",
+                                               "versus", "built", "frameworks",
+                                               "framework", "generic", "standard"):
+                    _own_stack.add(_w)
+
+        new_entries, unverified = [], []
         for e in all_added:
             if not e.get("brand"):
                 continue
             score = e.get("_score") or _signal_score(e)
+            _b = str(e.get("brand") or "").lower().strip()
+            if _b and _b in _own_stack:
+                log.info("[refine] %r is the founder's own stack — not a competitor",
+                         e.get("brand"))
+                unverified.append({"brand": e.get("brand"), "domain": e.get("domain"),
+                                   "reason": "named in the founder's own stack",
+                                   "_gap_seed": e.get("_gap_seed")})
+                continue
+            if not _has_signal(e):
+                unverified.append({"brand": e.get("brand"), "domain": e.get("domain"),
+                                   "reason": "surfaced by keyword search; no public "
+                                             "signal could be gathered",
+                                   "_gap_seed": e.get("_gap_seed")})
+                continue
+            # C4 (9201627d audit): a gap-search domain is a SEARCH RESULT, not a
+            # verified identity — Credal AI printed toolmage.com and MaxKB printed
+            # wz-it.com as their own sites, and the customer-voice verdict then
+            # described the wrong company. Mark it unverified; the report prints the
+            # brand without asserting the domain.
             new_entries.append({
                 "brand": e.get("brand"),
                 "domain": e.get("domain"),
+                "domain_verified": bool(e.get("firmographics")
+                                        and (e["firmographics"].get("sources") or [])),
                 "opportunity_score": score,
                 "relevance": "direct",
                 "is_competitor": True,
@@ -255,6 +301,22 @@ def run_competitor_refinement_step(
             })
 
         existing_roster.extend(new_entries)
+
+        # C1: every displayed score needs its Python counterpart STORED, or D46 reads
+        # it as a number nothing computed (measured: 23 of 35 records this run). The
+        # enrichment already ran — it just was not persisted into the signal pool.
+        _steps = disc.setdefault("steps", {})
+        _pool = _steps.setdefault("signals", [])
+        _seen = {(s_.get("brand"), s_.get("domain")) for s_ in _pool}
+        for e in all_added:
+            if e.get("brand") and (e.get("brand"), e.get("domain")) not in _seen:
+                rec = dict(e)
+                rec.setdefault("_score", e.get("_score") or _signal_score(e))
+                _pool.append(rec)
+        if unverified:
+            syn["unverified_mentions"] = unverified
+            log.info("[refine] %d keyword mention(s) held back from the roster",
+                     len(unverified))
 
         # Re-rank: sort by score descending; scoreless entries go last.
         existing_roster.sort(

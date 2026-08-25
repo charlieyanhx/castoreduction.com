@@ -152,6 +152,13 @@ def run_economics_step(result: dict, profile: dict, *, psm_result: dict, biz_kin
                     status_quo=str(((result.get("intake") or {}).get("facts") or {})
                                    .get("status_quo") or "") or None,
                 )
+                # C5: carry the founder's seats-per-account so downstream consumers
+                # can restate per-seat figures per customer instead of comparing
+                # unlike units (the 3.7x CAC "breach" was a unit mismatch).
+                _seats_fact = (((result.get("intake") or {}).get("facts") or {})
+                               .get("seats_per_account"))
+                if isinstance(econ, dict) and _seats_fact:
+                    econ["_facts"] = {"seats_per_account": _seats_fact}
             else:
                 # cycle38: marketplace (take-rate on GMV) and ad-supported (eCPM on users) have a
                 # different revenue basis than per-unit OR subscription. Rather than fabricate a

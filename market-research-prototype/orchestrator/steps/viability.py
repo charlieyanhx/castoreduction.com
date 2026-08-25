@@ -32,6 +32,19 @@ def run_viability_step(result: dict, profile: dict, *, four_ps: dict, top_audien
             1 for s in (disc.get("steps", {}) or {}).get("signals", [])
             if s.get("_score", 0) > 0
         )
+        # C2 (9201627d audit): a SKELETON step is an outage, not a measurement. The
+        # customer-universe step returned {_skeleton: true, _skeleton_reason: "No LLM
+        # API key found"} and viability scored "0 candidate entities harvested" as
+        # thin execution data — the same absence-read-as-answer the report's own
+        # validation philosophy refuses. None reaches the prompt as "not measured".
+        _cu = result.get("customer_universe") or {}
+        _cu_skeleton = bool(_cu.get("_skeleton")
+                            or (_cu.get("icp_details") or {}).get("_skeleton")
+                            or _cu.get("_skeleton_reason"))
+        if _cu_skeleton:
+            log.info("[plan] customer universe is a skeleton (%s) — viability scores "
+                     "it as unmeasured, not as zero",
+                     str(_cu.get("_skeleton_reason"))[:80])
         viability_kwargs = dict(
             profile=profile,
             four_ps=four_ps,
@@ -45,7 +58,7 @@ def run_viability_step(result: dict, profile: dict, *, four_ps: dict, top_audien
             signal_count=signal_count,
             differentiators_strength=(result.get("differentiators") or {}).get("differentiation_strength"),
             differentiators_count=len((result.get("differentiators") or {}).get("differentiators", [])),
-            customer_universe_count=(result.get("customer_universe") or {}).get("count"),
+            customer_universe_count=(None if _cu_skeleton else _cu.get("count")),
             economics_evc=(result.get("economics") or {}).get("evc", {}).get("verdict"),
             economics_clv=(result.get("economics") or {}).get("clv", {}).get("clv_usd"),
             market_sizing=result.get("market_sizing"),  # cycle36: score opportunity on the real TAM/scale

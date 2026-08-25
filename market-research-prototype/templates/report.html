@@ -320,6 +320,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
     {% endif %}
     <p><strong>Generated:</strong> {{ generated_date }}</p>
     <p><strong>Pipeline:</strong> {{ steps_completed|length }} steps completed ({{ ', '.join(steps_completed) }})</p>
+    {% if degraded_steps %}<p style="color:#b45309"><strong>Degraded:</strong> {{ degraded_steps|join(', ') }} produced a fallback rather than a measurement — figures from these steps are not evidence.</p>{% endif %}
     {% if refine_audit %}
     <p><strong>Quality loop:</strong>
       {% if refine_audit.passed %}<span style="color:#047857">✓ passed evaluator contract</span>{% else %}<span style="color:#b45309">{{ refine_audit.weak_dims|join(', ') }} below contract</span>{% endif %}
@@ -376,7 +377,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
     {% for c in viability.score_composition %}
       {% set raw_color = '#10b981' if c.raw >= 70 else '#f59e0b' if c.raw >= 40 else '#ef4444' %}
       <tr style="border-bottom:1px solid #f3f4f6">
-        <td style="padding:8px 4px;font-weight:600;color:#1f2937">{{ c.dimension|replace('_', ' ')|title }}</td>
+        <td style="padding:8px 4px;font-weight:600;color:#1f2937">{{ c.dimension|replace('gtm_feasibility','GTM feasibility')|replace('_', ' ')|title|replace('Gtm','GTM') }}</td>
         <td style="padding:8px 4px;text-align:right;color:{{ raw_color }};font-weight:700;font-variant-numeric:tabular-nums">{{ c.raw }}</td>
         <td style="padding:8px 4px;text-align:right;color:#6b7280;font-variant-numeric:tabular-nums">{{ "%.0f%%"|format(c.weight*100) }}</td>
         <td style="padding:8px 4px;text-align:right;color:#1f2937;font-variant-numeric:tabular-nums">{{ "%.1f"|format(c.contribution) }}</td>
@@ -413,9 +414,12 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
     {% else %}<span style="color:#9ca3af">(viability flat)</span>{% endif %}
   </summary>
   <div style="margin-top:8px;color:#6b7280;font-size:9pt;font-style:italic">
-    Same description was run before (same input → re-sampled LLM output). Numbers below
+    {% if deltas.pipeline_changed %}<strong style="color:#b45309">The pipeline changed between these two runs</strong>
+    ({{ deltas.prev_step_count or '?' }} steps then, {{ deltas.cur_step_count or '?' }} now) — the deltas below reflect
+    CODE CHANGES, not sampling variance, and must not be read as a stability measurement.
+    {% else %}Same description was run before (same input → re-sampled LLM output). Numbers below
     measure run-to-run variance, NOT real change. Expect ±5 viability points and ±30%
-    TAM swing as model noise; bigger swings suggest the input is genuinely ambiguous.
+    TAM swing as model noise; bigger swings suggest the input is genuinely ambiguous.{% endif %}
   </div>
   <div style="margin-top:8px">
     <strong>Viability:</strong> {{ deltas.previous_score }} → {{ deltas.current_score }}
@@ -464,12 +468,12 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 <div style="border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;margin:16px 0;background:#fafafa">
   <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#374151;margin-bottom:10px">Report integrity — how to trust these numbers</div>
   <div style="display:flex;flex-wrap:wrap;gap:8px">
-    {{ chip(ok, '✓ Reproducible', 'deterministic — same input, same numbers') }}
+    {% if integrity.reproducible is defined and not integrity.reproducible %}{{ chip(warn, 'Re-sampled', 'LLM sections vary run to run — see the stability check') }}{% else %}{{ chip(ok, '✓ Reproducible', 'deterministic — same input, same numbers') }}{% endif %}
     {% if integrity.validation.ran %}
       {% if integrity.validation.passed %}
         {% if integrity.validation.n_warns %}{{ chip(warn, 'Validated with warnings', integrity.validation.n_warns|string + ' advisory warning(s) — see Market Size') }}
         {% else %}{{ chip(ok, '✓ Validated', 'passed the integrity gate') }}{% endif %}
-      {% else %}{{ chip(bad, '✗ Failed validation', integrity.validation.n_blocks|string + ' blocking issue(s) — figures withheld') }}{% endif %}
+      {% else %}{{ chip(bad, '✗ Failed validation', integrity.validation.n_blocks|string + ' blocking issue(s) — see the verification list') }}{% endif %}
     {% endif %}
     {% if integrity.triangulation %}
       {{ chip(ok if (integrity.triangulation.n_independent or 0) >= 2 else warn,
@@ -1209,7 +1213,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 <h2 id="segment-ranking">Segment Prioritization (5-Metric Weighted Score)</h2>
 <p style="font-size:10pt;color:#6b7280">{{ segment_ranking.methodology }}
 {% if segment_ranking.weights_applied %}
-  Operator weights applied: {% for k, v in segment_ranking.weights_applied.items() %}{{ k }} ({{ v }}){% if not loop.last %} · {% endif %}{% endfor %}.
+  Operator weights applied: {% for k, v in segment_ranking.weights_applied.items() %}{{ k|replace('wtp_x_market_size','willingness to pay x market size')|replace('low_price_elasticity','low price sensitivity')|replace('low_competition','low competition')|replace('ease_of_reach','ease of reach')|replace('growth_potential','growth potential')|replace('_',' ') }} ({{ v }}){% if not loop.last %} · {% endif %}{% endfor %}.
 {% endif %}
 </p>
 <table style="width:100%;border-collapse:collapse;font-size:10pt;margin-top:8px">
@@ -1306,7 +1310,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
   {% for c in competitors[:6] %}
   <div class="comp-row">
     <div class="rank">{{ loop.index }}</div>
-    <div class="brand">{{ c.brand }} <span class="domain">{{ c.domain or '' }}</span>
+    <div class="brand">{{ c.brand }} <span class="domain">{{ c.domain or '' }}{% if c.domain and c._refinement_sourced and not c.domain_verified %} <span style="color:#b45309;font-weight:400">(search result, identity unverified)</span>{% endif %}</span>
       {% if c.relevance %}
         {% set rcolor = '#10b981' if c.relevance == 'direct' else ('#f59e0b' if c.relevance == 'adjacent' else '#6b7280') %}
         <span style="display:inline-block;background:{{ rcolor }}22;color:{{ rcolor }};font-size:8pt;padding:2px 6px;border-radius:3px;margin-left:6px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">{{ c.relevance }}</span>
@@ -1338,6 +1342,13 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 <p style="color:#9ca3af">No competitor data available.</p>
 {% endif %}
 
+{% if unverified_mentions %}
+<p style="font-size:9pt;color:#9ca3af;margin-top:8px">
+  {{ unverified_mentions|length }} further name(s) surfaced by keyword search are NOT counted as competitors
+  ({{ unverified_mentions | map(attribute='brand') | select | join(', ') }}) — no public signal could be
+  gathered for them, or they belong to the venture's own stack.
+</p>
+{% endif %}
 {% if not_shown_candidates %}
 <p style="font-size:9pt;color:#9ca3af;margin-top:8px">
   {{ not_shown_candidates | length }} further scored candidate(s) did not make the shown landscape:
@@ -1366,8 +1377,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 {% if reddit_signal.threads_found == 0 %}
 <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:12px;font-size:10pt;color:#92400e">
   <strong>No relevant Reddit signal for "{{ reddit_signal.query }}" in last 6 months.</strong><br/>
-  Searched via PRAW (with your Reddit OAuth app) or the Arctic Shift archive scoped to the
-  venture's city and category subreddits, with legacy fallbacks.
+  Searched via {% if reddit_signal.tier == 'praw' %}PRAW (your Reddit OAuth app){% elif reddit_signal.tier == 'archive' %}the Arctic Shift archive scoped to the venture's city and category subreddits{% else %}the public (unauthenticated) endpoints, with legacy fallbacks — no Reddit OAuth credentials are configured{% endif %}.
   {% if market_sizing and market_sizing.method in ('trade_area_catchment', 'city_scan') %}
   For a local venue, organic Reddit discussion is often thin — the higher-signal source here is
   <strong>Google reviews of nearby competitors</strong>, which this report already pulls where available.

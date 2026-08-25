@@ -131,7 +131,21 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
     except Exception:                                # noqa: BLE001 - the layer is optional
         _iter_state = None
 
+    # C2 (9201627d audit): a step whose output is a skeleton (missing key, failed
+    # fetch) is DEGRADED, not completed — the cover page listed customer_universe
+    # among "24 steps completed" while its stored output said "No LLM API key found".
+    _degraded = []
+    for _k in ("customer_universe", "clustering", "market_sizing", "economics",
+               "personas", "consumer_research", "differentiators"):
+        _v = r.get(_k)
+        if isinstance(_v, dict) and (_v.get("_skeleton") or _v.get("_skeleton_reason")
+                                     or (_v.get("icp_details") or {}).get("_skeleton")
+                                     if isinstance(_v.get("icp_details"), dict)
+                                     else (_v.get("_skeleton") or _v.get("_skeleton_reason"))):
+            _degraded.append(_k)
+
     html = tpl.render(
+        degraded_steps=_degraded,
         iteration=_iter_state,
         annotate=bool(annotate),
         job_id=job_id,
@@ -158,6 +172,13 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
         # roster — shown separately so they don't count as competitors.
         reference_cases=(r.get("discover", {}).get("synthesis", {}) or {}).get("reference_cases", []),
         not_shown_candidates=(r.get("discover", {}).get("synthesis", {}) or {}).get("not_shown", []),
+        # C3 (9201627d audit): NEVER passed before, so the template's `{% if
+        # multi_source_signal._tech %}` was always Undefined/false — every venture
+        # read "dev forums are skipped for non-tech ventures" while this run had
+        # fetched 12 Stack Overflow and 7 DEV.to results, and the whole
+        # dev-forum section silently never rendered.
+        multi_source_signal=r.get("multi_source_signal") or {},
+        unverified_mentions=(r.get("discover", {}).get("synthesis", {}) or {}).get("unverified_mentions", []),
         # Debuggable report: section→script provenance + the ?debug=1 toggle.
         section_provenance=build_section_provenance(r),
         debug=bool(debug),
