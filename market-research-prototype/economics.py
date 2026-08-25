@@ -53,15 +53,27 @@ def estimate_unit_economics(
     optimal_price_monthly: float,
     pricing_unit: str = "account",
     competitor_prices: list[float] | None = None,
+    status_quo: str | None = None,
 ) -> dict:
     """
     One LLM call to estimate churn, contract length, expansion, CAC, reference
     alternative cost, and differentiation value. Returns structured dict or error.
+
+    `status_quo` (R8, 88b416f6): the founder's own answer to "what do customers do
+    today instead". The EVC once priced the most expensive conceivable alternative
+    (a $14,400/yr in-house RAG stack) while the brief said customers use generic
+    LLMs — the reference must be the alternative the FOUNDER named.
     """
     comp_summary = (
         f"competitor monthly prices ~ {[f'${p}' for p in competitor_prices[:5]]}"
         if competitor_prices else "competitor pricing unknown"
     )
+    if status_quo:
+        comp_summary += (
+            f"\nSTATUS QUO (the founder's brief): customers today use — {status_quo}. "
+            "The reference_alternative MUST be this status quo, priced honestly. Do "
+            "NOT substitute a pricier alternative to flatter the EVC."
+        )
     result = call_json(
         system="You are a B2B SaaS unit-economics analyst. Return only JSON with realistic numeric estimates.",
         user=CLV_ESTIMATE_PROMPT.format(
@@ -327,6 +339,7 @@ def full_economics(
     optimal_price_monthly: float,
     pricing_unit: str = "account",
     competitor_prices: list[float] | None = None,
+    status_quo: str | None = None,
 ) -> dict:
     """
     Convenience wrapper: one LLM call + all the pure math. Returns the union:
@@ -334,7 +347,7 @@ def full_economics(
     """
     if not optimal_price_monthly or optimal_price_monthly <= 0:
         return {"error": "valid optimal_price_monthly required"}
-    ue = estimate_unit_economics(segment_summary, product_summary, optimal_price_monthly, pricing_unit, competitor_prices)
+    ue = estimate_unit_economics(segment_summary, product_summary, optimal_price_monthly, pricing_unit, competitor_prices, status_quo=status_quo)
     if "error" in ue:
         return {"error": ue["error"], "stage": "unit_economics"}
 

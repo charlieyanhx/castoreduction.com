@@ -884,7 +884,21 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
     digital ventures, not only when a price was typed (F3). Degrades gracefully: with
     no ARPU basis or no live count, returns sizing unchanged.
     """
-    target = (profile or {}).get("target_customer") or description
+    # R8 (88b416f6): the venture's own description must never be the industry query —
+    # NAICS 518210 (data processing/hosting, the venture's OWN industry) was counted
+    # as its customer universe because target_customer was missing and the description
+    # describes the VENDOR. The founder's target-customer answer is authoritative;
+    # without any customer description the census leg abstains with a note.
+    _facts_tc = str((((result or {}).get("intake") or {}).get("facts") or {})
+                    .get("target_customer") or "").strip()
+    target = _facts_tc or (profile or {}).get("target_customer")
+    if not target:
+        out = dict(sizing)
+        out["notes"] = list(out.get("notes") or []) + [
+            "Bottom-up TAM not Census-grounded: no target-customer description was "
+            "available to resolve a customer industry, and using the venture's own "
+            "description would count its own industry as its market."]
+        return out
     # ARPU basis priority: (1) user's stated $/mo → (2) SCRAPED competitor price (real,
     # geographic, origin='scrape') → (3) LLM-modeled fallback (PSM optimal). Preferring a
     # scraped price over the modeled one grounds the soft multiplier in real data (M2).

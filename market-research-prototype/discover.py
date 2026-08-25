@@ -994,6 +994,20 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
                                   enriched_sorted)
         synthesis["ranked_opportunities"] = _apply_relevance_to_ranking(
             synthesis["ranked_opportunities"])
+        # R8 (88b416f6): 20 candidates were scored, 7 shipped, and the other 13 —
+        # including direct managed-RAG rivals (Vectara, Contextual AI, Dust,
+        # Pinecone Assistant) — vanished with no disclosure anywhere. A cut roster
+        # names what it cut.
+        _shown = {str(o.get("brand") or "").lower()
+                  for o in synthesis["ranked_opportunities"]}
+        _refs = {str((o or {}).get("brand") or "").lower()
+                 for o in (synthesis.get("reference_cases") or [])
+                 if isinstance(o, dict)}
+        synthesis["not_shown"] = [
+            {"brand": c.get("brand"), "score": c.get("_score")}
+            for c in enriched_sorted
+            if str(c.get("brand") or "").lower() not in _shown
+            and str(c.get("brand") or "").lower() not in _refs][:20]
         result["synthesis"] = synthesis
     except Exception as e:
         log.warning("LLM synthesis failed (%s), building raw ranking", e)

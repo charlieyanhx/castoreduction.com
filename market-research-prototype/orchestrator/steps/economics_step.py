@@ -147,6 +147,10 @@ def run_economics_step(result: dict, profile: dict, *, psm_result: dict, biz_kin
                     optimal_price_monthly=opt,
                     pricing_unit=unit_noun,
                     competitor_prices=comp_prices,
+                    # R8 (88b416f6): the founder's status quo anchors the EVC
+                    # reference — never a pricier alternative of the model's choosing.
+                    status_quo=str(((result.get("intake") or {}).get("facts") or {})
+                                   .get("status_quo") or "") or None,
                 )
             else:
                 # cycle38: marketplace (take-rate on GMV) and ad-supported (eCPM on users) have a

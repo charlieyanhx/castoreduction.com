@@ -157,6 +157,7 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
         # R4 rank 10: reference/off-category entries partitioned out of the competitor
         # roster — shown separately so they don't count as competitors.
         reference_cases=(r.get("discover", {}).get("synthesis", {}) or {}).get("reference_cases", []),
+        not_shown_candidates=(r.get("discover", {}).get("synthesis", {}) or {}).get("not_shown", []),
         # Debuggable report: section→script provenance + the ?debug=1 toggle.
         section_provenance=build_section_provenance(r),
         debug=bool(debug),
