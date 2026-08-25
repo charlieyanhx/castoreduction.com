@@ -503,3 +503,16 @@ def format_anchor_for_citation(anchor: dict) -> str:
     if chg:
         parts.append(f"YoY {chg}")
     return " · ".join(parts)
+
+
+# R6 (88b416f6): these fetchers were direct `requests` callers invisible to the run
+# ledger — the report cited "FRED · 2026-04-01" while the trace recorded zero FRED
+# events, making the citation unverifiable (#71's exact class). Instrument at import
+# so every macro fetch lands in the ledger like any other source call.
+try:
+    from persistence.ledger import instrument_source as _instr
+    fetch_anchors = _instr(fetch_anchors, "fetch_macro_anchors", "fetch")
+    fetch_vertical_anchors = _instr(fetch_vertical_anchors,
+                                    "fetch_vertical_anchors", "fetch")
+except Exception:                                            # noqa: BLE001
+    pass                                       # instrumentation must never break imports

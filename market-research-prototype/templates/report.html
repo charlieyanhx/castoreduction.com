@@ -511,7 +511,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 
 <!-- METHODOLOGY -->
 <div class="method-box">
-  <strong>Methodology:</strong> Pipeline ran {{ steps_completed|length }} steps. LLM used for profile extraction, brand discovery, taste decoding, Max-Diff, PSM simulation, channel recommendation, 4Ps synthesis, and viability scoring. All quantitative claims anchored to observable signals — see citations.
+  <strong>Methodology:</strong> Pipeline ran {{ steps_completed|length }} steps. LLM used for profile extraction, brand discovery, taste decoding, Max-Diff, PSM simulation, channel recommendation, 4Ps synthesis, and viability scoring. Figures carry citations where a source backs them; unattributed claims are counted honestly in Sources &amp; Citations at the end — treat those as the author's inference.
 
   <div style="margin-top:10px;font-size:9pt">
     <strong>Data sources used in this report:</strong>
@@ -839,7 +839,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
       <td style="padding:8px;border:1px solid #e5e7eb;font-weight:600">{{ label }}</td>
       <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;font-variant-numeric:tabular-nums">{{ format_currency(m.value_usd) }}</td>
       <td style="padding:8px;border:1px solid #e5e7eb">{{ m.calculation }}</td>
-      <td style="padding:8px;border:1px solid #e5e7eb;font-size:9pt;color:#4b5563">{{ m.source }}</td>
+      <td style="padding:8px;border:1px solid #e5e7eb;font-size:9pt;color:#4b5563">{{ m.source }}{% if m.data_origin and m.data_origin not in ('census', 'scrape', 'fetched', 'stated') %}<br><span style="color:#9ca3af">model-asserted reference — no fetch behind this citation</span>{% endif %}</td>
     </tr>
     {% endif %}
     {% endfor %}
