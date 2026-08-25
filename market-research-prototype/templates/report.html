@@ -914,6 +914,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 {% if market_sizing.som and market_sizing.som.comparable_anchor %}
 <div style="background:#f0fdf4;border-left:3px solid #10b981;padding:10px 14px;font-size:10pt;color:#1f2937;margin:10px 0">
   <strong>SOM analog anchor:</strong> {{ market_sizing.som.comparable_anchor }}
+  <span style="color:#9ca3af">(model-asserted benchmark — no fetch behind this figure)</span>
 </div>
 {% endif %}
 
@@ -1334,6 +1335,13 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 <p style="color:#9ca3af">No competitor data available.</p>
 {% endif %}
 
+{% if not_shown_candidates %}
+<p style="font-size:9pt;color:#9ca3af;margin-top:8px">
+  {{ not_shown_candidates | length }} further scored candidate(s) did not make the shown landscape:
+  {{ not_shown_candidates | map(attribute='brand') | select | join(', ') }}.
+  A cut roster names what it cut — absence here is an editorial choice, not absence of competitors.
+</p>
+{% endif %}
 {% if reference_cases %}
 <h3 style="margin-top:16px;font-size:11pt;color:#4b5563">Reference cases <span style="font-weight:400;color:#9ca3af">(not counted as competitors — different category or wrong-entity matches, kept for context)</span></h3>
 <div class="competitors">
