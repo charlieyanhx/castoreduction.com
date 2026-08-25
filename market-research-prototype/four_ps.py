@@ -112,8 +112,8 @@ def _run_section(section_name: str, prompt_text: str) -> dict:
     # R9 (88b416f6): a KEY TAKEAWAY shipped '$2,3424.0' — an unparseable currency
     # amount ($23,424.0 garbled by the model). Renormalize malformed thousands
     # grouping deterministically; well-formed amounts pass through untouched.
-    out["narrative"] = _fix_malformed_currency(out.get("narrative", "") or "")
-    out["key_takeaways"] = [_fix_malformed_currency(str(t))
+    out["narrative"] = _strip_latex(_fix_malformed_currency(out.get("narrative", "") or ""))
+    out["key_takeaways"] = [_strip_latex(_fix_malformed_currency(str(t)))
                             for t in (out.get("key_takeaways") or [])]
     nar = out.get("narrative", "") or ""
     if nar and not nar.rstrip().endswith((".", "!", "?", '"', "”", "’", ")", "*", ":")):
@@ -1361,6 +1361,21 @@ def _first_sentence(text: str) -> str:
     return (text[:180] + "…") if len(text) > 180 else text
 
 
+def _strip_latex(text: str) -> str:
+    """C7 (9201627d audit): the roadmap shipped raw LaTeX to a paying reader —
+    'convert $\\ge 15\\%$ of self-serve signups', 'reach $\\ge 85$ active paid seats'.
+    Models reach for TeX when asked for comparisons; render it as words."""
+    import re as _re
+    t = str(text or "")
+    t = _re.sub(r"\$\s*\\ge\s*", "at least ", t)
+    t = _re.sub(r"\$\s*\\le\s*", "at most ", t)
+    t = t.replace("\\ge", "at least ").replace("\\le", "at most ")
+    t = t.replace("\\%", "%").replace("\\times", "x").replace("\\$", "$")
+    # Closing math delimiter: a '$' that follows a digit or % and is NOT a price.
+    t = _re.sub(r"(?<=[\d%])\s*\$(?!\s*\d)", "", t)
+    return _re.sub(r"\s{2,}", " ", t).strip()
+
+
 def _fix_malformed_currency(text: str) -> str:
     """Re-group dollar amounts whose comma placement is not thousands grouping
     ('$2,3424.0' -> '$23,424.00' -> printed as '$23,424.0' semantics preserved).
@@ -1497,15 +1512,35 @@ def score_viability(
     # and unit_economics_health scored 58. The model must grade against the ESTIMATE.
     _typ_cac = ((economics or {}).get("unit_economics") or {}).get("typical_cac_usd")
     _max_cac = ((economics or {}).get("cac_target") or {}).get("max_sustainable_cac_usd")
+    # C5 (9201627d audit): the ceiling is per SEAT (CLV/3 on a per-seat price) while
+    # typical_cac_usd is defined per CUSTOMER. With ~2 seats/customer the report
+    # declared a 3.7x breach comparing unlike units. Restate the ceiling per customer
+    # using the founder's own seats-per-account answer before comparing.
+    _seats = 1.0
+    try:
+        import re as _re2
+        _m = _re2.search(r"(\d[\d,.]*)", str(((economics or {}).get("_facts") or {})
+                                              .get("seats_per_account") or ""))
+        if _m:
+            _seats = max(1.0, float(_m.group(1).replace(",", "")))
+    except Exception:                                        # noqa: BLE001
+        _seats = 1.0
+    _max_cac_customer = (_max_cac * _seats) if isinstance(_max_cac, (int, float)) else None
     if isinstance(_typ_cac, (int, float)) and _typ_cac > 0:
         _cac_line = (f"- ESTIMATED typical CAC: ${_typ_cac:,.0f}. Grade CLV:CAC "
                      "against THIS estimate — the 'max sustainable CAC' is CLV/3 by "
                      "construction and proves nothing.")
-        if isinstance(_max_cac, (int, float)) and _max_cac > 0 and _typ_cac > _max_cac:
-            _cac_line += (f" WARNING: the estimated CAC exceeds the sustainability "
-                          f"ceiling (${_max_cac:,.0f}) by {_typ_cac / _max_cac:.1f}x — "
-                          "unit_economics_health must reflect that (the subscription "
-                          "rubric puts CLV:CAC under 3:1 in the 26-50 band).")
+        if (isinstance(_max_cac_customer, (int, float)) and _max_cac_customer > 0
+                and _typ_cac > _max_cac_customer):
+            _cac_line += (f" WARNING: the estimated CAC (per CUSTOMER) exceeds the "
+                          f"sustainability ceiling restated per customer "
+                          f"(${_max_cac_customer:,.0f} = ${_max_cac:,.0f}/seat x "
+                          f"{_seats:g} seats) by "
+                          f"{_typ_cac / _max_cac_customer:.1f}x — unit_economics_health "
+                          "must reflect that (the subscription rubric puts CLV:CAC "
+                          "under 3:1 in the 26-50 band). Compare per-customer figures "
+                          "to per-customer figures; never a per-customer CAC against a "
+                          "per-seat ceiling.")
         real_metrics.append(_cac_line)
     # D22 item 2: economics_evc/economics_clv are subscription-only keys — for every
     # other kind, real_metrics had NOTHING for unit_economics_health. Surface the

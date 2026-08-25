@@ -118,4 +118,13 @@ def compute_deltas(current: dict, previous: dict) -> dict:
         "tam_change_pct": tam_change_pct,
         "previous_score": prev_v,
         "current_score": cur_v,
+        # C6 (9201627d audit): the panel called a -14 viability move and a +75% TAM
+        # swing "run-to-run variance" when the two runs executed DIFFERENT pipelines
+        # (21 vs 24 steps, after nine root-cause fixes shipped). A different step set
+        # means the delta measures code change, not sampling noise, and the reader
+        # must be told which one they are looking at.
+        "prev_step_count": len(previous.get("_steps_completed") or []),
+        "cur_step_count": len(current.get("_steps_completed") or []),
+        "pipeline_changed": (set(previous.get("_steps_completed") or [])
+                             != set(current.get("_steps_completed") or [])),
     }
