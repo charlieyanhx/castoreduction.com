@@ -24,13 +24,16 @@ def devto_mentions(query: str, limit: int = 15) -> list[dict]:
     """
     out = []
     seen_ids = set()
+    # R5 (88b416f6): None = every fetch failed (UNAVAILABLE); [] = fetched, nothing.
+    _any_fetch_ok = False
     # Search by tag (cleaner) and by query (broader)
     for endpoint in [f"https://dev.to/api/articles?tag={query.lower().replace(' ', '')}&per_page={limit}",
                      f"https://dev.to/api/articles?per_page={limit*2}"]:
         try:
             r = mrp_http.get(endpoint, timeout=15, max_retries=2)
-            if r.status_code != 200:
+            if r is None or r.status_code != 200:
                 continue
+            _any_fetch_ok = True
             for item in r.json():
                 aid = item.get("id")
                 if aid in seen_ids:
@@ -56,7 +59,7 @@ def devto_mentions(query: str, limit: int = 15) -> list[dict]:
                     return out
         except Exception:
             continue
-    return out
+    return out if _any_fetch_ok else None
 
 
 def lobsters_mentions(query: str, limit: int = 15) -> list[dict]:
@@ -65,13 +68,14 @@ def lobsters_mentions(query: str, limit: int = 15) -> list[dict]:
     """
     url = "https://lobste.rs/search.json"
     params = {"q": query, "what": "stories", "order": "relevance"}
+    # R5 (88b416f6): None = transport failure (UNAVAILABLE), [] = fetched-and-empty.
     try:
         r = mrp_http.get(url, params=params, timeout=15, max_retries=2)
-        if r.status_code != 200:
-            return []
+        if r is None or r.status_code != 200:
+            return None
         data = r.json()
     except Exception:
-        return []
+        return None
     out = []
     items = data if isinstance(data, list) else (data.get("stories") or [])
     for item in items[:limit]:

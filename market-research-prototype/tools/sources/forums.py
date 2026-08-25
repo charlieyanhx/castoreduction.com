@@ -29,13 +29,16 @@ def stackexchange_mentions(query: str, limit: int = 15, site: str = "stackoverfl
         "order": "desc", "sort": "relevance", "q": query,
         "site": site, "pagesize": str(limit), "filter": "withbody",
     }
+    # R5 (88b416f6): None = transport failure (UNAVAILABLE), [] = fetched-and-empty.
+    # The requests-cache outage rendered as "0 of 6 sources returned data" because
+    # failure and emptiness shared a value.
     try:
         r = mrp_http.get(url, params=params, timeout=15, max_retries=2)
-        if r.status_code != 200:
-            return []
+        if r is None or r.status_code != 200:
+            return None
         data = r.json()
     except Exception:
-        return []
+        return None
     out = []
     for item in data.get("items", []):
         # Strip HTML tags from body for cleaner LLM consumption
@@ -63,13 +66,16 @@ def hackernews_mentions(query: str, limit: int = 20) -> list[dict]:
     """
     url = "https://hn.algolia.com/api/v1/search"
     params = {"query": query, "hitsPerPage": str(limit), "tags": "(story,comment)"}
+    # R5 (88b416f6): None = transport failure (UNAVAILABLE), [] = fetched-and-empty.
+    # The requests-cache outage rendered as "0 of 6 sources returned data" because
+    # failure and emptiness shared a value.
     try:
         r = mrp_http.get(url, params=params, timeout=15, max_retries=2)
-        if r.status_code != 200:
-            return []
+        if r is None or r.status_code != 200:
+            return None
         data = r.json()
     except Exception:
-        return []
+        return None
     out = []
     for h in data.get("hits", []):
         out.append({

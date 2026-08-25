@@ -136,12 +136,22 @@ def _validation_gate(result: dict) -> dict:
     _mss = result.get("multi_source_signal") or {}
     ms_counts = _mss.get("counts") or {}
     ms_queried = _mss.get("queried") or {k: True for k in ms_counts}   # legacy artifacts
+    ms_unavailable = _mss.get("unavailable") or {}
+    _n_unavailable = 0
     for name, v in ms_counts.items():
         if not ms_queried.get(name, True):
             continue             # skipped by design — not evidence of thin signal
+        if ms_unavailable.get(name):
+            # R5 (88b416f6): queried and the FETCH FAILED — an outage, not thin
+            # opinion. It neither counts against the venture nor pads the denominator.
+            _n_unavailable += 1
+            continue
         sources_queried += 1
         if (v or 0) > 0:
             sources_with_data += 1
+    if _n_unavailable:
+        flags.append(f"{_n_unavailable} customer-voice source(s) unavailable (fetch "
+                     "failed) — an infrastructure outage, not evidence of thin signal")
     _voice_bar = min(3, max(1, sources_queried - 1))
     if sources_with_data < _voice_bar:
         flags.append(f"Only {sources_with_data} of {sources_queried} queried customer-voice "
