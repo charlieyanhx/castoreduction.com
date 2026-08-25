@@ -126,12 +126,18 @@ def _github_org(domain: str, brand: str) -> dict | None:
     Heuristic: try the brand slug as an org name. If it 200s, pull repos and
     aggregate primary language. Many B2B SaaS startups have public GitHub orgs.
     """
-    # Slugify brand (TripleWhale → triplewhale, lower, strip non-alnum)
+    # Slugify brand (TripleWhale → triplewhale, lower, strip non-alnum).
+    # R1 (88b416f6): the domain-derived candidate is dropped when the domain is a
+    # shared platform host — Dify.ai rostered with github.com turned domain.split
+    # into the org guess "github", and the report printed GitHub Inc's languages
+    # as Dify's stack.
+    from scrape.search import is_shared_platform_host
     candidates = [
         re.sub(r"[^a-z0-9]", "", brand.lower()),
         re.sub(r"[^a-z0-9-]", "", brand.lower().replace(" ", "-")),
-        domain.split(".")[0].lower(),
     ]
+    if domain and not is_shared_platform_host(domain):
+        candidates.append(domain.split(".")[0].lower())
     candidates = [c for c in dict.fromkeys(candidates) if c]  # dedupe, drop empty
 
     cache_key = f"github:{brand.lower()}|{domain.lower()}"
@@ -167,6 +173,17 @@ def _github_org(domain: str, brand: str) -> dict | None:
                 total_stars += repo.get("stargazers_count", 0) or 0
             primary_language = max(languages, key=languages.get) if languages else None
 
+            # R1 (88b416f6): a name-shaped org is not identity. The org "glean"
+            # (147 stars, Ruby) is not Glean the company ($770M raised, real handle
+            # gleanwork). Accept only an org whose own blog/site links back to the
+            # brand's domain — null-beats-wrong, this module's stated contract.
+            blog = str(org_data.get("blog") or "").lower()
+            dom_root = domain.lower().lstrip("www.").split("/")[0]
+            if not (dom_root and not is_shared_platform_host(dom_root)
+                    and dom_root in blog):
+                log.debug("github org %s rejected: no link-back to %s (blog=%r)",
+                          org, dom_root, blog)
+                continue
             out = {
                 "github_org": org,
                 "github_url": org_data.get("html_url"),

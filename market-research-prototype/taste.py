@@ -245,6 +245,16 @@ def decode_taste(brand: str, domain: str,
     separately in every disclosure."""
     log.info(f"[taste] brand={brand!r} domain={domain!r}")
 
+    # R1 (88b416f6): a shared platform host is NOBODY's identity — Dify.ai rostered
+    # with github.com had its personas decoded from GitHub's 60 Trustpilot reviews.
+    # Treat such a domain as no domain at all: better an honest cannot_decode than
+    # another company's customers speaking in this brand's voice.
+    from scrape.search import is_shared_platform_host
+    if domain and is_shared_platform_host(domain):
+        log.info(f"[taste] domain {domain!r} is a shared platform host — "
+                 "refusing it as {brand!r}'s identity")
+        domain = ""
+
     # 1. First-party reviews: Google Maps (supplied by the caller, scraped via gosom)
     # + Trustpilot (skipped without a domain — local venues rarely have either).
     greviews = [g for g in (google_reviews or []) if str(g.get("text") or "").strip()]
