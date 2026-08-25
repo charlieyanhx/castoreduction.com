@@ -309,7 +309,39 @@ def _is_plausible_company_name(name: str) -> bool:
     # as a company name; no company name carries a version number.
     if re.search(r"\b\d+\.\d+\b|\bv\d+\b", n, re.I):
         return False
+    # R7 (88b416f6): four more measured shapes that shipped as "real companies".
+    # An EVENT is not a company ("AI Enterprise Conference 2026").
+    if re.search(r"\b(conference|summit|expo|forum|meetup|webinar|hackathon|"
+                 r"bootcamp)\b", lowered) or re.search(r"\b(19|20)\d{2}\s*$", n):
+        return False
+    # A JOB POSTING is not a company ("Staff AI Engineer" — alion.io job ad).
+    if re.search(r"\b(staff|senior|junior|principal|lead|head)\b.*"
+                 r"\b(engineer|developer|manager|designer|analyst|scientist|"
+                 r"architect)\s*$", lowered):
+        return False
+    # A NON-LATIN HEADLINE is not a company in this pipeline's markets
+    # ("Испытываем подход от CEO Y Combinator" — a habr.com article title).
+    letters = [c for c in n if c.isalpha()]
+    if letters:
+        latin = sum(1 for c in letters if c.isascii())
+        if latin / len(letters) < 0.7:
+            return False
+    # A lone NAV/SECTION WORD is not a company ("Compliance" — scraped from a
+    # /customers page's navigation). Real one-word brands (Glean, Stripe) are not
+    # generic site-section nouns.
+    if len(words) == 1 and lowered in _NAV_SECTION_WORDS:
+        return False
     return True
+
+
+# R7: the site-section vocabulary a /customers scrape can cough up as a "name".
+_NAV_SECTION_WORDS = frozenset({
+    "compliance", "security", "pricing", "resources", "solutions", "products",
+    "product", "customers", "careers", "about", "blog", "platform", "enterprise",
+    "partners", "industries", "integrations", "documentation", "docs", "support",
+    "contact", "company", "features", "overview", "insights", "news", "events",
+    "community", "developers", "legal", "privacy", "terms", "login", "signup",
+})
 
 
 def _scrape_competitor_customers(domain: str, max_companies: int = 20) -> list[dict]:
