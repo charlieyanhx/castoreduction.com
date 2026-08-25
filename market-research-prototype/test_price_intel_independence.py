@@ -92,7 +92,8 @@ class TestTheGroundingRefusesANonMonthlyBasis(unittest.TestCase):
              patch.dict("os.environ", {"CASTOR_SCRAPE_PRICE": "0"}):
             return plan.ground_sizing_bottom_up(
                 {"tam": {"mid": 1e9, "method_top_down": {"value_usd": 1e9}}},
-                "superconducting tape for grid operators", {}, **kw)
+                "superconducting tape for grid operators",
+                {"target_customer": "electric grid operators"}, **kw)
 
     def test_a_per_unit_psm_price_does_not_ground_the_bottom_up(self):
         """$125,000 per unit x 12 is not an annual contract value. Grounding on it would
@@ -117,7 +118,8 @@ class TestTheGroundingRefusesANonMonthlyBasis(unittest.TestCase):
              patch("skills.sizing.bottom_up.grounded_bottom_up", _fake_bottom_up):
             out = plan.ground_sizing_bottom_up(
                 {"tam": {"mid": 1e9, "method_top_down": {"value_usd": 1e9}}},
-                "team analytics saas", {}, arpu_monthly_fallback=99.0,
+                "team analytics saas", {"target_customer": "software teams"},
+                arpu_monthly_fallback=99.0,
                 biz_kind="subscription")
         self.assertEqual(called["annual_arpu"], 99.0 * 12)
         # The grounding still fires — only the LABEL changed. A real Census count times a
@@ -149,7 +151,8 @@ class TestTheGroundingRefusesANonMonthlyBasis(unittest.TestCase):
              patch.dict("os.environ", {"CASTOR_SCRAPE_PRICE": "0"}), \
              patch("skills.sizing.bottom_up.grounded_bottom_up", _fake_bottom_up):
             plan.ground_sizing_bottom_up(
-                {"tam": {"mid": 1e9}}, "anything", {}, biz_kind="ecommerce")
+                {"tam": {"mid": 1e9}}, "anything",
+                {"target_customer": "online shoppers"}, biz_kind="ecommerce")
         self.assertEqual(called["annual_arpu"], 50.0 * 12)
 
     def test_the_refusal_is_disclosed_in_the_notes(self):

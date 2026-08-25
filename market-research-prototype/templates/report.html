@@ -1282,6 +1282,9 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 {% if whitespace and whitespace.whitespace_found %}
 <p style="font-size:10pt;color:#6b7280;margin-top:-8px">
   <strong style="color:#b45309">Whitespace detected</strong> — the dashed orange region shows the largest gap in the competitive map (4×4 grid analysis). This is where positioning is least crowded.
+  {% if competitors and competitors|length < 8 %}
+  <span style="color:#9ca3af">With only {{ competitors|length }} mapped competitors on a 16-cell grid, most cells are empty by arithmetic — read this as orientation, not as a discovered market gap.</span>
+  {% endif %}
 </p>
 {% endif %}
 {% endif %}
@@ -1884,6 +1887,16 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
   </div>
   {% endif %}
 </div>
+{% if economics.unit_economics and economics.unit_economics.typical_cac_usd and economics.cac_target and economics.cac_target.max_sustainable_cac_usd and economics.unit_economics.typical_cac_usd > economics.cac_target.max_sustainable_cac_usd %}
+<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:10px;font-size:10pt;color:#991b1b;margin-top:8px">
+  <strong>These two tiles disagree, and that is the finding:</strong> the estimated CAC
+  (${{ economics.unit_economics.typical_cac_usd }}) exceeds the sustainability ceiling
+  (${{ economics.cac_target.max_sustainable_cac_usd }}) by
+  {{ '%.1f' | format(economics.unit_economics.typical_cac_usd / economics.cac_target.max_sustainable_cac_usd) }}x —
+  at benchmark acquisition costs this venture's CLV does not support a healthy 3:1 ratio.
+  The ceiling is CLV÷3 by construction; the estimate is the number to beat.
+</div>
+{% endif %}
 
 <!-- EVC arithmetic panel -->
 {% if economics.evc and not economics.evc.error %}
@@ -1970,14 +1983,17 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 {% if clustering and clustering.axis_labels %}
 <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px;margin-top:14px">
   <div style="font-size:9pt;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#4b5563;margin-bottom:8px">How to read the competitor map axes</div>
+  {% if clustering.projection_method and 'umap' in clustering.projection_method %}
+  <div style="font-size:9pt;color:#9ca3af;margin-bottom:6px">Axes are UMAP embedding directions (nonlinear), not principal components — the labels below are the LLM's reading of the cluster extremes, useful as orientation, not as measured variance.</div>
+  {% endif %}
   {% set pc1 = clustering.axis_labels.pc1 %}
   {% set pc2 = clustering.axis_labels.pc2 %}
   {% if pc1 %}
-  <div style="font-size:10pt;margin-bottom:4px"><strong>PC1 — {{ pc1.label }}:</strong> {{ pc1.summary }}</div>
+  <div style="font-size:10pt;margin-bottom:4px"><strong>{% if clustering.projection_method and 'umap' in clustering.projection_method %}Axis 1{% else %}PC1{% endif %} — {{ pc1.label }}:</strong> {{ pc1.summary }}</div>
   <div style="font-size:9pt;color:#6b7280;margin-bottom:8px">High end: {{ pc1.high_brands|join(', ') }} — {{ pc1.high_meaning }}. Low end: {{ pc1.low_brands|join(', ') }} — {{ pc1.low_meaning }}.</div>
   {% endif %}
   {% if pc2 %}
-  <div style="font-size:10pt;margin-bottom:4px"><strong>PC2 — {{ pc2.label }}:</strong> {{ pc2.summary }}</div>
+  <div style="font-size:10pt;margin-bottom:4px"><strong>{% if clustering.projection_method and 'umap' in clustering.projection_method %}Axis 2{% else %}PC2{% endif %} — {{ pc2.label }}:</strong> {{ pc2.summary }}</div>
   <div style="font-size:9pt;color:#6b7280">High end: {{ pc2.high_brands|join(', ') }} — {{ pc2.high_meaning }}. Low end: {{ pc2.low_brands|join(', ') }} — {{ pc2.low_meaning }}.</div>
   {% endif %}
 </div>

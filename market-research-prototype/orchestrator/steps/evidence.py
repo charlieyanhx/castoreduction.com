@@ -144,7 +144,7 @@ def run_evidence_step(result: dict, profile: dict, opps: list,
             return []
         log.info(f"[plan] Step 6d: pulling HackerNews mentions for '{target}'")
         try:
-            return hackernews_mentions(target, limit=20)
+            return hackernews_mentions(target, limit=20) or []
         except Exception as e:
             log.warning(f"[plan] HN fetch failed (non-fatal): {e}")
             return []

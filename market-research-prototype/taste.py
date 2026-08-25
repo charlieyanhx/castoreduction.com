@@ -281,7 +281,8 @@ def decode_taste(brand: str, domain: str,
     # 4. cycle25 (issue 6/7): HackerNews mentions — tech-leaning B2B audience
     log.info("[taste] searching HackerNews...")
     try:
-        hn = hackernews_mentions(brand, limit=15)
+        # R5: None = source unavailable (transport failure) — count as no hits
+        hn = hackernews_mentions(brand, limit=15) or []
     except Exception as e:
         log.warning(f"[taste] HN failed: {e}")
         hn = []

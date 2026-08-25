@@ -92,10 +92,33 @@ def _interview(description: str, perspective: dict, geo: str, context: str,
     }
 
 
+def _merge_near_dupes(counts: "Counter[str]") -> "Counter[str]":
+    """R9 (88b416f6): 16 of 16 needs/objections carried mentions:1 and shared_needs
+    was [] across 4 segments, because three separately-phrased data-privacy
+    objections (and two persistent-memory needs) never merged — the promised
+    'ranked by how many segments raised them' produced zero signal. Fuzzy-cluster
+    near-duplicates (token_set_ratio >= 78) into the longest phrasing."""
+    try:
+        from rapidfuzz import fuzz
+    except Exception:                                        # noqa: BLE001
+        return counts
+    merged: "Counter[str]" = Counter()
+    for item, n in sorted(counts.items(), key=lambda kv: -len(kv[0])):
+        for kept in merged:
+            if fuzz.token_set_ratio(item, kept) >= 78:
+                merged[kept] += n
+                break
+        else:
+            merged[item] += n
+    return merged
+
+
 def _aggregate(interviews: list[dict], wtp_unit: str = "/mo") -> dict:
     """Deterministic synthesis: rank shared needs/objections, derive WTP band."""
     need_counts = Counter(n.strip().lower() for iv in interviews for n in iv["needs"] if n.strip())
+    need_counts = _merge_near_dupes(need_counts)
     obj_counts = Counter(o.strip().lower() for iv in interviews for o in iv["objections"] if o.strip())
+    obj_counts = _merge_near_dupes(obj_counts)
 
     # R4 rank 8: only STRICTLY-POSITIVE answers are payers. A $0 "would not buy" is a
     # refusal, not a price — counting it inflated n_would_pay and dragged the band down.

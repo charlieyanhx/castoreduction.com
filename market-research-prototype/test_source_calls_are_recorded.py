@@ -92,27 +92,22 @@ class TestADirectImplementationCallIsRecorded(unittest.TestCase):
         self.assertIsInstance(out, list)
 
     def test_a_failed_fetch_at_least_leaves_a_trace_marked_empty(self):
-        """HONEST ABOUT ITS OWN LIMIT. A network failure inside hackernews_mentions is caught by
-        the implementation itself, which returns [] — so from outside, "the network died" and
-        "nobody mentioned this brand" are the SAME value. The instrumentation cannot invent the
-        difference; it records ok=True, skeleton=True either way.
-
-        What it does buy: the call is no longer INVISIBLE. Before this, a failed fetch left no
-        record at all, which is strictly worse — the run looked like it never asked.
-
-        The deeper fix is the swallowed exception in each implementation (the same class as
-        Reddit's 403 reading as "0 posts"), and it is NOT done here."""
+        """The deeper fix this test's first version deferred is DONE (R5, 88b416f6):
+        a network failure now returns None — "the network died" and "nobody mentioned
+        this brand" are no longer the same value. The trace still exists and is still
+        marked skeleton, so a failed fetch is neither invisible nor mistaken for an
+        empty result."""
         with _LedgerCapture() as cap:
             from sources import hackernews_mentions
             with patch("tools.sources.forums.mrp_http.get",
                        side_effect=RuntimeError("network down")):
                 out = hackernews_mentions("x", limit=3)
             evs = cap.tool_events("hackernews_mentions")
-        self.assertEqual(out, [], "the implementation's own error handling changed")
+        self.assertIsNone(out, "a transport failure must be None (unavailable), "
+                               "never [] (fetched-and-empty)")
         self.assertEqual(len(evs), 1, "a failed source fetch left no trace at all")
         self.assertTrue(evs[0].get("skeleton"),
-                        "an empty result was not marked skeleton, so a reader cannot tell it "
-                        "returned nothing")
+                        "the failed fetch was not marked skeleton in the trace")
 
     def test_an_implementation_that_raises_is_recorded_as_a_failure(self):
         """When an implementation does NOT swallow the error, the record must say ok=False and
