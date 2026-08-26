@@ -713,6 +713,85 @@ def _partition_reference_cases(entries: list[dict]) -> tuple[list[dict], list[di
     return competitors, references
 
 
+def _compute_relevance_score(entry: dict, venture_channel: str) -> int:
+    """Contextual relevance score (0–100) for how much this competitor matters to
+    THIS venture — separate from web momentum, which measures online footprint.
+
+    Inputs read from the entry:
+      geo_sourced   — came from OSM/Overture physical location data
+      _channel      — "physical" | "online" | "unknown" (set by refinement step)
+      relevance     — "direct" | "adjacent" | "reference" (LLM classification)
+
+    venture_channel: "physical" | "online" | "hybrid"
+    """
+    score = 0
+
+    # --- Category/classification relevance ---
+    relevance = (entry.get("relevance") or "").strip().lower()
+    if relevance == "direct":
+        score += 40
+    elif relevance == "adjacent":
+        score += 20
+    # reference → 0 (shouldn't reach here, partitioned out, but be safe)
+
+    # --- Channel match ---
+    entry_channel = (entry.get("_channel") or "").strip().lower()
+    is_geo = bool(entry.get("geo_sourced"))
+
+    if is_geo:
+        # Geo-sourced entries are physically nearby — maximum channel relevance
+        # for a physical venture, low for online ventures
+        if venture_channel == "physical":
+            score += 50
+        elif venture_channel == "hybrid":
+            score += 30
+        else:
+            score += 5
+    elif entry_channel == "physical" and venture_channel == "physical":
+        score += 35
+    elif entry_channel == "online" and venture_channel == "online":
+        score += 35
+    elif entry_channel == "online" and venture_channel == "physical":
+        # Online platform competing for same buyer — adjacent relevance
+        score += 15
+    elif entry_channel == "physical" and venture_channel == "online":
+        score += 10
+    else:
+        # Unknown channel — moderate credit
+        score += 20
+
+    return min(100, score)
+
+
+def _split_local_online(competitors: list[dict],
+                        venture_channel: str) -> tuple[list[dict], list[dict]]:
+    """Split the competitor list into local (geo-sourced) and online/national.
+
+    Also stamps each entry with relevance_score so the template can display it
+    alongside web momentum without conflating the two.
+
+    Returns (local_competitors, online_competitors).
+    Local competitors are only non-empty for physical/hybrid ventures.
+    For online ventures, all competitors go into online_competitors.
+    """
+    local, online = [], []
+    for e in competitors:
+        rs = _compute_relevance_score(e, venture_channel)
+        e = dict(e)
+        e["relevance_score_display"] = rs
+        if e.get("geo_sourced") and venture_channel in ("physical", "hybrid"):
+            local.append(e)
+        else:
+            online.append(e)
+    # Local: already in proximity order from OSM (no re-sort needed)
+    # Online: sort by relevance × 0.6 + web_momentum × 0.4
+    online.sort(key=lambda o: -(
+        (o.get("relevance_score_display") or 0) * 0.6
+        + (o.get("opportunity_score") or 0) * 0.4
+    ))
+    return local, online
+
+
 def _gather_signals(brand: dict, category: str, geo: str) -> dict:
     """
     Pull all free signals for one brand. Category is used as disambiguation

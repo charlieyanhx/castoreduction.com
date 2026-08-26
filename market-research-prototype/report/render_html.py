@@ -65,7 +65,14 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
     viability = r.get("viability", {})
     validation = r.get("validation", {})
     psm = (r.get("pricing", {}) or {}).get("psm", {})
-    competitors = (r.get("discover", {}).get("synthesis", {}) or {}).get("ranked_opportunities", [])
+    _all_competitors = (r.get("discover", {}).get("synthesis", {}) or {}).get("ranked_opportunities", [])
+    _venture_channel = (r.get("profile") or {}).get("channel", "online")
+    try:
+        from discover import _split_local_online
+        local_competitors, online_competitors = _split_local_online(_all_competitors, _venture_channel)
+    except Exception:
+        local_competitors, online_competitors = [], _all_competitors
+    competitors = _all_competitors  # keep for clustering/map which expect the flat list
 
     # Color for viability score
     score = viability.get("viability_score") or 0
@@ -168,6 +175,8 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
         research_brief=r.get("research_brief"),
         psm=psm,
         competitors=competitors,
+        local_competitors=local_competitors,
+        online_competitors=online_competitors,
         # R4 rank 10: reference/off-category entries partitioned out of the competitor
         # roster — shown separately so they don't count as competitors.
         reference_cases=(r.get("discover", {}).get("synthesis", {}) or {}).get("reference_cases", []),
