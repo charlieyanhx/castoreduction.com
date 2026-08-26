@@ -1299,21 +1299,50 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 {% endif %}
 {% endif %}
 
-{% if competitors %}
-{# The number in the right-hand column is the Python composite of the free public
-   signals gathered for each brand (discover._signal_score) — search-trend slope, review
-   volume and velocity, Reddit mentions, domain age, archive activity, social reach. It is
-   NOT a competitive-strength rating, and saying so matters now that it is the computed
-   value rather than the model's: a well-funded B2B rival with no consumer review surface
-   legitimately scores near zero. #}
+{% if local_competitors or online_competitors or competitors %}
+{# The score column differs by section:
+   Local → no web score (geo-sourced venues rarely have public signal); show distance/nearby badge.
+   Online → web presence/strength (0-100), same _signal_score composite as before.
+   Both are composites of free public signals — not a competitive-strength rating. #}
+
+{# ── LOCAL COMPETITORS ────────────────────────────────────────────────── #}
+{% if local_competitors %}
+<h3 style="margin-top:4px;margin-bottom:6px;font-size:11pt;color:#1f2937">Local Competitors
+  <span style="font-weight:400;color:#9ca3af;font-size:9.5pt">&nbsp;({{ local_competitors|length }} nearby)</span>
+</h3>
+<div class="competitors">
+  {% for c in local_competitors %}
+  <div class="comp-row">
+    <div class="rank">{{ loop.index }}</div>
+    <div class="brand">{{ c.brand }} <span class="domain">{{ c.domain or '' }}</span>
+      {% if c.relevance %}
+        {% set rcolor = '#10b981' if c.relevance == 'direct' else ('#f59e0b' if c.relevance == 'adjacent' else '#6b7280') %}
+        <span style="display:inline-block;background:{{ rcolor }}22;color:{{ rcolor }};font-size:8pt;padding:2px 6px;border-radius:3px;margin-left:6px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">{{ c.relevance }}</span>
+      {% endif %}
+    </div>
+    <div class="score"><span style="font-size:8pt;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.04em">nearby</span></div>
+  </div>
+  {% if c.thesis %}<div style="font-size:10pt;color:#4b5563;padding:0 14px 4px 50px">{{ c.thesis }}</div>{% endif %}
+  <div style="border-bottom:1px solid #e5e7eb;height:4px"></div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── ONLINE / NATIONAL COMPETITORS ───────────────────────────────────── #}
+{% set _online_list = online_competitors if online_competitors is defined and online_competitors else competitors %}
+{% if _online_list %}
+{% if local_competitors %}
+<h3 style="margin-top:16px;margin-bottom:6px;font-size:11pt;color:#1f2937">Online &amp; National Competitors
+  <span style="font-weight:400;color:#9ca3af;font-size:9.5pt">&nbsp;({{ [_online_list|length, 20]|min }} of {{ _online_list|length }} shown)</span>
+</h3>
+{% endif %}
 <p style="font-size:9.5pt;color:#6b7280;margin:0 0 8px">
-  The score is <strong>web momentum</strong> (0&ndash;100), computed from public signals only:
-  search-trend slope, review volume and velocity, Reddit mentions, domain age, archive
-  activity, social reach. A low score means a <em>thin public footprint</em>, not a weak
-  competitor &mdash; and &mdash; means no public signal was gathered for that brand.
+  <strong>Web presence/strength</strong> (0&ndash;100): search-trend slope, review volume and velocity,
+  Reddit mentions, domain age, archive activity, social reach. A low score means a
+  <em>thin public footprint</em>, not a weak competitor &mdash; and &mdash; means no public signal was gathered.
 </p>
 <div class="competitors">
-  {% for c in competitors[:6] %}
+  {% for c in _online_list[:20] %}
   <div class="comp-row">
     <div class="rank">{{ loop.index }}</div>
     <div class="brand">{{ c.brand }} <span class="domain">{{ c.domain or '' }}{% if c.domain and c._refinement_sourced and not c.domain_verified %} <span style="color:#b45309;font-weight:400">(search result, identity unverified)</span>{% endif %}</span>
@@ -1322,7 +1351,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
         <span style="display:inline-block;background:{{ rcolor }}22;color:{{ rcolor }};font-size:8pt;padding:2px 6px;border-radius:3px;margin-left:6px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">{{ c.relevance }}</span>
       {% endif %}
     </div>
-    <div class="score">{% if c.get('opportunity_score') is not none %}{{ c.opportunity_score }}{% elif c.get('geo_sourced') %}<span style="font-size:8pt;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.04em">nearby</span>{% else %}<span style="color:#9ca3af">—</span>{% endif %}</div>
+    <div class="score">{% if c.get('opportunity_score') is not none %}{{ c.opportunity_score }}{% else %}<span style="color:#9ca3af">—</span>{% endif %}</div>
   </div>
   {% if c.thesis %}<div style="font-size:10pt;color:#4b5563;padding:0 14px 4px 50px">{{ c.thesis }}</div>{% endif %}
   {% if c.firmographics and c.firmographics.sources %}
@@ -1336,7 +1365,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
     {% if firm.primary_language %}{% set _ = firm_parts.append('built on ' ~ firm.primary_language) %}{% endif %}
     {% if firm_parts %}
       <div style="font-size:9pt;color:#6b7280;padding:0 14px 4px 50px;font-style:italic">
-        🏢 {{ firm_parts|join(' · ') }}
+        {{ firm_parts|join(' · ') }}
         <span style="font-size:7pt;color:#9ca3af;font-style:normal">[{{ firm.sources|join(', ') }}]</span>
       </div>
     {% endif %}
@@ -1344,6 +1373,8 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
   <div style="border-bottom:1px solid #e5e7eb;height:4px"></div>
   {% endfor %}
 </div>
+{% endif %}
+
 {% else %}
 <p style="color:#9ca3af">No competitor data available.</p>
 {% endif %}
@@ -1362,10 +1393,12 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
   A cut roster names what it cut — absence here is an editorial choice, not absence of competitors.
 </p>
 {% endif %}
+
+{# ── REFERENCE CASES ──────────────────────────────────────────────────── #}
 {% if reference_cases %}
 <h3 style="margin-top:16px;font-size:11pt;color:#4b5563">Reference cases <span style="font-weight:400;color:#9ca3af">(not counted as competitors — different category or wrong-entity matches, kept for context)</span></h3>
 <div class="competitors">
-  {% for c in reference_cases[:6] %}
+  {% for c in reference_cases %}
   <div class="comp-row">
     <div class="rank" style="color:#9ca3af">·</div>
     <div class="brand" style="color:#6b7280">{{ c.brand }} <span class="domain">{{ c.domain or '' }}</span></div>
