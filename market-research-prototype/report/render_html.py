@@ -178,6 +178,11 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
         # fetched 12 Stack Overflow and 7 DEV.to results, and the whole
         # dev-forum section silently never rendered.
         multi_source_signal=r.get("multi_source_signal") or {},
+        # D-class (report_audit): hn_signal was produced every run and never passed —
+        # the same silent-discard bug as multi_source_signal, one key over. The
+        # auditor now fails any produced section the renderer does not forward.
+        hn_signal=r.get("hn_signal") or {},
+        price_intel=r.get("price_intel") or {},
         unverified_mentions=(r.get("discover", {}).get("synthesis", {}) or {}).get("unverified_mentions", []),
         # Debuggable report: section→script provenance + the ?debug=1 toggle.
         section_provenance=build_section_provenance(r),
