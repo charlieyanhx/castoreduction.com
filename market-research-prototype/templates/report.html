@@ -1301,26 +1301,33 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 
 {% if local_competitors or online_competitors or competitors %}
 {# The score column differs by section:
-   Local → no web score (geo-sourced venues rarely have public signal); show distance/nearby badge.
+   Local → customer overlap score (0-100): estimated % of the venture's customers who also shop here.
+     Computed by LLM filter at geo-fetch time using world knowledge about each brand.
    Online → web presence/strength (0-100), same _signal_score composite as before.
-   Both are composites of free public signals — not a competitive-strength rating. #}
+   Neither is a competitive-threat rating — they measure audience overlap and web footprint. #}
 
 {# ── LOCAL COMPETITORS ────────────────────────────────────────────────── #}
 {% if local_competitors %}
 <h3 style="margin-top:4px;margin-bottom:6px;font-size:11pt;color:#1f2937">Local Competitors
   <span style="font-weight:400;color:#9ca3af;font-size:9.5pt">&nbsp;({{ local_competitors|length }} nearby)</span>
 </h3>
+<p style="font-size:9.5pt;color:#6b7280;margin:0 0 8px">
+  Score is <strong>customer overlap</strong> (0&ndash;100): estimated share of this venture's
+  customers who also shop at each nearby store. Sorted highest first.
+</p>
 <div class="competitors">
   {% for c in local_competitors %}
   <div class="comp-row">
     <div class="rank">{{ loop.index }}</div>
     <div class="brand">{{ c.brand }} <span class="domain">{{ c.domain or '' }}</span>
-      {% if c.relevance %}
+      {% if c.subcategory %}
+        <span style="font-size:8pt;color:#9ca3af;margin-left:6px">{{ c.subcategory }}</span>
+      {% elif c.relevance %}
         {% set rcolor = '#10b981' if c.relevance == 'direct' else ('#f59e0b' if c.relevance == 'adjacent' else '#6b7280') %}
         <span style="display:inline-block;background:{{ rcolor }}22;color:{{ rcolor }};font-size:8pt;padding:2px 6px;border-radius:3px;margin-left:6px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">{{ c.relevance }}</span>
       {% endif %}
     </div>
-    <div class="score"><span style="font-size:8pt;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.04em">nearby</span></div>
+    <div class="score">{% if c.get('customer_overlap') is not none %}{{ c.customer_overlap }}{% else %}<span style="font-size:8pt;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.04em">nearby</span>{% endif %}</div>
   </div>
   {% if c.thesis %}<div style="font-size:10pt;color:#4b5563;padding:0 14px 4px 50px">{{ c.thesis }}</div>{% endif %}
   <div style="border-bottom:1px solid #e5e7eb;height:4px"></div>

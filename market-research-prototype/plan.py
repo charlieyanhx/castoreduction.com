@@ -1523,6 +1523,85 @@ def _venture_location(result: dict | None, description: str) -> str | None:
     return extract_location(description)
 
 
+_GEO_FILTER_SYSTEM = """You are a competitive intelligence analyst.
+Given a venture description and a list of nearby shops (from map data — names only,
+no descriptions), decide which shops are plausible competitors for that venture.
+
+Respond with a JSON array — one object per shop, in the SAME ORDER as the input list:
+[
+  {
+    "brand": "<exact name from input>",
+    "keep": true|false,
+    "subcategory": "<2-5 word label, e.g. 'luxury vintage boutique' or 'activewear chain'>",
+    "customer_overlap": <0-100 integer, estimated % of the venture's customers who might also shop here>
+  },
+  ...
+]
+
+Rules:
+- keep=false for shops that are clearly a different category (kids clothing, bikes, activewear,
+  menswear-only, sports, electronics, grocery, etc.) for the given venture.
+- keep=true for same or adjacent category competitors, even if price tier differs.
+- customer_overlap: 80-100 = direct rival (same customer shops both); 40-79 = adjacent
+  (some shared audience); 1-39 = remote overlap; 0 = different category entirely.
+- Be decisive. Do not mark ambiguous names keep=true out of caution — skip them.
+- Return ONLY valid JSON, no commentary."""
+
+
+def _filter_geo_competitors(rows: list[dict], description: str, category: str) -> list[dict]:
+    """One batched LLM call to remove off-category geo competitors and score customer overlap.
+
+    Inserts `customer_overlap` (0-100) and `subcategory` into each kept entry.
+    Non-fatal: on any LLM failure returns the original list unmodified.
+    Caps output at 15 — OSM pulls up to 30 but the display limit is 15 and
+    an unfiltered 30-entry roster degrades quality by including obvious noise.
+    """
+    if not rows:
+        return rows
+    try:
+        from llm import call_json
+        names = [r.get("brand") or r.get("name") or "" for r in rows]
+        user = (
+            f"Venture: {description[:400]}\n"
+            f"Category: {category}\n\n"
+            f"Nearby shops (from map data):\n"
+            + "\n".join(f"{i+1}. {n}" for i, n in enumerate(names) if n)
+        )
+        raw = call_json(system=_GEO_FILTER_SYSTEM, user=user, max_tokens=1200) or []
+        if not isinstance(raw, list):
+            raw = raw.get("competitors") or raw.get("results") or []
+        # Build a lookup by brand name (case-insensitive)
+        decisions: dict[str, dict] = {}
+        for item in raw:
+            if isinstance(item, dict) and item.get("brand"):
+                decisions[item["brand"].lower().strip()] = item
+        kept = []
+        for r in rows:
+            name = (r.get("brand") or r.get("name") or "").strip()
+            dec = decisions.get(name.lower())
+            if dec is None:
+                # LLM didn't mention this name — keep it with neutral score
+                kept.append({**r, "customer_overlap": 50, "subcategory": ""})
+                continue
+            if not dec.get("keep", True):
+                log.debug("[geo_filter] dropped %r (%s, overlap=%s)",
+                          name, dec.get("subcategory", ""), dec.get("customer_overlap", 0))
+                continue
+            kept.append({
+                **r,
+                "customer_overlap": int(dec.get("customer_overlap") or 50),
+                "subcategory": dec.get("subcategory") or "",
+            })
+        # Sort by customer_overlap descending, then cap at 15
+        kept.sort(key=lambda x: -(x.get("customer_overlap") or 0))
+        log.info("[geo_filter] %d/%d geo competitors kept after LLM filter (cap 15)",
+                 min(len(kept), 15), len(rows))
+        return kept[:15]
+    except Exception as e:
+        log.warning("[plan] _filter_geo_competitors failed (non-fatal): %s", e)
+        return rows[:15]
+
+
 def geo_competitor_opps(description: str, profile: dict, market_scale: dict | None,
                         limit: int = 30, location: str | None = None) -> list[dict]:
     """M1 (audit): the REAL competitors of a physical-local venture are the nearby venues,
@@ -1575,11 +1654,17 @@ def geo_competitor_opps(description: str, profile: dict, market_scale: dict | No
                                  "source": "Overture Maps places"})
         if len(rows) < 3:
             return []
+        # LLM filter: remove off-category entries, score customer overlap, cap at 15.
+        # Runs before the < 3 guard would trigger — the pre-filter count is what OSM saw,
+        # not what's relevant. If filter leaves < 3, we still return [] below.
+        rows = _filter_geo_competitors(rows, description, cat)
+        if len(rows) < 3:
+            return []
         # Promote to the opps shape. No domain/signals (these are physical venues, not web
         # brands) — which is correct: downstream pricing then SKIPS web scraping instead of
         # mislabeling a competitor's bagged-goods/subscription price as a per-unit price.
         return [{**c, "rank": i + 1, "geo_sourced": True}
-                for i, c in enumerate(rows[:limit])]
+                for i, c in enumerate(rows)]
     except Exception as e:
         log.warning("[plan] geo_competitor_opps failed (non-fatal): %s", e)
         return []
