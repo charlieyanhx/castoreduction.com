@@ -37,18 +37,39 @@ MIN_NEW_TO_CONTINUE = 3   # fewer new competitors than this in a round → stop
 MAX_ROUNDS = 2            # hard ceiling to prevent runaway cost
 
 
-def _gap_queries(gap_need: str, category: str) -> list[str]:
-    """Four targeted query angles for one gap — diverse enough to surface rivals a
-    single category query misses, narrow enough to stay relevant."""
-    return [
+def _gap_queries(gap_need: str, category: str, geo: str = "",
+                 channel: str = "") -> list[str]:
+    """Targeted query angles for one gap.
+
+    Geo and channel are injected so physical local ventures get local results instead
+    of globally dominant online platforms. For a Venice Beach boutique, "luxury vintage
+    clothing Venice Beach" surfaces Wasteland and local consignment shops; without geo
+    the same search returns Vestiaire Collective and 1stDibs.
+
+    channel: "physical" | "online" | "hybrid" | "" (unknown)
+    """
+    queries = [
         f"{category} {gap_need}",
-        f"best solution for {gap_need} {category}",
-        f"alternatives that offer {gap_need}",
-        f"site:g2.com OR site:capterra.com {category} {gap_need}",
+        f"alternatives that offer {gap_need} {category}",
     ]
+    if geo and geo.lower() not in ("us", "global", "unknown", ""):
+        # Physical/hybrid: add geo-specific angles that surface local rivals
+        queries.append(f"{category} {geo}")
+        queries.append(f"{gap_need} {category} near {geo}")
+    else:
+        # No specific geo or online-only: review-site angles surface broader set
+        queries.append(f"best solution for {gap_need} {category}")
+        queries.append(f"site:g2.com OR site:capterra.com {category} {gap_need}")
+
+    if channel == "physical":
+        # Explicitly exclude online-only platforms from physical search angles
+        queries.append(f"in-person {category} {geo}".strip())
+
+    return queries
 
 
-def _search_for_gap(gap_need: str, category: str, known: set[str]) -> list[dict]:
+def _search_for_gap(gap_need: str, category: str, known: set[str],
+                    geo: str = "", channel: str = "") -> list[dict]:
     """Run targeted web searches for one gap and extract real competitor names.
     Returns candidates not already in known. Best-effort — returns [] on any failure."""
     try:
@@ -56,7 +77,7 @@ def _search_for_gap(gap_need: str, category: str, known: set[str]) -> list[dict]
         from llm import call_json
 
         hits: list[dict] = []
-        for q in _gap_queries(gap_need, category):
+        for q in _gap_queries(gap_need, category, geo=geo, channel=channel):
             ev = web_search(q, max_results=6)
             rows = (filter_aggregator_domains(ev.payload or []).payload) or []
             hits.extend(r for r in rows if isinstance(r, dict))
@@ -68,21 +89,38 @@ def _search_for_gap(gap_need: str, category: str, known: set[str]) -> list[dict]
             f"- {h.get('title', '')} | {(h.get('snippet') or '')[:140]}"
             for h in hits[:30]
         ]
+
+        # Channel filter instruction: for physical ventures, online-only platforms
+        # compete for the same customer but are not direct local rivals. Flag them
+        # as adjacent so they don't crowd out local competitors in the roster.
+        channel_instruction = ""
+        if channel == "physical":
+            channel_instruction = (
+                "\nCHANNEL NOTE: This is a physical in-person venture. "
+                "Online-only platforms (e.g. global marketplaces, e-commerce sites) "
+                "compete for the same buyer but are NOT local rivals — mark these "
+                "with channel='online' in your output so they can be classified "
+                "as adjacent rather than direct. Prioritize local/regional businesses."
+            )
+
         raw = call_json(
             system=(
                 "You extract real competitor COMPANY/PRODUCT names from web-search results. "
                 "Return only companies that genuinely compete in the stated category and "
                 "specifically address the stated gap. Exclude review publishers (G2, Capterra, "
                 "Forbes, PCMag), generic phrases, and companies already in the known list. "
-                "Return ONLY JSON: {\"companies\": [{\"name\": str, \"domain\": str|null}]}."
+                "Return ONLY JSON: {\"companies\": [{\"name\": str, \"domain\": str|null, "
+                "\"channel\": \"physical\"|\"online\"|\"unknown\"}]}."
+                + channel_instruction
             ),
             user=(
                 f"CATEGORY: {category}\n"
                 f"GAP: {gap_need}\n"
+                f"GEO: {geo or 'unspecified'}\n"
                 f"ALREADY KNOWN: {', '.join(sorted(known)[:20])}\n\n"
                 f"SEARCH RESULTS:\n" + "\n".join(lines)
             ),
-            max_tokens=400,
+            max_tokens=500,
         ) or {}
     except Exception as e:
         log.warning("[refinement] gap search failed for %r (non-fatal): %s", gap_need, e)
@@ -94,7 +132,12 @@ def _search_for_gap(gap_need: str, category: str, known: set[str]) -> list[dict]
             continue
         name = (c.get("name") or "").strip()
         if name and name.lower() not in known:
-            out.append({"name": name, "domain": c.get("domain"), "_gap_seed": gap_need})
+            out.append({
+                "name": name,
+                "domain": c.get("domain"),
+                "_gap_seed": gap_need,
+                "_channel": c.get("channel", "unknown"),
+            })
     return out
 
 
@@ -138,13 +181,26 @@ def run_competitor_refinement_step(
             return
 
         category = profile.get("category", "")
-        geo = profile.get("geo", "US")
+        geo = profile.get("geography", profile.get("geo", "US"))
+        channel = profile.get("channel", "")  # "physical" | "online" | "hybrid" | ""
 
-        # Build the known-name set from the current roster
+        # Build known-name AND known-domain sets from the full roster (including
+        # reference cases) so round-2 can't re-add a competitor that was already
+        # found and partitioned out (e.g. 1stDibs appearing in both lists).
+        disc_syn = (result.get("discover") or {}).get("synthesis") or {}
+        full_roster = (
+            (disc_syn.get("ranked_opportunities") or [])
+            + (disc_syn.get("reference_cases") or [])
+        )
         known: set[str] = {
             (o.get("brand") or o.get("name") or "").strip().lower()
-            for o in opps
+            for o in full_roster
             if (o.get("brand") or o.get("name"))
+        }
+        known_domains: set[str] = {
+            (o.get("domain") or "").strip().lower()
+            for o in full_roster
+            if o.get("domain")
         }
 
         all_added: list[dict] = []
@@ -158,7 +214,11 @@ def run_competitor_refinement_step(
             # Run gap searches in parallel — each gap is independent
             with ThreadPoolExecutor(max_workers=3) as pool:
                 futures = {
-                    pool.submit(_search_for_gap, gap.get("need", ""), category, set(known)): gap
+                    pool.submit(
+                        _search_for_gap,
+                        gap.get("need", ""), category, set(known),
+                        geo=geo, channel=channel,
+                    ): gap
                     for gap in gaps[:3]   # top 3 gaps per round
                     if gap.get("need")
                 }
@@ -277,17 +337,43 @@ def run_competitor_refinement_step(
             # wz-it.com as their own sites, and the customer-voice verdict then
             # described the wrong company. Mark it unverified; the report prints the
             # brand without asserting the domain.
+            # C2: dedup by domain — catches entries already in reference_cases
+            # (e.g. 1stDibs partitioned from round-1, re-found in round-2)
+            _entry_domain = (e.get("domain") or "").strip().lower()
+            if _entry_domain and _entry_domain in known_domains:
+                log.info("[refinement] skipping %s — domain already in roster",
+                         e.get("brand"))
+                continue
+            if _entry_domain:
+                known_domains.add(_entry_domain)
+
+            # C1: respect off_category from validate_domain — was hardcoded "direct"
+            # which let Foundry.com (a tech company) rank as a direct vintage competitor.
+            # C5: online-only platform competing with a physical venture → adjacent.
+            is_off = bool(e.get("off_category"))
+            is_channel_mismatch = (channel == "physical" and e.get("_channel") == "online")
+            if is_off:
+                _relevance, _is_competitor = "reference", False
+            elif is_channel_mismatch:
+                _relevance, _is_competitor = "adjacent", True
+            else:
+                _relevance, _is_competitor = "direct", True
+
+            _thesis = f"Surfaced in round-2 gap search for: {e.get('_gap_seed', 'unknown gap')}."
+            if is_channel_mismatch:
+                _thesis += " Online platform — adjacent competitor (same buyer, different channel)."
+            if is_off:
+                _thesis += " Off-category domain — retained as reference only."
+
             new_entries.append({
                 "brand": e.get("brand"),
                 "domain": e.get("domain"),
                 "domain_verified": bool(e.get("firmographics")
                                         and (e["firmographics"].get("sources") or [])),
                 "opportunity_score": score,
-                "relevance": "direct",
-                "is_competitor": True,
-                "thesis": (
-                    f"Surfaced in round-2 gap search for: {e.get('_gap_seed', 'unknown gap')}."
-                ),
+                "relevance": _relevance,
+                "is_competitor": _is_competitor,
+                "thesis": _thesis,
                 "suggested_next_step": "decode_taste" if score > 20 else "investigate_further",
                 "signals": {
                     k: e.get(k) for k in (
@@ -297,6 +383,7 @@ def run_competitor_refinement_step(
                     if e.get(k) is not None
                 },
                 "_gap_seed": e.get("_gap_seed"),
+                "_channel": e.get("_channel"),
                 "_refinement_sourced": True,
             })
 

@@ -33,7 +33,11 @@ _PLAN_SYSTEM = (
     "JSON: {\"strategies\": [{\"name\": str, \"query\": str}]}. Include angles like: "
     "the category itself, 'alternatives to <likely leader>', 'best <category> tools', "
     "'<category> software comparison', and a review-site angle (g2/capterra/trustpilot). "
-    "Tailor queries to the venture."
+    "Tailor queries to the venture. "
+    "IMPORTANT: if the venture has a specific city or region (not just 'US' or 'Global'), "
+    "include at least one geo-specific query (e.g. '<category> <city>', '<category> near "
+    "<city>') — local physical businesses compete primarily with local rivals, and generic "
+    "category searches return globally dominant online platforms instead."
 )
 
 _CLASSIFY_SYSTEM = (
