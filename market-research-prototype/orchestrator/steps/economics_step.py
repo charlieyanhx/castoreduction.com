@@ -159,6 +159,22 @@ def run_economics_step(result: dict, profile: dict, *, psm_result: dict, biz_kin
                                .get("seats_per_account"))
                 if isinstance(econ, dict) and _seats_fact:
                     econ["_facts"] = {"seats_per_account": _seats_fact}
+                    # B-class (report_audit): CLV is per SEAT and typical CAC is per
+                    # CUSTOMER. Storing ONLY the per-seat figure is the recurrence
+                    # path — every consumer that wants to compare has to recompute,
+                    # and prose recreated the mismatch on a new pair of figures one
+                    # wave after the ceiling was fixed. Store BOTH, labelled.
+                    import re as _re
+                    _m = _re.search(r"(\d[\d,.]*)", str(_seats_fact))
+                    _n = max(1.0, float(_m.group(1).replace(",", ""))) if _m else 1.0
+                    _clv = (econ.get("clv") or {}).get("clv_usd")
+                    if isinstance(_clv, (int, float)) and _n > 1:
+                        econ["clv"]["clv_per_customer_usd"] = round(_clv * _n, 2)
+                        econ["clv"]["seats_per_customer"] = _n
+                        econ["clv"]["unit_note"] = (
+                            f"CLV is ${_clv:,.0f} per SEAT; a typical customer buys "
+                            f"{_n:g} seats, so ${_clv * _n:,.0f} per CUSTOMER — compare "
+                            f"the per-customer figure with any per-customer CAC.")
             else:
                 # cycle38: marketplace (take-rate on GMV) and ad-supported (eCPM on users) have a
                 # different revenue basis than per-unit OR subscription. Rather than fabricate a

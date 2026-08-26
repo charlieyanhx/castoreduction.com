@@ -401,10 +401,13 @@ PLACE: {place}
 PROMOTION: {promotion}
 
 KEY METRICS:
-- Competitive density: {density} competitors identified ({active_density} with active web-momentum signals — reviews, trend, social)
+- Competitive density: {density} competitors identified ({active_density} of them carry ANY gathered public signal — not a momentum measure)
 - Avg competitor opportunity score: {avg_score}
 - Target audience confidence: {audience_confidence}
-- Signals collected: {signal_count}
+- Signals: {signal_count}
+(Where a metric reads "not measured", the run did NOT measure it — score that
+dimension on what WAS measured and say so; never treat "not measured" as a zero,
+and never call an unavailable source thin evidence.)
 
 ═══════════════════════════════════════════════════════════════════
 SCORING RUBRIC — score each dimension 1-100 against THESE anchors.
@@ -1446,7 +1449,7 @@ def score_viability(
     four_ps: dict,
     density: int,
     avg_score: float,
-    audience_confidence: float,
+    audience_confidence: float | None,
     signal_count: int,
     active_density: int = 0,
     # Iter 43 (issue I): real cross-pipeline data rather than LLM guessing
@@ -1505,7 +1508,15 @@ def score_viability(
     if economics_evc is not None:
         real_metrics.append(f"- EVC verdict: '{economics_evc}'. **Anchor unit_economics_health to this** — 'data-thin' or 'over-priced' should pull score below 50.")
     if economics_clv is not None:
-        real_metrics.append(f"- CLV: ${economics_clv}.")
+        _clvblk = (economics or {}).get("clv") or {}
+        _percust = _clvblk.get("clv_per_customer_usd")
+        if _percust:
+            real_metrics.append(
+                f"- CLV: ${_percust:,.0f} per CUSTOMER (= ${economics_clv:,.0f} per "
+                f"seat x {_clvblk.get('seats_per_customer'):g} seats). ALWAYS compare "
+                f"CLV against CAC in the SAME unit — the CAC below is per customer.")
+        else:
+            real_metrics.append(f"- CLV: ${economics_clv} per customer.")
     # R9 (88b416f6): max_sustainable_cac is CLV/3 BY CONSTRUCTION, so "CLV supports a
     # viable 3:1 ratio" is tautologically true of any CLV — while the estimated
     # typical CAC ($1,850, 2.7x the ceiling, CLV:CAC 1.09) never reached this prompt
@@ -1585,7 +1596,10 @@ def score_viability(
             density=density,
             active_density=active_density,
             avg_score=avg_score,
-            audience_confidence=audience_confidence,
+            audience_confidence=("not measured (no competitor audience decoded — "
+                                 "see the undecodable list)"
+                                 if audience_confidence is None
+                                 else audience_confidence),
             signal_count=signal_count,
             unit_economics_rubric=unit_economics_rubric(business_model_kind),
         ) + "\n\nREAL PIPELINE METRICS (anchor scoring to these — they are authoritative over your guesses):\n" + real_metrics_blob

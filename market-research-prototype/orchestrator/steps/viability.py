@@ -28,10 +28,17 @@ def run_viability_step(result: dict, profile: dict, *, four_ps: dict, top_audien
         from four_ps import score_viability
         disc = result.get("discover") or {}
         log.info("[plan] Step 14: scoring viability")
-        signal_count = sum(
-            1 for s in (disc.get("steps", {}) or {}).get("signals", [])
-            if s.get("_score", 0) > 0
-        )
+        # C-class (report_audit): "17 signals gathered" described neither the pool
+        # (33 scanned) nor the roster the report stands behind (22) — and 4 of the 17
+        # were brands the report EXCLUDES from its competitor set. State what the
+        # reader can reconcile: how many of the SHOWN rivals carry signal data.
+        _pool = (disc.get("steps", {}) or {}).get("signals", []) or []
+        _roster = ((disc.get("synthesis") or {}).get("ranked_opportunities") or [])
+        _roster_names = {o.get("brand") for o in _roster if o.get("brand")}
+        _with_signal = sum(1 for o in _roster if (o.get("signals") or {}))
+        signal_count = (f"{_with_signal} of {len(_roster)} rostered competitors carry "
+                        f"gathered signal data ({len(_pool)} brands scanned in total)"
+                        if _roster else len([s for s in _pool if s.get("_score", 0) > 0]))
         # C2 (9201627d audit): a SKELETON step is an outage, not a measurement. The
         # customer-universe step returned {_skeleton: true, _skeleton_reason: "No LLM
         # API key found"} and viability scored "0 candidate entities harvested" as
@@ -54,7 +61,13 @@ def run_viability_step(result: dict, profile: dict, *, four_ps: dict, top_audien
             # corpus acted on. None reaches the prompt as "not measured".
             active_density=disc.get("active_signal_density"),
             avg_score=disc.get("avg_opportunity_score"),
-            audience_confidence=top_audience.get("confidence", 0) or 0,
+            # A-class (report_audit): an UNMEASURED value must never reach the
+            # prompt as a number. C2 taught this function the lesson for
+            # customer_universe_count and left its sibling coerced — so a Reddit
+            # outage became "zero target audience confidence" and docked the score.
+            # None reaches the prompt as "not measured", like active_density.
+            audience_confidence=(top_audience.get("confidence")
+                                 if top_audience else None),
             signal_count=signal_count,
             differentiators_strength=(result.get("differentiators") or {}).get("differentiation_strength"),
             differentiators_count=len((result.get("differentiators") or {}).get("differentiators", [])),

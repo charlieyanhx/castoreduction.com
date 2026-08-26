@@ -1117,6 +1117,12 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 {% endif %}
 {% endif %}
 
+{% if clustering and clustering.coverage_warning %}
+<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:12px;font-size:10pt;color:#92400e;margin-top:8px">
+  <strong>What this map does and does not show:</strong> {{ clustering.coverage_warning }}
+</div>
+{% endif %}
+
 <!-- ITER 36: DIFFERENTIATORS + MARKET GAPS (spec step 3d) -->
 {% if differentiators %}
 <h2 id="differentiators">Differentiators &amp; Market Gaps</h2>
@@ -2199,7 +2205,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 
   <p><strong>4Ps synthesis (spec 13).</strong> Each P (Product/Price/Place/Promotion) gets its own focused LLM call in parallel — not one monolithic prompt. Each receives only the context it needs. Per-section max_tokens=1200. Outputs are assembled into narrative + key_takeaways + citations.</p>
 
-  <p><strong>Viability score (spec 14).</strong> LLM grades the full plan on 1-100 scale with honest confidence flag and recommended-next-steps. Not a MiroFish sim — a rigorous LLM evaluation anchored to observable data quality.</p>
+  <p><strong>Viability score (spec 14).</strong> LLM grades the full plan on 1-100 scale with honest confidence flag and recommended-next-steps. An LLM evaluation anchored to the observable data quality above — not a simulation of buyers.</p>
 
   <p><strong>Reddit customer voice.</strong> PRAW (user OAuth) or Arctic Shift archive scoped to city/category subreddits, with legacy fallbacks, for thread discovery; VADER per-comment sentiment; LLM-extracted complaint/praise themes + verbatim customer quotes. Unfiltered, bypasses the curated Trustpilot/G2 surface.</p>
 
