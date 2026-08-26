@@ -203,6 +203,12 @@ def check_counts(r: dict, html: str = "") -> list[Violation]:
             f"{n_roster}", "", "discover"))
 
     # C1. the map must not describe a different population than the prose
+    if n_roster and n_cluster == 0 and not (r.get("_dropped_outputs") or []):
+        out.append(Violation(
+            "C.map_plots_nothing", "C", "P1",
+            f"the roster holds {n_roster} competitors and the competitive map plots "
+            f"NONE — the section renders empty with no disclosure of why",
+            str((clustering or {}).get("error"))[:90], "clustering"))
     if n_roster and n_cluster and n_cluster < n_roster:
         frac = n_cluster / n_roster
         disclosed = bool(clustering.get("coverage_warning")) and (

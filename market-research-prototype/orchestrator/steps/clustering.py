@@ -33,6 +33,17 @@ def run_clustering_step(result: dict, profile: dict, opps: list,
     n_input == len(roster) == competitor_density.
     """
     if len(opps) < _MIN_ROSTER_TO_CLUSTER:
+        # C-class (report_audit): this early return disclosed NOTHING, so the
+        # competitive map simply vanished and the reader had no way to know why —
+        # measured on run ff89f905, where the roster reached 15 AFTER refinement but
+        # held fewer than 4 when clustering ran. Absence must be explained.
+        record_dropped_output(
+            result, "clustering",
+            f"only {len(opps)} competitor(s) were known when the map was built "
+            f"(minimum {_MIN_ROSTER_TO_CLUSTER}); later discovery rounds added more, "
+            f"so the roster below is larger than any map could have plotted")
+        log.info("[plan] clustering skipped: roster of %d below the minimum %d",
+                 len(opps), _MIN_ROSTER_TO_CLUSTER)
         return
     with step_scope("clustering"):
         log.info("[plan] Step 3c: clustering competitors + PCA whitespace detection")
