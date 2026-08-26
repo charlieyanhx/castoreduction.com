@@ -783,7 +783,12 @@ def _split_local_online(competitors: list[dict],
             local.append(e)
         else:
             online.append(e)
-    # Local: already in proximity order from OSM (no re-sort needed)
+    # Local: sort by customer_overlap (set by _filter_geo_competitors) desc.
+    # Falls back to relevance_score_display if overlap wasn't computed (e.g. filter failed).
+    local.sort(key=lambda x: -(
+        (x.get("customer_overlap") or 0) * 0.7
+        + (x.get("relevance_score_display") or 0) * 0.3
+    ))
     # Online: sort by relevance × 0.6 + web_momentum × 0.4
     online.sort(key=lambda o: -(
         (o.get("relevance_score_display") or 0) * 0.6
