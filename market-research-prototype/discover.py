@@ -163,8 +163,8 @@ Return JSON:
         "domain_age_days": int or null
       }},
       "description": "1 sentence — what this business sells or does",
-      "relevance": "direct | adjacent | reference — 'direct' = same product category; 'adjacent' = same buyer/business model but different product; 'reference' = different category but instructive case study",
-      "is_competitor": "true | false — set FALSE when this is NOT a competitor in this market: a wrong-entity match (e.g. a cryptography firm surfaced for a superconductor venture), a different-category business, or a pure reference. Put the reason in the thesis. This is a STRUCTURED verdict — do not bury 'this isn't really a competitor' in the thesis prose while leaving relevance 'direct'.",
+      "relevance": "direct | adjacent | reference — USE THESE DEFINITIONS EXACTLY: 'direct' = same core solution, same buyer, competes at the moment of purchase (channel may differ — an online platform and a physical store can both be 'direct' if they answer the same purchase decision); 'adjacent' = same buyer need but meaningfully different solution, price tier, or target segment — the customer might consider both but they are not substitutes; 'reference' = genuinely different category or buyer — customer would NOT have been considering this venture when they chose this competitor. CHANNEL DIFFERENCE ALONE (online vs in-person) does NOT make something 'reference' — test is whether the customer was deciding between both at point of purchase.",
+      "is_competitor": "true | false — set FALSE only when this is a wrong-entity match (e.g. a cryptography firm for a superconductor venture), a completely different category, or pure 'reference'. Set TRUE for both 'direct' and 'adjacent'. This is a STRUCTURED verdict — do not bury 'this isn't really a competitor' in the thesis prose while leaving is_competitor true.",
       "thesis": "why this is an opportunity or reference — 1-2 sentences, specific",
       "suggested_next_step": "decode_taste | monitor | ignore"
     }}

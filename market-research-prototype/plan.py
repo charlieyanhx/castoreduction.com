@@ -74,6 +74,7 @@ from orchestrator.steps.financials_step import (_enrich_economics_at_som,  # noq
 from orchestrator.steps.firmographics import run_firmographics_step
 from orchestrator.steps.max_diff import run_max_diff_step
 from orchestrator.steps.personas import run_personas_step
+from orchestrator.steps.pricing_model_step import run_pricing_model_step
 from orchestrator.steps.pricing_sim import run_pricing_sim_step
 from orchestrator.steps.profile import run_profile_step
 from orchestrator.steps.segments import run_segment_ranking_step
@@ -2279,13 +2280,28 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                                 "disclosure": _bm.get("disclosure")}
     if _bm.get("disclosure"):
         log.info("[plan] monetization model INFERRED (%s) — brief carried no signal", biz_kind)
+    # --- Pricing model classification (→ orchestrator/steps/pricing_model_step.py) ---
+    # Runs before PSM so it can set result["economics"]["unit"] from context rather than
+    # from the keyword-scan in unit_for_model (which returned "drink" for a vintage shop
+    # because synthesized text about Venice Beach mentioned "café").
+    # Non-fatal: if it fails or returns subscription/unknown, the PSM path runs unchanged.
+    _pm = run_pricing_model_step(
+        result, profile, description,
+        fixed_costs=(result.get("economics") or {}).get("fixed_costs_monthly"),
+        checkpoint=checkpoint,
+    )
+    _pm_unit = (_pm.get("price_unit") if _pm and _pm.get("model") not in ("subscription", "unknown", None, "") else None)
+
     # cycle38: the economics/PSM unit must be model-derived and NEVER "/mo" for a per-unit
     # venture (infer_wtp_unit defaults to /mo → sized a $45 serum and a gym "per month").
-    _psm_unit = unit_for_model(biz_kind, description, profile)
+    # Prefer the pricing_model step's unit when available — it's grounded in the actual
+    # pricing mechanism, not a keyword scan of potentially contaminated text.
+    _psm_unit = _pm_unit or unit_for_model(biz_kind, description, profile)
     # Only a true subscription uses the recurring (monthly) PSM frame; per-unit AND marketplace/
     # ad-supported price per transaction, not per month.
     _psm_recurring = (biz_kind == "subscription")
-    log.info("[plan] business model = %s (psm unit=%s, recurring=%s)", biz_kind, _psm_unit, _psm_recurring)
+    log.info("[plan] business model = %s (psm unit=%s, recurring=%s, pricing_model=%s)",
+             biz_kind, _psm_unit, _psm_recurring, (_pm or {}).get("model", "—"))
 
     # --- Steps 9b + 11: PSM + place recommendation, parallel --- (→ orchestrator/steps/pricing_sim.py)
     psm_result, place_result = run_pricing_sim_step(
