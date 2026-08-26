@@ -2267,6 +2267,14 @@ def _stated_volumes(four_ps: dict, unit_noun: str | None = None
             period = "month" if (m.group("m1") or m.group("m2")) else "day"
             filler = m.group("f1") if m.group("n1") else None
             qualifier = filler if (filler and _singular(filler) not in nouns) else None
+            # A CURRENCY-LED figure is a PRICE, not a volume. MEASURED (run
+            # ff89f905): "$65 per seat per month" and "$95 per seat per month" were
+            # read as "65 seats/month" and "95 seats/month", and the stock check
+            # (R4) withheld a report whose prose was correct. A volume never carries
+            # a currency symbol immediately before its number.
+            _lead = text[max(0, m.start() - 12):m.start()]
+            if re.search(r"[$€£]\s*$|\b(?:usd|eur|gbp)\s*$", _lead, re.I):
+                continue
             try:
                 out.append((section, float(str(raw).replace(",", "")), period, qualifier))
             except (TypeError, ValueError):

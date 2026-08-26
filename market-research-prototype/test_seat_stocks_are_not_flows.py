@@ -86,5 +86,35 @@ class TestD61FailsFlowPhrasingOfAStock(unittest.TestCase):
         self.assertIsNot(f.ok, False)
 
 
+class TestAPriceIsNotAVolume(unittest.TestCase):
+    """MEASURED (run ff89f905): '$65 per seat per month' and '$95 per seat per month'
+    — the venture's PRICE — were read as '65 seats/month' and '95 seats/month', and
+    the R4 stock check withheld a report whose prose was correct. A volume never
+    carries a currency symbol immediately before its number."""
+
+    def _r(self, price_text):
+        return {
+            "economics": {"pricing_unit": "seat", "monthly_price_usd": 65.0},
+            "market_sizing": {"som": {"mid": 2_304_000}, "som_usd": 2_304_000,
+                              "scale": "national"},
+            "business_model": {"kind": "subscription"},
+            "four_ps": {"price": price_text,
+                        "_volume_ladder": {"unit": "seat", "period": "month",
+                                           "is_stock": True,
+                                           "rungs": {"planning target": 320.0}}},
+        }
+
+    def test_price_phrasing_is_not_a_flow_claim(self):
+        from gates import d61_volume_targets_match_the_ladder
+        f = d61_volume_targets_match_the_ladder(
+            self._r("Adopt $65 per seat per month; test $95 per seat per month."), None)
+        self.assertIsNot(f.ok, False, f.detail)
+
+    def test_a_real_flow_claim_still_fails(self):
+        from gates import d61_volume_targets_match_the_ladder
+        f = d61_volume_targets_match_the_ladder(
+            self._r("Acquire 320 seats per month at $65 per seat per month."), None)
+        self.assertFalse(f.ok)
+
 if __name__ == "__main__":
     unittest.main()
