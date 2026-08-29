@@ -46,7 +46,7 @@ class TestStageIsWired(unittest.TestCase):
     def test_run_plan_calls_the_crew_behind_the_lever(self):
         import inspect
         import plan
-        src = inspect.getsource(plan.run_plan)
+        src = plan.run_path_source()
         # run_plan calls the STEP, which owns the lever check and the crew call.
         # Asserting on run_research_crew here would pin an implementation detail one
         # module away and break the moment the step is refactored.
@@ -56,7 +56,7 @@ class TestStageIsWired(unittest.TestCase):
     def test_the_brief_lands_under_a_stable_key(self):
         import inspect
         import plan
-        self.assertIn('result["research_brief"]', inspect.getsource(plan.run_plan))
+        self.assertIn('result["research_brief"]', plan.run_path_source())
 
 
 class TestStageBehaviour(unittest.TestCase):

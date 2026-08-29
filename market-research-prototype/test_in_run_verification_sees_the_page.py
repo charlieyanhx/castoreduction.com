@@ -121,7 +121,7 @@ class TestRunPlanRendersBeforeItVerifies(unittest.TestCase):
     def test_a_render_failure_does_not_fail_the_run(self):
         """A verifier that can crash a paid report is a worse trade than one that misses."""
         import plan
-        src = inspect.getsource(plan.run_plan) if hasattr(plan, "run_plan") else ""
+        src = plan.run_path_source() if hasattr(plan, "run_plan") else ""
         self.assertIn("verification pass failed", src,
                       "the verification block lost its guard")
 

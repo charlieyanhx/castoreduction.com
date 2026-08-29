@@ -93,7 +93,7 @@ class TestAnExhaustedRunSaysSo(unittest.TestCase):
         import inspect
 
         import plan
-        src = inspect.getsource(plan.run_plan)
+        src = plan.run_path_source()
         self.assertIn("_llm_exhaustion", src,
                       "a throttled run still looks like a thin-data venture")
 

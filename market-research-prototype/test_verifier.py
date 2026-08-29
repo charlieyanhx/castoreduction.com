@@ -278,7 +278,7 @@ class TestPipelineWiring(unittest.TestCase):
     def test_run_plan_attaches_a_verification_block(self):
         import inspect
         import plan
-        src = inspect.getsource(plan.run_plan)
+        src = plan.run_path_source()
         self.assertIn("verify_report", src)
         self.assertIn('result["verification"]', src)
 

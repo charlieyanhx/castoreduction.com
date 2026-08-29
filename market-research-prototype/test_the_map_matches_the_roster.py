@@ -83,7 +83,7 @@ class TestRefinementRebuildsTheMap(unittest.TestCase):
         """Guards the ordering in plan.py itself, not just this test's imitation of it."""
         import inspect
         import plan
-        src = inspect.getsource(plan.run_plan)
+        src = plan.run_path_source()
         after = src.split("_refinement_added_competitors", 1)[1]
         # the re-run block must rebuild the map, not only the differentiators
         self.assertIn("run_clustering_step", after.split("segment_summary")[0],

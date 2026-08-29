@@ -101,7 +101,7 @@ class TestPlanUsesIt(unittest.TestCase):
     def test_the_two_slow_joins_no_longer_open_their_own_pools(self):
         import inspect
         import plan
-        src = inspect.getsource(plan.run_plan)
+        src = plan.run_path_source()
         self.assertIn("run_labeled", src)
         # The remaining ThreadPoolExecutor uses in plan.py are the single-task
         # _run_with_timeout helper and the signal-gathering fan-out, both migrated

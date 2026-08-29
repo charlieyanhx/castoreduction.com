@@ -23,7 +23,7 @@ class TestPlanArtifactIsProduced(unittest.TestCase):
     def test_run_plan_builds_an_artifact(self):
         import inspect
         import plan
-        src = inspect.getsource(plan.run_plan)
+        src = plan.run_path_source()
         self.assertIn("PlanArtifact", src)
         self.assertIn('result["_plan"]', src)
 

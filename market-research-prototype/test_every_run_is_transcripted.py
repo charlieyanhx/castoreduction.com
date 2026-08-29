@@ -107,7 +107,7 @@ class TestRunPlanIsWired(unittest.TestCase):
         import inspect
 
         import plan
-        src = inspect.getsource(plan.run_plan)
+        src = plan.run_path_source()
         self.assertIn("transcript", src,
                       "run_plan does not attach a transcript, so a CLI or benchmark run "
                       "leaves no ledger record")

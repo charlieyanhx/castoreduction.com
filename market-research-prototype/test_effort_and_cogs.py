@@ -80,7 +80,7 @@ class TestPlumbing(unittest.TestCase):
         """The knob has to reach a lever, not just be stored."""
         import inspect
         import plan
-        src = inspect.getsource(plan.run_plan)
+        src = plan.run_path_source()
         self.assertIn("effort_config", src)
 
 

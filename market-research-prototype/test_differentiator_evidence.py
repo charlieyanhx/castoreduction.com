@@ -157,7 +157,7 @@ class TestPipelineSequencing(unittest.TestCase):
         run_differentiators_step; the ordering invariant is unchanged."""
         import inspect
         import plan
-        src = inspect.getsource(plan.run_plan)
+        src = plan.run_path_source()
         self.assertLess(src.index('result["competitor_pricing"]'),
                         src.index("run_differentiators_step"),
                         "step 3d still runs before competitor pricing exists")
@@ -190,7 +190,7 @@ class TestPipelineSequencing(unittest.TestCase):
 
         import plan
         from orchestrator.steps.customer_universe import run_customer_universe_step
-        src = inspect.getsource(plan.run_plan)
+        src = plan.run_path_source()
         self.assertLess(src.index("run_customer_universe_step"),
                         src.index("run_differentiators_step"),
                         "the universe moved after differentiators again")

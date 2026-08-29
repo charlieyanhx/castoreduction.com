@@ -2094,6 +2094,133 @@ def run_sizing_stage(result: dict, profile: dict, *, description: str, geo: str,
     if result.get("market_sizing"):
         _step_done(result, "market_sizing")   # idempotent
         checkpoint()
+# The functions run_plan delegates to, in order. Wiring tests read the run path as SOURCE
+# ("does run_plan call verify_report?"), and inspect.getsource(run_plan) stops answering
+# that the moment any part of the path is extracted -- which is how a behaviour-preserving
+# refactor turns seven green wiring tests red. Naming the path here means an extraction
+# updates ONE list instead of twelve assertions, and the tests keep asking their real
+# question: is this step wired into the run at all?
+_RUN_PATH = ("run_plan", "_finalize_run")
+
+
+def run_path_source() -> str:
+    """The concatenated source of every function on the run path.
+
+    For wiring tests only. Use this rather than inspect.getsource(run_plan): the latter
+    silently narrows as the pipeline is decomposed, so an assertion can pass, then fail
+    for a refactor, then pass again for the wrong reason.
+    """
+    import inspect
+    return "\n".join(inspect.getsource(globals()[n]) for n in _RUN_PATH if n in globals())
+
+
+def _finalize_run(result: dict, *, description: str, geo: str, _levers: dict,
+                  own_transcript) -> dict:
+    """Everything run_plan does AFTER the pipeline has produced its sections.
+
+    Six independent steps: record the plan artifact, run the research crew when the
+    effort lever bought it, verify the report against the invariants, release the
+    ledger, and say so if every LLM backend refused.
+
+    EACH ONE IS WRAPPED SEPARATELY AND NONE MAY RAISE. They run after the expensive
+    work is already done and paid for, so a failure here must cost the reader a
+    footnote, never the report. That is also why they are grouped: the shape is the
+    same six times, and reading it once beside its reasons is easier than reading it
+    six times inline while looking for the pipeline.
+
+    Mutates and returns `result`, which is what the caller already holds.
+    """
+    try:
+        from orchestrator.plan_artifact import PlanArtifact
+        _declared = list(dict.fromkeys(result.get("_steps_completed") or []))
+        _artifact = PlanArtifact(_declared)
+        for _n in _declared:
+            _artifact.finish(_n)
+        result["_plan"] = {**_artifact.to_dict(), "summary": _artifact.summary()}
+    except Exception as e:
+        log.debug("[plan] plan artifact unavailable: %s", e)
+
+    # W6: the research crew as an evidence stage — DEEP effort only. It has existed
+    # since cycle33 but was reachable only via POST /research/crew, so its evidence
+    # never reached a report. Returns None when the lever is off, which is distinct
+    # from an error: a reader must be able to tell "not bought" from "bought and failed".
+    try:
+        from orchestrator.steps.crew import run_crew_step
+        _brief = run_crew_step(result, description, geo, effort_levers=_levers)
+        if _brief is not None:
+            result["research_brief"] = _brief
+            _step_done(result, "research_crew")
+    except Exception as e:
+        log.warning("[plan] research crew stage failed: %s", e)
+
+    # W6-1: run the 22 invariants on THIS report before it ships. gates.py has only
+    # ever swept a corpus after the fact — a developer's view. This is the buyer's:
+    # what would have gone out wrong. Advisory by default (it annotates the report);
+    # never allowed to fail the run, because a verifier that can crash a paid report
+    # is a worse trade than one that occasionally misses.
+    try:
+        from report.verifier import verify_report
+        # Render the page BEFORE verifying it. Measured: 10 invariants — every one
+        # fail-severity — can only return a verdict when they can read the rendered report
+        # (D02/D06/D24/D25/D27/D36/D41/D43/D45/D48), so verifying with html=None left the
+        # pass blind to the whole class of defects that only exist once the report is a page,
+        # while reporting a clean verdict. Best-effort: a render problem degrades coverage,
+        # it must never fail a paid run.
+        _html = None
+        try:
+            from report.render_html import render_report_html
+            _html = render_report_html(result)
+        except Exception as e:
+            log.warning("[plan] pre-verification render failed, verifying without the "
+                        "page (%d page-dependent gates will report as blind): %s",
+                        10, e)
+        vr = verify_report(result, _html, use_llm=_levers["verify_with_llm"])
+        result["verification"] = {
+            "summary": vr.summary(),
+            "findings": [{"invariant": f.invariant, "severity": f.severity,
+                          "detail": f.detail, "audit_class": f.audit_class}
+                         for f in vr.findings],
+        }
+        if not vr.publishable:
+            log.warning("[plan] verification found %d blocking issue(s)",
+                        vr.summary().get("block", 0))
+    except Exception as e:
+        log.warning("[plan] verification pass failed: %s", e)
+
+    # Item 6: release the ledger on the normal path. An early return leaves it behind, which
+    # persistence.transcript.attach reclaims on the next direct run rather than going silent.
+    try:
+        from persistence import transcript as _tr_done
+        _tr_done.detach(own_transcript)
+    except Exception:
+        pass
+
+    # If every LLM backend refused a call at any point, SAY SO on the result. Steps that
+    # failed that way (market scale, customer voice, the 4Ps sections) leave the report
+    # looking like a venture with thin signal, when in fact the pipeline could not look.
+    # MEASURED cause: free-tier limits (Groq 30 RPM, Gemini 15 RPM) against a run that
+    # calls in bursts.
+    try:
+        from llm import exhaustion_summary as _exh
+        _e = _exh()
+        if _e:
+            result["_llm_exhaustion"] = _e
+            log.warning("[plan] %d LLM call(s) exhausted every backend — sections may be "
+                        "missing for that reason, not for lack of signal", _e["count"])
+    except Exception as e:
+        log.debug("[plan] exhaustion summary unavailable: %s", e)
+
+    # W6-4: what this report cost to produce. Unanswerable before now, which made
+    # pricing the product a guess instead of a margin calculation.
+    try:
+        from persistence import ledger as _ledger
+        result["_cogs"] = _ledger.cogs()
+    except Exception as e:
+        log.debug("[plan] cogs unavailable: %s", e)
+    return result
+
+
+
 
 
 
@@ -2497,91 +2624,7 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     # what happened to each part of it?". The expensive half is SKIPS: a step skipped
     # because a backend was unconfigured produces a report indistinguishable from one
     # where that step ran and found nothing. Bookkeeping, so it never raises.
-    try:
-        from orchestrator.plan_artifact import PlanArtifact
-        _declared = list(dict.fromkeys(result.get("_steps_completed") or []))
-        _artifact = PlanArtifact(_declared)
-        for _n in _declared:
-            _artifact.finish(_n)
-        result["_plan"] = {**_artifact.to_dict(), "summary": _artifact.summary()}
-    except Exception as e:
-        log.debug("[plan] plan artifact unavailable: %s", e)
-
-    # W6: the research crew as an evidence stage — DEEP effort only. It has existed
-    # since cycle33 but was reachable only via POST /research/crew, so its evidence
-    # never reached a report. Returns None when the lever is off, which is distinct
-    # from an error: a reader must be able to tell "not bought" from "bought and failed".
-    try:
-        from orchestrator.steps.crew import run_crew_step
-        _brief = run_crew_step(result, description, geo, effort_levers=_levers)
-        if _brief is not None:
-            result["research_brief"] = _brief
-            _step_done(result, "research_crew")
-    except Exception as e:
-        log.warning("[plan] research crew stage failed: %s", e)
-
-    # W6-1: run the 22 invariants on THIS report before it ships. gates.py has only
-    # ever swept a corpus after the fact — a developer's view. This is the buyer's:
-    # what would have gone out wrong. Advisory by default (it annotates the report);
-    # never allowed to fail the run, because a verifier that can crash a paid report
-    # is a worse trade than one that occasionally misses.
-    try:
-        from report.verifier import verify_report
-        # Render the page BEFORE verifying it. Measured: 10 invariants — every one
-        # fail-severity — can only return a verdict when they can read the rendered report
-        # (D02/D06/D24/D25/D27/D36/D41/D43/D45/D48), so verifying with html=None left the
-        # pass blind to the whole class of defects that only exist once the report is a page,
-        # while reporting a clean verdict. Best-effort: a render problem degrades coverage,
-        # it must never fail a paid run.
-        _html = None
-        try:
-            from report.render_html import render_report_html
-            _html = render_report_html(result)
-        except Exception as e:
-            log.warning("[plan] pre-verification render failed, verifying without the "
-                        "page (%d page-dependent gates will report as blind): %s",
-                        10, e)
-        vr = verify_report(result, _html, use_llm=_levers["verify_with_llm"])
-        result["verification"] = {
-            "summary": vr.summary(),
-            "findings": [{"invariant": f.invariant, "severity": f.severity,
-                          "detail": f.detail, "audit_class": f.audit_class}
-                         for f in vr.findings],
-        }
-        if not vr.publishable:
-            log.warning("[plan] verification found %d blocking issue(s)",
-                        vr.summary().get("block", 0))
-    except Exception as e:
-        log.warning("[plan] verification pass failed: %s", e)
-
-    # Item 6: release the ledger on the normal path. An early return leaves it behind, which
-    # persistence.transcript.attach reclaims on the next direct run rather than going silent.
-    try:
-        from persistence import transcript as _tr_done
-        _tr_done.detach(_own_transcript)
-    except Exception:
-        pass
-
-    # If every LLM backend refused a call at any point, SAY SO on the result. Steps that
-    # failed that way (market scale, customer voice, the 4Ps sections) leave the report
-    # looking like a venture with thin signal, when in fact the pipeline could not look.
-    # MEASURED cause: free-tier limits (Groq 30 RPM, Gemini 15 RPM) against a run that
-    # calls in bursts.
-    try:
-        from llm import exhaustion_summary as _exh
-        _e = _exh()
-        if _e:
-            result["_llm_exhaustion"] = _e
-            log.warning("[plan] %d LLM call(s) exhausted every backend — sections may be "
-                        "missing for that reason, not for lack of signal", _e["count"])
-    except Exception as e:
-        log.debug("[plan] exhaustion summary unavailable: %s", e)
-
-    # W6-4: what this report cost to produce. Unanswerable before now, which made
-    # pricing the product a guess instead of a margin calculation.
-    try:
-        from persistence import ledger as _ledger
-        result["_cogs"] = _ledger.cogs()
-    except Exception as e:
-        log.debug("[plan] cogs unavailable: %s", e)
+    # The post-pipeline steps, grouped and each independently guarded: see _finalize_run.
+    result = _finalize_run(result, description=description, geo=geo, _levers=_levers,
+                           own_transcript=_own_transcript)
     return result
