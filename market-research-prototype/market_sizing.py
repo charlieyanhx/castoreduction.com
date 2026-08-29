@@ -166,99 +166,19 @@ def apply_tam_triangulation(tam_block: dict) -> None:
             tam_block[k]["excluded_from_headline"] = True
 
 
-def estimate_market_size(
-    profile: dict,
-    competitors: list[dict],
-    audience: dict,
-    competitor_pricing: dict,
-    psm_result: dict,
-) -> dict:
-    """LLM-based TAM/SAM/SOM with explicit arithmetic + assumptions."""
+def _layer_prompts(base_ctx: str) -> dict:
+    """The six sizing prompts, one per method, keyed by the result field each fills.
 
-    # Build compact inputs
-    profile_blob = (
-        f"Name: {profile.get('name','?')}\n"
-        f"Summary: {(profile.get('summary') or '')[:400]}\n"
-        f"Business model: {profile.get('business_model','?')}\n"
-        f"Target customer: {(profile.get('apparent_target_customer') or '')[:300]}\n"
-    )
+    Lifted out of estimate_market_size because 107 of its 458 lines were this literal:
+    the arithmetic and the fallbacks sat underneath it, and changing one method's wording
+    meant scrolling past the other five. Pure: it reads nothing but `base_ctx`.
 
-    # The score is web momentum (search trend, review volume, domain age, social), NOT
-    # competitive strength. Said plainly in the prompt because it is now the Python-
-    # computed value: a serious B2B rival with no consumer review surface scores near 0,
-    # and a model told only "score 0" would read that as a weak competitor.
-    comp_blob = "\n".join(
-        f"  - {c.get('brand','?')} (relevance: {c.get('relevance','?')})"
-        f" — web-momentum score {c.get('opportunity_score','?')}"
-        for c in competitors[:6]
-    ) + (
-        "\n  (web-momentum score = 0-100 from public signals only: search trend, review"
-        "\n   volume, domain age, social reach. A low score means a thin PUBLIC footprint,"
-        "\n   not a weak competitor.)"
-    ) if competitors else "  (no competitors found)"
-
-    audience_blob = (
-        f"Decoded from: {audience.get('brand','?')}\n"
-        f"Confidence: {audience.get('confidence','?')}\n"
-        f"Motivation: {(audience.get('purchase_motivation') or '')[:300]}\n"
-        f"Life context: {audience.get('life_context',[])[:3]}\n"
-    ) if audience else "  (no audience decoded)"
-
-    price_anchor = competitor_pricing.get("category_median") if competitor_pricing else None
-    price_anchor_str = f"${price_anchor}" if price_anchor else "unknown (competitors don't expose prices)"
-
-    optimal = psm_result.get("optimal_price_point") if psm_result else None
-    optimal_str = f"${optimal}" if optimal else "unknown"
-
-    # R4 rank 21: the bottom-up method is firm-count × ACV, but it was fed the raw
-    # monthly price as the ACV anchor with no period label — so a $14/mo SaaS was sized
-    # on a ~$15 "ACV" instead of $168/yr, a 10-12x TAM understatement (4a755faa,
-    # becc8783). Annualize the ACV explicitly for recurring models and label the period.
-    acv_str = _acv_anchor(optimal, profile.get("business_model"))
-
-    price_range = psm_result.get("acceptable_range") if psm_result else None
-    price_range_str = f"${price_range[0]}–${price_range[1]}" if price_range else "unknown"
-
-    # Iter 42 (issue 4): split TAM/SAM/SOM into 3 parallel focused calls.
-    # Was producing TAM=null because LLM truncated after writing SOM+SAM.
-    # Each call now has its own 2500-token budget and only one layer to fill.
-    from concurrent.futures import ThreadPoolExecutor
-
-    # `shared_ctx` used to be built here from SIZING_PROMPT and never read — one
-    # assignment, zero references. It was the reason the documented `unit` field looked
-    # wired: the schema explaining "revenue" vs "gmv" lived in a prompt that was formatted
-    # on every run and thrown away, while the three prompts that actually run never asked
-    # for it. `(m.get("unit") or "revenue")` in apply_tam_triangulation then took its
-    # default on every method of every run, so the GMV/revenue exclusion has never fired
-    # and a marketplace's two GMV-shaped methods read as agreeing with its one
-    # platform-revenue method. The ask now lives in the live prompts (audit C10).
-
-    # Iter 43: each per-layer prompt is now SELF-CONTAINED (no shared mega-template).
-    # The previous approach included the giant 3-method TAM schema in every call,
-    # confusing the LLM into ignoring the secondary asks (segmentation, weakest_assumptions etc).
-    # cycle31-r2 (Discovery 1 fix): pass scope_hint to anchor TAM scoping to the
-    # specific subsegment the venture targets, not the broadest defensible category.
-    # Decagon scoped to ALL customer-service software ($20B) when the venture is
-    # AI-agent-only ($1.5B). Without this hint, LLM defaults to broadest scoping.
-    scope_hint = (profile.get("tam_scope_hint") or "").strip()
-    scope_line = (
-        f"\nSUBSEGMENT TO SCOPE TO (anchor TAM here, not on the broader category): {scope_hint}\n"
-        if scope_hint and scope_hint.lower() not in ("broad horizontal — no narrower scope hint", "")
-        else ""
-    )
-    base_ctx = (
-        f"Profile: {profile_blob[:600]}\n"
-        f"Category: {profile.get('category', 'unknown')}\n"
-        f"{scope_line}"
-        f"Geography: {profile.get('geography', 'US')}\n"
-        f"Competitors: {comp_blob[:500]}\n"
-        f"Audience: {audience_blob[:300]}\n"
-        f"Pricing anchors: median ${price_anchor_str}, optimal ${optimal_str}, range {price_range_str}\n"
-        f"ACV anchor for the BOTTOM-UP method: {acv_str}\n"
-    )
-    # cycle30: TAM was getting 1-2/3 methods filled even with retry. Split into
-    # 3 separate single-method calls + 1 reconciliation call. Forces full filling.
-    layer_prompts = {
+    COPIED VERBATIM, indentation included. These are multi-line prompt strings, so a
+    tidy-looking re-indent silently rewrites what the model is asked -- measured on the
+    first attempt at this extraction, which prepended four spaces to every prompt line
+    that began at column 0 and changed all six.
+    """
+    return {
         "tam_top_down": (base_ctx + """
 Estimate TAM by the TOP-DOWN method ONLY: cite a known industry report and adjust
 for the geo + segment.
@@ -365,6 +285,101 @@ Estimate market metadata. Output ALL fields — short ones first survive truncat
 }
 ALL fields REQUIRED. growth_cagr_pct must be a SINGLE number (e.g. 23, not "18-28")."""),
     }
+
+
+def estimate_market_size(
+    profile: dict,
+    competitors: list[dict],
+    audience: dict,
+    competitor_pricing: dict,
+    psm_result: dict,
+) -> dict:
+    """LLM-based TAM/SAM/SOM with explicit arithmetic + assumptions."""
+
+    # Build compact inputs
+    profile_blob = (
+        f"Name: {profile.get('name','?')}\n"
+        f"Summary: {(profile.get('summary') or '')[:400]}\n"
+        f"Business model: {profile.get('business_model','?')}\n"
+        f"Target customer: {(profile.get('apparent_target_customer') or '')[:300]}\n"
+    )
+
+    # The score is web momentum (search trend, review volume, domain age, social), NOT
+    # competitive strength. Said plainly in the prompt because it is now the Python-
+    # computed value: a serious B2B rival with no consumer review surface scores near 0,
+    # and a model told only "score 0" would read that as a weak competitor.
+    comp_blob = "\n".join(
+        f"  - {c.get('brand','?')} (relevance: {c.get('relevance','?')})"
+        f" — web-momentum score {c.get('opportunity_score','?')}"
+        for c in competitors[:6]
+    ) + (
+        "\n  (web-momentum score = 0-100 from public signals only: search trend, review"
+        "\n   volume, domain age, social reach. A low score means a thin PUBLIC footprint,"
+        "\n   not a weak competitor.)"
+    ) if competitors else "  (no competitors found)"
+
+    audience_blob = (
+        f"Decoded from: {audience.get('brand','?')}\n"
+        f"Confidence: {audience.get('confidence','?')}\n"
+        f"Motivation: {(audience.get('purchase_motivation') or '')[:300]}\n"
+        f"Life context: {audience.get('life_context',[])[:3]}\n"
+    ) if audience else "  (no audience decoded)"
+
+    price_anchor = competitor_pricing.get("category_median") if competitor_pricing else None
+    price_anchor_str = f"${price_anchor}" if price_anchor else "unknown (competitors don't expose prices)"
+
+    optimal = psm_result.get("optimal_price_point") if psm_result else None
+    optimal_str = f"${optimal}" if optimal else "unknown"
+
+    # R4 rank 21: the bottom-up method is firm-count × ACV, but it was fed the raw
+    # monthly price as the ACV anchor with no period label — so a $14/mo SaaS was sized
+    # on a ~$15 "ACV" instead of $168/yr, a 10-12x TAM understatement (4a755faa,
+    # becc8783). Annualize the ACV explicitly for recurring models and label the period.
+    acv_str = _acv_anchor(optimal, profile.get("business_model"))
+
+    price_range = psm_result.get("acceptable_range") if psm_result else None
+    price_range_str = f"${price_range[0]}–${price_range[1]}" if price_range else "unknown"
+
+    # Iter 42 (issue 4): split TAM/SAM/SOM into 3 parallel focused calls.
+    # Was producing TAM=null because LLM truncated after writing SOM+SAM.
+    # Each call now has its own 2500-token budget and only one layer to fill.
+    from concurrent.futures import ThreadPoolExecutor
+
+    # `shared_ctx` used to be built here from SIZING_PROMPT and never read — one
+    # assignment, zero references. It was the reason the documented `unit` field looked
+    # wired: the schema explaining "revenue" vs "gmv" lived in a prompt that was formatted
+    # on every run and thrown away, while the three prompts that actually run never asked
+    # for it. `(m.get("unit") or "revenue")` in apply_tam_triangulation then took its
+    # default on every method of every run, so the GMV/revenue exclusion has never fired
+    # and a marketplace's two GMV-shaped methods read as agreeing with its one
+    # platform-revenue method. The ask now lives in the live prompts (audit C10).
+
+    # Iter 43: each per-layer prompt is now SELF-CONTAINED (no shared mega-template).
+    # The previous approach included the giant 3-method TAM schema in every call,
+    # confusing the LLM into ignoring the secondary asks (segmentation, weakest_assumptions etc).
+    # cycle31-r2 (Discovery 1 fix): pass scope_hint to anchor TAM scoping to the
+    # specific subsegment the venture targets, not the broadest defensible category.
+    # Decagon scoped to ALL customer-service software ($20B) when the venture is
+    # AI-agent-only ($1.5B). Without this hint, LLM defaults to broadest scoping.
+    scope_hint = (profile.get("tam_scope_hint") or "").strip()
+    scope_line = (
+        f"\nSUBSEGMENT TO SCOPE TO (anchor TAM here, not on the broader category): {scope_hint}\n"
+        if scope_hint and scope_hint.lower() not in ("broad horizontal — no narrower scope hint", "")
+        else ""
+    )
+    base_ctx = (
+        f"Profile: {profile_blob[:600]}\n"
+        f"Category: {profile.get('category', 'unknown')}\n"
+        f"{scope_line}"
+        f"Geography: {profile.get('geography', 'US')}\n"
+        f"Competitors: {comp_blob[:500]}\n"
+        f"Audience: {audience_blob[:300]}\n"
+        f"Pricing anchors: median ${price_anchor_str}, optimal ${optimal_str}, range {price_range_str}\n"
+        f"ACV anchor for the BOTTOM-UP method: {acv_str}\n"
+    )
+    # cycle30: TAM was getting 1-2/3 methods filled even with retry. Split into
+    # 3 separate single-method calls + 1 reconciliation call. Forces full filling.
+    layer_prompts = _layer_prompts(base_ctx)
 
     layer_results = {}
     def _run_layer(key):

@@ -38,11 +38,15 @@ class TestTheLivePromptsAskForTheUnit(unittest.TestCase):
     reads, or the default silently answers for it."""
 
     def _layer_prompts(self):
-        """The prompt bodies, captured from the module rather than restated here."""
-        import inspect
+        """The prompt bodies, captured from the module rather than restated here.
 
+        Reads the REAL strings now that they are a function rather than a literal buried
+        in estimate_market_size. Stronger than the old inspect.getsource of the caller:
+        that inspected the code which builds the prompts, so it would have kept passing
+        had the prompts moved and stopped being sent.
+        """
         import market_sizing
-        return inspect.getsource(market_sizing.estimate_market_size)
+        return "\n".join(market_sizing._layer_prompts("<<ctx>>").values())
 
     def test_each_of_the_three_methods_requests_a_unit(self):
         src = self._layer_prompts()
