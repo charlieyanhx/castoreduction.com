@@ -265,7 +265,7 @@ what cannot be deterministic (prose quality). Same code + corpus in → same ver
 |---|---|---|---|
 | **R1 Unit** | pure functions | every commit (<30s) | `pytest -q` |
 | **R2 Contract** | registry invariants: Evidence shape, descriptions, arg models, depth | every commit | `pytest tests/test_contracts.py -q` |
-| **R3 Corpus** | regenerate 16 ventures; structural detectors | per wave + nightly | `python /tmp/audit/gen.py && python gates.py --corpus /tmp/audit/run1 --gate all` |
+| **R3 Corpus** | regenerate 16 ventures; structural detectors | per wave + nightly | `python /tmp/audit/gen.py && python -m gates --corpus /tmp/audit/run1 --gate all` |
 | **R4 Panel** | independent multi-agent rubric + adversarial verify | per wave end | `Workflow(audit_workflow.js)` |
 | **R5 Live E2E** | browser drives workspace → stream → report | per wave end | Chrome/Playwright script |
 
