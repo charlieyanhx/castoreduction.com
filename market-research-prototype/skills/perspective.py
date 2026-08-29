@@ -23,7 +23,6 @@ from __future__ import annotations
 import statistics
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
 
 from llm import call_json
 from skills.registry import skill

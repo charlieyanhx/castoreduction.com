@@ -35,8 +35,8 @@ import functools
 import inspect
 import time
 import traceback
-from dataclasses import dataclass, field, asdict
-from typing import Any, Callable, Optional
+from dataclasses import dataclass
+from typing import Callable, Optional
 
 from logger import get
 from tools import Evidence  # reuse the same envelope shape
@@ -46,6 +46,11 @@ log = get("skills")
 
 @dataclass
 class SkillMeta:
+    """What the registry knows about one skill, captured at registration.
+
+    `produces`/`consumes` are the dependency declaration a scheduler could walk;
+    the location fields make provenance a recorded fact rather than a hand-kept table.
+    """
     name: str
     produces: str           # e.g. "competitor_landscape", "personas", "viability"
     consumes: list[str]     # categories this skill needs (informational)
@@ -99,6 +104,7 @@ def skill(produces: str, consumes: Optional[list[str]] = None):
     consumes = consumes or []
 
     def decorator(fn: Callable) -> Callable:
+        """Register fn, then wrap it so every call returns Evidence and is recorded."""
         name = fn.__name__
         sig = str(inspect.signature(fn))
         doc = inspect.getdoc(fn) or ""
@@ -128,6 +134,11 @@ def skill(produces: str, consumes: Optional[list[str]] = None):
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs) -> Evidence:
+            """Run the skill, timing it, and convert any exception into error Evidence.
+
+            A skill that raises must not take the run down with it: the pipeline is built
+            to render a report with a section missing, not to have no report at all.
+            """
             t0 = time.time()
             try:
                 result = fn(*args, **kwargs)
@@ -180,6 +191,11 @@ def skill(produces: str, consumes: Optional[list[str]] = None):
 # Discovery
 # ---------------------------------------------------------------------------
 def list_skills(produces: Optional[str] = None) -> list[SkillMeta]:
+    """Registered skills, optionally only those producing one result key.
+
+    Sorted by (produces, name) so callers and docs get a stable order rather than
+    dictionary insertion order.
+    """
     items = list(SKILL_REGISTRY.values())
     if produces is not None:
         items = [s for s in items if s.produces == produces]
@@ -195,6 +211,11 @@ def get_skill(name: str) -> Optional[SkillMeta]:
 
 
 def describe_skill(name: str) -> dict:
+    """One skill as a JSON-able dict, for the API and the docs page.
+
+    An unknown name returns an {"error": ...} dict rather than raising, because the
+    callers are description surfaces where a miss is data, not an exception.
+    """
     meta = SKILL_REGISTRY.get(name)
     if not meta:
         return {"error": f"skill '{name}' not registered"}
@@ -225,10 +246,14 @@ def records_production(result_key: str):
     that raises must raise exactly as before.
     """
     def decorator(fn: Callable) -> Callable:
+        """Record calls to fn in the provenance trace without changing what it returns."""
         loc = _where(fn)
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
+            """Call through, then append a trace entry. Tracing never alters the result,
+            and a tracing failure is swallowed: provenance is a record of the run, not a
+            participant in it."""
             out = fn(*args, **kwargs)
             try:
                 import provenance as _trace

@@ -132,6 +132,9 @@ def _checkpoint(out_path: str, rows: list[dict]):
 
 
 def main():
+    """Run the benchmark across cases and report. Prose judging is opt-in because it costs
+    tokens.
+    """
     p = argparse.ArgumentParser(description="Run multi-case benchmark")
     p.add_argument("--api", default="http://127.0.0.1:8765", help="Pipeline API base URL")
     p.add_argument("--cases", default="", help="Comma-separated case names. Default: all")

@@ -35,7 +35,7 @@ def skip_step(result: dict, name: str, *output_keys: str) -> bool:
     — Wave 3 item 4's "step-skip on INTACT Evidence".
 
     Two conditions, both required:
-      1. the step is recorded complete (persistence.resume reconciles the jobs row with
+      1. the step is recorded complete (a resume would reconcile the jobs row with
          the durable transcript), and
       2. every output key it owns is present, non-empty, and not an error.
 

@@ -19,6 +19,5 @@ from . import hyperlocal        # noqa: F401  — trade-area catchment sizing
 from . import regional          # noqa: F401  — per-location rollout
 from . import national_digital  # noqa: F401  — top-down ÷ bottom-up (gated legacy)
 from . import bottom_up         # noqa: F401  — live-grounded bottom-up (Census CBP × ARPU)
-from . import dispatch          # noqa: F401  — size_market: classify → route → validated
 
-__all__ = ["classify", "validate", "hyperlocal", "regional", "national_digital", "dispatch"]
+__all__ = ["classify", "validate", "hyperlocal", "regional", "national_digital"]

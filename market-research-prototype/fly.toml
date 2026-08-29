@@ -20,6 +20,17 @@ primary_region = "sjc"
   PIPELINE_PROFILE = "default"
   PYTHONUNBUFFERED = "1"
   PORT = "8765"
+  # Without this, _current_owner falls back to LEGACY_OWNER and every anonymous visitor
+  # reads every customer's library. render.yaml sets it; this file did not, so the two
+  # deploy targets disagreed about whether the product had authentication.
+  CASTOR_ENV = "production"
+  # Paid backends are excluded from the chain unless the operator says otherwise, so a box
+  # with an Anthropic key AND a free key silently resolves to the free one.
+  LLM_ALLOW_PAID = "1"
+  # The app is behind Fly's proxy, so X-Forwarded-For is the only real client IP. Unset,
+  # every visitor collapses onto the proxy's address as ONE rate-limit key and ten wrong
+  # passwords lock out every customer at once.
+  CASTOR_TRUST_PROXY = "1"
 
 [[mounts]]
   source = "castor_data"

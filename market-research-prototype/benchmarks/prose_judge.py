@@ -27,7 +27,6 @@ Usage:
 """
 from __future__ import annotations
 import re
-from typing import Any
 
 # ---------------------------------------------------------------------------
 # Deterministic measures
@@ -136,6 +135,23 @@ Return ONLY this JSON:
 }}"""
 
 
+def coerce_score(v) -> float:
+    """An LLM's answer for a 0-100 trait score, as a float.
+
+    A judge asked for a number does not reliably return one: it returns 82, or "82",
+    or "82/100", or a sentence. cycle31-r3 measured the third case CRASHING the run, and
+    the fix was then pasted into three places. 50.0 is the neutral default, so an
+    unparseable answer neither rewards nor punishes the thing being judged.
+    """
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        import re as _re
+        m = _re.search(r"\d+(?:\.\d+)?", v)
+        return float(m.group()) if m else 50.0
+    return 50.0
+
+
 def _llm_judge_section(section_name: str, prose: str) -> dict:
     """Call the LLM to judge one 4Ps section. Returns dict of scores."""
     from llm import call_json  # local import to avoid top-level dep when unused
@@ -209,18 +225,10 @@ def _score_section(section_name: str, section_data: dict, use_llm: bool = True) 
     }
     if use_llm and len(prose) >= 100:
         llm = _llm_judge_section(section_name, prose)
-        # cycle31-r3: coerce non-numeric LLM scores to 50 (was previously crashing)
-        def _coerce(v):
-            if isinstance(v, (int, float)): return float(v)
-            if isinstance(v, str):
-                import re as _re
-                m = _re.search(r"\d+(?:\.\d+)?", v)
-                return float(m.group()) if m else 50.0
-            return 50.0
         llm_scores = {
-            "action_orientation": _coerce(llm.get("action_orientation_score", 50)) if isinstance(llm, dict) else 50,
-            "hedging_discipline": _coerce(llm.get("hedging_discipline_score", 50)) if isinstance(llm, dict) else 50,
-            "executive_readability": _coerce(llm.get("executive_readability_score", 50)) if isinstance(llm, dict) else 50,
+            "action_orientation": coerce_score(llm.get("action_orientation_score", 50)) if isinstance(llm, dict) else 50,
+            "hedging_discipline": coerce_score(llm.get("hedging_discipline_score", 50)) if isinstance(llm, dict) else 50,
+            "executive_readability": coerce_score(llm.get("executive_readability_score", 50)) if isinstance(llm, dict) else 50,
         }
     else:
         # No LLM call — use deterministic-only score, default LLM dims to 50

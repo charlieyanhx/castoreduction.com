@@ -23,6 +23,9 @@ log = get("plan_artifact")
 
 
 class StepStatus:
+    """The five states a step can be in. `SKIPPED` and `FAILED` are deliberately
+    distinct: one is a decision, the other is a defect.
+    """
     PENDING = "pending"
     RUNNING = "running"
     DONE = "done"
@@ -34,6 +37,11 @@ class PlanArtifact:
     """Declared steps + what actually happened to each."""
 
     def __init__(self, step_names: Optional[list[str]] = None) -> None:
+        """Build a plan from ordered step names.
+
+        Duplicate names are refused rather than de-duplicated: two steps sharing a name
+        means every later status update is ambiguous about which one it addressed.
+        """
         names = [str(n) for n in (step_names or [])]
         dupes = {n for n in names if names.count(n) > 1}
         if dupes:
@@ -77,6 +85,7 @@ class PlanArtifact:
         return step["reason"] if step else ""
 
     def summary(self) -> dict:
+        """Counts per status plus totals, for the progress UI."""
         counts = {s: 0 for s in (StepStatus.PENDING, StepStatus.RUNNING,
                                  StepStatus.DONE, StepStatus.SKIPPED, StepStatus.FAILED)}
         for s in self._steps:
@@ -98,6 +107,11 @@ class PlanArtifact:
 
     @classmethod
     def from_dict(cls, payload: Optional[dict]) -> "PlanArtifact":
+        """Rebuild a plan from its serialized form, ignoring malformed rows.
+
+        Tolerant on purpose: this reads persisted state that an older version wrote, and a
+        plan that will not load is worse than one missing a step.
+        """
         steps = (payload or {}).get("steps")
         if not isinstance(steps, list):
             return cls([])

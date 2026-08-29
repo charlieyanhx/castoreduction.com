@@ -57,7 +57,7 @@ def run_pipeline_skill(
     callers that use plan.run_plan directly continue to work unchanged.
 
     Do NOT use when only one section is needed (a sizing, a competitor scan) —
-    invoke that step skill directly (size_market, multi_strategy_discovery, …);
+    invoke that step skill directly (multi_strategy_discovery, …);
     this runs all 22 steps and pays the full LLM + scraping cost every time.
     """
     from plan import run_plan

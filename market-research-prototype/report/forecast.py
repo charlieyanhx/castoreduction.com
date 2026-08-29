@@ -38,6 +38,7 @@ THE THREE INVARIANTS THIS MODULE ENFORCES:
 """
 from __future__ import annotations
 
+import math
 from collections import Counter
 from dataclasses import dataclass
 from statistics import median
@@ -50,6 +51,129 @@ _PAD_HIGH = 1.15
 
 MEDIAN_ACROSS_ORIGINS = "median_across_origins"
 MEAN_ACROSS_METHODS = "mean_across_methods"
+PRECISION_WEIGHTED = "precision_weighted"
+
+
+# --- precision weighting -----------------------------------------------------------
+# MEDIAN_ACROSS_ORIGINS gives a federal filing and an unrecognised storefront one vote
+# each. source_tiers.py already decides what an origin IS; this is the one place that
+# decision is allowed to reach the arithmetic.
+#
+# The sigmas below are ASSUMPTIONS, not measurements: a typical multiplicative error per
+# tier, written in log10 so 0.30 reads as "off by about 2x". They live in one table so
+# that revising the model is a visible one-line edit against a stated prior, rather than
+# a re-tuning scattered across call sites. Nothing downstream may read them as measured
+# precision — they are a declared belief about source authority, and the derivation
+# prose names them so a reader can disagree with the specific numbers.
+#
+# Log space is load-bearing, not cosmetic. Sizing figures span orders of magnitude, and
+# an arithmetic weighted mean of $8M / $1.6B / $2.5B is dominated by its largest term no
+# matter which origin is authoritative. The geometric mean is the scale-free combination
+# these quantities actually want, and it is the same reason spread_phrase() below falls
+# back to folds once the values differ by 10x.
+_TIER_LOG10_SIGMA = {
+    "primary":      0.10,   # filing / regulator / statistics agency  — ~1.3x
+    "research":     0.25,   # named research house                    — ~1.8x
+    "press":        0.40,   # reported journalism                     — ~2.5x
+    "content_mill": 0.50,   # long-tail storefront; resolves, proves nothing
+    "community":    0.60,   # customer voice, not market structure
+    "padding":      0.70,   # vendor docs — never evidence about a market
+    "unknown":      0.60,   # unrecognised stays unrecognised; no promotion by default
+}
+_DEFAULT_SIGMA = _TIER_LOG10_SIGMA["unknown"]
+
+# `Method.source` is a string the MODEL WROTE. Tiering it credits an assertion about
+# provenance, not provenance — and source_tiers matches /census|bls|bea|qcew|susb/, so a
+# model-authored "US Census Bureau SUSB" citation classifies PRIMARY. Measured on corpus
+# report 28d0ec61: that one sentence took 84% of the headline weight for a number no
+# fetch produced, and turned an honest "1 origin — not triangulated" into a claim of 3
+# independent origins. That is the D53 over-claim, relocated from the grounding count
+# into the arithmetic.
+#
+# So tier credit requires a VERIFIED FETCH. This is the same ungrounded set plan.py:1810
+# uses for n_grounded, deliberately: two definitions of "a fetch actually happened" that
+# can drift apart are one bug away from disagreeing in a report's own trust panel.
+_UNGROUNDED_ORIGINS = frozenset({"", "llm", "derived", "unattributed", "caller"})
+
+
+def _origin_sigma(methods: list) -> tuple[float, str]:
+    """The log10 sigma for ONE origin, plus the tier name that set it.
+
+    An origin is credited with its STRONGEST source: a Census figure cited alongside a
+    blog post is still a Census figure. Crediting the weakest instead would let one
+    stray citation demote a good origin, which inverts what the tiering is for.
+    """
+    from source_tiers import classify
+    best_name, best_sigma = None, None
+    for m in methods:
+        if m.origin in _UNGROUNDED_ORIGINS:
+            # No fetch recorded: the citation is a claim, and a claim earns no precision.
+            # Gating the grouping key alone would not be enough — one unverified "Census"
+            # string would still dominate from inside its own group.
+            name, sigma = "unverified", _DEFAULT_SIGMA
+        else:
+            name = classify(m.source).value
+            sigma = _TIER_LOG10_SIGMA.get(name, _DEFAULT_SIGMA)
+        if best_sigma is None or sigma < best_sigma:
+            best_name, best_sigma = name, sigma
+    if best_sigma is None:
+        return _DEFAULT_SIGMA, "unknown"
+    return best_sigma, best_name
+
+
+def _evidence_key(m) -> str:
+    """Grouping key for PRECISION_WEIGHTED: fetch lineage AND source tier.
+
+    Under this rule the model is TRANSPORT, not provenance. An LLM citing a filing and
+    an LLM citing an unrecognised storefront are different evidence and must not collapse
+    into a single vote — which is what grouping on `origin` alone does, and why every
+    report in the corpus arrived here with n_independent == 1. Two unattributed guesses
+    still share a key, so the "three LLM guesses are one origin" invariant survives.
+
+    The key is composite ("llm/primary") and is NEVER written back to `data_origin`.
+    That field means a fetch actually happened: plan.py's n_grounded counts anything
+    outside {llm, derived, unattributed, caller} as a real fetch, so stamping a tier
+    there would let a model-authored "US Census Bureau SUSB" citation certify itself as
+    grounded — the exact D53 over-claim that guard exists to prevent. Independence and
+    groundedness are different questions and this keeps them on different axes.
+    """
+    if m.origin in _UNGROUNDED_ORIGINS:
+        return f"{m.origin}/unverified"
+    from source_tiers import classify
+    return f"{m.origin}/{classify(m.source).value}"
+
+
+def _precision_weighted(by_origin: dict, by_origin_methods: dict) -> tuple[float, str]:
+    """Geometric mean across origins, weighted by 1/sigma^2 of each origin's tier.
+
+    Weighting happens ACROSS ORIGINS, never across methods: three LLM guesses are one
+    origin, and letting method count drive the weight would hand a unanimous guess more
+    authority than a single filing — the exact collapse this module was written to stop.
+
+    Falls back to the median rule when any origin point is non-positive. A log-space
+    combination is undefined there, and quietly dropping the offending origin would
+    change which sources the headline rests on without saying so.
+    """
+    points = {o: median(v) for o, v in by_origin.items()}
+    if any(p <= 0 for p in points.values()):
+        return (median(list(points.values())),
+                f"the median across {len(points)} independent data "
+                f"origin{'s' if len(points) != 1 else ''} (precision weighting skipped: "
+                f"a non-positive estimate cannot be combined in log space)")
+    num = den = 0.0
+    parts = []
+    for o, p in points.items():
+        sigma, tier = _origin_sigma(by_origin_methods[o])
+        w = 1.0 / (sigma ** 2)
+        num += w * math.log10(p)
+        den += w
+        parts.append((o, tier, w))
+    mid = 10 ** (num / den)
+    shares = ", ".join(f"{o} ({tier}) {w / den:.0%}"
+                       for o, tier, w in sorted(parts, key=lambda x: -x[2]))
+    return mid, (f"the precision-weighted geometric mean across {len(parts)} independent "
+                 f"data origin{'s' if len(parts) != 1 else ''}, weighted by source tier "
+                 f"[{shares}]")
 
 
 @dataclass(frozen=True)
@@ -221,15 +345,24 @@ def triangulate(methods: Iterable[Method], *, rule: str = MEDIAN_ACROSS_ORIGINS)
     kept, conflict, headline_unit = _split_units(methods)
 
     # --- the ONE derivation -------------------------------------------------------
+    # PRECISION_WEIGHTED groups on evidence (lineage + source tier); every other rule
+    # groups on lineage alone, so the shipping default keeps its existing independence
+    # counts and every convergence verdict derived from them.
     by_origin: dict[str, list[float]] = {}
+    by_origin_methods: dict[str, list[Method]] = {}
+    _key = _evidence_key if rule == PRECISION_WEIGHTED else (lambda m: m.origin)
     for m in kept:
-        by_origin.setdefault(m.origin, []).append(m.value_usd)
+        _k = _key(m)
+        by_origin.setdefault(_k, []).append(m.value_usd)
+        by_origin_methods.setdefault(_k, []).append(m)
     origin_points = [median(v) for v in by_origin.values()]
     n_independent = len(by_origin)
 
     if rule == MEAN_ACROSS_METHODS:
         mid = sum(m.value_usd for m in kept) / len(kept)
         rule_prose = f"the unweighted average of {len(kept)} methods"
+    elif rule == PRECISION_WEIGHTED:
+        mid, rule_prose = _precision_weighted(by_origin, by_origin_methods)
     else:
         mid = median(origin_points)
         rule_prose = (f"the median across {n_independent} independent data "

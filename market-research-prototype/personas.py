@@ -11,7 +11,6 @@ Currently we decode taste for ONE top competitor. This module:
 This makes the 4Ps actionable per-persona instead of averaged.
 """
 from __future__ import annotations
-import json
 from llm import call_json
 from logger import get
 

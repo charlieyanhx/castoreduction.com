@@ -34,12 +34,9 @@ This is scope-limited (targets ~30 companies, not spec's 200-500, to keep
 runtime + API cost bounded; can be raised later via config).
 """
 from __future__ import annotations
-import json
 import re
-from typing import Any
 from urllib.parse import urlparse
 
-import requests
 
 from cache import get as cache_get, put as cache_put
 from llm import call_json

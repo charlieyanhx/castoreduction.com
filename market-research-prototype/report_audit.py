@@ -40,12 +40,17 @@ from __future__ import annotations
 import json
 import re
 import sys
-from dataclasses import dataclass, field, asdict
-from typing import Any, Optional
+from dataclasses import dataclass, asdict
+from typing import Optional
 
 
 @dataclass
 class Violation:
+    """One audit finding: which check, which failure class, how bad, and the evidence.
+
+    `where` names the artifact key or template surface, so a finding points at something
+    openable instead of describing a smell.
+    """
     check: str          # e.g. "A.unmeasured_reaches_prompt"
     cls: str            # A | B | C | D | E
     severity: str       # P1 | P2 | P3
@@ -93,6 +98,12 @@ def _is_skeleton(v) -> bool:
 # A. an unmeasured value must never reach a prompt or the page as a number
 # ---------------------------------------------------------------------------------
 def check_unmeasured(r: dict, html: str = "") -> list[Violation]:
+    """Class A: a number nothing measured must not be reasoned about as if it were.
+
+    The failure this catches is a step that produced a SKELETON (it could not look) being
+    scored as a measured zero (it looked and found nothing). Those are opposite facts, and
+    conflating them turns "we had no data" into "the venture has no signal".
+    """
     out: list[Violation] = []
     via = r.get("viability") or {}
     scores = via.get("scores") or {}
@@ -140,6 +151,13 @@ def check_unmeasured(r: dict, html: str = "") -> list[Violation]:
 # B. per-seat and per-customer figures must never be compared
 # ---------------------------------------------------------------------------------
 def check_units(r: dict, html: str = "") -> list[Violation]:
+    """Class B: per-seat economics compared against per-account figures.
+
+    CLV and CAC only sit in the same ratio when they count the same thing. For a per-seat
+    product sold to multi-seat accounts they do not, and the resulting LTV:CAC is wrong by
+    the seats-per-account factor. Scoped to that case, since with one seat per customer
+    the two units genuinely coincide.
+    """
     out: list[Violation] = []
     econ = r.get("economics") or {}
     if str(econ.get("pricing_unit") or "").lower() != "seat":
@@ -186,6 +204,11 @@ def check_units(r: dict, html: str = "") -> list[Violation]:
 # C. one population, one number
 # ---------------------------------------------------------------------------------
 def check_counts(r: dict, html: str = "") -> list[Violation]:
+    """Class C: the roster, the map and the prose must describe one population.
+
+    A reader who counts the competitors in the table and compares that with the density
+    figure or the plotted points is doing arithmetic the report should have done first.
+    """
     out: list[Violation] = []
     disc = r.get("discover") or {}
     syn = disc.get("synthesis") or {}
@@ -270,6 +293,11 @@ _SECTION_KEYS = {
 
 
 def check_surface(r: dict, html: str = "") -> list[Violation]:
+    """Class D: a section that was computed but never reaches the page.
+
+    Reads the renderer's own source, because a silent discard leaves no trace in the
+    result: the data is present, correct, and simply never passed to a template.
+    """
     out: list[Violation] = []
     if not html:
         return out
@@ -323,6 +351,12 @@ def check_surface(r: dict, html: str = "") -> list[Violation]:
 # E. a citation the ledger cannot back
 # ---------------------------------------------------------------------------------
 def check_provenance(r: dict, html: str = "") -> list[Violation]:
+    """Class E: an LLM-origin figure wearing a research house's name.
+
+    A method whose data_origin is `llm` while its source string cites IDC or Gartner is a
+    fabricated citation. It is the most damaging defect in the report, because it is the
+    one a reader cannot detect from the page.
+    """
     out: list[Violation] = []
     tam = (r.get("market_sizing") or {}).get("tam") or {}
     for key in ("method_top_down", "method_bottom_up", "method_analog"):
@@ -360,6 +394,8 @@ def audit_result(result: dict, html: str = "") -> list[Violation]:
 
 
 def main(argv: list[str]) -> int:
+    """Audit one stored job. Exit code is the verdict; no arguments prints this module's
+    own docstring, which explains the five classes."""
     if not argv:
         print(__doc__)
         return 0

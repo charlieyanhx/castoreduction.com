@@ -348,7 +348,6 @@ httpx[http2]>=0.27      # already had httpx; added [http2] extra for connection 
   - `clustering_method` / `embedding_method` / `projection_method` + `noise_count` reported in result dict for transparency.
   - Why: TF-IDF caught keyword overlap but missed synonymy ("DTC analytics" ≈ "Shopify dashboard"); K-Means forced every competitor into a cluster; PCA's linear projection made the 2D map uninterpretable. New stack is substantively better on all three.
 
-- **`schema.py`** — advisory Pydantic `ContextStore` model with typed sub-blocks (CompanyProfile, Competitor, PersonasBlock, ClusteringResult, PSMResult, PricingBlock, EconomicsBlock, ViabilityBlock, Differentiators, CustomerUniverse, OperatorWeights). Used as a reference + validation target; production code still reads/writes the raw dict to avoid a risky big-bang migration.
 
 - **Playwright PDF export endpoint** `GET /jobs/{id}/report.pdf` — headless Chromium → application/pdf. Reuses the already-installed playwright (for Trustpilot). Real PDF deliverable, not "Cmd+P in browser".
 

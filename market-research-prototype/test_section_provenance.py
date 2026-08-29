@@ -50,7 +50,7 @@ class TestCoverage(unittest.TestCase):
 
 class TestSkillEntriesAreReal(unittest.TestCase):
     def test_skill_kind_entries_exist_in_the_registry(self):
-        import skills.pipeline_steps, skills.discovery, skills.perspective  # noqa: F401
+        import skills.discovery, skills.perspective  # noqa: F401
         from skills.registry import SKILL_REGISTRY
         for s in SECTION_SOURCES:
             if s.kind == "skill":
@@ -157,7 +157,7 @@ class TestModuleEntriesResolve(unittest.TestCase):
         self.assertEqual(broken, [], "section table points at code that is not there")
 
     def test_every_skill_entry_still_names_a_registered_skill(self):
-        import skills.discovery, skills.perspective, skills.pipeline_steps  # noqa: F401
+        import skills.discovery, skills.perspective  # noqa: F401
         from skills.registry import SKILL_REGISTRY
         broken = [f"{s.result_key}: {s.produced_by}" for s in SECTION_SOURCES
                   if s.kind == "skill" and s.produced_by not in SKILL_REGISTRY]
@@ -171,6 +171,8 @@ class TestModuleEntriesResolve(unittest.TestCase):
         `four_ps_skill` -- genuinely registered, but defined in skills/pipeline_steps.py,
         which production never imports -- while claiming module `four_ps`, which does not
         define it. Registry membership was satisfied and the attribution was still wrong.
+        (That module has since been DELETED for being uncalled; this check is what stops
+        the same drift happening against whatever is registered now.)
 
         MEASURED: 8 of 22 entries were in that state -- Company profile, Differentiators,
         Competitive landscape, Decoded audiences, Pricing (PSM), Market size, 4Ps, Viability.

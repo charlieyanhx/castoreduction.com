@@ -333,7 +333,10 @@ class TestRecordedProducers(unittest.TestCase):
     def test_the_recorded_producer_beats_the_static_map(self):
         """The point of this test is precedence, so the expected values are the RECORDED
         ones, not the map's. The static map now says assemble_4ps_split in `four_ps`; the
-        injected run record says four_ps_skill in skills.pipeline_steps. The record wins —
+        injected run record says four_ps_skill in skills.pipeline_steps, a module that no
+        longer exists (deleted as uncalled) -- which makes the point sharper, not weaker:
+        the displayed attribution comes from the RECORD, not from what is importable
+        today. The record wins —
         it cannot have drifted, because it is what actually executed.
 
         (Corrected after an over-broad rename briefly changed this expectation to the map's
@@ -362,7 +365,7 @@ class TestRecordedProducers(unittest.TestCase):
         self.assertEqual(recorded_producers(r)["market_sizing"]["produced_by"], "second")
 
     def test_the_registry_captures_where_every_skill_lives(self):
-        import skills.discovery, skills.perspective, skills.pipeline_steps  # noqa: F401
+        import skills.discovery, skills.perspective  # noqa: F401
         from skills.registry import SKILL_REGISTRY
         missing = [n for n, m in SKILL_REGISTRY.items() if not m.file or not m.line]
         self.assertEqual(missing, [], f"skills with no source location: {missing}")

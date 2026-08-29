@@ -122,7 +122,16 @@ class TestPlanThreading(unittest.TestCase):
         class _Stop(Exception):
             pass
 
-        with patch("company_profile.extract_company_profile", return_value=dict(good_profile)), \
+        # Patch the STEP MODULE's name, not company_profile's. orchestrator/steps/profile
+        # does `from company_profile import extract_company_profile` at import time, so
+        # that name is bound in the step's own namespace and patching the source module
+        # never reaches it. This test was therefore running the REAL extractor and passing
+        # only while ambient state (provider keys from .env, a warm llm cache) happened to
+        # return a usable profile; once the suite went offline by default it failed with
+        # an empty `partials` and nothing pointing at the cause. TestProfileAuthority
+        # below has always patched the right target.
+        with patch("orchestrator.steps.profile.extract_company_profile",
+                   return_value=dict(good_profile)), \
              patch.object(plan_mod, "run_discover_step", side_effect=_Stop):
             try:
                 plan_mod.run_plan("A cafe in Los Angeles for commuters and locals.",

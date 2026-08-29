@@ -3,123 +3,410 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Generating report — Castor Research</title>
-<link rel="stylesheet" href="/web/app.css"/>
+<title>Building your report · Castor Research</title>
+<style>
+  /* Same warm paper as the survey and the workspace. The founder has just come from the
+     survey, and handing them a different visual language at the moment they have committed
+     reads as being passed to a different company. */
+  :root {
+    --bg: oklch(97.3% 0.006 85);
+    --surface: oklch(99.4% 0.002 85);
+    --surface-2: oklch(95.8% 0.006 85);
+    --line: oklch(90% 0.008 85);
+    --text: oklch(23% 0.015 250);
+    --text-dim: oklch(48% 0.015 250);
+    --text-faint: oklch(62% 0.012 250);
+    --shadow-1: 0 1px 2px oklch(30% 0.02 85 / .05), 0 4px 16px -6px oklch(30% 0.02 85 / .09);
+    --shadow-2: 0 2px 4px oklch(30% 0.02 85 / .06), 0 14px 36px -12px oklch(30% 0.02 85 / .16);
+    --accent: oklch(48.5% 0.105 163.5);
+    --accent-soft: oklch(95.5% 0.028 163.5);
+    --warn-ink: oklch(45% 0.13 62);
+    --warn-bg: oklch(97.5% 0.022 75);
+    --warn-line: oklch(88% 0.05 75);
+    --radius: 12px;
+    --serif: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+    --mono: "SF Mono", ui-monospace, "Cascadia Code", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  body { font-family: var(--sans); font-size: 14px; line-height: 1.5; color: var(--text);
+         background: var(--bg); -webkit-font-smoothing: antialiased; }
+
+  .rail { position: sticky; top: 0; z-index: 20; display: flex; align-items: center;
+          gap: 14px; padding: 13px 24px; background: oklch(97.3% 0.006 85 / .88);
+          backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+  .brand { font-family: var(--serif); font-size: 16px; font-weight: 600;
+           letter-spacing: -.01em; text-decoration: none; color: var(--text); }
+  .brand span { color: var(--accent); }
+  .navlink { margin-left: auto; font-size: 12.5px; color: var(--text-dim);
+             text-decoration: none; }
+  .navlink:hover { color: var(--accent); }
+
+  main { max-width: 860px; margin: 0 auto; padding: 44px 24px 90px; }
+  h1 { font-family: var(--serif); font-size: clamp(26px, 1.4rem + 1.6vw, 36px);
+       font-weight: 600; letter-spacing: -.02em; line-height: 1.15; }
+  .sub { margin-top: 11px; font-size: 15px; color: var(--text-dim); max-width: 56ch; }
+  .clock { margin-left: 12px; font-family: var(--mono); font-size: .5em;
+           font-weight: 500; color: var(--text-faint); letter-spacing: 0;
+           vertical-align: middle; font-variant-numeric: tabular-nums; }
+
+  .track { margin-top: 30px; height: 6px; border-radius: 999px;
+           background: var(--surface-2); overflow: hidden; }
+  .track-fill { height: 100%; background: var(--accent); width: 0;
+                transition: width .6s cubic-bezier(0.16, 1, 0.3, 1); }
+
+  .phases { margin-top: 26px; }
+  .phase { display: grid; grid-template-columns: 22px minmax(0, 1fr);
+           gap: 13px; padding: 13px 0; border-top: 1px solid var(--line); }
+  .phase:first-child { border-top: none; }
+  .dot { width: 13px; height: 13px; margin-top: 4px; border-radius: 50%;
+         border: 2px solid var(--line); background: var(--surface); }
+  .phase.done .dot { border-color: var(--accent); background: var(--accent); }
+  .phase.live .dot { border-color: var(--accent); background: var(--surface);
+                     animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 18%, transparent); } }
+  .phase-name { font-size: 15px; letter-spacing: -.005em; color: var(--text-faint); }
+  .phase.done .phase-name, .phase.live .phase-name { color: var(--text); }
+  .phase.live .phase-name { font-weight: 600; }
+  .phase-note { margin-top: 2px; font-size: 12.5px; color: var(--text-faint); }
+
+  .feed { margin-top: 30px; padding: 18px 20px; background: var(--surface);
+          border: 1px solid var(--line); border-radius: var(--radius);
+          box-shadow: var(--shadow-1); }
+  .feed-lab { font-size: 10.5px; font-weight: 700; letter-spacing: .1em;
+              text-transform: uppercase; color: var(--text-faint); margin-bottom: 11px; }
+  .feed-list { max-height: 260px; overflow-y: auto; }
+  .ev { display: flex; gap: 10px; align-items: baseline; padding: 5px 0;
+        font-size: 13px; border-top: 1px solid var(--surface-2); }
+  .ev:first-child { border-top: none; }
+  .ev-what { color: var(--text); }
+  .ev-detail { color: var(--text-faint); font-size: 12px; }
+  .ev-ms { margin-left: auto; font-family: var(--mono); font-size: 11px;
+           color: var(--text-faint); font-variant-numeric: tabular-nums; }
+  .ev.bad .ev-what { color: var(--warn-ink); }
+  .feed-empty { font-size: 13px; color: var(--text-faint); }
+
+  .done-card { margin-top: 30px; padding: 26px 28px; background: var(--surface);
+               border: 1px solid var(--line); border-left: 3px solid var(--accent);
+               border-radius: var(--radius); box-shadow: var(--shadow-2); }
+  .done-card h2 { font-family: var(--serif); font-size: 22px; font-weight: 600;
+                  letter-spacing: -.015em; }
+  .done-card p { margin-top: 9px; font-size: 14.5px; color: var(--text-dim);
+                 max-width: 54ch; }
+  .open { display: inline-block; margin-top: 16px; padding: 11px 22px; font-size: 14px;
+          font-weight: 600; color: #fff; background: var(--accent); border-radius: 9px;
+          text-decoration: none; }
+  .open:hover { opacity: .92; }
+  .second { display: inline-block; margin-top: 16px; margin-left: 14px; font-size: 13.5px;
+            color: var(--text-dim); }
+  .bad-card { margin-top: 30px; padding: 20px 22px; background: var(--warn-bg);
+              border: 1px solid var(--warn-line); border-radius: var(--radius); }
+  .bad-card h2 { font-family: var(--serif); font-size: 19px; font-weight: 600;
+                 color: var(--warn-ink); }
+  .bad-card p { margin-top: 8px; font-size: 14px; color: var(--warn-ink); max-width: 56ch; }
+  .bad-card a { color: var(--warn-ink); }
+
+  .aside { margin-top: 26px; font-size: 13px; color: var(--text-faint); }
+  .aside a { color: var(--accent); }
+
+  @media (max-width: 560px) {
+    .rail { padding: 11px 16px; }
+    main { padding: 28px 16px 60px; }
+    .feed-list { max-height: 200px; }
+  }
+</style>
 </head>
 <body>
 
-<header class="topbar">
-  <a class="brand" href="/">
-    <span class="brand-mark">●</span>
-    <span class="brand-name">Castor Research</span>
-  </a>
-  <nav class="topnav">
-    <a href="/">New report</a>
-    <a href="/dashboard.html">My reports</a>
-  </nav>
+<header class="rail">
+  <a class="brand" href="/">Castor <span>Research</span></a>
+  <a class="navlink" href="/dashboard.html">Your library</a>
 </header>
 
-<main class="progress-page">
-  <h1 id="title">Generating your report…<span class="progress-elapsed" id="elapsed">0:00</span></h1>
-  <div class="progress-sub" id="subtitle">This takes 5–10 minutes. The browser tab can be closed and reopened.</div>
+<main>
+  <h1 id="title">Building your report<span class="clock" id="clock">0:00</span></h1>
+  <div class="sub" id="sub">This takes about six minutes of live research. You can close
+    this tab and come back to it, the work carries on without you.</div>
 
-  <div class="step-list" id="step-list"></div>
+  <div class="track"><div class="track-fill" id="fill"></div></div>
+  <div class="phases" id="phases"></div>
 
-  <div class="example-link">
-    <a href="/jobs/def590b9-b6cd-4bc1-a094-e8d3253b3f01/report.html">→ Browse a finished example while you wait</a>
+  <div class="feed">
+    <div class="feed-lab" id="feedLab">What it is doing right now</div>
+    <div class="feed-list" id="feed"><div class="feed-empty">Starting up…</div></div>
   </div>
+
+  <div id="outcome"></div>
+
+  <div class="aside">Reports you have already run are in
+    <a href="/dashboard.html">your library</a>.</div>
 </main>
 
 <script>
-const STEPS = [
-  { key: "profile",            label: "Profile extraction" },
-  { key: "discover",           label: "Competitor discovery (signals + ranking)" },
-  { key: "firmographics",      label: "Firmographic enrichment" },
-  { key: "clustering",         label: "Clustering + PCA whitespace" },
-  { key: "differentiators",    label: "Differentiators + market gaps" },
-  { key: "customer_universe",  label: "Customer universe (real companies)" },
-  { key: "audience",           label: "Audience taste decoding (top 3 brands)" },
-  { key: "personas",           label: "Persona synthesis + wedge selection" },
-  { key: "reddit_signal",      label: "Reddit customer-voice extraction" },
-  { key: "max_diff",           label: "Max-Diff feature ranking" },
-  { key: "pricing",            label: "Van Westendorp PSM + benchmark" },
-  { key: "economics",          label: "CLV + CAC + EVC + sensitivity" },
-  { key: "place",              label: "Place / channel analysis" },
-  { key: "validation",         label: "Validation gate" },
-  { key: "market_sizing",      label: "Market sizing TAM/SAM/SOM" },
-  { key: "four_ps",            label: "4Ps marketing plan (4 parallel prompts)" },
-  { key: "segment_ranking",    label: "5-metric segment scoring" },
-  { key: "viability",          label: "Viability score 1–100" },
-];
+(function () {
+  "use strict";
 
-const $ = (s) => document.querySelector(s);
-const params = new URLSearchParams(window.location.search);
-const jobId = params.get("job");
+  /* The pipeline's 18 steps, grouped into what a founder would recognise. The step keys
+     are ours; the labels must never be. The whole intake tree is built on the rule that
+     the founder never sees our taxonomy, and this page used to break it on every line:
+     "Van Westendorp PSM + benchmark", "Firmographic enrichment", "Max-Diff feature
+     ranking". Nobody waiting six minutes for an answer wants to be told that. */
+  var PHASES = [
+    { name: "Working out what you are",
+      note: "reading your description and placing the venture",
+      keys: ["profile", "market_scale"] },
+    { name: "Finding who you are up against",
+      note: "searching for real competitors, then checking each one exists",
+      keys: ["discover", "firmographics", "clustering", "differentiators",
+             "competitor_refinement"] },
+    { name: "Counting the customers",
+      note: "census data and real companies that match who you sell to",
+      keys: ["customer_universe", "audience", "personas", "reddit_signal",
+             "hn_signal", "multi_source_signal", "consumer_research"] },
+    { name: "Working out what people will pay",
+      note: "competitor prices, willingness to pay, and the unit economics",
+      keys: ["max_diff", "pricing", "economics", "place", "financials"] },
+    { name: "Sizing the market",
+      note: "the households, the spend, and what share of it you could reach",
+      keys: ["validation", "market_sizing"] },
+    { name: "Writing it up",
+      note: "the plan, the scoring, and the checks that can withhold it",
+      keys: ["four_ps", "segment_ranking", "viability"] }
+  ];
+  var TOTAL_STEPS = PHASES.reduce(function (n, p) { return n + p.keys.length; }, 0);
 
-if (!jobId) {
-  document.body.innerHTML = "<main style='padding:60px;text-align:center;color:#9ca3af'>Missing ?job=… in URL</main>";
-  throw new Error("missing job param");
-}
+  /* Tool names in founder language. An unmapped tool degrades to its own name with the
+     underscores taken out, which is honest and readable rather than hidden. */
+  var TOOL_WORDS = {
+    web_search: "searched the web",
+    geocode_address: "located the site",
+    census_acs: "read census data",
+    census_cbp: "read business census data",
+    overture_places: "counted nearby venues",
+    osm_places: "counted nearby venues",
+    gmaps_ratings: "read local ratings",
+    fred_series: "pulled economic data",
+    reddit_search: "read customer discussions",
+    competitor_pricing: "read a competitor's prices",
+    scrape: "read a page"
+  };
 
-let started = Date.now();
+  var $ = function (id) { return document.getElementById(id); };
+  var jobId = new URLSearchParams(location.search).get("job");
 
-function renderSteps(completed) {
-  const set = new Set(completed || []);
-  let liveSet = false;
-  $("#step-list").innerHTML = STEPS.map((s) => {
-    const done = set.has(s.key);
-    let cls = done ? "done" : (liveSet ? "todo" : "live");
-    if (!done && !liveSet) liveSet = true;
-    if (done) cls = "done";
-    return `
-      <div class="step-row ${cls}">
-        <span class="step-icon ${cls}"></span>
-        <span>${s.label}</span>
-      </div>
-    `;
-  }).join("");
-}
-
-function fmtElapsed(secs) {
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-async function poll() {
-  try {
-    const j = await (await fetch(`/jobs/${jobId}`)).json();
-    const completed = (j.result && j.result._steps_completed) || [];
-    renderSteps(completed);
-
-    if (j.state === "complete") {
-      $("#title").innerHTML = `Report ready ✓<span class="progress-elapsed">${fmtElapsed((Date.now() - started) / 1000)}</span>`;
-      $("#subtitle").innerHTML = `<a href="/jobs/${jobId}/report.html" style="color:var(--accent);font-weight:600">Open report →</a>`;
-      setTimeout(() => { window.location.href = `/jobs/${jobId}/report.html`; }, 1500);
-      return;
-    }
-    if (j.state === "error") {
-      $("#title").textContent = "Error";
-      $("#subtitle").innerHTML = `<span style="color:var(--danger)">${escapeHtml(j.error || "unknown error")}</span>`;
-      return;
-    }
-
-    // Update elapsed and continue polling
-    const elapsedFromStart = (Date.now() - started) / 1000;
-    const elapsedFromJob = j.created_at ? (Date.now() / 1000 - j.created_at) : elapsedFromStart;
-    $("#elapsed").textContent = fmtElapsed(Math.max(elapsedFromStart, elapsedFromJob));
-  } catch (e) {
-    console.error(e);
+  if (!jobId) {
+    $("title").textContent = "No report to show";
+    $("sub").innerHTML = 'That link is missing its report id. ' +
+      '<a href="/survey">Start a new one</a>.';
+    $("clock").remove();
+    return;
   }
-  setTimeout(poll, 2500);
-}
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-}
+  var createdAt = null;
+  var since = 0;
+  var seen = [];
+  var finished = false;
 
-renderSteps([]);
-poll();
+  function fmt(secs) {
+    var m = Math.floor(secs / 60), s = Math.floor(secs % 60);
+    return m + ":" + String(s).padStart(2, "0");
+  }
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function renderPhases(done, runFinished) {
+    var set = {};
+    (done || []).forEach(function (k) { set[k] = 1; });
+    var host = $("phases");
+    host.innerHTML = "";
+
+    /* A phase is done when the run has MOVED PAST it, not when every key it lists came
+       back. Steps are conditional: reddit_signal, consumer_research and hn_signal do not
+       run for every venture, so `every key present` left finished runs showing half their
+       phases open and one still pulsing. The furthest key seen decides, and a finished run
+       closes everything. */
+    var lastTouched = -1;
+    PHASES.forEach(function (p, i) {
+      if (p.keys.some(function (k) { return set[k]; })) lastTouched = i;
+    });
+
+    var liveFound = false;
+    PHASES.forEach(function (p, i) {
+      var complete = runFinished || i < lastTouched ||
+                     (i === lastTouched && p.keys.every(function (k) { return set[k]; }));
+      var started = p.keys.some(function (k) { return set[k]; });
+      var cls = "phase";
+      if (complete) cls += " done";
+      else if (!liveFound) { cls += " live"; liveFound = true; }
+      var row = el("div", cls);
+      row.appendChild(el("div", "dot"));
+      var body = el("div");
+      body.appendChild(el("div", "phase-name", p.name));
+      if (!complete) body.appendChild(el("div", "phase-note", p.note));
+      else if (started) body.appendChild(el("div", "phase-note", "done"));
+      row.appendChild(body);
+      host.appendChild(row);
+    });
+    var pct = Math.round(((done || []).length /
+                          Math.max(TOTAL_STEPS, (done || []).length)) * 100);
+    $("fill").style.width = Math.max(2, Math.min(100, pct)) + "%";
+  }
+
+  /* THE PROOF OF WORK. Six minutes of a spinner is six minutes of doubt; six minutes of
+     watching it read the census and price real competitors is the product demonstrating
+     that it goes outside and measures, which is the entire thing the founder just paid
+     for. The events are real: name, whether it worked, what it found, how long it took. */
+  function renderFeed(events) {
+    var host = $("feed");
+    // Tools and steps only. The `llm` events carry nothing but ok/true, so they rendered
+    // as a wall of "thought about it": noise that makes the real work harder to see and
+    // reads as filler. What earns trust here is the concrete outside work, named.
+    var shown = events.filter(function (e) {
+      return e.layer === "tool" || e.layer === "step";
+    });
+    if (!shown.length) return;
+    host.innerHTML = "";
+    shown.slice(-40).reverse().forEach(function (e) {
+      var row = el("div", "ev" + (e.ok === false ? " bad" : ""));
+      var what = e.layer === "tool"
+        ? (TOOL_WORDS[e.name] || String(e.name || "").replace(/_/g, " "))
+        : "finished " + String(e.name || "").replace(/_/g, " ");
+      if (e.ok === false) what = "could not " + what;
+      row.appendChild(el("span", "ev-what", what));
+      if (e.detail) row.appendChild(el("span", "ev-detail", e.detail));
+      if (e.duration_s) row.appendChild(el("span", "ev-ms", e.duration_s.toFixed(1) + "s"));
+      host.appendChild(row);
+    });
+  }
+
+  var finishedNavigated = false;
+
+  /* A FINISHED RUN IS NOT ALWAYS A PUBLISHABLE ONE, and saying so is the product, not an
+     apology for it. The gates can withhold a report whose numbers are not sourced well
+     enough to stand behind; the report route already renders a proper page explaining
+     which checks blocked it. What was wrong was this screen announcing "your report is
+     ready" first, so the reader met the withhold as a broken promise instead of as the
+     guarantee they were given on the way in. */
+  function succeed(result) {
+    finished = true;
+    var v = (result && result.verification && result.verification.summary) || null;
+    var withheld = v && v.publishable === false;
+    var blocks = (v && v.block) || 0;
+
+    $("title").textContent = withheld ? "We are not publishing this one"
+                                      : "Your report is ready";
+    $("sub").textContent = withheld
+      ? "The research finished, but " + (blocks === 1 ? "one check" : blocks + " checks") +
+        " found figures we cannot source well enough to stand behind. We told you we would " +
+        "withhold rather than guess, so that is what this is."
+      : "Every figure in it carries where it came from, and anything we could not source " +
+        "is labelled rather than guessed at.";
+    $("feedLab").textContent = "What it did";
+    var card = el("div", withheld ? "bad-card" : "done-card");
+    card.appendChild(el("h2", null, withheld ? "Withheld" : "Done"));
+    card.appendChild(el("p", null, withheld
+      ? "Open it to see exactly which checks blocked it and what would fix them. Usually " +
+        "it is one missing input rather than anything wrong with the venture."
+      : "It is saved to your library, so this link keeps working and you can come back to it."));
+    var a = el("a", "open", withheld ? "See what was withheld" : "Open the report");
+    // ?annotate=1 opens the report in REFINE MODE, which is where the reader can mark
+    // passages, ask their five questions, have them answered from the report's own data,
+    // and stamp a final version. All of that already exists (iteration.py, and the refine
+    // block in templates/report.html); it was simply never linked to, so every reader
+    // arrived at the read-only view and the whole layer sat unused.
+    a.href = "/jobs/" + encodeURIComponent(jobId) + "/report.html?annotate=1";
+    card.appendChild(a);
+    card.appendChild(el("span", "second", "or press Enter"));
+    $("outcome").innerHTML = "";
+    $("outcome").appendChild(card);
+    quietFeed();
+    // No auto-redirect. The old page bounced after 1.5s, which throws away the one moment
+    // the reader is deciding whether the wait was worth it, and yanks the page out from
+    // under anyone mid-scroll. Enter opens it for the impatient.
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" && !finishedNavigated) { finishedNavigated = true; a.click(); }
+    });
+  }
+
+  function fail(message) {
+    finished = true;
+    $("title").textContent = "This run stopped early";
+    $("sub").textContent = "";
+    var card = el("div", "bad-card");
+    card.appendChild(el("h2", null, "It did not finish"));
+    card.appendChild(el("p", null, message ||
+      "Something went wrong partway through and the run was stopped."));
+    var p = el("p");
+    p.appendChild(document.createTextNode("Your answers are saved. You can "));
+    var a = document.createElement("a");
+    a.href = "/survey";
+    a.textContent = "start a new run";
+    p.appendChild(a);
+    p.appendChild(document.createTextNode(", and anything that finished is in your library."));
+    card.appendChild(p);
+    $("outcome").innerHTML = "";
+    $("outcome").appendChild(card);
+    quietFeed();
+  }
+
+  /* The run is over, so the feed must stop promising that searches are about to start.
+     Older jobs predate the transcript and have nothing to replay, which is worth saying
+     rather than leaving a stale line from the live state. */
+  function quietFeed() {
+    var empty = $("feed").querySelector(".feed-empty");
+    if (empty) {
+      empty.textContent = "This run predates the live activity log, so there is nothing "
+                        + "to replay here.";
+    }
+  }
+
+  function tick() {
+    if (createdAt) {
+      $("clock").textContent = fmt(Math.max(0, Date.now() / 1000 - createdAt));
+    }
+  }
+
+  async function poll() {
+    try {
+      var j = await (await fetch("/jobs/" + encodeURIComponent(jobId))).json();
+      if (j.created_at) createdAt = j.created_at;
+      renderPhases((j.result && j.result._steps_completed) || [],
+                   j.state === "complete");
+
+      try {
+        var ev = await (await fetch("/jobs/" + encodeURIComponent(jobId) +
+                                    "/events?since=" + since)).json();
+        if (ev && ev.events && ev.events.length) {
+          seen = seen.concat(ev.events);
+          since = ev.next_since || since;
+          renderFeed(seen);
+        } else if (!seen.length) {
+          $("feed").innerHTML = "";
+          $("feed").appendChild(el("div", "feed-empty", finished
+            ? "This run predates the live activity log, so there is nothing to replay here."
+            : "Warming up. The first searches start in a few seconds."));
+        }
+      } catch (e) { /* the event stream is a bonus, never the thing that breaks the page */ }
+
+      if (j.state === "complete") { tick(); return succeed(j.result); }
+      if (j.state === "error") { tick(); return fail(j.error); }
+    } catch (e) {
+      // A dropped poll is not a failed run. Keep polling; the work is server side.
+    }
+    tick();
+    setTimeout(poll, 2500);
+  }
+
+  renderPhases([]);
+  setInterval(tick, 1000);
+  poll();
+})();
 </script>
 </body>
 </html>

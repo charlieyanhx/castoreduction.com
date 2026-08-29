@@ -2,3 +2,14 @@
 .DS_Store
 claude-code-main/
 out/.cache/
+
+# server/run logs (srv*.log, deep*.log) are run artifacts, never source
+*.log
+
+# bulk public reference data (large, re-downloadable)
+market-research-prototype/data/
+
+# latex build artifacts
+docs/*.aux
+docs/*.log
+docs/*.out

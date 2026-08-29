@@ -7,9 +7,7 @@ keep fixes localized here.
 from __future__ import annotations
 
 import re
-import urllib.parse
 
-import requests
 
 import net as mrp_http
 from cache import cached

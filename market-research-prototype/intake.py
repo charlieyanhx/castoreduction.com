@@ -479,51 +479,62 @@ def venture_memory(ex: dict):
 
 
 def _synthesize_from_extracted(ex: dict) -> str:
+    # EVERY value goes through slots.phrase. A typed record renders from its own
+    # kind/unit/period; a legacy bare string is only APPENDED to, never rewritten. Two
+    # things this closes. First, interpolating a typed record directly would inject the
+    # literal tokens value/unit/period/kind/source into the very string classify_turn and
+    # the pipeline's classifiers read, and `unit: "$ per month"` alone carries the
+    # recurring signal that once flipped a taco stand to hybrid. Second, a "not sure"
+    # answer is a dict too, and this builder never checked: an unknown geography composed
+    # as "Located in {'unknown': True}." and went to the run exactly like that.
+    import slots as _slots
+    from intake_tree import is_unknown as _unk
+
+    def _say(field: str) -> str:
+        v = ex.get(field)
+        if v in (None, "", []) or _unk(v):
+            return ""
+        return _slots.phrase(field, v)
+
     parts = []
-    if ex.get("product"):
-        parts.append(ex["product"])
-    if ex.get("target_customer"):
-        parts.append(f"Target customer: {ex['target_customer']}.")
-    if ex.get("business_model"):
-        parts.append(f"Business model: {ex['business_model']}.")
-    if ex.get("geography"):
-        # "Located in X", NOT "Geography: X". MEASURED: plan.extract_location requires a
-        # prepositional phrase, and the label form returned None on every description this
-        # builder has ever produced. The consequence was silent and total —
-        # size_by_scale returns None without a location (no trade-area sizing at all) and
-        # geo_competitor_opps returns [] (no local competitor census) — so a neighbourhood
-        # cafe fell back to national sizing and the report said "needs an address" rather
-        # than "I could not read the address you gave me".
-        parts.append(f"Located in {ex['geography']}.")
-    if ex.get("pricing"):
-        parts.append(f"Pricing: {ex['pricing']}.")
-    if ex.get("differentiation"):
-        parts.append(f"Differentiation: {ex['differentiation']}.")
-    if ex.get("stage"):
-        parts.append(f"Stage: {ex['stage']}.")
-    if ex.get("key_features"):
-        feats = ex["key_features"]
-        if isinstance(feats, list):
-            parts.append("Key features: " + ", ".join(feats) + ".")
+    # "Located in X", NOT "Geography: X". MEASURED: plan.extract_location requires a
+    # prepositional phrase, and the label form returned None on every description this
+    # builder has ever produced. The consequence was silent and total — size_by_scale
+    # returns None without a location (no trade-area sizing at all) and geo_competitor_opps
+    # returns [] (no local competitor census) — so a neighbourhood cafe fell back to
+    # national sizing and the report said "needs an address" rather than "I could not read
+    # the address you gave me".
+    for field, tpl in (("product", "{}"),
+                       ("target_customer", "Target customer: {}."),
+                       ("business_model", "Business model: {}."),
+                       ("geography", "Located in {}."),
+                       ("pricing", "Pricing: {}."),
+                       ("differentiation", "Differentiation: {}."),
+                       ("stage", "Stage: {}.")):
+        said = _say(field)
+        if said:
+            parts.append(tpl.format(said))
+    feats = ex.get("key_features")
+    if isinstance(feats, list) and feats:
+        parts.append("Key features: " + ", ".join(str(f) for f in feats) + ".")
 
     # THE TREE'S FACTS. Each rides the brief in a phrasing a downstream consumer already
     # parses — "Named competitors:" seeds discover._union_named_competitors via the profile
     # extractor, price figures are read by brief.extract_price, location counts by
     # plan.extract_location_count. A fact phrased unreadably is a fact not collected.
-    from intake_tree import is_unknown as _unk
-    def _val(k):
-        v = ex.get(k)
-        return None if (v in (None, "", []) or _unk(v)) else v
+    # The denominator now travels WITH the value, so the templates no longer supply one:
+    # a typed avg_ticket renders "$6.50 per visit" on its own and the old template made it
+    # "$6.50 per visit per visit", while a legacy "$6.50" still gains the noun in phrase().
     _tree_lines = (
         ("site", "The exact site: {}."),
         ("locations_count", "{}."),
         ("capacity", "Capacity: {}."),
-        ("avg_ticket", "Typical price: {} per visit."),
+        ("avg_ticket", "Typical price: {}."),
         ("avg_order", "Typical order value: {}."),
         ("avg_transaction", "Typical transaction: {}."),
         ("rate_basis", "Charges {}."),
         ("pricing_unit_scope", "The fee is charged {}."),
-        ("seats_per_account", "Typically {} users per customer."),
+        ("seats_per_account", "Typically {} at one customer."),
         ("take_rate", "The platform keeps {} of each transaction."),
         ("side_first", "Supply/demand priority: {}."),
         ("team_size", "Team who can deliver the work: {}."),
@@ -542,9 +553,9 @@ def _synthesize_from_extracted(ex: dict) -> str:
         ("local_anchor", "Founder-supplied local figure: {}."),
     )
     for field, tpl in _tree_lines:
-        v = _val(field)
-        if v is not None:
-            parts.append(tpl.format(v))
+        said = _say(field)
+        if said:
+            parts.append(tpl.format(said))
 
     # "Not sure" answers become DISCLOSED assumptions, not silence. The report's own
     # honesty machinery (data_origin, UNSOURCED labels) keys off knowing a figure was
@@ -674,8 +685,11 @@ _PHYSICAL_HINTS = ("brick", "mortar", "retail", "store", "shop", "cafe", "restau
 _PRICE_FIGURE = re.compile(r"\d")
 
 
-def _is_physical(business_model: str | None) -> bool:
-    low = (business_model or "").lower()
+def _is_physical(business_model: Any) -> bool:
+    # slots.text, not `or ""`: a typed record and the {"unknown": True} sentinel are both
+    # dicts, and `dict.lower()` is an AttributeError, not a wrong answer.
+    import slots as _slots
+    low = _slots.text(business_model).lower()
     return any(h in low for h in _PHYSICAL_HINTS)
 
 
@@ -695,6 +709,7 @@ def confirmation_items(extracted: dict | None) -> list[dict]:
     reason to actually read it. `precise` is False when the value fills the field but not
     the need, which is the failure a required-field check cannot see.
     """
+    import slots as _slots
     from intake_tree import classify_turn, is_unknown as _unk
     ex = extracted or {}
     cls = classify_turn(ex)
@@ -713,7 +728,7 @@ def confirmation_items(extracted: dict | None) -> list[dict]:
         "value": _KIND_IN_FOUNDER_WORDS.get(kind, kind),
         "provenance": "stated" if cls.get("explicit") else "inferred",
         "precise": bool(cls.get("explicit")),
-        "drives": "which financial tables get built — every projection takes this shape",
+        "drives": "which financial tables get built; every projection takes this shape",
         "warning": (None if cls.get("explicit") else
                     "You didn't say this directly — I worked it out from your description. "
                     "If it's wrong, every number will be."),
@@ -723,8 +738,7 @@ def confirmation_items(extracted: dict | None) -> list[dict]:
     # THE COMPETITOR SEED — always on the card, even (especially) when empty. One real
     # name anchors discovery; the last run without one fabricated three competitors that
     # were all the same website.
-    comp = ex.get("named_competitors")
-    comp = None if (_unk(comp) or not comp) else str(comp)
+    comp = _slots.text(ex.get("named_competitors")).strip() or None
     items.append({
         "field": "named_competitors",
         "label": "Competitors you know of",
@@ -753,12 +767,13 @@ def confirmation_items(extracted: dict | None) -> list[dict]:
                 "precise": False,
                 "drives": "the report will estimate this and label everything built on it",
                 "warning": None,
-                "ask": "Know it now? Type it — otherwise I'll estimate and say so.",
+                "ask": "Know it now? Type it, otherwise I'll estimate and say so.",
             })
 
     geo = (ex.get("site") if ex.get("site") and not _unk(ex.get("site"))
            else ex.get("geography"))
-    geo = ("" if _unk(geo) else (geo or "")).strip()
+    geo = _slots.text(geo).strip()          # `(geo or "").strip()` was an AttributeError
+                                            # the moment geo became a typed record
     geo_precise = bool(geo) and (not physical or bool(_SITE_MARKERS.search(geo)))
     items.append({
         "field": "geography",
@@ -766,20 +781,26 @@ def confirmation_items(extracted: dict | None) -> list[dict]:
         "value": geo or None,
         "provenance": "stated" if geo else "assumed",
         "precise": geo_precise,
-        "drives": ("the 1.5 km trade area — the households, local spending and competitor "
+        "drives": ("the 1.5 km trade area: the households, local spending and competitor "
                    "census every market-size figure is built from"),
         "warning": (None if geo_precise else
                     "This is a city, not a site. The trade area is a 1.5 km ring, so two "
                     "addresses in the same city can produce completely different households "
-                    "and competitor counts — and reports without a specific site are "
+                    "and competitor counts. Reports without a specific site are "
                     "routinely WITHHELD by the verifier. Which neighbourhood or "
                     "cross-streets?"),
         "ask": "Which neighbourhood, or the nearest cross-streets?",
     })
 
-    _praw = ex.get("pricing") or ex.get("avg_ticket") or ex.get("avg_order") \
-        or ex.get("rate_basis") or ex.get("avg_transaction")
-    price = ("" if _unk(_praw) else str(_praw or "")).strip()
+    # `precise` decides whether the founder is warned BEFORE six minutes of research, and
+    # the test is "does this carry a figure". Run against str(value) it inverts the moment
+    # the value is a typed record: every dict repr contains digits, so "Pay per drink"
+    # would start passing and the warning would never fire again. slots.text renders the
+    # value, never the record, so the digit test keeps meaning what it meant.
+    _praw = next((ex[f] for f in ("pricing", "avg_ticket", "avg_order",
+                                  "rate_basis", "avg_transaction")
+                  if ex.get(f) not in (None, "", []) and not _unk(ex.get(f))), None)
+    price = _slots.text(_praw).strip()
     price_precise = bool(_PRICE_FIGURE.search(price))
     items.append({
         "field": "pricing",
@@ -788,9 +809,9 @@ def confirmation_items(extracted: dict | None) -> list[dict]:
         "provenance": "stated" if price else "assumed",
         "precise": price_precise,
         "drives": ("break-even volume, the daily planning target and the obtainable "
-                   "ceiling — without a figure the report cannot state any of them"),
+                   "ceiling. Without a figure the report cannot state any of them"),
         "warning": (None if price_precise else
-                    ("No number captured — and without a figure the verifier often WITHHOLDS "
+                    ("No number captured, and without a figure the verifier often WITHHOLDS "
                      "the report, because break-even and the daily target cannot be stated. "
                      "A rough number beats none; it will be labeled as yours.")),
         "ask": "Roughly what will one unit cost a customer?",
@@ -823,14 +844,25 @@ def intake_record(session: dict) -> dict:
     result["intake"], where confirmed facts are authoritative and declared unknowns are
     disclosed limitations rather than hidden ones.
     """
+    import slots as _slots
     from intake_tree import is_unknown
     ex = (session or {}).get("extracted") or {}
-    facts = {f: v for f, v in ex.items()
-             if not is_unknown(v) and isinstance(v, str) and v.strip()}
+    # `facts` stays a dict of STRINGS: roughly thirty downstream readers consume it that
+    # way, and the canonical rendering is what they were already reading. What changed is
+    # how the string is produced. The old comprehension filtered on `isinstance(v, str)`,
+    # so anything not already a string was DROPPED WITH NO TRACE — measured, a session
+    # holding a typed price returned facts without the price in it at all, and the run
+    # went blind to a fact the founder had typed. A list-valued key_features was lost the
+    # same way, silently, for as long as this function has existed.
+    facts = _slots.as_facts(ex)
+    # `slots` is the typed record itself, for consumers that want the kind guard: a reader
+    # asking for kind="price" cannot be handed the founder's monthly operating cost, which
+    # is the substitution that published the "-95%" pricing banner (audit 1, R2).
+    typed = _slots.as_slots(ex)
     unknowns = sorted(f for f, v in ex.items() if is_unknown(v))
     warnings_shown = [{"field": i["field"], "warning": i["warning"]}
                       for i in confirmation_items(ex) if i.get("warning")]
-    return {"facts": facts, "unknowns": unknowns,
+    return {"facts": facts, "slots": typed, "unknowns": unknowns,
             "warnings_shown": warnings_shown,
             "confirmed": bool((session or {}).get("confirmed"))}
 
@@ -851,4 +883,120 @@ def mark_confirmed(session: dict) -> dict:
     # BEFORE the operator sees the card — so a correction made on the card would never
     # reach the run, and the card would be theatre for the one field it exists to fix.
     session["final_description"] = _synthesize_from_extracted(ex)
+    return session
+
+
+# =======================================================================================
+# FORM MODE (operator request: "make the UI a form survey, it is easier than a chat")
+# =======================================================================================
+# The chat asks one question per turn. The SAME question plan can be shown all at once:
+# every spec already carries its form contract (input_kind, options, write_in, unit_hint,
+# optional, period_choices) because Wave D built the tree that way. Form mode simply
+# stops metering them out.
+#
+# WHAT IT ACTUALLY REMOVES, counted rather than asserted. An earlier version of this note
+# claimed form mode "removes an entire defect class by construction" because answers skip
+# the prose round-trip, and put the number of re-extraction callsites at 11. A full sweep
+# (2026-08-26) found 38, and the claim does not hold for most of them:
+#
+#   10  parse a founder fact back out of the composed brief. Form mode does remove these.
+#   22  re-parse the answer AFTER it is already in `extracted` or in intake["facts"],
+#       so skipping the prose round-trip changes nothing about them.
+#    5  re-parse _blob(ex), a string intake_tree composes from `extracted` and reads back
+#       immediately. Form mode still calls it.
+#    1  is the auditor re-deriving a figure with a third copy of the same regex, so the
+#       check and the thing it checks can drift together.
+#
+# The kind is what actually closes the class, and slots.py carries it: a value that knows
+# it is a COST cannot be handed to a reader asking for a PRICE, which is the substitution
+# that turned a founder's "$1,000/month operating cost" into their stated price and
+# published a fabricated "-95%" pricing banner (audit 1, R2). Form answers are written
+# straight into `extracted` as typed records, so the typed value is the value the pipeline
+# sees. The remaining rerouting is tracked in the ranked inventory (see slots.FIELD_KINDS
+# for the fields already typed).
+
+def founder_words(session: dict) -> str:
+    """Everything in this session the FOUNDER actually authored, joined.
+
+    The explicitness gate (classify_turn's user_text) exists to stop the extractor's
+    paraphrase manufacturing a stated revenue model, and it does that by requiring payment
+    language in the founder's own words. Two things it must include and one it must not.
+
+    IT MUST INCLUDE the transcript, obviously, and also the founder's FORM ANSWERS: a pure
+    form session has no transcript at all, so without them the gate saw an empty string,
+    forced explicit=False forever, and re-asked the money-kind fork on every render no
+    matter what the founder chose.
+
+    IT MUST NOT INCLUDE anything but the two model-naming fields. The taco-stand lesson is
+    that a price answer ("8 dollars per taco") or a rent answer ("500 per month") leaking
+    into this check reads as recurring revenue and flips the venture to hybrid
+    mid-interview.
+    """
+    import slots as _slots
+    ex = (session or {}).get("extracted") or {}
+    parts = [str(m.get("content") or "") for m in (session.get("messages") or [])
+             if m.get("role") == "user"]
+    parts += [_slots.text(ex.get(f)) for f in ("business_model", "kind_fork")]
+    return " ".join(p for p in parts if p)
+
+
+def form_questions(session: dict) -> list[dict]:
+    """Every question this venture should answer, with its current value. Deterministic:
+    the same plan the chat would walk, rendered all at once."""
+    from intake_tree import classify_turn, plan_questions
+    ex = session.get("extracted") or {}
+    cls = classify_turn(ex, user_text=founder_words(session))
+    out = []
+    for q in plan_questions(ex, cls):
+        spec = dict(q)
+        spec["value"] = ex.get(q["field"])
+        out.append(spec)
+    return out
+
+
+def apply_form_answers(session: dict, answers: dict) -> dict:
+    """Write a whole form's answers into the session at once.
+
+    Values land in `extracted` as TYPED RECORDS (slots.make): no LLM pass, no prose
+    round-trip, and the KIND travels with the number, so a founder's monthly operating
+    cost can no longer be read back as their price (audit 1, R2). Blank answers on asked
+    questions become declared unknowns (the honest-assumption path the report's disclosure
+    machinery already reads), never silent omissions.
+
+    A client may send either a bare scalar or {"value": ..., "period": ..., "unit": ...}
+    for a number-with-period question. The form's own period beats anything inferable from
+    the founder's phrasing, because inferring it from phrasing is the defect.
+    """
+    import slots as _slots
+    from intake_tree import mark_unknown         # NOT is_unknown: this line used to import
+    ex = session.setdefault("extracted",         # the wrong name and every blank answer
+                            {f: None for f in ALL_FIELDS})   # raised NameError, so the
+    asked = {q["field"]: q for q in form_questions(session)}  # endpoint 500'd on the first
+    for field, value in (answers or {}).items():             # realistic submit.
+        if field not in ALL_FIELDS and field not in asked:
+            continue                      # never invent a field the tree does not know
+        unit = period = None
+        if isinstance(value, dict) and not _slots.is_slot(value):
+            unit, period = value.get("unit"), value.get("period")
+            value = value.get("value")
+        if isinstance(value, str):
+            value = value.strip()
+        if value in (None, "", []):
+            if field in asked:
+                mark_unknown(ex, field)   # asked, not answered -> a DECLARED unknown
+            continue
+        ex[field] = _slots.make(field, value, unit=unit, period=period, source="form")
+        _mark_founder_owned(session, field)   # typed by the founder; no later extractor
+                                              # pass may overwrite it with a paraphrase
+    # The fork answer IS the founder naming their revenue model. The chat writes it into
+    # business_model verbatim (the founder_payment_words overwrite); form mode never ran
+    # that path, so the answer sat in kind_fork where no classifier reads it and the pack
+    # never switched off the subscription default.
+    said = _slots.text(ex.get("kind_fork")).strip()
+    if said:
+        ex["business_model"] = _slots.make("business_model", said, source="form")
+        _mark_founder_owned(session, "business_model")
+    session["extracted"] = ex
+    session["final_description"] = _synthesize_from_extracted(ex)
+    session["form_submitted"] = True
     return session

@@ -39,6 +39,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+import slots
 from business_model import classify_with_confidence
 
 
@@ -122,6 +123,11 @@ _INPUT_SPECS: dict[str, dict] = {
     "audience_threshold": {"input_kind": "number", "unit_hint": "users"},
     "expected_volume": {"input_kind": "number", "unit_hint": "sales",
                         "period_choices": ["per day", "per week", "per month"]},
+    # A recurring price is meaningless without its period: $49 a month and $49 a year are
+    # different businesses. The period is COLLECTED here rather than sniffed out of the
+    # founder's phrasing downstream, which is the whole point of the typed slot.
+    "pricing": {"input_kind": "number", "unit_hint": "$ per customer",
+                "period_choices": ["per month", "per year"]},
     "site": {"input_kind": "location"},
     "named_competitors": {"optional": True},
     "status_quo": {"optional": True},
@@ -188,6 +194,16 @@ KIND_PACKS: dict[str, tuple[dict, ...]] = {
            "financials break-even fixed cost", "brief"),
     ),
     "subscription": (
+        # THE AMOUNT, not just its shape. This pack asked whether the fee is per company
+        # or per person and never once asked what the fee IS, so a subscription venture
+        # reached the run with a price basis and no price: nothing downstream could state
+        # a break-even, and the free preview had nothing to show. Asking the scope of a
+        # number without asking the number is the mirror image of the C10 defect, where an
+        # input was consumed by nothing. Here a consumer waited for an input nobody asked.
+        _q("pricing",
+           "What does one customer pay you, and how often?",
+           "every revenue figure, and the break-even line the whole report hangs off",
+           "brief.extract_price via the synthesized brief", "module"),
         _q("pricing_unit_scope",
            "When a customer pays the monthly fee, is that for the whole company, or per "
            "person using it?",
@@ -349,6 +365,27 @@ KIND_IN_FOUNDER_WORDS = {
 # compose it.
 KIND_OPTIONS = [{"value": k, "label": v} for k, v in KIND_IN_FOUNDER_WORDS.items()]
 
+_KIND_BY_LABEL = {v.lower(): k for k, v in KIND_IN_FOUNDER_WORDS.items()}
+
+
+def stated_kind(extracted: dict | None) -> Optional[str]:
+    """The money-kind the founder PICKED, when they picked one from the closed set.
+
+    MEASURED (2026-08-26): the fork's answer was written into business_model and then
+    re-classified by running keywords over it, and the option's own label does not
+    classify. "you keep a cut of sales between other people, like Uber" came back
+    `subscription, explicit=False`, so needs_fork stayed True and the money question was
+    asked again on every single turn, forever, no matter what the founder chose. A closed
+    set has an answer; re-deriving it from the text of the answer is the re-extraction
+    defect in its purest form.
+
+    A write-in matches nothing here and correctly falls through to the classifier.
+    """
+    raw = slots.text((extracted or {}).get("kind_fork")).strip().lower()
+    if not raw:
+        return None
+    return raw if raw in KIND_IN_FOUNDER_WORDS else _KIND_BY_LABEL.get(raw)
+
 
 # ------------------------------------------------------------------------ classification --
 _KIND_EXAMPLES = (
@@ -373,8 +410,14 @@ def _blob(extracted: dict) -> str:
     """
     ex = extracted or {}
     def _v(k):
+        # slots.phrase, never the raw value. This string is the CLASSIFIER'S INPUT, so a
+        # typed record interpolated here would inject the literal tokens value/unit/period/
+        # kind/source into it, and a unit of "$ per month" carries the recurring signal
+        # that once flipped a taco stand to hybrid mid-interview.
         v = ex.get(k)
-        return None if is_unknown(v) else v
+        if v in (None, "", []) or is_unknown(v):
+            return None
+        return slots.phrase(k, v) or None
     parts = []
     if _v("product"):
         parts.append(str(_v("product")))
@@ -388,6 +431,26 @@ def _blob(extracted: dict) -> str:
         if _v(k):
             parts.append(f"{str(_v(k))}.")
     return " ".join(parts)
+
+
+def _venture_blob(extracted: dict) -> str:
+    """The venture as ITSELF, with the customer it sells to removed.
+
+    MEASURED (2026-08-26): `_VENUE_RE` matched the word "clinics" inside the TARGET
+    CUSTOMER of "a scheduling tool that businesses pay for every month. Target customer:
+    small clinics." A B2B scheduling product was therefore classified physical, then
+    transactional, with explicit=True and no fork, so the founder was confidently offered
+    a cafe's question pack and would have been told on the first screen that their market
+    is a walking-distance ring.
+
+    Same defect family as R8 (inputs measure the customer, not the vendor): who you SELL
+    TO is not evidence about what you ARE. Only the physicality predicate uses this;
+    `_blob` keeps the customer for everything else, because a regulated customer industry
+    genuinely is evidence about regulatory exposure.
+    """
+    ex = dict(extracted or {})
+    ex.pop("target_customer", None)
+    return _blob(ex)
 
 
 def classify_turn(extracted: dict, user_text: str | None = None) -> dict:
@@ -419,15 +482,19 @@ def classify_turn(extracted: dict, user_text: str | None = None) -> dict:
     # INTAKE accepts venue-ness alone, where the pipeline's _is_physical_local also
     # demands a location: pre-location is exactly when the SITE question must be planned,
     # and a "taco stand" with no address yet is still a taco stand.
-    physical = ((_is_physical_local(desc)
-                 or (bool(_VENUE_RE.search(desc)) and not _DIGITAL_RE.search(desc)))
-                and not _is_client_services(desc))
+    # Physicality asks "is the VENTURE a venue", so it reads the venture without the
+    # customer. See _venture_blob: "Target customer: small clinics" made a scheduling tool
+    # a clinic.
+    vdesc = _venture_blob(ex)
+    physical = ((_is_physical_local(vdesc)
+                 or (bool(_VENUE_RE.search(vdesc)) and not _DIGITAL_RE.search(vdesc)))
+                and not _is_client_services(vdesc))
     multi = _is_multi_location(desc)
 
     profile = {
         "business_model": "" if is_unknown(ex.get("business_model"))
-                          else (ex.get("business_model") or ""),
-        "category": ex.get("product") or "",
+                          else slots.text(ex.get("business_model")),
+        "category": slots.text(ex.get("product")),
         "summary": desc,
         "name": None,
     }
@@ -435,10 +502,13 @@ def classify_turn(extracted: dict, user_text: str | None = None) -> dict:
         profile, market_scale={"signals": {"is_physical": physical}} if physical else None)
     kind = cls.get("kind") or "transactional"
 
-    geo = "" if is_unknown(ex.get("geography")) else str(ex.get("geography") or "")
+    # str(value) on a typed record alternates all 50 state abbreviations against its dict
+    # repr, and a source of "us_census" alone would flip non_us to False and ship US
+    # household-spend data for a foreign city with no disclosure. Render, never repr.
+    geo = "" if is_unknown(ex.get("geography")) else slots.text(ex.get("geography"))
     non_us = bool(geo) and not _US_HINTS.search(geo)
 
-    stage = "" if is_unknown(ex.get("stage")) else str(ex.get("stage") or "")
+    stage = "" if is_unknown(ex.get("stage")) else slots.text(ex.get("stage"))
     launched = bool(_LAUNCHED_RE.search(stage)) and not _IDEA_RE.search(stage)
 
     # The fork: the classifier inferred rather than read. `explicit` is False when nothing
@@ -451,6 +521,15 @@ def classify_turn(extracted: dict, user_text: str | None = None) -> dict:
         # the extractor's paraphrase cannot manufacture explicitness. A venue is exempt:
         # "taco stand" is the founder's own word and grounds pay-per-visit.
         explicit = False
+    # THE FORK'S ANSWER OUTRANKS THE CLASSIFIER, because the fork is only ever asked when
+    # the classifier already said it was unsure. Reading the pick is also the only thing
+    # that works: the option labels are written in the founder's words on purpose, and the
+    # keyword classifier does not recognise its own labels.
+    picked = stated_kind(ex)
+    disclosure = cls.get("disclosure")
+    if picked:
+        kind, explicit, disclosure = picked, True, None
+
     needs_fork = (not explicit) and not is_unknown(ex.get("business_model"))
 
     return {
@@ -463,7 +542,7 @@ def classify_turn(extracted: dict, user_text: str | None = None) -> dict:
         "non_us": non_us,
         "launched": launched,
         "regulated": bool(_REGULATED_RE.search(desc)),
-        "disclosure": cls.get("disclosure"),
+        "disclosure": disclosure,
     }
 
 
@@ -504,7 +583,7 @@ def plan_questions(extracted: dict, cls: dict) -> list[dict]:
     # Wave D (operator spec Q13): a quantified year-one target earns the how question.
     # The survey listens; the REPORT is where likelihood gets checked, respectfully.
     tgt = ex.get("success_target")
-    if _answered(tgt) and not is_unknown(tgt) and re.search(r"\d", str(tgt)):
+    if _answered(tgt) and not is_unknown(tgt) and _DIGIT_RE.search(slots.text(tgt)):
         plan.append(_q("target_basis",
                        "How did you arrive at that number? A sentence is plenty; the "
                        "report will compare it against what the market data supports.",
@@ -530,13 +609,20 @@ _DIGIT_RE = re.compile(r"\d")
 
 
 def _alias_satisfies(field: str, ex: dict) -> bool:
+    # Both predicates run on the RENDERED value, never on str(value). Against a typed
+    # record's dict repr the digit test always passes (every repr carries digits) and
+    # _SITE_RE matches on a bare \d, so a typed `pricing` would have silently satisfied
+    # avg_ticket / avg_order / avg_transaction / rate_basis and a typed `geography` would
+    # have suppressed the site question: four price questions and the corner question,
+    # never asked, with nothing in the transcript to show why.
     for alias in _ALIASES.get(field, ()):
         v = ex.get(alias)
         if v in (None, "", []) or is_unknown(v):
             continue
-        if alias == "pricing" and not _DIGIT_RE.search(str(v)):
+        said = slots.text(v)
+        if alias == "pricing" and not _DIGIT_RE.search(said):
             continue                     # "pay per drink" fills the slot, not the need
-        if alias == "geography" and not _SITE_RE.search(str(v)):
+        if alias == "geography" and not _SITE_RE.search(said):
             continue                     # "Portland" is a list of sites, not a site
         return True
     return False

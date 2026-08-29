@@ -7,11 +7,8 @@ from __future__ import annotations
 import json
 import re
 import time
-import urllib.parse
-from dataclasses import dataclass, field, asdict
 from typing import Optional
 
-import requests
 from bs4 import BeautifulSoup
 
 import net as mrp_http

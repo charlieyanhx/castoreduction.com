@@ -30,6 +30,11 @@ log = get("reminders")
 
 @dataclass(frozen=True)
 class Reminder:
+    """A guardrail line injected into a prompt when `requires` are present.
+
+    `order` fixes the emission sequence, so prompts stay byte-stable across runs and the
+    LLM cache keeps working.
+    """
     name: str
     fn: Callable[[dict], str]
     requires: tuple[str, ...]
@@ -44,6 +49,7 @@ class Reminders:
 
     @classmethod
     def register(cls, r: Reminder) -> None:
+        """Add a reminder. Refuses to replace an existing name, see below."""
         if r.name in cls._registry:
             # Silent overwrite would let a new reminder shadow an existing guardrail
             # with no sign that the old one stopped being emitted.

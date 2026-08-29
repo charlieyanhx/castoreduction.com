@@ -42,7 +42,7 @@ Buyer can also:
 
 ## Architecture
 
-13 modules · 3 LLM backends · 11 free data sources · 106 offline tests
+160 modules · 3 LLM backends · 11 free data sources · 3,396 offline tests
 
 **Pipeline (per `/plan` request):**
 1. Profile extraction (LLM)
@@ -115,7 +115,7 @@ These are codified in [CONTRIBUTING.md](CONTRIBUTING.md):
 ## Tests
 
 ```bash
-./test_all.sh           # all 106 tests, offline, <1s
+./test_all.sh           # all 3,396 tests, offline, ~5min
 ```
 
 3 test suites:
@@ -175,7 +175,7 @@ market-research-prototype/
 │   ├── app.js
 │   └── style.css
 │
-└── test_*.py             # 106 offline tests
+└── test_*.py             # 3,396 offline tests across 251 files
 ```
 
 ---

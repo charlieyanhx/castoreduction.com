@@ -12,8 +12,6 @@ directional signal that's free and fast.
 from __future__ import annotations
 import json
 import math
-import sys
-import statistics
 
 from llm import call_json
 from logger import get

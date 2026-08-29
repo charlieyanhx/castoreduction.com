@@ -17,6 +17,8 @@ from pathlib import Path
 
 import requests  # module-level so tests can patch scrape.http.requests.request
 
+import url_guard
+
 # cycle32 deploy: env override for Docker volume / non-default cache location
 CACHE_PATH = Path(os.environ.get("HTTP_CACHE_PATH") or (Path(__file__).parent.parent / ".http_cache.sqlite"))
 CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -68,9 +70,50 @@ def install_cache(force_reinstall: bool = False) -> None:
                 stale_if_error=True,  # serve stale cache when network fails
             )
             _installed = True
+            _evict_expired()
         except ImportError:
             # If requests-cache isn't installed for some reason, silently skip.
             pass
+
+
+#: Reclaim the file only when there is enough dead weight to be worth the rewrite. VACUUM
+#: copies the whole database, so doing it for a few megabytes costs more than it frees.
+_VACUUM_OVER_BYTES = 512 * 1024 * 1024
+
+
+def _evict_expired() -> None:
+    """Delete entries past their TTL, and reclaim the space.
+
+    MEASURED 2026-08-28: the cache file had reached 3.3GB across 19,130 responses. The 24h
+    TTL only marks an entry stale; requests-cache never removes it, so the file grows
+    without bound. In a container that is the whole failure: the deploy disk is 5GB, the
+    scrape cache fills it on its own, and once the volume is full every SQLite write fails
+    — including the jobs database, so runs stop being saved. The cache is disposable by
+    definition; the jobs it starves are not.
+
+    Best-effort by design. A cache that cannot be tidied must never stop the app from
+    making requests, so every failure here is logged and swallowed.
+    """
+    from logger import get as _get_log          # module-local, as everywhere else here
+    _log = _get_log("scrape.http")
+    try:
+        import requests_cache
+        cache = requests_cache.get_cache()
+        if cache is None:
+            return
+        before = CACHE_PATH.stat().st_size if CACHE_PATH.exists() else 0
+        cache.delete(expired=True)
+        if before > _VACUUM_OVER_BYTES:
+            # delete() frees pages inside the file; only VACUUM returns them to the disk,
+            # which is the number the volume actually cares about.
+            import sqlite3
+            with sqlite3.connect(str(CACHE_PATH)) as conn:
+                conn.execute("VACUUM")
+            after = CACHE_PATH.stat().st_size if CACHE_PATH.exists() else 0
+            _log.info("[http] scrape cache vacuumed: %.0fMB -> %.0fMB",
+                      before / 1e6, after / 1e6)
+    except Exception as e:                                   # noqa: BLE001
+        _log.warning("[http] could not evict expired cache entries: %s", e)
 
 
 def get_session():
@@ -96,17 +139,39 @@ def request(method: str, url: str, *, timeout: float = 10, **kwargs):
     or None on failure (instead of raising — caller checks `.ok`).
     """
     install_cache()
-    from urllib.parse import urlparse
-
-    host = urlparse(url).netloc
-    if host:
-        _throttle(host)
 
     headers = kwargs.pop("headers", None) or {}
     headers.setdefault("User-Agent", USER_AGENT)
     headers.setdefault("Accept-Language", "en-US,en;q=0.9")
+    # SSRF: the OTHER http layer. net.request guards its own calls, and this one fetches
+    # arbitrary URLs too (macro_anchors, customer_universe, tools/geo), so the guard
+    # belongs at both doors or it belongs at neither. Every redirect hop is
+    # re-vetted, see url_guard.
+    allow_redirects = kwargs.pop("allow_redirects", True)
+
+    def _send(_method: str, _url: str, **kw):
+        """One hop: throttle the host it actually addresses, then fetch it.
+
+        The throttle moved in here when redirects started being followed by hand.
+        Throttling only the URL the caller passed meant a redirect to another host hit
+        that host with no rate limit at all, which is how a polite scraper gets banned.
+        """
+        from urllib.parse import urlparse
+        _host = urlparse(_url).netloc
+        if _host:
+            _throttle(_host)
+        return requests.request(_method, _url, headers=headers, timeout=timeout,
+                                allow_redirects=False, **kw)
+
     try:
-        return requests.request(method, url, headers=headers, timeout=timeout, **kwargs)
+        return url_guard.fetch_guarded(_send, method, url,
+                                       allow_redirects=allow_redirects, **kwargs)
+    except url_guard.BlockedAddress as e:
+        # Not an infrastructure failure and not an empty result: a refusal. Named in the
+        # log so a blocked fetch is never read as "the host had no data".
+        from logger import get as _get_log
+        _get_log("scrape.http").warning("[http] refused %s: %s", url, e)
+        return None
     except Exception as e:
         # MEASURED (2026-08-20): requests-cache 1.3.1 + attrs 26 raised NameError
         # while SAVING every fresh response, and this bare except converted that

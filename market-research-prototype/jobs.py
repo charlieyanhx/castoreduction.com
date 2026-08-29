@@ -127,6 +127,11 @@ def create(kind: str, params: dict, owner_id: str = LEGACY_OWNER) -> str:
 
 
 def update(job_id: str, *, state: str | None = None, result: dict | None = None, error: str | None = None) -> None:
+    """Patch a job row. Only the fields passed are written.
+
+    The SQL is assembled from a fixed set of column names, never from caller input, so the
+    f-string here cannot carry an injection.
+    """
     now = int(time.time())
     with _lock:
         c = _conn()
@@ -337,6 +342,7 @@ def run_async(job_id: str, fn: Callable[[], dict], progress_fn: Callable | None 
         # The terminal state is published only after the slot is released, so a caller that
         # sees `complete`/`error` knows the next job can start immediately. _run_one catches
         # everything and returns an outcome, so no path can leave the job stuck `running`.
+        """Run the job on its own thread, holding the global run gate for the duration."""
         _RUN_GATE.acquire()
         try:
             outcome = _run_one(job_id, fn, progress_callback)

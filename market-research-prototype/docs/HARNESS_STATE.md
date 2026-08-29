@@ -11,7 +11,14 @@ keys and a 104,203-byte report.
 The tools that would ground a number are precisely the ones that never run — and the LLM
 fills the gap while citing those tools by name.**
 
-## 1. The declared skill layer is dead
+## 1. The declared skill layer is dead — RESOLVED 2026-08-26 by deleting it
+
+> **Outcome.** Item 4 below offered two ways out: wire `run_plan` to the declared skills, or
+> delete them. We deleted. `skills/pipeline_steps.py`, `skills/sizing/dispatch.py`, and the
+> two test files that existed solely to pin them are gone; the skill registry went 24 → 13
+> and now lists only work that actually runs. The section below is kept as the measurement
+> that justified the decision. `run_plan` remains the single orchestrator and consolidating
+> it is still open.
 
 `skills/pipeline_steps.py` — 358 lines, 11 registered skills, each with a real
 `@skill(produces=…, consumes=…)` dependency declaration:
@@ -186,9 +193,10 @@ The ordering is by whether a wrong number can still reach a reader.
    (SUSB is keyless in bulk — measured earlier: CA independent coffee shops $411,543/yr
    actual vs the LLM's $280k–$2.4M range), `census_land_area`, `poi_competition` /
    `osm_named_competitors` for the geo roster, `bls_cex_spend` for household spend.
-4. **Retire one of the two orchestrators.** Either `run_plan` calls the declared skills, or
-   `pipeline_steps.py` is deleted. Two implementations of the same pipeline, one of them
-   inert, is how the provenance map came to name functions that never run.
+4. ~~**Retire one of the two orchestrators.**~~ **DONE 2026-08-26.** `pipeline_steps.py` and
+   `sizing/dispatch.py` deleted. `run_plan` is the only orchestrator. Two implementations of
+   the same pipeline, one of them inert, is how the provenance map came to name functions
+   that never run; there is now only one.
 5. **Fix the 8 provenance entries and extend the drift-guard** to check `produced_by`
    against the named module's own file, so this class cannot return.
 6. **Transcript every run**, not only job-system runs.

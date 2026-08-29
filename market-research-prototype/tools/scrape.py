@@ -5,7 +5,6 @@ These wrap the low-level utilities in scrape/{search,structured,wayback,crawl}.p
 with the @tool decorator so they auto-register and return Evidence envelopes.
 """
 from __future__ import annotations
-from typing import Optional
 from pydantic import BaseModel, Field
 from .registry import tool, Evidence
 

@@ -248,6 +248,12 @@ def _project_revenue_only(som_mid: float, som_low, som_high, model: str,
 
 
 def project_three_year_marketplace(som_mid: float, som_low=None, som_high=None) -> dict:
+    """Three-year projection for a marketplace, in platform revenue only.
+
+    No transaction count or per-customer figure is derived, because take-rate and average
+    transaction value are operator unknowns: inventing them would turn one honest number
+    into three fabricated ones.
+    """
     return _project_revenue_only(
         som_mid, som_low, som_high, "marketplace",
         "Platform revenue = GMV × take-rate (SOM is already denominated in obtainable "

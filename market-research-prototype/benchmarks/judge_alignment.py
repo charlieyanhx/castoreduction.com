@@ -23,7 +23,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from llm import _try_one_backend, BACKEND_DEFAULTS  # type: ignore
-from benchmarks.prose_judge import _JUDGE_SYSTEM, _JUDGE_PROMPT
+from benchmarks.prose_judge import _JUDGE_SYSTEM, _JUDGE_PROMPT, coerce_score
+
+# The three traits the judge scores. One list, because two copies drifting apart
+# would silently compare different things across the two entry points here.
+TRAITS = ["action_orientation_score", "hedging_discipline_score",
+          "executive_readability_score"]
 
 
 def _judge_with_backend(backend: str, section_name: str, prose: str) -> dict:
@@ -72,20 +77,13 @@ def within_judge_variance(prose: str, section_name: str, n_runs: int = 3, backen
         if "_failed" not in d and "_skipped_no_key" not in d:
             runs.append(d)
         time.sleep(2)  # gentle rate-limit
-    traits = ["action_orientation_score", "hedging_discipline_score", "executive_readability_score"]
-    def _coerce(v):
-        if isinstance(v, (int, float)): return float(v)
-        if isinstance(v, str):
-            import re as _re
-            m = _re.search(r"\d+(?:\.\d+)?", v)
-            return float(m.group()) if m else 50.0
-        return 50.0
+    traits = TRAITS
     out = {"backend": backend, "n_runs": len(runs), "raw_runs": []}
     for t in traits:
         # cycle31-r3 (judge robustness): track when LLM omits the field vs gives a real value
         present = [t in r for r in runs]
         n_real = sum(present)
-        vals = [_coerce(r.get(t, 50)) for r in runs]
+        vals = [coerce_score(r.get(t, 50)) for r in runs]
         out[t] = {
             "n_real_responses": n_real,
             "n_defaulted": len(runs) - n_real,
@@ -120,17 +118,10 @@ def cross_model_agreement(prose: str, section_name: str) -> dict:
         time.sleep(2)
     if not results:
         return {"error": "no backends succeeded"}
-    traits = ["action_orientation_score", "hedging_discipline_score", "executive_readability_score"]
-    def _coerce(v):
-        if isinstance(v, (int, float)): return float(v)
-        if isinstance(v, str):
-            import re as _re
-            m = _re.search(r"\d+(?:\.\d+)?", v)
-            return float(m.group()) if m else 50.0
-        return 50.0
+    traits = TRAITS
     by_trait = {}
     for t in traits:
-        backend_scores = {b: _coerce(results[b].get(t, 50)) for b in results}
+        backend_scores = {b: coerce_score(results[b].get(t, 50)) for b in results}
         vals = list(backend_scores.values())
         by_trait[t] = {
             "by_backend": backend_scores,
@@ -176,6 +167,7 @@ def run_alignment_study(four_ps: dict, n_within: int = 3) -> dict:
 
 
 def render_alignment_report(study: dict) -> str:
+    """The alignment study as a terminal report, one block per section."""
     lines = ["", "=" * 70, "  LLM JUDGE ALIGNMENT STUDY", "=" * 70, ""]
     for section, data in study.items():
         if "_skipped" in data:

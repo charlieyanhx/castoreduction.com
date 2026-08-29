@@ -35,6 +35,13 @@ EMPHASIS_MARKERS = ("IMPORTANT", "NEVER", "ALWAYS", "CRITICAL")
 
 @dataclass
 class Check:
+    """One invariant, and the callable that decides it.
+
+    `fn` returns (verdict, detail): True holds, False violated, None not-built-yet. The
+    three-way answer is the point. A binary check would have to call an unbuilt phase
+    either passing (which hides missing work) or failing (which makes the whole board red
+    from day one and stops anyone reading it).
+    """
     id: str
     phase: str            # P0..P6 (milestone gate it belongs to)
     name: str
@@ -71,6 +78,13 @@ def _has_attr(module: str, attr: str) -> bool:
 
 # ------------------------------------------------------------------ P0 — descriptions & prompts
 def h01_tool_descriptions() -> tuple[Optional[bool], str]:
+    """P0: every tool carries a docstring long enough to route on.
+
+    The registry docstring is what a model reads when choosing between ~70 tools, so a
+    stub description is not a documentation gap, it is a routing failure. 60 characters is
+    the floor at which a description says what the tool is FOR rather than restating its
+    name.
+    """
     from tools import TOOL_REGISTRY
     thin = [m.name for m in TOOL_REGISTRY.values() if len((m.docstring or "").strip()) < 60]
     return (not thin, f"{len(thin)}/{len(TOOL_REGISTRY)} tools with <60-char routing docstring: "
@@ -78,6 +92,13 @@ def h01_tool_descriptions() -> tuple[Optional[bool], str]:
 
 
 def h02_negative_scope() -> tuple[Optional[bool], str]:
+    """P0: every routable description says when NOT to use the thing.
+
+    Positive-only descriptions are how a model picks a plausible neighbour: nothing in
+    "sizes a local trade area" warns it off a national SaaS. Tools, skills AND agents are
+    checked together because the planner selects workers from agent descriptions, which is
+    the same routing surface wearing a different name.
+    """
     # Tightened at W1 gap-closure: AGENT_REGISTRY included — the planner selects
     # workers by these descriptions, the same routing surface as tools/skills
     # (§3 rule 3: thresholds only tighten).
@@ -97,6 +118,12 @@ def h02_negative_scope() -> tuple[Optional[bool], str]:
 
 
 def h03_agent_contracts() -> tuple[Optional[bool], str]:
+    """P0: every agent declares role, produces, and a docstring.
+
+    An agent missing any of the three cannot be composed by the planner: role is how it is
+    chosen, produces is what the caller can expect back, and the docstring is how it is
+    told apart from its neighbours.
+    """
     try:
         from agents.registry import AGENT_REGISTRY
     except Exception:
@@ -136,6 +163,12 @@ def h05_kv_stable_prompts() -> tuple[Optional[bool], str]:
 
 # ------------------------------------------------------------------ P1 — ledger & transcript
 def h06_run_ledger() -> tuple[Optional[bool], str]:
+    """P1: a run WRITES to the RunLedger, not merely that a ledger module exists.
+
+    Existence is the weak claim and it is the one that stays true after the wiring rots.
+    So this reads the step machinery for the write and plan.py for the call, and both must
+    be present.
+    """
     # Wave 3 built this at the path the plan's §2b tree specifies (persistence/ledger.py);
     # the old check looked for a flat `ledger.py` and so could never see it.
     if not (_module_exists("persistence.ledger") or _has_attr("jobs", "ledger_append")):
@@ -156,6 +189,11 @@ def h06_run_ledger() -> tuple[Optional[bool], str]:
 
 
 def h07_transcript() -> tuple[Optional[bool], str]:
+    """P1: the per-run transcript is ATTACHED to runs, not just importable.
+
+    Same shape as h06: a transcript nobody attaches is dead code that passes an
+    existence check.
+    """
     if not (_module_exists("persistence.transcript") or _has_attr("jobs", "transcript")):
         return None, "per-run transcript not built yet (P1)"
     # A transcript nobody attaches is dead code — require the run wiring, not the module.
@@ -165,26 +203,15 @@ def h07_transcript() -> tuple[Optional[bool], str]:
                 else "transcript module present but never attached to a run")
 
 
-# ------------------------------------------------------------------ P2 — resume
-def h08_resume() -> tuple[Optional[bool], str]:
-    if not (_has_attr("persistence.resume", "resume")
-            or _has_attr("plan", "resume") or _has_attr("jobs", "resume")):
-        return None, "resume() not built yet (P2)"
-    # resume() merely existing is trivial. It is only real if a run can be SEEDED from
-    # what it returns.
-    import inspect
-    try:
-        from plan import run_plan
-        if "resume_from" not in inspect.signature(run_plan).parameters:
-            return False, "resume() exists but run_plan cannot be seeded (no resume_from=)"
-    except Exception as e:
-        return False, f"could not verify run_plan seeding: {e}"
-    return True, ("resume() exists and run_plan accepts resume_from= "
-                  "(behavioral test lives in test_resume.py)")
-
 
 # ------------------------------------------------------------------ P3 — scheduler / tiering
 def h09_read_write_split() -> tuple[Optional[bool], str]:
+    """P3: every tool declares whether it is read-only.
+
+    The scheduler cannot parallelise safely without it, and an untagged tool is worse than
+    an unbuilt feature: it looks schedulable and is not. n/a until the metadata field
+    itself exists, so this reports "prerequisite missing" rather than blaming the tools.
+    """
     from tools import TOOL_REGISTRY
     m = next(iter(TOOL_REGISTRY.values()))
     if not hasattr(m, "read_only"):
@@ -194,6 +221,12 @@ def h09_read_write_split() -> tuple[Optional[bool], str]:
 
 
 def h10_llm_tiering() -> tuple[Optional[bool], str]:
+    """P3: cheap calls are actually routed to the cheap tier.
+
+    Two conditions, because either alone is misleading: call_json must ACCEPT a tier, and
+    plan.py must actually pass the utility tier somewhere. A tier parameter nobody uses
+    saves nothing.
+    """
     import inspect
     from llm import call_json
     sig = inspect.signature(call_json)
@@ -212,6 +245,7 @@ def h11_layered_memory() -> tuple[Optional[bool], str]:
 
 
 def h12_reminder_channel() -> tuple[Optional[bool], str]:
+    """P4: the agent loop can inject triggered reminders mid-run."""
     src = _src("harness/agent.py") or ""
     if "reminder" not in src.lower():
         return None, "triggered reminder channel not built yet (P4)"
@@ -219,6 +253,11 @@ def h12_reminder_channel() -> tuple[Optional[bool], str]:
 
 
 def h13_compaction() -> tuple[Optional[bool], str]:
+    """P4: the observation log compacts, AND has an anti-thrash guard.
+
+    Compaction without a guard is a loop: compact, immediately exceed the budget again,
+    compact again. So the guard is part of the invariant, not a refinement of it.
+    """
     src = _src("harness/agent.py") or ""
     if "compact" not in src.lower():
         return None, "observation-log compaction not built yet (P4)"
@@ -228,6 +267,11 @@ def h13_compaction() -> tuple[Optional[bool], str]:
 
 # ------------------------------------------------------------------ P5 — skills-as-folders / contracts
 def h14_skill_folders() -> tuple[Optional[bool], str]:
+    """P5: every skills_md/ folder holds a SKILL.md with name and description frontmatter.
+
+    Only the head of each file is read: this asks whether the folder is well formed, not
+    whether the prose is any good.
+    """
     d = os.path.join(REPO, "skills_md")
     if not os.path.isdir(d):
         return None, "SKILL.md folders not built yet (P5)"
@@ -244,6 +288,11 @@ def h14_skill_folders() -> tuple[Optional[bool], str]:
 
 
 def h15_spawn_contracts() -> tuple[Optional[bool], str]:
+    """P5: every agent declares an output_schema a spawner can validate against.
+
+    Without one, a sub-agent's return value is trusted prose and the parent has no way to
+    tell a refusal from an answer.
+    """
     try:
         from agents.registry import AGENT_REGISTRY
     except Exception:
@@ -257,6 +306,7 @@ def h15_spawn_contracts() -> tuple[Optional[bool], str]:
 
 # ------------------------------------------------------------------ P6 — premium multi-agent
 def h16_effort_knob() -> tuple[Optional[bool], str]:
+    """P6: the run carries a research-depth knob, so effort is a decision and not a constant."""
     src = _src("plan.py") or ""
     if "research_depth" not in src:
         return None, "effort knob (research_depth) not built yet (P6)"
@@ -278,6 +328,12 @@ def h18_depth_one_spawn() -> tuple[Optional[bool], str]:
 
 
 def h19_uniform_envelope() -> tuple[Optional[bool], str]:
+    """Today-invariant: every tool returns the Evidence envelope.
+
+    Checked on the RETURN ANNOTATION rather than by calling anything, so the gate stays
+    offline and free. One envelope is what lets the scheduler, the gateway and the ledger
+    treat any tool identically.
+    """
     from tools import TOOL_REGISTRY, Evidence
     import inspect
     bad = [m.name for m in TOOL_REGISTRY.values()
@@ -300,7 +356,6 @@ CHECKS: list[Check] = [
     Check("H05", "P0", "KV-stable prompts (no time/random)", h05_kv_stable_prompts),
     Check("H06", "P1", "RunLedger written by plan.py", h06_run_ledger),
     Check("H07", "P1", "per-run transcript", h07_transcript),
-    Check("H08", "P2", "resume() exists", h08_resume),
     Check("H09", "P3", "read/write tool tagging", h09_read_write_split),
     Check("H10", "P3", "model tiering wired", h10_llm_tiering),
     Check("H11", "P4", "layered CASTOR.md memory", h11_layered_memory),
@@ -318,7 +373,10 @@ CHECKS: list[Check] = [
 GATES = {
     "M1": ["H01", "H02", "H03", "H04", "H05"],
     "M2": ["H06", "H07"],
-    "M3": ["H08"],
+    # M3 was the resume milestone and H08 was its only member. persistence/resume.py was
+    # deleted (nothing ever called it, so no run was ever resumed), so the milestone is
+    # dropped rather than left holding an empty list: an empty gate reports PASS with
+    # nothing checked, which is the failure mode these gates exist to prevent.
     "M4": ["H09", "H10"],
     "M5": ["H11", "H12", "H13"],
     "M6": ["H14", "H15"],
@@ -329,6 +387,13 @@ GATES = {
 
 
 def main() -> int:
+    """Run a milestone's checks and report. Exit code IS the verdict.
+
+    0 when nothing in the selected gate failed, 1 otherwise. Not-built-yet (None) does not
+    fail a gate, which is what lets the same program be useful before and after a phase
+    lands. Every check is called inside its own try, because a runner that a broken
+    detector can crash reports nothing about the other eighteen.
+    """
     ap = argparse.ArgumentParser(description="Deterministic gates for the CC Harness Plan")
     ap.add_argument("--gate", default="all", choices=sorted(GATES))
     ap.add_argument("--out", help="write scorecard JSON here")

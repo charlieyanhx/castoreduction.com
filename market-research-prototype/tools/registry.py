@@ -158,6 +158,12 @@ class Evidence:
 # ---------------------------------------------------------------------------
 @dataclass
 class ToolMeta:
+    """What the registry knows about one tool, captured at registration.
+
+    `concurrency` and `tier` drive scheduling and budget. Both can be inferred from the
+    source when not declared, and the `*_inferred` flags record which happened, so a
+    wrong guess is visible rather than silently trusted.
+    """
     name: str
     category: str
     fn: Callable
@@ -210,6 +216,7 @@ def tool(
     callers never have to wrap individual tool calls in try/except.
     """
     def decorator(fn: Callable) -> Callable:
+        """Register fn, then wrap it so every call returns Evidence and is traced."""
         name = fn.__name__
         sig = str(inspect.signature(fn))
         doc = inspect.getdoc(fn) or ""
@@ -242,6 +249,11 @@ def tool(
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs) -> Evidence:
+            """Run the tool, timing it, and normalise whatever it returns into Evidence.
+
+            Exceptions become error Evidence rather than propagating: this is the single choke
+            point for every external data source, and one unreachable host must not end a run.
+            """
             t0 = time.time()
 
             def _rec(ev: Evidence) -> Evidence:

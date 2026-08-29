@@ -180,5 +180,50 @@ class TestDevOverride(unittest.TestCase):
                              quota.DAILY_RUNS_FREE, bad)
 
 
+class TestTheIncludedRevisionIsNotADailyRun(_QuotaBase):
+    """The one regeneration a report gets belongs to the report the reader already has.
+
+    MEASURED (2026-08-26): a reader who had run three reports could not regenerate any of
+    them. The daily cap refused the revision cycle the product had just offered them on the
+    page, which is the product declining to honour its own offer. Concurrency still applies
+    to a revision, because that limit is about what the machine can do at once.
+    """
+
+    def test_a_revision_does_not_spend_a_daily_run(self):
+        import quota
+        for i in range(quota.DAILY_RUNS_FREE):
+            quota.claim_run_slot("legacy", job_id=f"j{i}")
+            quota.release_run_slot("legacy")
+        self.assertEqual(quota.runs_today("legacy"), quota.DAILY_RUNS_FREE)
+        with self.assertRaises(quota.QuotaExceeded):
+            quota.claim_run_slot("legacy", job_id="one-too-many")
+        # the revision is allowed, and does not push the count higher
+        quota.claim_run_slot("legacy", job_id="revision", count_daily=False)
+        self.assertEqual(quota.runs_today("legacy"), quota.DAILY_RUNS_FREE)
+        quota.release_run_slot("legacy")
+
+    def test_a_revision_still_waits_for_a_running_report(self):
+        import jobs
+        import quota
+        # a REAL job row: _sweep derives liveness from job state, so a slot naming a job
+        # that does not exist is not the situation being tested.
+        jid = jobs.create("plan", {"description": "x"}, owner_id="legacy")
+        jobs.update(jid, state="running")
+        quota.claim_run_slot("legacy", job_id=jid)
+        with self.assertRaises(quota.QuotaExceeded):
+            quota.claim_run_slot("legacy", job_id="revision", count_daily=False)
+        quota.release_run_slot("legacy")
+
+    def test_the_refusals_carry_no_em_dash(self):
+        """Shipped copy: the reader sees these verbatim in the survey and on the report."""
+        import quota
+        for i in range(quota.DAILY_RUNS_FREE):
+            quota.claim_run_slot("legacy", job_id=f"k{i}")
+            quota.release_run_slot("legacy")
+        with self.assertRaises(quota.QuotaExceeded) as ctx:
+            quota.claim_run_slot("legacy", job_id="over")
+        self.assertNotIn("\u2014", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

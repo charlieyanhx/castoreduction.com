@@ -92,7 +92,20 @@ class TestLiveEventsEndpoint(unittest.TestCase):
         return TestClient(api.app)
 
     def _mid_run_transcript(self, job_id):
-        """A run that has finished 2 steps and is still going (no final result)."""
+        """A run that has finished 2 steps and is still going (no final result).
+
+        The job ROW is created too. The endpoint is owner-scoped now, and a transcript
+        belonging to no job cannot happen in production: every run has a row before it
+        writes its first event. Testing the unscoped shape would have been testing a state
+        the system never reaches.
+        """
+        import time as _time
+        import jobs
+        now = int(_time.time())
+        jobs._conn().execute(
+            "INSERT OR REPLACE INTO jobs (id, kind, state, params_json, created_at, "
+            "updated_at, owner_id) VALUES (?, 'plan', 'running', '{}', ?, ?, ?)",
+            (job_id, now, now, jobs.LEGACY_OWNER))
         from persistence import transcript as T
         w = T.TranscriptWriter(T.path_for(job_id))
         w({"layer": "step", "name": "profile", "status": "complete", "t": 1.0})

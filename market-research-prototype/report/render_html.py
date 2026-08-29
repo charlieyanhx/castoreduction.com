@@ -149,6 +149,10 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
         iteration=_iter_state,
         annotate=bool(annotate),
         job_id=job_id,
+        # The founder's own survey answers, for refine mode's "fix an input" form. They
+        # already rode the run on result["intake"], so the report can show the survey back
+        # with its values in place instead of asking the reader to name a field by hand.
+        intake_facts=((r.get("intake") or {}).get("facts") or {}),
         profile=profile,
         market_sizing=r.get("market_sizing"),
         financials=r.get("financials"),

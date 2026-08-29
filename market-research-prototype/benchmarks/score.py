@@ -22,7 +22,6 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 CASES_DIR = Path(__file__).parent / "cases"
 DEFAULT_CASE = "sleep_loop"
@@ -65,6 +64,11 @@ def load_pipeline_result(source: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def score_coverage(result: dict, expected_min: int = 14) -> dict:
+    """How much of the pipeline actually ran, as a percentage of the expected step count.
+
+    The cheapest signal that something broke: a run that skipped half its steps can still
+    render a plausible-looking report.
+    """
     steps = result.get("_steps_completed") or []
     n = len(steps)
     pct = min(100, round(n / expected_min * 100))
@@ -118,6 +122,11 @@ def score_tam(result: dict, ref_low: float, ref_mid: float, ref_high: float) -> 
 
 
 def score_cagr(result: dict, ref_low: float, ref_high: float) -> dict:
+    """Score the produced growth rate against a known-good reference band.
+
+    Absent and non-numeric both score 0 and are reported differently: one means no CAGR
+    was produced, the other that something unusable was.
+    """
     ms = result.get("market_sizing") or {}
     cagr = ms.get("growth_cagr_pct")
     if cagr is None:
@@ -170,6 +179,8 @@ def score_competitor_recall(result: dict, expected: list[str]) -> dict:
 
 
 def score_icp_alignment(result: dict, expected_band: str, buyer_keywords: list[str]) -> dict:
+    """Did the run identify the right customer? Half the score for company size and half for
+    buyer role, so getting one right is visibly better than getting neither."""
     cu = result.get("customer_universe") or {}
     icp_str = (cu.get("icp_summary") or "").lower()
     icp_details = cu.get("icp_details") or {}
@@ -604,6 +615,11 @@ WEIGHTS_WITH_PROSE = {
 
 
 def grade(result: dict, refs: dict | None = None, with_prose_judge: bool = False) -> dict:
+    """Score one run across every dimension and combine into a weighted final grade.
+
+    The prose judge is opt-in because it costs LLM calls; every other dimension is
+    deterministic arithmetic against the reference file.
+    """
     refs = refs or load_references()
     expected = refs["expected_pipeline_outputs"]
     dims = {
@@ -669,6 +685,7 @@ def _letter(s: float) -> str:
 
 
 def render_report(grading: dict) -> str:
+    """The grading dict as a terminal scorecard, one bar per dimension."""
     lines = []
     case = grading.get("case") or "?"
     lines.append(f"\n=== Castor Pipeline Benchmark [{case}] — final score {grading['final_score']}/100 ({grading['letter_grade']}) ===\n")

@@ -36,6 +36,7 @@ _INSTALL_HINT = ("google-maps-scraper binary not found — install with "
 
 
 class GmapsRatingsArgs(BaseModel):
+    """Validated arguments for a Maps ratings scrape, including its hard time budget."""
     query: str = Field(description="one Maps search, e.g. 'tacos' or 'coffee shops'")
     lat: float = Field(description="site latitude")
     lng: float = Field(description="site longitude")

@@ -24,6 +24,11 @@ from typing import Any, Callable, Optional
 
 @dataclass
 class RefineResult:
+    """The outcome of a generate-evaluate-refine loop.
+
+    `score_trajectory` is kept so a caller can see whether refining actually helped: a
+    flat or falling trajectory means the loop spent tokens for nothing.
+    """
     artifact: Any                       # the best artifact seen
     passed: bool                        # did it meet the contract?
     rounds: int                         # refine rounds actually run

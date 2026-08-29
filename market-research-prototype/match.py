@@ -49,6 +49,7 @@ Rules:
 
 
 def score_match(product_idea: str, taste_profile: dict) -> dict:
+    """Score how well a product idea fits a decoded taste profile."""
     result = call_json(
         system="You are a DTC strategist matching products to audiences. Return concise JSON.",
         user=MATCH_PROMPT.format(

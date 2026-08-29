@@ -37,6 +37,12 @@ log = get("agents")
 
 @dataclass
 class AgentSpec:
+    """What the registry knows about one agent.
+
+    `categories` is the agent's tool SURFACE and `max_steps` its budget in the harness
+    loop. Both are ceilings: they bound what a sub-agent can reach and how long it can
+    spend before the parent takes back control.
+    """
     name: str
     role: str                 # human-readable persona ("Competitive analyst")
     produces: str             # output category ("competitor_landscape")
@@ -61,6 +67,7 @@ def agent(role: str, produces: str, categories: Optional[list[str]] = None,
     cats = list(categories or [])
 
     def decorator(fn: Callable) -> Callable:
+        """Register the agent, then replace its entry's fn with the Evidence-returning wrapper."""
         name = fn.__name__
         AGENT_REGISTRY[name] = AgentSpec(
             name=name, role=role, produces=produces, categories=cats,
@@ -71,6 +78,11 @@ def agent(role: str, produces: str, categories: Optional[list[str]] = None,
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs) -> Evidence:
+            """Run the agent and always return Evidence, converting a raise into error Evidence.
+
+            A sub-agent that throws must not take its parent down: the crew is built to
+            synthesise from the workers that succeeded.
+            """
             t0 = time.time()
             try:
                 result = fn(*args, **kwargs)
@@ -108,6 +120,7 @@ def agent(role: str, produces: str, categories: Optional[list[str]] = None,
 
 
 def list_agents(produces: Optional[str] = None) -> list[AgentSpec]:
+    """Registered agents, optionally only those producing one output category."""
     items = list(AGENT_REGISTRY.values())
     if produces is not None:
         items = [a for a in items if a.produces == produces]
@@ -119,6 +132,8 @@ def get_agent(name: str) -> Optional[AgentSpec]:
 
 
 def describe_agent(name: str) -> dict:
+    """One agent as a JSON-able dict. An unknown name returns {"error": ...} rather than
+    raising, because the callers are description surfaces where a miss is data."""
     a = AGENT_REGISTRY.get(name)
     if not a:
         return {"error": f"agent '{name}' not registered"}

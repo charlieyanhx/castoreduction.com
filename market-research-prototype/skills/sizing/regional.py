@@ -70,9 +70,9 @@ def size_regional(
     `planned_locations` (size one, scale by count). Returns validated, gated
     Evidence(produces="market_sizing").
 
-    This is the multi-site rollout ENGINE, normally reached via size_market's
+    This is the multi-site rollout ENGINE, normally reached via plan.size_by_scale (the routing that actually runs)'s
     routing. Do NOT use directly for a single premise (size_hyperlocal) or a
-    digital venture (size_national_digital) — let size_market classify first so
+    digital venture (size_national_digital) — let the router classify first so
     a stray "chain" mention doesn't get sized by the wrong method.
     """
     kw = dict(category=category, osm_value=osm_value, radius_m=radius_m,

@@ -83,6 +83,11 @@ class CompactionStore:
 
     @classmethod
     def from_dict(cls, payload: Optional[dict]) -> "CompactionStore":
+        """Rebuild a store from its serialized form, skipping malformed entries.
+
+        Tolerant because this loads state an older version wrote, and refusing to load is a
+        worse outcome than dropping one bad row.
+        """
         s = cls()
         entries = (payload or {}).get("entries")
         if not isinstance(entries, list):

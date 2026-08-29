@@ -24,7 +24,7 @@ import logging
 import os
 import threading
 from pathlib import Path
-from typing import Any, Iterable, NamedTuple, Optional, Union
+from typing import Any, Iterable, NamedTuple, Union
 
 from persistence.ledger import RunLedger
 
@@ -66,6 +66,7 @@ class TranscriptWriter:
     """
 
     def __init__(self, path: _PathLike, run_id: str = "") -> None:
+        """Open the transcript for append. Parent directories are created as needed."""
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.run_id = run_id or ""
@@ -73,6 +74,12 @@ class TranscriptWriter:
         self._fh = open(self.path, "a", encoding="utf-8")
 
     def __call__(self, event: dict) -> None:
+        """Write one event as a JSON line, flushed immediately.
+
+        Flushed per event because the whole point is that a KILLED run still has its history;
+        buffering would lose exactly the tail that explains why it died. Events belonging to
+        another run are dropped rather than recorded, so two concurrent runs cannot interleave.
+        """
         if self.run_id:
             origin = event.get("run_id")
             if origin and origin != self.run_id:

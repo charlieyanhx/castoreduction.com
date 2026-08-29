@@ -4,7 +4,11 @@ Deliberately a real end-to-end run_plan call, not a fixture: the point is to exe
 paths the suite mocks (live sources, the LLM chain, the rate gate, the verifier) and
 produce an artifact the 59 gates can be swept against.
 
-    .venv/bin/python -m tools.run_live run16 "a specialty coffee shop in ..."
+    .venv/bin/python -m tools.run_live run16 "a specialty coffee shop in ..." US deep
+
+The 4th arg (or $EFFORT) is the effort level. It defaults to None, which resolves
+to STANDARD inside capabilities.effort — the same level the API serves. Pass "deep"
+to dispatch the research crew, which no live run has ever done.
 
 Runs on whatever fallback_chain() resolves to. Paid backends stay out of that chain
 unless LLM_ALLOW_PAID=1 — a corpus run should never bill by accident.
@@ -26,28 +30,32 @@ dotenv.load_dotenv(PROJ / ".env")
 
 
 def main() -> int:
+    """Run one real end-to-end report and write the artifact. Exit code is the verdict."""
     if len(sys.argv) < 3:
         print(__doc__)
         return 2
     name, description = sys.argv[1], sys.argv[2]
     geo = sys.argv[3] if len(sys.argv) > 3 else "US"
+    effort = sys.argv[4] if len(sys.argv) > 4 else (os.environ.get("EFFORT") or None)
 
     import llm
     from plan import run_plan
     from report.render_html import render_report_html
 
     print(f"[run_live] backend chain: {llm.fallback_chain()}", flush=True)
+    print(f"[run_live] effort: {effort or 'standard (default)'}", flush=True)
     t0 = time.time()
 
     steps_seen: set = set()
 
     def progress(partial):
+        """Print each newly completed step with its elapsed time, so a long run shows movement."""
         done = set(partial.get("_steps_completed") or [])
         for s in sorted(done - steps_seen):
             print(f"[run_live] +{s}  ({time.time() - t0:.0f}s)", flush=True)
         steps_seen.update(done)
 
-    result = run_plan(description, geo=geo, progress=progress)
+    result = run_plan(description, geo=geo, progress=progress, effort=effort)
 
     out = PROJ / "out" / "live"
     out.mkdir(parents=True, exist_ok=True)

@@ -9,7 +9,8 @@ its data — turning "this sentence is wrong" into "open <module>".
 Section-level and deterministic; a test fails if a section the report renders has no
 producer entry here, or if a skill-produced section drifts from the live SKILL_REGISTRY.
 The `module` points at where the CONTENT logic lives (differentiators.py, taste.py,
-four_ps.py, …), not the thin skill wrapper in skills.pipeline_steps.
+four_ps.py, …), not a thin skill wrapper. (The wrapper layer, skills/pipeline_steps.py,
+was deleted as unused.)
 """
 from __future__ import annotations
 
@@ -25,6 +26,11 @@ MIXED = "mixed"            # a blend (e.g. sizing: fetched anchors + LLM estimat
 
 @dataclass(frozen=True)
 class SectionSource:
+    """Where one report section's data actually comes from.
+
+    This is the table the drift guard checks: `produced_by` must genuinely exist in
+    `module`, or the report is attributing a section to a function that never ran.
+    """
     section: str                    # human label ("Market Size")
     result_key: str                 # result dict key it renders from ("market_sizing")
     produced_by: str                # the skill or function that produces it

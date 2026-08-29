@@ -11,7 +11,6 @@ Synthesizes everything the pipeline has learned:
 Output: Product / Price / Place / Promotion writeups + Viability score 0-100.
 """
 from __future__ import annotations
-import json
 
 from context.blobs import json_blob
 from context.reminders import Reminders, reminder
@@ -43,6 +42,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class SectionCitation(BaseModel):
+    """One numbered citation: where a claim came from, and which claim it supports."""
     id: int
     source: str
     claim: str = ""
@@ -61,6 +61,7 @@ class SectionCitation(BaseModel):
 class SectionPayload(BaseModel):
     # Field order is deliberate and mirrors the prompt: narrative LAST, so a max_tokens cutoff
     # lands in the narrative rather than silently amputating the structured fields.
+    """One 4Ps section as the model must return it. Field order is load bearing, see below."""
     key_takeaways: list[str] = Field(default_factory=list)
     citations: list[SectionCitation] = Field(default_factory=list)
     narrative: str

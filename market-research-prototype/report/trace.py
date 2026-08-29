@@ -53,6 +53,11 @@ def index_values(result: dict) -> list[tuple[str, str]]:
     found: dict[str, str] = {}
 
     def walk(node: Any, path: str) -> None:
+        """Recurse the result tree, recording a path for every leaf.
+
+        Internal bookkeeping keys are skipped so the trace shows the report's data, not the
+        pipeline's scaffolding.
+        """
         if isinstance(node, dict):
             for key, value in node.items():
                 if key in _SKIP_KEYS:

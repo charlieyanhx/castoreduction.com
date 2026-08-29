@@ -28,11 +28,64 @@ from logger import get
 
 log = get("iteration")
 
-# Operator spec 2026-08-20: ONE revision cycle with tight budgets. 15 marks and 5
-# questions force triage toward what actually matters; 40/10 invited a laundry list the
-# regen could only half-honor.
+# Operator spec 2026-08-20: ONE revision cycle with tight budgets. Tight budgets force
+# triage toward what actually matters; 40/10 invited a laundry list the regen could only
+# half-honor. Marks came down from 15 to 5 (2026-08-26) on the same reasoning: five is
+# what a reader can hold in their head as "the things that are actually wrong", and the
+# pack below exists for the reader who genuinely needs more.
 MAX_QUESTIONS = 5
-MAX_ANNOTATIONS = 15
+MAX_ANNOTATIONS = 5
+
+# EXTRA CAPACITY IS BOUGHT, NOT ASSUMED. The base budgets above exist to force triage, and
+# that reasoning still holds: a reader with unlimited marks writes a laundry list the
+# regeneration can only half-honour. A PACK is therefore small and priced, so buying more
+# stays a considered act rather than a way to opt out of thinking.
+PACK_QUESTIONS = 5           # $5
+PACK_ANNOTATIONS = 5         # $2
+PACK_RERUN = 1               # $5
+PACK_PRICES_USD = {"questions": 5.0, "marks": 2.0, "rerun": 5.0}
+PACK_SIZES = {"questions": PACK_QUESTIONS, "marks": PACK_ANNOTATIONS, "rerun": PACK_RERUN}
+
+
+def limits(st: dict) -> dict:
+    """The caps for THIS report: the base budget plus whatever was bought."""
+    extra = (st or {}).get("extra") or {}
+    return {
+        "questions": MAX_QUESTIONS + int(extra.get("questions") or 0),
+        "marks": MAX_ANNOTATIONS + int(extra.get("marks") or 0),
+        "reruns": 1 + int(extra.get("rerun") or 0),
+    }
+
+
+def grant(job_id: str, kind: str, packs: int = 1, paid: bool = False) -> dict:
+    """Add bought capacity to a report.
+
+    THE PAYMENT SEAM. This function does not take money; it is what money buys. Only
+    billing.fulfill passes paid=True, and only after verifying a Stripe webhook signature
+    against the raw body and rejecting replays. Every other caller is refused unless the
+    operator has explicitly opened the instance for their own use, the same shape as
+    LLM_ALLOW_PAID and CASTOR_DAILY_RUNS. A grant that succeeded with no payment would
+    make the cap decorative, which is worse than not having built it.
+    """
+    import os
+    if kind not in PACK_SIZES:
+        raise IterationError("unknown pack: %s" % kind)
+    packs = max(1, int(packs or 1))
+    # `paid=True` is billing.fulfill saying a Stripe webhook it authenticated settled this
+    # purchase. That is the seam this refusal was always holding open; every other caller
+    # still needs the operator's explicit override.
+    if not paid and os.environ.get(
+            "CASTOR_ALLOW_UNPAID_CREDITS", "").strip().lower() not in ("1", "true", "yes"):
+        raise IterationError(
+            "checkout is not connected yet, so extra %s cannot be granted. "
+            "Set CASTOR_ALLOW_UNPAID_CREDITS=1 to open this on an instance you run "
+            "yourself." % kind)
+    st = get_state(job_id)
+    extra = dict(st.get("extra") or {})
+    extra[kind] = int(extra.get(kind) or 0) + PACK_SIZES[kind] * packs
+    st["extra"] = extra
+    _save(job_id, st)
+    return st
 
 
 class IterationError(ValueError):
@@ -59,12 +112,18 @@ def _ensure(conn) -> None:
 
 def _empty() -> dict:
     return {"annotations": [], "questions": [], "notes": [],
+            "extra": {},                    # bought capacity: {questions|marks|rerun: n}
             "input_edits": {},              # Wave E: {field: corrected value}
             "revised_to": None,             # Wave E: job id of the one regeneration
             "status": "draft", "revision": 1, "finalized_at": None, "next_id": 1}
 
 
 def get_state(job_id: str) -> dict:
+    """The iteration record for one report, or an empty one if it has never been marked up.
+
+    Absent and untouched are the same thing to a caller, so a missing row returns the empty
+    shape rather than None: every reader would otherwise need the same None branch.
+    """
     c = _conn()
     _ensure(c)
     row = c.execute("SELECT data_json FROM iteration WHERE job_id = ?", (job_id,)).fetchone()
@@ -97,12 +156,19 @@ def _take_id(st: dict) -> int:
 # --------------------------------------------------------------------------- the marks --
 def add_annotation(job_id: str, *, section: str, quote: str, comment: str,
                    marker: str = "comment") -> dict:
+    """Attach a reader's mark to a quoted passage. Returns the new state.
+
+    A comment is required. A bare highlight records that someone looked at a sentence
+    without recording what they thought, which cannot be acted on in a revision.
+    Capped, because the cap is what forces the marks to be the ones that matter.
+    """
     comment = (comment or "").strip()
     if not comment:
         raise IterationError("an annotation needs a comment — a bare highlight says nothing")
     st = get_state(job_id)
-    if len(st["annotations"]) >= MAX_ANNOTATIONS:
-        raise IterationError(f"at most {MAX_ANNOTATIONS} annotations per report")
+    cap = limits(st)["marks"]
+    if len(st["annotations"]) >= cap:
+        raise IterationError(f"at most {cap} marks per report")
     st["annotations"].append({
         "id": _take_id(st), "section": (section or "").strip() or "General",
         "quote": (quote or "").strip()[:400], "comment": comment[:1000],
@@ -113,6 +179,7 @@ def add_annotation(job_id: str, *, section: str, quote: str, comment: str,
 
 
 def remove_annotation(job_id: str, annotation_id: int) -> dict:
+    """Drop a mark and any notes hanging off it, so a removed mark leaves no orphans."""
     st = get_state(job_id)
     st["annotations"] = [a for a in st["annotations"] if a["id"] != int(annotation_id)]
     st["notes"] = [n for n in st["notes"] if n.get("annotation_id") != int(annotation_id)]
@@ -120,12 +187,18 @@ def remove_annotation(job_id: str, annotation_id: int) -> dict:
 
 
 def add_question(job_id: str, text: str) -> dict:
+    """Record a question the report must answer before it can be called final.
+
+    Capped for the same reason as marks: the value is in the sharpest few, and an
+    unbounded list becomes a backlog nobody answers.
+    """
     text = (text or "").strip()
     if not text:
         raise IterationError("an empty question cannot be answered")
     st = get_state(job_id)
-    if len(st["questions"]) >= MAX_QUESTIONS:
-        raise IterationError(f"at most {MAX_QUESTIONS} questions per revision — "
+    cap = limits(st)["questions"]
+    if len(st["questions"]) >= cap:
+        raise IterationError(f"at most {cap} questions per revision — "
                              "the point is the sharpest ones, not all of them")
     st["questions"].append({
         "id": _take_id(st), "q": text[:600], "a": None, "a_origin": None,
@@ -249,6 +322,12 @@ def draft_answers(job_id: str, result: dict) -> dict:
 
 # -------------------------------------------------------------- manual edit + finalize --
 def set_answer(job_id: str, question_id: int, answer: str) -> dict:
+    """Answer a question by hand, taking ownership of it from the draft.
+
+    An empty answer is refused rather than stored: a blank is not an edit, and the way to
+    say "this question was wrong" is to remove it. A hand edit also supersedes the draft's
+    grounding claim, because the operator now owns the sentence, not the model.
+    """
     answer = (answer or "").strip()
     if not answer:
         raise IterationError("an empty answer is not an edit — remove the question instead")
@@ -307,6 +386,7 @@ def build_revision_brief(job_id: str, description: str) -> str:
 
 
 def mark_revised(job_id: str, new_job_id: str) -> dict:
+    """Point this report at the run that supersedes it, leaving a followable chain."""
     st = get_state(job_id)
     st["status"] = "revised"
     st["revised_to"] = new_job_id
@@ -318,14 +398,29 @@ def carry_questions(old_job_id: str, new_job_id: str) -> dict:
     artifact. Carried unanswered so draft_answers grounds them in the NEW report."""
     old = get_state(old_job_id)
     new = get_state(new_job_id)
+    # IDEMPOTENT, because two callers race for it. post_revise carries the questions so
+    # they survive a run that dies, and the regeneration's own worker carries them again
+    # before drafting answers, because post_plan starts that worker BEFORE post_revise
+    # gets to its carry: on a fast or failed run the worker reached the draft step first
+    # and found nothing to answer. Whoever gets there first wins; the second is a no-op.
+    already = {(q.get("q") or "").strip() for q in (new.get("questions") or [])}
     for q in (old.get("questions") or [])[:MAX_QUESTIONS]:
-        new["questions"].append({"id": _take_id(new), "q": q.get("q") or "",
+        text = (q.get("q") or "").strip()
+        if text in already:
+            continue
+        already.add(text)
+        new["questions"].append({"id": _take_id(new), "q": text,
                                  "a": None, "a_origin": None, "based_on": [],
                                  "grounded": None, "created_at": int(time.time())})
     return _save(new_job_id, new)
 
 
 def finalize(job_id: str) -> dict:
+    """Freeze the report as final. Refuses while any question is unanswered.
+
+    A final report carrying a blank in its own Q&A section breaks its promise on the page
+    the reader trusts most, so the check is here rather than left to whoever clicks.
+    """
     st = get_state(job_id)
     unanswered = [q for q in st["questions"] if not (q.get("a") or "").strip()]
     if unanswered:

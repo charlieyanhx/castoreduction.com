@@ -40,7 +40,7 @@ def grounded_bottom_up(
 
     Use to ground or cross-check an existing sizing with a Census-sourced
     establishment count. Do NOT use as the primary sizing entry point —
-    size_market routes the fitting method — and do NOT use without a known
+    plan.size_by_scale (the routing that actually runs) routes the fitting method — and do NOT use without a known
     annual_arpu: it multiplies, never estimates one (scrape_market_price can
     supply a sourced ARPU).
     """

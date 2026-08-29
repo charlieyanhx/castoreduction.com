@@ -20,6 +20,9 @@ class MRPError(Exception):
     """Base for all market-research-prototype errors."""
 
     def to_dict(self) -> dict:
+        """The error as a JSON-able dict, carrying its class so a caller can branch on the kind
+        rather than on the message text.
+        """
         return {
             "error_class": self.__class__.__name__,
             "message": str(self),

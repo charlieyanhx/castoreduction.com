@@ -16,7 +16,6 @@ from __future__ import annotations
 import statistics
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
 
 from skills.registry import skill
 from tools import Evidence

@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Intake survey · Castor Research</title>
+<style>
+  /* The workspace's palette, verbatim: warm paper, emerald verdict accent. The survey is
+     the front door of the same document the report becomes, so it speaks the same
+     language. See web/workspace.html for the provenance of these values. */
+  :root {
+    --bg: oklch(97.3% 0.006 85);
+    --surface: oklch(99.4% 0.002 85);
+    --surface-2: oklch(95.8% 0.006 85);
+    --line: oklch(90% 0.008 85);
+    --text: oklch(23% 0.015 250);
+    --text-dim: oklch(48% 0.015 250);
+    --text-faint: oklch(62% 0.012 250);
+    --shadow-1: 0 1px 2px oklch(30% 0.02 85 / .05), 0 4px 16px -6px oklch(30% 0.02 85 / .09);
+    --shadow-2: 0 2px 4px oklch(30% 0.02 85 / .06), 0 14px 36px -12px oklch(30% 0.02 85 / .16);
+    --accent: oklch(48.5% 0.105 163.5);
+    --accent-soft: oklch(95.5% 0.028 163.5);
+    --ok: oklch(60% 0.16 155);
+    --warn-ink: oklch(45% 0.13 62);
+    --warn-bg: oklch(97.5% 0.022 75);
+    --warn-line: oklch(88% 0.05 75);
+    --radius: 12px;
+    --serif: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  ::selection { background: oklch(48.5% 0.105 163.5 / .18); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+  body {
+    font-family: var(--sans); font-size: 14px; line-height: 1.5;
+    color: var(--text); background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---- chrome ------------------------------------------------------------------ */
+  .rail {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; gap: 14px;
+    padding: 13px 24px; background: oklch(97.3% 0.006 85 / .88);
+    backdrop-filter: blur(10px); border-bottom: 1px solid var(--line);
+  }
+  .brand { font-family: var(--serif); font-size: 16px; font-weight: 600;
+           letter-spacing: -.01em; text-decoration: none; color: var(--text); }
+  .brand span { color: var(--accent); }
+  .steps { display: flex; gap: 4px; margin-left: auto; align-items: center; }
+  .step-dot {
+    font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--text-faint); padding: 4px 10px; border-radius: 999px;
+    border: 1px solid transparent; white-space: nowrap;
+  }
+  .step-dot.on { color: var(--accent); background: var(--accent-soft);
+                 border-color: color-mix(in srgb, var(--accent) 22%, transparent); }
+  .step-dot.done { color: var(--text-dim); }
+
+  /* ---- page -------------------------------------------------------------------- */
+  main { max-width: 1080px; margin: 0 auto; padding: 44px 24px 140px; }
+  .lede { max-width: 660px; margin-bottom: 34px; }
+  .lede h1 { font-family: var(--serif); font-size: clamp(26px, 1.4rem + 1.6vw, 38px);
+             font-weight: 600; letter-spacing: -.02em; line-height: 1.15; }
+  .lede p { margin-top: 12px; font-size: 15px; color: var(--text-dim); max-width: 56ch; }
+
+  /* The editorial gutter: the question number sits in the left margin and the "what this
+     decides" note in the right, so the founder reads a form and an argument for it at the
+     same time. Both collapse into the column below 900px. */
+  .q {
+    display: grid; grid-template-columns: 46px minmax(0, 1fr) 210px;
+    gap: 0 22px; padding: 26px 0; border-top: 1px solid var(--line);
+  }
+  .q:first-of-type { border-top: none; }
+  .q-num { font-family: var(--serif); font-size: 15px; color: var(--text-faint);
+           padding-top: 1px; font-variant-numeric: tabular-nums; }
+  .q-body { min-width: 0; }
+  .q-ask { font-size: 15.5px; line-height: 1.45; letter-spacing: -.006em; }
+  .q-opt { margin-left: 8px; font-size: 12px; color: var(--text-faint); font-style: italic; }
+  .q-note {
+    font-size: 12px; line-height: 1.5; color: var(--text-faint);
+    padding-top: 3px; border-left: 2px solid var(--line); padding-left: 12px;
+  }
+  .q-note b { font-weight: 600; color: var(--text-dim); display: block;
+              font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase;
+              margin-bottom: 3px; }
+  @media (max-width: 900px) {
+    .q { grid-template-columns: 32px minmax(0, 1fr); }
+    .q-note { grid-column: 2; margin-top: 12px; }
+  }
+
+  /* ---- controls ----------------------------------------------------------------- */
+  .ctl { margin-top: 12px; }
+  .txt, .num {
+    font: inherit; font-size: 14px; color: inherit; width: 100%;
+    padding: 10px 12px; background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 9px;
+    transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+  }
+  textarea.txt { resize: vertical; min-height: 84px; line-height: 1.5; }
+  .num { width: 130px; }
+  .txt:focus, .num:focus {
+    outline: none; background: var(--surface); border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+  .unit {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--text-dim); padding: 5px 9px;
+    border: 1px solid var(--line); border-radius: 5px; background: var(--surface);
+  }
+
+  .opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  /* Visually hidden, NOT hidden. opacity:0 reads as hidden to assistive tech and the
+     radios dropped out of the accessibility tree entirely: a sighted mouse user saw a
+     choice, a screen reader saw nothing. The clip pattern keeps opacity at 1, so the
+     control stays exposed and focusable, and :focus-visible below paints the ring on the
+     pill the user can actually see. */
+  .opt input {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
+    white-space: nowrap; border: 0;
+  }
+  .opt span {
+    display: inline-block; font-size: 13px; padding: 8px 14px; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+    transition: border-color .12s ease, background .12s ease, color .12s ease;
+  }
+  .opt span:hover { border-color: var(--accent);
+                    background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  .opt input:checked + span {
+    border-color: var(--accent); font-weight: 600; color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .opt input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .opt--period span { font-size: 12px; padding: 6px 12px; }
+  .opt--other span { border-style: dashed; }
+  .writein { margin-top: 9px; display: none; }
+  .writein.show { display: block; }
+
+  .echo { margin-top: 9px; font-size: 12.5px; color: var(--text-dim); min-height: 1em; }
+  .echo.ok { color: var(--accent); }
+  .echo.bad { color: var(--warn-ink); }
+  .ghost {
+    font: inherit; font-size: 12.5px; cursor: pointer; color: var(--text-dim);
+    padding: 7px 13px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 999px;
+  }
+  .ghost:hover { border-color: var(--accent); color: var(--accent); }
+  .need { animation: shake .4s; }
+  @keyframes shake { 25% { transform: translateX(-4px);} 75% { transform: translateX(4px);} }
+  .hint { margin-top: 7px; font-size: 12px; color: var(--text-faint); }
+
+  /* ---- stage 0: the description box --------------------------------------------- */
+  .tell { max-width: 720px; }
+  .tell textarea {
+    font: inherit; font-size: 16px; line-height: 1.6; width: 100%; min-height: 230px;
+    padding: 18px 20px; color: inherit; background: var(--surface);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow-1); resize: vertical;
+  }
+  .tell textarea:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  .tell textarea.drop { border-color: var(--accent); background: var(--accent-soft); }
+  .tools { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; margin-top: 12px; }
+  .mic.rec { color: #fff; background: var(--warn-ink); border-color: var(--warn-ink); }
+  .mic.rec:hover { color: #fff; }
+  .count { margin-left: auto; font-size: 11.5px; color: var(--text-faint);
+           font-variant-numeric: tabular-nums; }
+  .examples { margin-top: 22px; }
+  .ex-lab { font-size: 10.5px; font-weight: 700; letter-spacing: .1em;
+            text-transform: uppercase; color: var(--text-faint); margin-bottom: 9px; }
+  .ex {
+    font-size: 13.5px; line-height: 1.55; color: var(--text-dim); cursor: pointer;
+    padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--line);
+    border-left: 2px solid var(--line); border-radius: 8px; margin-bottom: 8px;
+    transition: border-color .12s ease, color .12s ease;
+  }
+  .ex:hover { border-left-color: var(--accent); color: var(--text); }
+  .ex b { display: block; font-size: 11px; font-weight: 700; letter-spacing: .05em;
+          text-transform: uppercase; color: var(--text-faint); margin-bottom: 4px; }
+
+  /* ---- the reading, and what would decide it ------------------------------------ */
+  .brief { max-width: 760px; margin-bottom: 30px; }
+  .reading {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 9px;
+    margin-bottom: 11px;
+  }
+  .reading-txt { font-size: 10.5px; font-weight: 700; letter-spacing: .1em;
+                 text-transform: uppercase; color: var(--text-faint); }
+  .prov { font-size: 10px; font-weight: 600; border-radius: 6px; padding: 2px 7px; }
+  .prov-stated { background: var(--accent-soft); color: var(--accent); }
+  .prov-inferred { background: oklch(94% 0.03 250); color: oklch(48% 0.14 250); }
+  .prov-assumed { background: oklch(95% 0.03 70); color: oklch(50% 0.12 70); }
+  .reading .ctl { margin-top: 0; }
+  .consequence { margin-top: 15px; font-size: 15px; line-height: 1.55;
+                 color: var(--text); max-width: 58ch; }
+  .decides { margin-top: 22px; }
+  .dec-lab { font-size: 10.5px; font-weight: 700; letter-spacing: .1em;
+             text-transform: uppercase; color: var(--text-faint); margin-bottom: 11px; }
+  .dec {
+    display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 14px;
+    padding: 13px 0; border-top: 1px solid var(--line);
+  }
+  .who {
+    font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    padding: 3px 0; text-align: center; border-radius: 5px; height: fit-content;
+  }
+  .who-us { background: var(--accent-soft); color: var(--accent); }
+  .who-you { background: oklch(95% 0.03 70); color: oklch(50% 0.12 70); }
+  .dec-q { font-size: 14.5px; line-height: 1.45; }
+  .dec-how { margin-top: 3px; font-size: 12px; color: var(--text-faint); }
+
+  /* ---- the reveal ---------------------------------------------------------------- */
+  .reveal { max-width: 760px; }
+  .stat {
+    padding: 26px 28px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow-2); margin-bottom: 14px;
+  }
+  .stat-lab { font-size: 10.5px; font-weight: 700; letter-spacing: .1em;
+              text-transform: uppercase; color: var(--text-faint); }
+  .stat-big {
+    margin-top: 9px; font-family: var(--serif); font-size: clamp(28px, 1.4rem + 2.2vw, 44px);
+    font-weight: 600; letter-spacing: -.022em; line-height: 1.1;
+  }
+  .stat-sub { margin-top: 9px; font-size: 15px; line-height: 1.5; color: var(--text-dim);
+              max-width: 52ch; }
+  .workings {
+    margin-top: 14px; padding-top: 13px; border-top: 1px dashed var(--line);
+    font-size: 12.5px; color: var(--text-faint);
+  }
+  .workings b { font-weight: 600; color: var(--text-dim); }
+  .bars { display: flex; height: 9px; margin-top: 16px; border-radius: 999px;
+          overflow: hidden; background: var(--surface-2); }
+  .bar-fill { background: var(--accent); }
+  .bar-over { background: var(--warn-ink); }
+  .limits {
+    margin-top: 20px; padding: 16px 18px; border-radius: var(--radius);
+    background: var(--warn-bg); border: 1px solid var(--warn-line);
+  }
+  .lim-lab { font-size: 10.5px; font-weight: 700; letter-spacing: .09em;
+             text-transform: uppercase; color: var(--warn-ink); margin-bottom: 9px; }
+  .limits ul { margin: 0; padding-left: 17px; }
+  .limits li { font-size: 13px; line-height: 1.55; color: var(--warn-ink);
+               margin-bottom: 6px; }
+  .limits li:last-child { margin-bottom: 0; }
+  .next {
+    margin-top: 22px; padding: 20px 22px; border-radius: var(--radius);
+    border: 1px solid var(--line); background: var(--surface);
+  }
+  .next h3 { font-family: var(--serif); font-size: 18px; font-weight: 600;
+             letter-spacing: -.012em; }
+  .next p { margin-top: 8px; font-size: 14px; line-height: 1.55; color: var(--text-dim);
+            max-width: 56ch; }
+  .next ul { margin: 13px 0 0; padding-left: 18px; }
+  .next li { font-size: 13.5px; line-height: 1.6; color: var(--text-dim); }
+  .promise { margin-top: 15px; padding-top: 13px; border-top: 1px solid var(--line);
+             font-size: 13px; line-height: 1.55; color: var(--text); }
+  .promise b { font-weight: 650; }
+
+  /* ---- footer bar --------------------------------------------------------------- */
+  .bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 24px; background: oklch(99.4% 0.002 85 / .92);
+    backdrop-filter: blur(10px); border-top: 1px solid var(--line);
+    box-shadow: var(--shadow-2);
+  }
+  .bar-inner { display: flex; align-items: center; gap: 16px;
+               max-width: 1080px; margin: 0 auto; width: 100%; }
+  .tally { font-size: 12.5px; color: var(--text-dim); }
+  .go {
+    margin-left: auto; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+    color: #fff; background: var(--accent); border: none;
+    border-radius: 9px; padding: 11px 22px;
+    transition: opacity .15s ease, transform .12s ease;
+  }
+  .go:hover { opacity: .92; }
+  .go:active { transform: translateY(1px); }
+  .go:disabled { opacity: .55; cursor: progress; }
+  .back { font: inherit; font-size: 13px; cursor: pointer; color: var(--text-dim);
+          background: none; border: none; text-decoration: underline; }
+  .err { font-size: 12.5px; color: var(--warn-ink); }
+  .loading { padding: 60px 0; color: var(--text-faint); font-size: 14px; }
+
+  @media (max-width: 560px) {
+    .rail { padding: 11px 16px; gap: 10px; }
+    .brand { white-space: nowrap; font-size: 15px; }
+    .steps { gap: 2px; }
+    .step-dot { font-size: 9.5px; padding: 3px 7px; letter-spacing: .02em; }
+    main { padding: 28px 16px 128px; }
+    .bar { padding: 11px 16px; }
+    .bar-inner { gap: 10px; }
+    .tally { font-size: 11.5px; line-height: 1.35; }
+    .go { padding: 10px 16px; font-size: 13.5px; white-space: nowrap; }
+    .num { width: 100%; }
+    .stat { padding: 20px; }
+    .dec { grid-template-columns: 60px minmax(0, 1fr); gap: 11px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="rail">
+  <a class="brand" href="/">Castor <span>Research</span></a>
+  <nav class="steps" id="steps" aria-label="Survey progress"></nav>
+</header>
+
+<main>
+  <div class="lede">
+    <h1 id="head">Tell us about your venture</h1>
+    <p id="sub">Whatever you have. A paragraph, a rough pitch, notes you already wrote.
+      The more you say, the fewer questions we have to ask you afterwards.</p>
+  </div>
+  <form id="form" novalidate><div class="loading">Loading…</div></form>
+</main>
+
+<div class="bar">
+  <div class="bar-inner">
+    <button type="button" class="back" id="back" hidden>Back</button>
+    <span class="tally" id="tally"></span>
+    <span class="err" id="err"></span>
+    <button type="button" class="back" id="skip" hidden>Skip and start now</button>
+    <button type="button" class="go" id="go">Continue</button>
+  </div>
+</div>
+
+<script src="/survey.js?v=1"></script>
+</body>
+</html>

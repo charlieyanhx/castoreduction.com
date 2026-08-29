@@ -18,7 +18,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from statistics import median
 
 import net as mrp_http
-from bs4 import BeautifulSoup
 from logger import get
 
 log = get("pricing_scrape")

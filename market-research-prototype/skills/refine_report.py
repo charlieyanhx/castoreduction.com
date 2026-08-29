@@ -84,6 +84,11 @@ def refine_report(
         from benchmarks.judge import judge_report as judge_fn  # lazy: soft dependency
 
     def evaluate(rep: dict) -> dict:
+        """Score a draft, with the deterministic gate overriding the judge on `validation`.
+
+        An LLM judge can be talked into liking a report whose arithmetic is blocked. The gate
+        cannot, so it wins on that dimension and the judge is advisory everywhere else.
+        """
         scores = judge_fn(render(rep), venture)
         # Hard anchor: the deterministic gate overrides the judge on `validation`.
         v = (rep.get("market_sizing") or {}).get("validation") or {}
@@ -94,6 +99,7 @@ def refine_report(
         return scores
 
     def refine(rep: dict, weak: list[str], scores: dict) -> dict:
+        """Regenerate only the sections behind the weak dimensions, leaving the rest untouched."""
         sections = []
         for d in weak:
             sec = DIMENSION_TO_SECTION.get(d)

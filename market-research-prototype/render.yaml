@@ -34,6 +34,25 @@ services:
         value: default
       - key: PYTHONUNBUFFERED
         value: "1"
+      # THE ONE THAT MATTERS. Unset, _current_owner falls back to LEGACY_OWNER and every
+      # visitor shares one library with no login at all — the cross-tenant hole #93 exists
+      # to close, re-opened by a missing env var. Production refuses an unauthenticated
+      # request instead.
+      - key: CASTOR_ENV
+        value: production
+      # WITHOUT THIS, ANTHROPIC IS SILENTLY SKIPPED. fallback_chain excludes paid backends
+      # unless the operator says otherwise, so a box with both ANTHROPIC_API_KEY and
+      # GEMINI_API_KEY set resolves to ['gemini'] alone: every user runs on a shared free
+      # tier at 15 req/min, and the reports are quietly not the ones you meant to sell.
+      # The guard exists so throttling never bills you by accident; in production, paying
+      # is the intent.
+      - key: LLM_ALLOW_PAID
+        value: "1"
+      # Render terminates TLS at its proxy, so every request arrives from the same address.
+      # Unset, the login limiter keys on that one address and ten wrong passwords from any
+      # stranger lock out every customer at once.
+      - key: CASTOR_TRUST_PROXY
+        value: "1"
 
       # SECRET — set these manually in the Render dashboard after first deploy:
       #   Dashboard → castor-research → Environment → "Add Environment Variable"
@@ -43,4 +62,9 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: ANTHROPIC_API_KEY
+        sync: false
+      # REQUIRED under CASTOR_ENV=production: auth._session_secret() refuses to sign
+      # sessions with a generated key, so without this every login and signup 500s while
+      # /healthz stays green and the deploy looks successful.
+      - key: SESSION_SECRET
         sync: false

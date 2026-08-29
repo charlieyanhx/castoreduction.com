@@ -1,0 +1,549 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+
+\title{\bf When Is a Market Estimate Trustworthy?\\
+\large Error Bounds for Margin-Constrained Market Disaggregation}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Most market estimates are built by taking a published total and multiplying it
+down through geography, industry, and segment shares. The method assumes spend is
+a measure over a partitionable universe, so that any market is a subset sum. That
+assumption is sound. The problem is that it says nothing about whether a
+particular estimate is any good, and practitioners need exactly that.
+
+We show the question has a clean answer. Iterative proportional fitting (IPF)
+reproduces its input margins exactly, so its residual is orthogonal to the span
+of the observed constraints. Only the part of a query pointing outside that span
+can be wrong. This gives a reliability statistic computable before you answer,
+with no access to ground truth. Tested against real published joint
+distributions from the U.S. County Business Patterns (40,560 cells, 6.1M
+establishments), it is calibrated to within 1.15$\times$ across six seeds and cuts
+the dispersion of prediction error by about a third against a query-size
+baseline. It does \emph{not} rank queries better than query size alone, and we
+report that head-to-head in full because the temptation to claim otherwise is
+strong and the fair comparison is easy to get wrong.
+
+We then ask how much better modelling could do, and the answer is: not much.
+Three independent approaches, a parametric interaction term, low-rank
+completion, and covariate regression, each recover somewhere between 2\% and
+11\% of the residual. Roughly nine tenths of it is cell-specific and out of reach
+of anything transferable. Retaining past estimates as constraints helps by 87\% on queries near what was
+already observed and by an amount not distinguishable from zero on queries that
+are not, and the benefit saturates after a \emph{single} nearby observation. The
+value of such a store therefore scales with the number of distinct neighbourhoods
+it covers, not with how many records it holds. Moving from
+establishment counts to dollars costs a steady factor of about 1.5$\times$, which
+is a tax rather than a wall. We also document two failures that leave no trace in
+the output: IPF converges silently and order-dependently when its margins
+disagree, and disclosure control removes cells in a pattern built specifically to
+defeat inference from margins.
+\end{abstract}
+
+\section{Introduction}
+
+A market estimate usually starts with a number someone else published and works
+downward. Global category total, times a country share, times a segment share,
+times a channel share. The logic holds up: expenditure is an accounting
+identity, so there is a finite pool, and any market is a piece of it. Treat spend
+as a measure over disjoint cells and market size becomes a subset sum, with
+disaggregation reduced to interpolation under a known constraint.
+
+Two things get in the way. Markets are not cells of the census lattice, because a
+market is really an equivalence class under substitutability, and that cuts
+diagonally across geography and industry codes. More seriously, the joint
+distribution over cells is not published. What gets published is a handful of
+low-dimensional projections of it. Recovering a joint from its margins is badly
+underdetermined, and the usual remedy, maximum-entropy fill-in by IPF, picks one
+point out of a large feasible set rather than finding the right one.
+
+So a disaggregated estimate can be excellent or worthless, and nothing about the
+output tells you which. That is the gap this paper closes.
+
+\paragraph{What is here.} We restate markets as linear functionals over spend
+atoms, which lets overlapping markets coexist without breaking additivity. We
+derive a per-query error identity and turn it into a calibrated statistic. We
+measure realised error against published joints rather than simulated ones. We
+put a ceiling on what interaction modelling can add. And we document two failure
+modes that current practice does not surface.
+
+The mathematics is not new. The orthogonality in Section~\ref{sec:identity} is
+elementary linear algebra. IPF goes back to Deming and Stephan~\cite{deming1940},
+its convergence theory to Csisz\'ar~\cite{csiszar1975}, and estimation for small
+domains has a mature literature of its own~\cite{rao2015}. What we offer is the
+packaging of an elementary fact into a decision rule, plus the calibration that
+makes it usable.
+
+\section{Setup}
+
+Let $\mathcal{A}$ be a finite set of \emph{atoms}: the finest cells at which
+spend is defined, indexed by geography, industry, size band, and period. Atoms
+are disjoint and exhaustive by construction. Let
+$T \in \mathbb{R}_{\ge 0}^{\mathcal{A}}$ hold the true spend.
+
+A \emph{market} is not a cell. It is a linear functional. A query
+$q \in [0,1]^{\mathcal{A}}$ gives each atom a membership weight, and the market's
+size is $\langle q, T\rangle$. Fractional weights carry real content: whether
+convenience-store coffee belongs to the coffee-shop market is a judgement about
+substitution, and this is where it lives. The representation also lets two
+markets overlap freely, since overlap just means shared atoms rather than
+colliding sets. That resolves an awkward fact about published figures, which is
+that category TAMs across an economy sum to far more than its GDP.
+
+An \emph{observation} is a pair $(a,y)$ with $\langle a, T\rangle = y$. Published
+marginal tables are observations whose incidence vectors are indicators of
+fibres. Write $V = \mathrm{span}\{a_1,\dots,a_m\}$ for the constraint span.
+
+Given observations, IPF returns the $H$ minimising
+$D_{\mathrm{KL}}(H \Vert \mathbf{1})$ subject to
+$\langle a_i, H\rangle = y_i$. It converges geometrically, being a contraction in
+the Hilbert projective metric~\cite{sinkhornrate}, and is the same algorithm as
+Sinkhorn--Knopp. When the constraint set is \emph{decomposable}, the
+maximum-likelihood solution has a closed form and no iteration is
+needed~\cite{decomposable}, which is worth checking before running a loop.
+
+\section{An exact error identity}
+\label{sec:identity}
+
+IPF reproduces its inputs exactly: $\langle a_i, H\rangle = \langle a_i, T\rangle$
+for every observed $a_i$. So the residual $R = H - T$ satisfies
+$\langle a_i, R\rangle = 0$ for all $i$, which is to say $R \perp V$ under the
+unweighted inner product. For any query $q$, writing $P_V$ for orthogonal
+projection onto $V$ and $q_\perp = q - P_V(q)$,
+\begin{equation}
+  \mathrm{err}(q) \;=\; \langle q, R\rangle \;=\; \langle q_\perp, R\rangle .
+  \label{eq:identity}
+\end{equation}
+
+Only the part of a query pointing outside what you measured can be wrong. Two
+things follow.
+
+\paragraph{Some queries are exact.} If $q \in V$ then $\mathrm{err}(q) = 0$
+identically. Concretely, a query that pins some axes and integrates another away
+is answered exactly whenever the matching margin was observed. Asking for every
+construction firm in a set of counties, at any size, is free.
+
+\paragraph{A statistic you can compute first.} Cauchy--Schwarz gives
+$|\mathrm{err}(q)| \le \lVert q_\perp \rVert \, \lVert R \rVert$. The quantity
+that matters is the \emph{unnormalised} norm $\lVert q_\perp \rVert$, not the
+alignment ratio $\lVert P_V q\rVert^2/\lVert q\rVert^2$, which divides out
+precisely the scale carrying the signal. We learned this the hard way: the ratio
+turned out to have essentially no predictive power. Treating $R$ as isotropic to
+first order, the predicted relative error is
+\begin{equation}
+  \widehat{\varepsilon}(q) \;=\; \kappa \cdot
+  \frac{\lVert q - P_V(q) \rVert_2}{\langle q, H\rangle},
+  \label{eq:predictor}
+\end{equation}
+with $\kappa$ a single scalar calibrated once per lattice. Everything on the
+right is available without ground truth. The query is given, $\langle q,H\rangle$
+is the estimate itself, and $P_V(q)$ comes from the constraint structure by
+backfitting. The statistic returns exactly zero on queries in $V$ and shrinks as
+queries grow, through the denominator, so it folds two separately visible effects
+into one number.
+
+\section{Data and protocol}
+
+Synthetic data would let us choose the interaction strength that decides the
+answer, which defeats the purpose. So we used a published joint instead. The U.S.
+Census County Business Patterns (CBP) county file reports establishment counts by
+county, NAICS, and employment size class, and publishes the three-way table
+rather than only its margins.
+
+CBP withholds cells for disclosure reasons. We measured 67.1\% of size-class
+cells suppressed, and the rate climbs steadily with cell sparsity, from 9.9\% for
+the smallest firm class to 98.5\% for the largest. A withheld cell cannot serve
+as truth, so we carved out the largest dense, fully published sub-block:
+\textbf{1,014 counties $\times$ 10 NAICS sectors $\times$ 4 size buckets}. That
+is 40,560 atoms holding 6.1M establishments, 75.9\% of the national total, with
+0.1\% zero cells and no imputation anywhere. The block is selected on
+non-suppression, so it over-represents the well-populated part of the economy,
+and every result below should be read as optimistic on that account.
+
+We fit IPF under three margin regimes: one-way margins only, which is the
+independence model; the two margins actually available in practice, county
+$\times$ sector together with sector $\times$ size; and all three two-way
+margins. Then we answer randomly generated queries and compare to truth. Errors
+are symmetric relative error, $10^{|\log_{10}(\hat{y}/y)|} - 1$.
+
+\section{Results}
+
+\subsection{Individual cells are bad, aggregates are not}
+
+Median per-atom error is 40.9\% under independence, 16.2\% under the realistic
+two-margin regime, and 12.7\% with all three two-way margins. Individual cells
+are unreliable no matter how the margins are chosen. Aggregation is what makes
+the method work at all, and that shapes everything that follows.
+
+Queries lying in $V$ came out exact on all 90 trials, at 0.00\%, which confirms
+Section~\ref{sec:identity} numerically as well as algebraically. For box-shaped
+queries, meaning the realistic market shape that constrains all three axes,
+error falls steeply and monotonically with the share of total mass covered
+(Table~\ref{tab:span}).
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Query mass share & $n$ & Median & p90 & p99 \\
+\midrule
+$<0.003\%$        & 262 & 11.39\% & 38.34\% & 95.49\% \\
+$0.003$--$0.01\%$ & 344 &  6.77\% & 20.73\% & 41.34\% \\
+$0.01$--$0.03\%$  & 412 &  4.39\% & 15.12\% & 25.88\% \\
+$0.03$--$0.1\%$   & 631 &  2.99\% & 11.19\% & 29.88\% \\
+$0.1$--$0.3\%$    & 651 &  2.34\% &  8.17\% & 16.15\% \\
+$0.3$--$1\%$      & 729 &  1.52\% &  4.84\% & 11.65\% \\
+$1$--$3\%$        & 564 &  0.73\% &  2.96\% &  7.23\% \\
+$3$--$10\%$       & 353 &  0.39\% &  1.39\% &  3.51\% \\
+$>10\%$           &  54 &  0.27\% &  0.67\% &  1.53\% \\
+\bottomrule
+\end{tabular}
+\caption{Box-query error against query size, realistic margin regime. Median
+error swings 42$\times$ across the range. Bin counts are given because the final
+row rests on 54 queries, so its p99 is effectively a maximum and should not be
+read as a quantile.}
+\label{tab:span}
+\end{table}
+
+One result cuts against intuition. Uniformly random atom subsets were the
+\emph{easiest} queries, at 0.27\% median error, because independent errors cancel
+across many atoms. Box queries were consistently the hardest, since their
+selection correlates with exactly the interaction structure IPF leaves out. Real
+markets are boxes, so Table~\ref{tab:span} is the curve that matters, and the
+scattered-query numbers are misleadingly reassuring.
+
+\subsection{The statistic is calibrated, but does not out-rank query size}
+\label{sec:calib}
+
+We fit $\kappa$ in \eqref{eq:predictor} on 300 queries and test on 300 held out.
+Our first comparison put it at Spearman $+0.663$ against $+0.522$ for a
+query-size baseline, which looked like a decisive win. It was not. That baseline
+had been handed an arbitrary constant instead of the same calibration
+the new statistic received, and was scored on a slightly different subset. Run
+fairly, with both predictors calibrated by the identical procedure on the
+identical held-out set, the picture changes (Table~\ref{tab:predictor}).
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+ & \multicolumn{2}{c}{All query families} & \multicolumn{2}{c}{Box queries only} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Predictor & Spearman $\rho$ & $\mathrm{sd}(\log_{10})$ & Spearman $\rho$ & $\mathrm{sd}(\log_{10})$ \\
+\midrule
+$\lVert q_\perp\rVert / \langle q,H\rangle$ & $+0.721$ & 0.551 & $+0.602$ & 0.601 \\
+query size alone                            & $+0.707$ & 0.915 & $+0.600$ & 0.810 \\
+\bottomrule
+\end{tabular}
+\caption{Six seeds, 300 train and 300 test queries each, both predictors
+calibrated identically and scored on the same subset. Standard deviations across
+seeds are 0.045 and 0.042 for $\rho$.}
+\label{tab:predictor}
+\end{table}
+
+On \emph{ranking}, the two are equivalent. The advantage of
+$\lVert q_\perp \rVert$ averages $+0.013$ across all families and $+0.002$ on
+box queries alone, both inside seed-to-seed noise. Anyone wanting only to sort
+queries by riskiness can use query size and stop reading.
+
+The advantage that survives is in \emph{magnitude}. Dispersion of prediction
+error is consistently lower, $\mathrm{sd}(\log_{10})$ of 0.55 against 0.92 across
+all families and 0.60 against 0.81 on boxes, holding on every seed tested. In
+multiplicative terms, predictions land within roughly $3.5\times$ rather than
+$6.5\times$. Calibration is also steadier: the identity-based statistic stayed in
+$0.86$--$1.15\times$ across seeds while the query-size baseline wandered between
+$0.34\times$ and $0.82\times$.
+
+There is also one thing query size cannot do at any calibration. It cannot
+return zero. Equation~\eqref{eq:predictor} is exactly zero for $q \in V$,
+correctly identifying the queries that carry no error at all, and no function of
+query size can express that.
+
+For completeness: the normalised alignment ratio carries essentially no signal,
+which is what sent us back to the unnormalised norm in the first place.
+
+\subsection{Dollars cost a constant, not a regime change}
+
+Establishment counts are the easiest thing to disaggregate, and a method that
+only works on counts is not a market-sizing method. We tested two further
+published sources at the same county $\times$ NAICS grain: Nonemployer Statistics
+total receipts (2,863 counties $\times$ 12 sectors) and QCEW total annual wages
+(668 counties $\times$ 12 sectors), holding lattice, protocol, and query
+distribution fixed so only the measured quantity changes.
+
+The penalty is a steady multiplicative factor near 1.5$\times$ in every
+query-size bin: 1.34--1.63$\times$ for receipts and 1.23--2.22$\times$ for wages.
+Nothing pathological happens. The mechanism shows up in dispersion, where the
+within-county sector-share coefficient of variation rises from 0.39 for counts to
+0.58 for receipts, and from 0.43 to 0.73 for wages. Since error falls sharply
+with query size, a 1.5$\times$ penalty is bought back with roughly 3$\times$ more
+span.
+
+\subsection{How much modelling can add}
+
+Is the residual modellable rather than merely bounded? Its spectrum says there is
+something there: the leading component of the log-residual explains 24.3\% of
+variance, against 3.6\% for a matched Gaussian benchmark. But it does not
+generalise. Table~\ref{tab:ceiling} collects three attempts.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llr}
+\toprule
+Method & Metric & Value \\
+\midrule
+Parametric interaction, transferred to held-out counties & median-error reduction & 9.4\% \\
+Same form fitted in-sample (bound for that form)         & median-error reduction & 10.7\% \\
+Low-rank completion (best at rank 1)                     & out-of-sample $R^2$    & 0.118 \\
+County covariates (log size, sector diversity)           & out-of-sample $R^2$    & 0.041 \\
+\bottomrule
+\end{tabular}
+\caption{Three approaches, two metrics. The transferred figure is a mean over five
+train/test splits ($\mathrm{sd}\ 1.2$, range 8.2--11.5\%). The $R^2$ figures describe explained
+variance of the log-residual and are not directly comparable to a median-error
+reduction; converted to dispersion reduction they correspond to about 6.1\% and
+2.1\%. All four therefore land in a single-digit band, 2\% to 11\%.}
+\label{tab:ceiling}
+\end{table}
+
+We flag the metric distinction because it is easy to get wrong. Explained
+variance and median-error reduction are different quantities, and reporting one
+beside the other invites a comparison that is not valid. Once converted onto a
+common footing, the four results agree closely, which is a good deal more
+convincing than any single number would have been: roughly nine tenths of the
+residual is cell-specific.
+
+The transfer itself works well. Of whatever the parametric form can capture,
+around 82\% survives being carried to held-out counties, so dimensionless structure does
+move across geographies. There is simply not much of it to move. Low-rank
+completion degrades to negative $R^2$ by rank 5, the usual signature of fitting
+noise particular to the observed cells.
+
+\subsection{Accumulated observations: local, and saturating}
+\label{sec:storage}
+
+If each past estimate is retained as a constraint, does the system improve? We
+stored box observations and evaluated on held-out queries, first confirming that
+stored constraints were satisfied to 0.000\% residual so a null result could not
+be blamed on a bad fit.
+
+Proximity decides everything. With 200 observations stored, error on unrelated
+random markets moved from 2.57\% to 2.46\%; on markets neighbouring something
+already stored it fell from 1.49\% to 0.16\%, with p90 dropping from 9.26\% to
+3.69\%. Across five seeds the related gain is $87.2\% \pm 0.9$, about the most
+stable figure in this paper, while the unrelated gain is $4.8\% \pm 3.2$ and went
+negative on one seed. The second number is not distinguishable from zero.
+
+Two further curves determine what a store is actually worth.
+Table~\ref{tab:sat} varies how many observations sit near the query.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Observations stored nearby & 0 & 1 & 2 & 3 & 5 & 8 & 13 & 21 \\
+\midrule
+Median error & 2.26\% & 0.24\% & 0.17\% & 0.13\% & 0.15\% & 0.30\% & 0.17\% & 0.16\% \\
+Gain over none & n/a & 89\% & 93\% & 94\% & 93\% & 87\% & 93\% & 93\% \\
+\bottomrule
+\end{tabular}
+\caption{The first nearby observation captures essentially all of the available
+gain. The second and third add a sliver. Beyond that the series is flat and its
+wobble is noise.}
+\label{tab:sat}
+\end{table}
+
+Table~\ref{tab:decay} instead fixes eight stored observations and moves the
+target away from them.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrrrrr}
+\toprule
+Atom overlap with stored region & 100\% & 95\% & 88\% & 75\% & 50\% & 25\% & 2\% \\
+\midrule
+Median error   & 0.09\% & 0.24\% & 0.62\% & 1.09\% & 1.06\% & 1.50\% & 1.54\% \\
+Gain over none & 97\%   & 90\%   & 74\%   & 61\%   & 55\%   & 6\%    & none \\
+\bottomrule
+\end{tabular}
+\caption{Benefit survives to roughly 50\% overlap and collapses between 50\% and
+25\%.}
+\label{tab:decay}
+\end{table}
+
+Together these say something sharper than locality alone. Because around 51\% of
+a typical query already lies inside the margin span, a stored observation can
+only speak to the remainder, and it does so within a neighbourhood of roughly
+50\% overlap. Within that neighbourhood one observation is nearly sufficient.
+
+\textbf{The value of such a store therefore scales with the number of distinct
+neighbourhoods covered, not with the number of records held.} A thousand
+observations of one market are worth about what three are worth. Three hundred
+observations spread over three hundred neighbourhoods are worth roughly a
+hundred times more than three hundred concentrated in one. This inverts the
+intuition that a concentrated query stream is the favourable case: concentration
+saturates, and diversity is the efficient direction per record. It also means
+record count is the wrong health metric for such a system, and coverage is the
+right one.
+
+\section{Two failures that leave no trace}
+
+\subsection{Margins that disagree}
+
+IPF assumes its margins are true and mutually consistent. Margins pulled from
+different sources, vintages, and definitions are neither. When they conflict, IPF
+does not oscillate and does not diverge. It settles on a fixed point of the
+composite map that satisfies whichever margin was applied \emph{last} and
+approximates the other. Sweep-to-sweep drift reaches $10^{-16}$, which is
+indistinguishable from clean convergence.
+
+The practical effect is that loop order becomes an undocumented ranking of how
+much you trust each source. With one margin at 2\% noise and another at 50\%, the
+two orderings produced answers differing by 22.6\% of total mass, and both
+reported convergence. Weighting each constraint by its precision removes the
+order dependence and cuts median error from 41.7\% to 28.1\%, while costing
+nothing when sources are equally good.
+
+Margin noise on its own turns out to be second-order: 10\% multiplicative noise
+moved median cell error only from 16.2\% to 21.3\%. The damage comes from
+treating unequal sources as equal, not from noise as such. Where noisy estimates
+exist at several aggregation levels at once, IPF is the wrong tool entirely and
+optimal reconciliation is the right one, since it projects incoherent forecasts
+onto the coherent subspace using the full error covariance and handles non-nested
+groupings~\cite{mint}.
+
+\subsection{Suppression is adversarial by design}
+
+The 67\% suppression we ran into is not incidental thinness in the data.
+Agencies apply \emph{primary} suppression to sensitive cells, then
+\emph{complementary} suppression to further cells chosen specifically so the
+primary values cannot be reconstructed from the published
+margins~\cite{cellsuppression}. Inference from margins is the stated threat
+model. This is an information barrier rather than a modelling problem, and it
+falls hardest on small, specific queries, which Table~\ref{tab:span} already
+identifies as the least reliable regime. The two effects compound.
+
+\section{Discussion}
+
+\paragraph{A rule you can operate.} Section~\ref{sec:calib} means the operating
+rule can be stated on query size alone, which is the simpler instrument; the
+identity buys a tighter magnitude and the ability to certify exact queries, not
+a better ordering. Above roughly 1\% of the anchor's mass,
+median error runs below 1\% and p90 below 3\%. Below roughly 0.01\%, p90 passes
+15\% and p99 approaches 100\%. Since \eqref{eq:predictor} can be evaluated before
+answering, the honest response in the second regime is to decline rather than to
+print a number with decimals on it. For dollar-denominated queries the thresholds
+move by about 3$\times$ and $\kappa$ needs its own calibration.
+
+\paragraph{Where the leverage actually is.} Ranking every intervention we
+measured: observing an \emph{uncovered} cell cuts error by 87\%; combining
+sources by precision, through a Fay--Herriot shrinkage estimator, by 33.5\%;
+better structural modelling by 2\% to 11\%. The qualifier matters, because
+Table~\ref{tab:sat} shows a second observation of an already-covered cell buys
+almost nothing. Effort belongs in acquisition and in fusing
+evidence, not in a smarter interpolator. One implementation note, learned by
+getting it wrong: because market quantities span orders of magnitude, shrinkage
+has to run on a scale where variances are roughly homoskedastic. Fitted on the
+raw scale it was \emph{worse} than either of its inputs at high noise. In log
+space it beat both at every noise level we tested.
+
+\paragraph{Coherence is not accuracy.} Reconciliation forces internal consistency
+whether or not the result is true. Any system that catches defects by spotting
+contradictions loses that signal the moment a reconciliation layer is added, and
+has to replace it with accuracy checks. The held-out marginal protocol used here
+is one such check, and it can be run continuously rather than once.
+
+\paragraph{What this does not cover.} Our ground truth is a dense sub-block
+selected on non-suppression, which biases everything optimistic. The lattice is
+coarse at 10 sectors and 4 size bands, far coarser than a real market definition
+needs. Receipts and wages are proxies for spend, and neither separates price from
+frequency. Establishment populations are not the buyer population for most
+products, and the lattice indexes \emph{sellers}. For a local business the
+seller's geography and the buyer's coincide, which conceals the distinction; for
+a business selling online they are unrelated, and a pipeline that silently uses
+the seller's county as the market's geography will produce a well-formed answer
+to the wrong question. Our queries are boxes with binary membership, whereas real market
+definitions carry fractional weights that are themselves estimated and probably
+contribute more error than anything we measured. And none of this touches market
+definition: whether two products compete is not a statistical question, and no
+amount of lattice resolution will answer it.
+
+\section{Conclusion}
+
+Disaggregating a published total is a sound procedure whose reliability varies by
+more than two orders of magnitude across the queries people actually ask, with
+nothing in the output to distinguish the good cases from the bad. The residual of
+a margin-constrained fit is orthogonal to what was measured, which makes the
+reliability of any particular query computable in advance. That statistic will
+not rank queries better than their size does, but it is better calibrated, it
+identifies exactly answerable queries, and it can be evaluated before committing
+to an answer.
+
+The negative results are the more useful half. Modelling the residual is capped
+near a tenth of it. Accumulating observations helps only nearby and saturates
+after one. Suppression is engineered against precisely this kind of inference.
+Taken together they point away from better estimators and toward acquiring
+observations in uncovered neighbourhoods and fusing sources by measured
+precision, which is roughly what the federal statistical system already does.
+
+\section{Related work}
+
+IPF is due to Deming and Stephan~\cite{deming1940}, with convergence to the
+$I$-projection established by Csisz\'ar~\cite{csiszar1975} and the definitive
+treatment in R\"uschendorf~\cite{ruschendorf1995}. The algorithm coincides with
+Sinkhorn--Knopp, and the optimal-transport literature supplies sharp geometric
+convergence rates~\cite{sinkhornrate} along with the log-domain stabilisation
+needed when margins approach zero. Decomposable constraint sets admit closed-form
+solutions~\cite{decomposable}.
+
+Applied work on spatial microsimulation reports the same sensitivity to sparsity
+we observe, and notes that a quality measure for the resulting estimates is
+generally unavailable~\cite{jasss2015}. That literature validates against
+aggregate constraint totals rather than a held-out joint, which is the one place
+our protocol improves on it. Estimation for domains too small to measure directly
+is the province of small-area estimation, from Fay and
+Herriot~\cite{fayherriot1979} through the survey of Rao and
+Molina~\cite{rao2015}; it supplies principled mean-squared-error estimates and
+spatial borrowing of strength, and subsumes much of what we build here.
+Reconciling incoherent hierarchical forecasts is treated by Wickramasuriya et
+al.~\cite{mint}. When constraints are both noisy and insufficient, generalised
+maximum entropy is the natural setting~\cite{golan1996}.
+
+\begin{thebibliography}{99}
+\bibitem{deming1940} W.~E. Deming and F.~F. Stephan. On a least squares
+adjustment of a sampled frequency table when the expected marginal totals are
+known. \emph{Ann. Math. Statist.}, 11(4):427--444, 1940.
+\bibitem{csiszar1975} I.~Csisz\'ar. $I$-divergence geometry of probability
+distributions and minimization problems. \emph{Ann. Probab.}, 3(1):146--158, 1975.
+\bibitem{ruschendorf1995} L.~R\"uschendorf. Convergence of the iterative
+proportional fitting procedure. \emph{Ann. Statist.}, 23(4):1160--1174, 1995.
+\bibitem{sinkhornrate} On the convergence rate of Sinkhorn's algorithm.
+arXiv:2212.06000.
+\bibitem{decomposable} Iterative proportional scaling via decomposable submodels
+for contingency tables. arXiv:math/0603495.
+\bibitem{jasss2015} Evaluating the performance of iterative proportional fitting
+for spatial microsimulation. \emph{J. Artificial Societies and Social
+Simulation}, 18(2):21, 2015.
+\bibitem{fayherriot1979} R.~E. Fay and R.~A. Herriot. Estimates of income for
+small places: an application of James--Stein procedures to census data.
+\emph{JASA}, 74(366):269--277, 1979.
+\bibitem{rao2015} J.~N.~K. Rao and I.~Molina. \emph{Small Area Estimation}.
+Wiley, 2nd edition, 2015.
+\bibitem{mint} S.~L. Wickramasuriya, G.~Athanasopoulos, and R.~J. Hyndman.
+Optimal forecast reconciliation for hierarchical and grouped time series through
+trace minimization. \emph{JASA}, 114(526):804--819, 2019.
+\bibitem{cellsuppression} R.~Zhang, L.~Chen, and Y.~Cheng. Overview of cell
+suppression methods. \emph{Proc. ASA Survey Research Methods Section}, 2023.
+\bibitem{golan1996} A.~Golan, G.~G. Judge, and D.~Miller. \emph{Maximum Entropy
+Econometrics: Robust Estimation with Limited Data}. Wiley, 1996.
+\end{thebibliography}
+
+\end{document}

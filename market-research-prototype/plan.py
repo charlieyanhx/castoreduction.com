@@ -20,15 +20,13 @@ Steps (spec mapping):
   14. Viability score                  → four_ps.score_viability
 """
 from __future__ import annotations
-import json
 import os
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 from capabilities.scheduler import run_labeled
 
-from four_ps import assemble_4ps, assemble_4ps_split
+from four_ps import assemble_4ps_split
 from market_sizing import estimate_market_size, validation_sources_for
 from logger import get
 
@@ -1104,6 +1102,8 @@ def _competitor_count_note(fair_share_n, roster_n) -> str | None:
 
 _VOLUME_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)")
 _PERIOD_FACTORS = (("day", 360), ("week", 52), ("month", 12))
+#: The same factors keyed by slots' normalized period, for the typed path.
+_PERIOD_FACTOR = {"day": 360, "week": 52, "month": 12, "year": 1}
 _PRICE_FIELDS = ("avg_ticket", "avg_order", "avg_transaction", "pricing", "rate_basis")
 
 # The Fermi check's service model, by category class. GENERAL by construction (operator
@@ -1155,19 +1155,37 @@ def _apply_founder_volume(ms: dict, result: dict) -> None:
     alternative slot when the pipeline produced no alternative of its own (an existing
     alternative is never overwritten; two model estimates plus the founder's is richer
     than swapping one out)."""
-    facts = ((result or {}).get("intake") or {}).get("facts") or {}
+    import slots
+    _record = (result or {}).get("intake") or {}
+    facts = _record.get("facts") or {}
+    typed = _record.get("slots") or {}
     vol_text = str(facts.get("expected_volume") or "").strip()
     if not ms or not vol_text:
         return
-    m = _VOLUME_RE.search(vol_text)
-    n = float(m.group(1).replace(",", "")) if m else None
-    factor = next((f for word, f in _PERIOD_FACTORS if word in vol_text.lower()), None)
-    price = None
-    for f in _PRICE_FIELDS:
-        pm = _VOLUME_RE.search(str(facts.get(f) or ""))
-        if pm:
-            price = float(pm.group(1).replace(",", ""))
-            break
+    # TYPED FIRST, prose only as the fallback for CLI briefs and pre-form sessions. The
+    # founder answered a number box beside a period selector — _INPUT_SPECS has carried
+    # expected_volume's period_choices since Wave D — and this function threw both away,
+    # then re-sniffed the period out of the sentence the composer had just written from
+    # them. Four regexes over three facts we were handed typed.
+    n = slots.number(typed.get("expected_volume"), expect=slots.VOLUME)
+    factor = _PERIOD_FACTOR.get(slots.period_in(typed, "expected_volume"))
+    if n is None:
+        m = _VOLUME_RE.search(vol_text)
+        n = float(m.group(1).replace(",", "")) if m else None
+    if factor is None:
+        factor = next((f for word, f in _PERIOD_FACTORS if word in vol_text.lower()), None)
+    # The price has to BE a price. Taking the first number out of whatever sat in a price
+    # field is how a stated monthly operating COST became the venture's price and shipped
+    # a fabricated "-95%" banner (audit 1, R2). A typed record refuses that substitution
+    # outright, whichever field the cost was filed under and whoever adds it to this list.
+    price = next((p for p in (slots.number(typed.get(f), expect=slots.PRICE)
+                              for f in _PRICE_FIELDS) if p), None)
+    if price is None:
+        for f in _PRICE_FIELDS:
+            pm = _VOLUME_RE.search(str(facts.get(f) or ""))
+            if pm:
+                price = float(pm.group(1).replace(",", ""))
+                break
     annual = round(n * factor * price) if (n and factor and price) else None
     # The Fermi screen (operator spec 2026-08-20, refined same day: "it is a meal —
     # have more rigorous assumptions"). Deterministic arithmetic with NAMED assumptions:
@@ -1176,11 +1194,15 @@ def _apply_founder_volume(ms: dict, result: dict) -> None:
     # with shoulders). Every assumption is printed so the reader can re-run the
     # arithmetic; exceeding the ceiling is a stated tension, never a correction.
     plausibility = None
-    cap_m = _VOLUME_RE.search(str(facts.get("capacity") or ""))
+    # A capacity is a STOCK. expect=COUNT is what stops a per-month figure being read as a
+    # room's seating, which is the shape of the 100-seats/month defect.
+    seats = slots.number(typed.get("capacity"), expect=slots.COUNT)
+    if seats is None:
+        cap_m = _VOLUME_RE.search(str(facts.get("capacity") or ""))
+        seats = float(cap_m.group(1).replace(",", "")) if cap_m else None
     daily = n * (1 if factor == 360 else (1 / 7 if factor == 52 else 1 / 30)) \
         if (n and factor) else None
-    if cap_m and daily:
-        seats = float(cap_m.group(1).replace(",", ""))
+    if seats and daily:
         model = _fermi_service_model(
             ((result or {}).get("profile") or {}).get("category")
             or facts.get("product") or "")
@@ -2087,9 +2109,12 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     If `refine=True`, runs the generator-evaluator-refine loop after the pipeline
     (independent judge + deterministic gate → regenerate weak sections). Opt-in
     because it adds LLM cost; default path is unchanged.
-    If `resume_from` is given (see persistence.resume.resume(job_id)), the run is
-    SEEDED with a killed run's outputs and every step whose evidence is intact is
-    skipped rather than recomputed — Wave 3 item 4.
+    If `resume_from` is given, the run is SEEDED with a previous run's outputs and every
+    step whose evidence is intact is skipped rather than recomputed. NOTE: this is the
+    receiving half only. persistence/resume.py, which built that dict from a killed run's
+    ledger, was deleted as unused: nothing ever called it, so no run was ever actually
+    resumed. The parameter is kept because it is the seam a real resume would use, and it
+    is exercised directly by callers that already hold a partial result.
     """
     # Item 6: a run outside the job system had NO ledger record at all -- measured zero
     # transcript files for a direct plan.run_plan call -- so every provenance question about
@@ -2239,6 +2264,15 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                                  competitor_pricing_data=competitor_pricing_data,
                                  reddit_data=reddit_data, channel_data=channel_data,
                                  checkpoint=checkpoint)
+        # AND THE MAP. Clustering ran at step 3c against the roster as it stood then;
+        # refinement has since unioned new rivals into it, so without this the report
+        # publishes a map of one set beside a roster of another. MEASURED on runs
+        # 91346ea9 and de585f13: rosters of 58 and 48 against a map built from 30, which
+        # is the single most common reason a report is withheld (D33, 5 of 16 blocks).
+        # Differentiators were already re-run here for exactly this reason; the map was
+        # simply forgotten alongside them. Cheap: K-Means and PCA are local, and only the
+        # axis labelling costs a call.
+        run_clustering_step(result, profile, opps, checkpoint=checkpoint)
 
     # segment_summary feeds max_diff, the PSM task and subscription economics — built
     # once here, passed explicitly to each.

@@ -47,6 +47,7 @@ DEFAULT_PRICING = {"input": 0.0, "output": 0.0}
 # ---------------------------------------------------------------------------
 @dataclass
 class Usage:
+    """Running LLM spend for this process: calls, tokens and dollars, split by model."""
     calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
@@ -54,6 +55,8 @@ class Usage:
     by_model: dict = field(default_factory=dict)
 
     def add(self, model: str, in_tok: int, out_tok: int) -> None:
+        """Record one call. Cost is priced per model, falling back to DEFAULT_PRICING so an
+        unrecognised model still counts rather than silently costing nothing."""
         price = PRICING.get(model, DEFAULT_PRICING)
         cost = (in_tok / 1_000_000) * price["input"] + (out_tok / 1_000_000) * price["output"]
         self.calls += 1
@@ -69,6 +72,7 @@ class Usage:
         slot["usd"] += cost
 
     def summary(self) -> dict:
+        """A JSON-able snapshot. Dollars rounded to 4dp, which is a cent on a hundred calls."""
         return {
             "calls": self.calls,
             "input_tokens": self.input_tokens,
@@ -80,6 +84,7 @@ class Usage:
         }
 
     def log_summary(self) -> None:
+        """Write one usage line to the log, for the end of a run."""
         s = self.summary()
         log.info(
             "usage: %d calls, %d in + %d out tokens, $%.4f",
@@ -169,6 +174,13 @@ def note_exhaustion(reason: str) -> None:
 
 
 def exhaustion_summary() -> dict:
+    """Why sections are missing, when EVERY backend refused.
+
+    Empty when it did not happen, so a caller can stamp this on the result
+    unconditionally. The distinction it carries is the whole point: those sections are
+    absent because the pipeline could not look, not because the venture lacks signal, and
+    a report that cannot tell a reader which one is misleading them.
+    """
     if not _EXHAUSTED["count"]:
         return {}
     return {"count": _EXHAUSTED["count"], "reason": _EXHAUSTED["reason"],
@@ -178,68 +190,6 @@ def exhaustion_summary() -> dict:
                      "because the venture lacks signal.")}
 
 
-def _detect_backend() -> str:
-    """Auto-detect from available API keys. Priority: groq > gemini > anthropic."""
-    explicit = os.environ.get("LLM_BACKEND", "").lower()
-    if explicit and explicit in BACKEND_DEFAULTS:
-        return explicit
-    for name, cfg in BACKEND_DEFAULTS.items():
-        key = os.environ.get(cfg["key_env"], "").strip()
-        if key and not key.endswith("..."):
-            return name
-    from errors import AuthError
-    raise AuthError(
-        "No LLM API key found. Set one of:\n"
-        "  GROQ_API_KEY      (free at https://console.groq.com)\n"
-        "  GEMINI_API_KEY    (free at https://aistudio.google.com)\n"
-        "  ANTHROPIC_API_KEY (paid at https://console.anthropic.com)"
-    )
-
-
-def _backend_and_model() -> tuple[str, str]:
-    backend = _detect_backend()
-    model_override = os.environ.get("CLAUDE_MODEL") or os.environ.get("LLM_MODEL")
-    model = model_override or BACKEND_DEFAULTS[backend]["model"]
-    return backend, model
-
-
-# ---------------------------------------------------------------------------
-# Backend implementations
-# ---------------------------------------------------------------------------
-def _call_anthropic(system: str, user: str, max_tokens: int, model: str,
-                    json_mode: bool = True) -> tuple[str, int, int]:
-    import anthropic
-    key = os.environ.get("ANTHROPIC_API_KEY", "")
-    client = anthropic.Anthropic(api_key=key)
-    msg = client.messages.create(
-        model=model, max_tokens=max_tokens,
-        temperature=0,  # F2: deterministic — same input → same number
-        system=system, messages=[{"role": "user", "content": user}],
-    )
-    return msg.content[0].text, msg.usage.input_tokens, msg.usage.output_tokens
-
-
-def _call_groq(system: str, user: str, max_tokens: int, model: str,
-               json_mode: bool = True) -> tuple[str, int, int]:
-    from groq import Groq
-    key = os.environ.get("GROQ_API_KEY", "")
-    client = Groq(api_key=key)
-    resp = client.chat.completions.create(
-        model=model, max_tokens=max_tokens,
-        temperature=0, seed=42,  # F2: deterministic (Groq supports a seed)
-        # Only when the caller wants JSON. call_text shares these backends, so a hardcoded
-        # response_format meant the prose path was constrained to emit an object and
-        # returned that raw text to be printed.
-        **({"response_format": {"type": "json_object"}} if json_mode else {}),
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-    )
-    text = resp.choices[0].message.content or ""
-    in_tok = getattr(resp.usage, "prompt_tokens", 0) or 0
-    out_tok = getattr(resp.usage, "completion_tokens", 0) or 0
-    return text, in_tok, out_tok
 
 
 # Free-tier pacing. MEASURED on this machine: GROQ_API_KEY is empty, so the chain is
@@ -353,17 +303,6 @@ def _call_groq(system: str, user: str, max_tokens: int, model: str,
     out_tok = getattr(resp.usage, "completion_tokens", 0) or 0
     return text, in_tok, out_tok
 
-
-# Free-tier pacing. MEASURED on this machine: GROQ_API_KEY is empty, so the chain is
-# Gemini ALONE at 15 RPM with no second free provider to absorb a throttle — the interval
-# below is the entire rate budget, and the pipeline calls from ~8 ThreadPoolExecutor
-# fan-outs (4Ps sections, evidence phase, place, discover, differentiators,
-# competitor_pricing, run_labeled). A bare global read by N threads let every one of them
-# decide "4s have passed" at the same instant and fire together, which is how a 15 RPM
-# tier is exhausted in one breath — and why the LLM-dependent steps (market scale
-# classification, customer voice) degraded while deterministic ones came through.
-_GEMINI_MIN_INTERVAL = 4.0          # seconds between call STARTS (15 RPM free tier)
-_gemini_rate_lock = threading.Lock()
 
 
 # Recent non-transient backend failures, so an exhausted chain can say WHY (see
@@ -840,7 +779,6 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
             continue
         if response_model is not None:
             try:
-                from pydantic import ValidationError
                 result: dict = response_model.model_validate(obj).model_dump()
             except Exception as e:
                 error = str(e)
@@ -866,6 +804,12 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
 
 def call_text(system: str, user: str, max_tokens: int = 2000,
               tier: Optional[str] = None, memory=None) -> str:
+    """One LLM call that returns PROSE rather than JSON.
+
+    Separate from call_json because json_mode is not a formatting preference: Groq and
+    Gemini both hardcode structured output when it is on, so asking for prose through the
+    JSON path returns a quoted string or a refusal.
+    """
     if memory is not None:
         system = memory.apply(system)
     backend, model = _backend_and_model()

@@ -16,6 +16,7 @@ from tenacity import (
 )
 import logging
 
+import url_guard
 from logger import log
 
 
@@ -67,10 +68,22 @@ def request(
         reraise=True,
     )
 
+    # SSRF: the URL is vetted here, and again at every redirect hop, before any socket
+    # is opened, see url_guard. `allow_redirects` is intercepted rather than handed to
+    # requests, because requests would follow the chain without asking us about the
+    # hops, which are exactly the addresses an attacker chooses.
+    allow_redirects = kwargs.pop("allow_redirects", True)
+
+    def _send(_method: str, _url: str, **kw):
+        return requests.request(
+            _method, _url, timeout=timeout, headers=merged_headers,
+            allow_redirects=False, **kw
+        )
+
     @retry_decorator
     def _do_request():
-        return requests.request(
-            method, url, timeout=timeout, headers=merged_headers, **kwargs
+        return url_guard.fetch_guarded(
+            _send, method, url, allow_redirects=allow_redirects, **kwargs
         )
 
     try:

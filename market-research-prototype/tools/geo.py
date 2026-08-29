@@ -35,6 +35,7 @@ class GeocodeAddressArgs(BaseModel):
 
 
 class AcsDemographicsArgs(BaseModel):
+    """Validated arguments for an ACS demographics lookup."""
     state_fips: str = Field(min_length=1, description="2-digit state FIPS code")
     county_fips: str = Field(min_length=1, description="3-digit county FIPS code")
     tract: Optional[str] = None
@@ -48,6 +49,7 @@ class CensusBusinessCountsArgs(BaseModel):
 
 
 class OsmArgs(BaseModel):
+    """Validated arguments for an OSM place query, bounded to a sane radius."""
     lat: float = Field(ge=-90.0, le=90.0)
     lng: float = Field(ge=-180.0, le=180.0)
     radius_m: int = Field(default=3000, gt=0, le=50000)
@@ -755,6 +757,10 @@ _ACS_AGGREGATE_INCOME = "B19025_001E"   # aggregate household income, for the op
 
 
 class AcsIncomeDistributionArgs(BaseModel):
+    """Validated arguments for an ACS income-distribution lookup.
+
+    Either a single tract or a list of GEOIDs, which are summed into a tract union.
+    """
     state_fips: Optional[str] = None
     county_fips: Optional[str] = None
     tract: Optional[str] = None
@@ -973,6 +979,7 @@ class CensusReceiptsArgs(BaseModel):
     # Exactly six digits. A sector aggregate answers with HTTP 200 and a real row —
     # NAICS 81 gives $3,158,226/establishment against pet care's $1,286,805 — so a short
     # code is a 2.45x error wearing a genuine citation. See resolve_naics.
+    """Validated arguments for a Census receipts lookup. See the NAICS note below."""
     naics: str = Field(pattern=r"^\d{6}$")
     state_fips: Optional[str] = None
     county_fips: Optional[str] = None

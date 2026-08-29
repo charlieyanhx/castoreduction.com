@@ -9,7 +9,7 @@ same event shape they always did.
 APPEND-ONLY IS THE CONTRACT: recorded events are never mutated or removed, and
 `events()` hands back copies — so a reader cannot rewrite history. That is what makes
 the two things built on top of it sound: transcript.py (item 2) replays the ledger to
-reconstruct identical state, and resume.py (item 4) trusts `steps()` to know what
+reconstruct identical state, and any future resume would trust `steps()` to know what
 already finished.
 
 Thread-aware: the pipeline fans steps out across thread pools, so the sink is a
@@ -65,6 +65,7 @@ class RunLedger:
     """Append-only, thread-safe event log for a single run."""
 
     def __init__(self, run_id: str = "", sink: Optional[Any] = None) -> None:
+        """A ledger for one run. `sink` receives events live, for streaming."""
         self.run_id = run_id
         self._events: list[dict] = []
         self._lock = threading.Lock()
@@ -215,7 +216,7 @@ class RunLedger:
                 "in_tok": in_tok, "out_tok": out_tok, "by_model": by_model}
 
     def steps(self) -> list[str]:
-        """Names of steps recorded COMPLETE, in order. resume.py trusts this to know
+        """Names of steps recorded COMPLETE, in order. A resume would trust this to know
         what already finished, so 'start' events are deliberately excluded."""
         return [e.get("name") for e in self.events()
                 if e.get("layer") == "step" and e.get("status") == "complete"]
@@ -254,6 +255,7 @@ def record_step(name: str, status: str = "complete", **extra) -> Optional[dict]:
 def record_tool(name: str, category: str, source: str, *, ok: bool, skeleton: bool,
                 duration: float, payload: Any = None, cost_meta: Optional[dict] = None,
                 error: Optional[str] = None) -> Optional[dict]:
+    """Record one tool call on the process-wide ledger. See RunLedger.record_tool."""
     return LEDGER.record_tool(name, category, source, ok=ok, skeleton=skeleton,
                               duration=duration, payload=payload,
                               cost_meta=cost_meta, error=error)
@@ -316,6 +318,11 @@ class tool_call_in_flight:
         self._owns = False
 
     def __enter__(self) -> "tool_call_in_flight":
+        """Mark this tool name as in flight, and remember whether WE were the one to mark it.
+
+        Only the outermost caller owns the name, which is what lets the nested-call check
+        below distinguish re-entry from a genuinely different tool underneath.
+        """
         names = getattr(_inflight, "names", None)
         if names is None:
             names = _inflight.names = set()
@@ -379,6 +386,7 @@ def instrument_source(fn: Any, name: str, category: str) -> Any:
         # The @tool wrapper is already recording this exact call — stay quiet or the trace
         # double-counts every get_tool() invocation. A DIFFERENT tool called underneath is
         # still recorded: nesting is real work and hiding it would be a lie.
+        """Call the tool, recording it unless an enclosing @tool wrapper already is."""
         impl = _target()
         if _tool_call_is_in_flight(name):
             return impl(*args, **kwargs)

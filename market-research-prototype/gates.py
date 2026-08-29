@@ -42,6 +42,11 @@ def _num(v) -> Optional[float]:
 
 @dataclass
 class Finding:
+    """One detector's verdict on one report.
+
+    `ok` is three-valued: True holds, False violated, None could not be decided. The
+    comment on `out_of_scope` below explains why None alone was not enough.
+    """
     ok: Optional[bool]  # True pass / False fail / None not-applicable
     detail: str = ""
     # WHY this abstained, when it did. `None` alone conflates two opposite meanings, and D55
@@ -69,6 +74,13 @@ def not_applicable(detail: str) -> Finding:
 
 @dataclass
 class Invariant:
+    """A named detector, and what its verdict is worth.
+
+    `audit_class` records WHICH historical failure this exists to catch, so a check can
+    never become a rule nobody remembers the reason for. `severity` separates "block the
+    gate" from "say it and move on", which is what lets the sweep stay honest without
+    refusing every report that has one soft flaw.
+    """
     id: str
     name: str
     audit_class: str          # which historical failure mode this detects
@@ -92,6 +104,12 @@ def d02_renders(r: dict, html: Optional[str]) -> Finding:
 
 
 def d03_single_som(r: dict, html: Optional[str]) -> Finding:
+    """The SOM the sizing published is the SOM the financials spent.
+
+    Two numbers for the same quantity is the dual-SOM defect: the funnel shows one figure
+    and the revenue scenarios are built on another, so the arithmetic a reader checks by
+    hand does not reconcile.
+    """
     som = _num(((r.get("market_sizing") or {}).get("som") or {}).get("mid"))
     used = _num(((r.get("financials") or {}).get("assumptions") or {}).get("som_mid_used"))
     if som is None or used is None:
@@ -100,6 +118,12 @@ def d03_single_som(r: dict, html: Optional[str]) -> Finding:
 
 
 def d04_funnel_order(r: dict, html: Optional[str]) -> Finding:
+    """TAM >= SAM >= SOM, at EVERY edge of the range, not only at the mid.
+
+    Checking the mid alone passed a report whose SAM.high exceeded TAM.high, because the
+    clamp scaled the mid and let the edges move independently. A funnel that inverts at
+    its optimistic edge is still an inverted funnel.
+    """
     # R4 rank 17: check every EDGE (low/mid/high), not just the mid — the mid clamp
     # scaled high independently and let SAM.high exceed TAM.high on ordered mids (3/16).
     ms = r.get("market_sizing") or {}
@@ -119,6 +143,12 @@ def d04_funnel_order(r: dict, html: Optional[str]) -> Finding:
 
 
 def d05_unit_no_monthly(r: dict, html: Optional[str]) -> Finding:
+    """A per-unit venture is never described in monthly units.
+
+    Model bleed: a bakery priced per loaf acquires subscription language somewhere in the
+    chain and the report starts reasoning about churn it does not have. Checked across
+    economics, financials and willingness-to-pay because the leak can enter at any of them.
+    """
     if r.get("business_model_kind") not in PER_UNIT_KINDS:
         return not_applicable("not a per-unit model")
     units = {
@@ -132,6 +162,11 @@ def d05_unit_no_monthly(r: dict, html: Optional[str]) -> Finding:
 
 
 def d06_html_no_saas_bleed(r: dict, html: Optional[str]) -> Finding:
+    """The same model bleed, hunted in the RENDERED PAGE rather than the data.
+
+    D05 reads the unit fields; this reads what the buyer actually sees, because a tier card
+    can render "$350/mo per account" from data whose unit field was innocent.
+    """
     # C3/D06-extend: marketplace ventures (take-rate per transaction) are also
     # never-recurring — same subscription-phrase leak class as per-unit models. Real
     # R4 catch: a marketplace's per-booking price rendered "$350/mo per account".
@@ -153,6 +188,12 @@ def d06_html_no_saas_bleed(r: dict, html: Optional[str]) -> Finding:
 
 
 def d07_geo_competitors(r: dict, html: Optional[str]) -> Finding:
+    """A hyperlocal venture found its competitors on the map, not on the web.
+
+    If a venture classified hyperlocal has no geo-sourced roster, one of the two upstream
+    decisions is wrong: either it is not really hyperlocal, or the location never resolved.
+    Either way the trade-area arithmetic below it cannot be trusted.
+    """
     # Hyperlocal ONLY: a hyperlocal-classified venture MUST have geo-sourced competitors —
     # if it can't (no location / unmapped category), either the promotion or the scale
     # classification is wrong (the audit's agency-misrouted-to-hyperlocal critical). Regional
@@ -165,6 +206,11 @@ def d07_geo_competitors(r: dict, html: Optional[str]) -> Finding:
 
 
 def d08_profit_coherent(r: dict, html: Optional[str]) -> Finding:
+    """If the report claims profitability at SOM, the scenario table must agree.
+
+    Abstains unless the claim is actually made: this detects CONTRADICTION between two
+    sections, so with nothing claimed there is nothing to contradict.
+    """
     econ = r.get("economics") or {}
     asv = econ.get("at_som_volume") or {}
     if asv.get("profitable_at_som") is not True:
@@ -586,6 +632,13 @@ def d09_publishable_gated(r: dict, html: Optional[str]) -> Finding:
 
 
 def d10_wtp_band_sane(r: dict, html: Optional[str]) -> Finding:
+    """The willingness-to-pay band is ordered, and a range is really a range.
+
+    Two failures. Unordered (low > median) is arithmetic nonsense. `low == high` printed as
+    a band is worse: it is a single observation wearing the clothes of a measured spread,
+    which is precisely the over-claim the report exists not to make. A genuine single point
+    is fine when it SAYS it is one.
+    """
     wtp = (((r.get("consumer_research") or {}).get("synthesis") or {})
            .get("willingness_to_pay") or {})
     lo, md, hi = _num(wtp.get("low")), _num(wtp.get("median")), _num(wtp.get("high"))
@@ -684,6 +737,12 @@ def d12_provenance(r: dict, html: Optional[str]) -> Finding:
 
 
 def d13_benchmark_not_fabricated(r: dict, html: Optional[str]) -> Finding:
+    """A geo-sourced roster must not carry scraped price benchmark rows.
+
+    Competitors found on a map are venues, not storefronts with published price pages, so
+    benchmark rows against them cannot have been scraped from anywhere. Rows present here
+    mean the table was invented.
+    """
     if not (r.get("discover") or {}).get("geo_sourced"):
         return Finding(None, "web-sourced competitors (benchmark legitimate)")
     rows = ((r.get("pricing") or {}).get("benchmark") or {}).get("rows") or []
@@ -692,6 +751,7 @@ def d13_benchmark_not_fabricated(r: dict, html: Optional[str]) -> Finding:
 
 
 def d14_no_failed_sections(r: dict, html: Optional[str]) -> Finding:
+    """No 4Ps section shipped with its generation-failed placeholder still in it."""
     fp = r.get("four_ps") or {}
     bad = [s for s in ("product", "price", "place", "promotion")
            if "generation failed" in str((fp.get(s) or {}).get("narrative") or "")]
@@ -2520,6 +2580,12 @@ def load_corpus(corpus: Optional[str], db: Optional[str], latest: int) -> dict[s
 
 
 def run_gate(reports: dict[str, tuple[dict, Optional[str]]], gate: str) -> dict:
+    """Sweep one gate's invariants across every report, returning the scorecard.
+
+    Per-report, per-detector isolation is load bearing, for the reason spelled out below:
+    the apparatus that judges whether reports are honest has to degrade one cell at a
+    time, or a single malformed field silently costs you the whole sweep.
+    """
     ids = set(GATES.get(gate) or GATES["core"])
     invs = [i for i in INVARIANTS if i.id in ids]
     per_report: dict[str, dict] = {}
@@ -2560,6 +2626,11 @@ def run_gate(reports: dict[str, tuple[dict, Optional[str]]], gate: str) -> dict:
 
 
 def main() -> int:
+    """Sweep a corpus (or the newest N jobs) and report. Exit code IS the verdict.
+
+    Offline and deterministic by construction: it reads stored results and rendered HTML,
+    never the network and never a model, so the same corpus always scores the same.
+    """
     ap = argparse.ArgumentParser(description="Deterministic milestone gates for Castor reports")
     ap.add_argument("--corpus", help="dir of <slug>.json (+ optional <slug>.html)")
     ap.add_argument("--db", help=".jobs.sqlite path (no HTML checks)")

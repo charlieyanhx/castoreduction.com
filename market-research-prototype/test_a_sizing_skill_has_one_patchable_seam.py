@@ -106,18 +106,6 @@ class TestOnePatchNowReachesEveryCaller(unittest.TestCase):
                         "regional still calls its own copy of size_hyperlocal — one patch "
                         "at the definition did not reach it")
 
-    def test_patching_the_defining_module_intercepts_dispatch(self):
-        from unittest.mock import patch
-
-        import skills.sizing.dispatch as dispatch
-        with patch("skills.sizing.classify.classify_market_scale") as m:
-            m.return_value = type("E", (), {"payload": None, "skeleton": True,
-                                            "error": "stub"})()
-            try:
-                dispatch.size_market("a cafe in Austin, Texas")
-            except Exception:                                # noqa: BLE001
-                pass
-        self.assertTrue(m.called, "dispatch calls its own copy of classify_market_scale")
 
 
 if __name__ == "__main__":

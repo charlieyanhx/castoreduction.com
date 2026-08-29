@@ -187,7 +187,7 @@ def classify_market_scale(description: str, geo: str = "US") -> Evidence:
     No market figures are produced here — this only decides HOW the downstream
     sizing skill will compute them.
 
-    Do NOT use when you actually want the figures — call size_market, which
+    Do NOT use when you actually want the figures — call plan.size_by_scale (the routing that actually runs), which
     runs this classifier and then executes the routed engine; picking a
     per-scale engine yourself skips the deterministic override rules applied
     here (client-services, physical-local, multi-location).

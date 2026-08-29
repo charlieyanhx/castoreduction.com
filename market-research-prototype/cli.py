@@ -12,8 +12,6 @@ All outputs go to ./out/ as timestamped JSON.
 from __future__ import annotations
 import argparse
 import json
-import os
-import sys
 import time
 from pathlib import Path
 
@@ -31,6 +29,7 @@ def _save(name: str, data: dict) -> Path:
 
 
 def cmd_discover(args):
+    """`discover`: find competitors for a category, save the run, print the top opportunities."""
     from discover import discover
 
     result = discover(args.category, geo=args.geo)
@@ -44,6 +43,7 @@ def cmd_discover(args):
 
 
 def cmd_taste(args):
+    """`taste`: decode customer voice for one brand+domain and save the profile."""
     from taste import decode_taste
 
     result = decode_taste(args.brand, args.domain)
@@ -53,6 +53,7 @@ def cmd_taste(args):
 
 
 def cmd_match(args):
+    """`match`: score an idea against a taste profile loaded from disk."""
     from match import score_match
 
     with open(args.profile) as f:
@@ -91,6 +92,11 @@ def cmd_full(args):
 
 
 def main():
+    """Parse the subcommand and run it.
+
+    .env is loaded here rather than at import so `--help` still works before the
+    dependencies are installed.
+    """
     try:
         from dotenv import load_dotenv
         load_dotenv()

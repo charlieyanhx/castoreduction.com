@@ -69,6 +69,11 @@ class CitationStore:
         self._entries: list[dict] = []
 
     def register(self, source: str, claim: str = "") -> int:
+        """Number a (source, claim) pair, reusing the number if it is already registered.
+
+        Deduplicating on the pair rather than the source is what lets one source support two
+        different claims under two markers, while the same claim cited twice stays one number.
+        """
         key = ((source or "").strip(), (claim or "").strip())
         if key in self._by_key:
             return self._by_key[key]
@@ -81,6 +86,7 @@ class CitationStore:
         return [dict(e) for e in self._entries]
 
     def source_for(self, cid: int) -> Optional[str]:
+        """The source string behind a citation number, or None if it was never registered."""
         for e in self._entries:
             if e["id"] == cid:
                 return e["source"]

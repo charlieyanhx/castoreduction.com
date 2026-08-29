@@ -17,52 +17,33 @@ Run:
 """
 from __future__ import annotations
 import os
-import hashlib
-import re
-from pathlib import Path
+import secrets
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
-                              RedirectResponse)
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 import auth
+import url_guard
+# Inert shared bits, defined once in routes/deps.py and re-exported here: `api.SafeUndefined`
+# and `api.TEMPLATES_DIR` are addresses the tests and older call sites already use, and
+# moving a definition should not move its address.
+from routes.deps import (                                          # noqa: F401
+    APP_VERSION, DOCS_DIR, STATIC_DIR, TEMPLATES_DIR, WEB_DIR, SafeUndefined,
+    _ASSET_VERSIONS, _asset_version, _NO_CACHE, _stamped_html,
+)
 import jobs
 import quota
 from contextvars import ContextVar
 from logger import get
-from llm import get_usage
 import scrape  # noqa: F401 — installs requests-cache globally on import
 
 log = get("api")
 
-import jinja2
 
 
-class SafeUndefined(jinja2.ChainableUndefined):
-    """A missing template field must NEVER 500 the whole report (M2-class hardening). The default
-    Undefined raises on `'{:,.0f}'.format(missing)`, on `missing > 0` comparisons, and on
-    arithmetic — any one of which blanks the entire page. This renders/behaves NULLISH instead, so
-    one absent value degrades to a blank cell. ChainableUndefined base also lets `a.b.c` chains
-    resolve to undefined rather than raising. The degradation banner + validation flags still
-    surface genuinely missing data, so we lose nothing by failing soft here."""
-    __slots__ = ()
-    def __format__(self, spec): return ""
-    def __bool__(self): return False
-    def __lt__(self, other): return False
-    def __le__(self, other): return False
-    def __gt__(self, other): return False
-    def __ge__(self, other): return False
-    def __int__(self): return 0
-    def __float__(self): return 0.0
-    def __add__(self, other): return other
-    def __radd__(self, other): return other
-    def __sub__(self, other): return 0
-    def __mul__(self, other): return 0
-    __rmul__ = __mul__
-    def __truediv__(self, other): return 0
-    def __round__(self, n=0): return 0
 
 
 try:
@@ -72,7 +53,6 @@ except ImportError:
     pass
 
 
-import json as _json
 import time as _time
 
 
@@ -170,6 +150,23 @@ def _session_owner(request: Request = None) -> str | None:
     return auth.read_session_token(request.cookies.get(SESSION_COOKIE))
 
 
+def _client_ip(request: Request = None) -> str:
+    """The caller's address, for rate limiting only.
+
+    X-Forwarded-For is honoured ONLY when CASTOR_TRUST_PROXY=1, because behind no proxy
+    that header is attacker-supplied and a limiter keyed on it can be stepped around by
+    sending a new value each time. Unset, the socket address is the honest answer.
+    """
+    request = request or _REQUEST.get()
+    if request is None:
+        return "unknown"
+    if os.environ.get("CASTOR_TRUST_PROXY") == "1":
+        fwd = request.headers.get("x-forwarded-for", "")
+        if fwd:
+            return fwd.split(",")[0].strip()
+    return getattr(getattr(request, "client", None), "host", None) or "unknown"
+
+
 def _owned_job(job_id: str, request: Request = None) -> dict:
     """The ONE way an HTTP handler may look up a job.
 
@@ -211,18 +208,55 @@ def _find_existing_job(kind: str, match_params: dict, max_age_hours: int = 24) -
 
 app = FastAPI(
     title="Market Research Prototype",
-    version="0.1.0",
+    version=APP_VERSION,
     description="Discover rising DTC brands, decode their audiences, and match product ideas.",
 )
 
 
 @app.middleware("http")
 async def _bind_request(request: Request, call_next):
+    """Stash the request so _current_owner() and _client_ip() can reach it.
+
+    Middleware rather than a parameter on every handler: threading `request` through ~10
+    signatures works until the eleventh endpoint forgets, and a forgotten request means a
+    silent fall back to the legacy owner, which is auth that looks present and is not.
+    Reset in `finally` so the ContextVar cannot leak into the next request on this task.
+    """
     token = _REQUEST.set(request)
     try:
         return await call_next(request)
     finally:
         _REQUEST.reset(token)
+
+# The page surfaces live in their own module; the app is still assembled here, in one
+# place, so route order stays visible.
+# Re-exported: both are addressed as `api.X` / `from api import X` by the tests and
+# by older call sites. Moving a definition should not move its address.
+from routes.jobs import display_title, get_job_report_html      # noqa: F401
+from routes.pages import router as _pages_router
+from routes.jobs import router as _jobs_router
+app.include_router(_pages_router)
+app.include_router(_jobs_router)
+
+
+
+@app.on_event("startup")
+def _refuse_to_boot_misconfigured():
+    """FAIL AT BOOT, NOT AT THE FIRST LOGIN.
+
+    auth._session_secret() raises when CASTOR_ENV=production and SESSION_SECRET is unset,
+    but it only raises when something asks it to sign — which nothing does during startup.
+    So the container came up, /healthz answered 200, the platform marked the deploy
+    healthy, and every signup and login 500'd. Worse, account creation happens BEFORE the
+    session is signed, so the first person to try permanently consumed their email address
+    against an account they could never log into.
+
+    A deploy that cannot serve a login is a failed deploy and should look like one.
+    """
+    if os.environ.get("CASTOR_ENV", "").lower() != "production":
+        return
+    import auth as _auth
+    _auth._session_secret()          # raises RuntimeError -> the container exits
 
 
 @app.on_event("startup")
@@ -234,33 +268,39 @@ def _cleanup_orphaned_jobs():
         get("api").info("startup: marked %d orphaned jobs as error", n)
 
 
-WEB_DIR = Path(__file__).parent / "web"
 WEB_DIR.mkdir(exist_ok=True)
-# Legacy compat
-STATIC_DIR = Path(__file__).parent / "static"
-# Templates resolve from the MODULE, like WEB_DIR/STATIC_DIR above — never from the
-# process cwd. FOUND IN THE BROWSER: uvicorn started outside the project directory made
-# every HTML report 500 with TemplateNotFound, while the JSON API, the workspace UI and
-# the entire test suite kept working — pytest runs with the project as cwd, so the
-# relative path always resolved there.
-TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
 class DiscoverRequest(BaseModel):
+    """Competitor discovery input: what to look for, where, and how wide to cast."""
     category: str = Field(..., min_length=2)
     geo: str = "US"
     max_candidates: int = 10
 
 
 class TasteRequest(BaseModel):
+    """Customer-voice input. `domain` is fetched, so it is validated below before use."""
     brand: str = Field(..., min_length=1)
     domain: str = Field(..., min_length=3)
 
+    @field_validator("domain")
+    @classmethod
+    def _domain_is_public(cls, v: str) -> str:
+        """The client picks this string and the pipeline fetches it (taste →
+        scrape_homepage_testimonials → https://{domain}), so it is refused at the door as
+        well as at the socket. url_guard owns the rule; this is the 422 that keeps an
+        internal address from ever reaching a worker thread."""
+        try:
+            return url_guard.safe_domain(v)
+        except url_guard.BlockedAddress as e:
+            raise ValueError(str(e)) from e
+
 
 class MatchRequest(BaseModel):
+    """An idea plus a taste profile to score it against."""
     idea: str = Field(..., min_length=5)
     taste_profile: dict
 
@@ -304,10 +344,6 @@ class CrewRequest(BaseModel):
     dynamic: bool = True  # let the planner pick which specialists to dispatch
 
 
-class RegenSectionRequest(BaseModel):
-    """Regenerate one 4Ps section with operator steering."""
-    section: str = Field(..., pattern="^(product|price|place|promotion)$")
-    steering: str = Field("", max_length=600)
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +355,7 @@ class IntakeStartRequest(BaseModel):
 
 
 class IntakeMessageRequest(BaseModel):
+    """One founder turn in the conversational intake."""
     session_id: str
     user_message: str = Field(..., min_length=1, max_length=4000)
 
@@ -406,6 +443,82 @@ def post_intake_locate(session_id: str, body: dict | None = None):
                      f"{_CONSEQUENCE.get(level, 'standard analysis')}.")}
 
 
+@app.get("/intake/{session_id}/form")
+def get_intake_form(session_id: str):
+    """FORM MODE: every question this venture should answer, all at once.
+
+    Same deterministic plan the chat walks one turn at a time — each spec carries its
+    own input_kind / options / write_in / unit_hint / optional, so the client renders a
+    survey rather than a conversation."""
+    from intake import get_session, form_questions
+    s = get_session(session_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="session not found")
+    qs = form_questions(s)
+    return {"session_id": session_id, "questions": qs,
+            "answered": sum(1 for q in qs if q.get("value") not in (None, "", [])),
+            "total": len(qs)}
+
+
+@app.post("/intake/{session_id}/form")
+def post_intake_form(session_id: str, body: dict | None = None):
+    """FORM MODE: submit the whole survey at once.
+
+    Answers are written into `extracted` VERBATIM — no LLM re-reading, no prose
+    round-trip. That round-trip is what turned a founder's stated monthly OPERATING
+    COST into their stated PRICE (audit 1, R2); typed answers now reach the pipeline
+    as typed. Returns the confirmation card so the operator still reviews before the
+    run starts."""
+    from intake import get_session, apply_form_answers, confirmation_payload
+    s = get_session(session_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="session not found")
+    apply_form_answers(s, (body or {}).get("answers") or {})
+    try:
+        return confirmation_payload(s)
+    except Exception:                                        # noqa: BLE001
+        return {"ok": True, "extracted": s.get("extracted"),
+                "final_description": s.get("final_description")}
+
+
+@app.get("/intake/{session_id}/preview")
+def get_intake_preview(session_id: str):
+    """THE FREE SCREEN: what we can tell this founder without spending anything.
+
+    Zero model calls and zero network. The question tree is code, the money-kind
+    classifier is code, and the break-even is one division, so the entire pre-paywall
+    funnel costs nothing per visitor beyond the single extraction pass that read their
+    description. That is the same property that makes the pipeline honest, reused: a
+    system whose reasoning is code can show its reasoning away for free.
+
+    Returns the venture reading (always correctable), what would decide it, the founder's
+    own arithmetic, and the limits of that arithmetic stated out loud. It never says
+    whether the idea is good: with a paragraph and no market data, a verdict would be
+    fabrication, and that is the defect class this product exists to remove."""
+    from intake import get_session, form_questions, founder_words
+    from intake_tree import classify_turn, plan_questions
+    import preview as preview_mod
+    s = get_session(session_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="session not found")
+    ex = s.get("extracted") or {}
+    # Same plan and same classification the survey uses, so the preview and the questions
+    # can never disagree about what this venture is or what it is being asked.
+    asked = form_questions(s)
+    cls = classify_turn(ex, user_text=founder_words(s))
+    card = preview_mod.build(s, plan_questions(ex, cls), cls)
+    tier1 = {q["field"] for q in preview_mod.preview_fields(asked, cls)}
+    card["questions"] = [q for q in asked if q["field"] in tier1]
+    # The rest ride the payload too. They are asked AFTER the founder commits to the run
+    # and BEFORE it launches, which is the only window where the answers still reach it:
+    # run_plan stamps the intake record before step one and never re-reads the session, so
+    # anything answered during the six minute wait would improve nothing and saying it did
+    # would be a promise the product cannot keep.
+    card["deferred"] = [q for q in asked if q["field"] not in tier1]
+    card["deferred_count"] = len(card["deferred"])
+    return card
+
+
 @app.get("/intake/{session_id}/confirmation")
 def get_intake_confirmation(session_id: str):
     """The load-bearing answers, and what each one drives, for the confirmation card.
@@ -456,18 +569,16 @@ def post_intake_confirm(session_id: str, body: dict | None = None):
             "intake_record": s.get("intake_record")}
 
 
-@app.get("/healthz")
-def healthz():
-    return {"ok": True, "version": app.version}
 
 
-@app.get("/usage")
-def usage():
-    return get_usage().summary()
 
 
 @app.post("/discover")
 def post_discover(req: DiscoverRequest):
+    """Start a competitor-discovery run. Returns {job_id}.
+
+    Deduped: an identical category+geo discovered in the last 24h returns that job with
+    cached=True rather than paying for the search again."""
     from discover import discover as discover_fn
 
     # Dedup: reuse recent discover for same category+geo (within 24h)
@@ -480,6 +591,7 @@ def post_discover(req: DiscoverRequest):
                          owner_id=_current_owner())
 
     def work():
+        """Discover competitors for this category."""
         return discover_fn(req.category, geo=req.geo, max_candidates=req.max_candidates)
 
     jobs.run_async(job_id, work)
@@ -488,6 +600,11 @@ def post_discover(req: DiscoverRequest):
 
 @app.post("/taste")
 def post_taste(req: TasteRequest):
+    """Decode customer voice for one brand+domain. Returns {job_id}.
+
+    `domain` is client-supplied and ends up in an outbound fetch, so TasteRequest runs it
+    through url_guard.safe_domain first and the fetch itself is guarded again at the
+    socket. Deduped against a recent successful run for the same brand+domain."""
     from taste import decode_taste
 
     # Dedup: if we already have a completed taste for this brand+domain, return it
@@ -501,9 +618,10 @@ def post_taste(req: TasteRequest):
             return {"job_id": existing, "cached": True}
         log.info("taste cached result had error, rerunning")
 
-    job_id = jobs.create("taste", req.model_dump())
+    job_id = jobs.create("taste", req.model_dump(), owner_id=_current_owner())
 
     def work():
+        """Decode customer voice for this brand and domain."""
         return decode_taste(req.brand, req.domain)
 
     jobs.run_async(job_id, work)
@@ -512,11 +630,13 @@ def post_taste(req: TasteRequest):
 
 @app.post("/match")
 def post_match(req: MatchRequest):
+    """Score how well an idea fits a taste profile. Returns {job_id}."""
     from match import score_match
 
-    job_id = jobs.create("match", req.model_dump())
+    job_id = jobs.create("match", req.model_dump(), owner_id=_current_owner())
 
     def work():
+        """Score this idea against the supplied taste profile."""
         return score_match(req.idea, req.taste_profile)
 
     jobs.run_async(job_id, work)
@@ -549,13 +669,36 @@ def post_plan(req: PlanRequest):
     # surface — and on the shared free chain one busy account degrades everyone's runs.
     # Claimed AFTER the row exists so the slot can name its job and be freed by that job
     # reaching a terminal state, rather than depending on release alone.
+    # The ONE included revision does not spend a daily run: it belongs to the report the
+    # reader already has. previous_job_id is set only by post_revise, which has already
+    # refused a second cycle, so this cannot be used to mint unlimited runs by chaining.
+    # Concurrency still applies, because that is about the machine, not the entitlement.
+    # THE PAYWALL, and it only exists once a price does. With STRIPE_PRICE_REPORT unset
+    # the instance behaves exactly as before: free runs to the daily cap, then a refusal.
+    # With a price set, running out of free runs stops being a dead end and becomes a
+    # purchase — the daily cap is a free allowance, not a ceiling on paying customers.
+    _paid_credit = False
     try:
-        quota.claim_run_slot(_owner, job_id=job_id)
+        quota.claim_run_slot(_owner, job_id=job_id,
+                             count_daily=not bool(req.previous_job_id))
     except quota.QuotaExceeded as e:
-        jobs.update(job_id, state="error", error=str(e))
-        raise HTTPException(status_code=429, detail=str(e))
+        import billing
+        if billing.buyable("report") and "already running" not in str(e) \
+                and billing.consume(_owner, "report"):
+            # A bought run does not spend the free allowance it has already exhausted.
+            _paid_credit = True
+            try:
+                quota.claim_run_slot(_owner, job_id=job_id, count_daily=False)
+            except quota.QuotaExceeded as e2:
+                jobs.update(job_id, state="error", error=str(e2))
+                raise HTTPException(status_code=429, detail=str(e2))
+            log.info("[billing] run %s paid for with a report credit", job_id[:8])
+        else:
+            jobs.update(job_id, state="error", error=str(e))
+            raise HTTPException(status_code=429, detail=str(e))
 
     def work(progress=None):
+        """Run the full plan, forwarding progress so the job can checkpoint as it goes."""
         # Forward the progress callback so jobs.run_async checkpoint plumbing works
         try:
             result = run_plan(
@@ -585,6 +728,30 @@ def post_plan(req: PlanRequest):
                     result["_deltas_vs_previous"] = compute_deltas(result, prev_job["result"])
                 except Exception as e:
                     log.warning(f"delta computation failed: {e}")
+
+        # A CARRIED QUESTION MUST GET ANSWERED. carry_questions deliberately copies the
+        # reader's questions across UNANSWERED so they can be grounded in the new
+        # artifact rather than the old one, and draft_answers is what grounds them. Its
+        # only caller used to be the "answer my questions" button, so when that button
+        # went the carried questions simply sat blank: the regenerated report published a
+        # Q&A section reading "Not yet answered", and finalize refuses on exactly that.
+        # The answer belongs to the run that can answer it, not to a button someone has
+        # to remember to press.
+        if previous_job_id and not result.get("error"):
+            try:
+                import iteration as _iter
+                # Carry first, and only then draft. post_revise also carries, but it does
+                # so AFTER post_plan has already started this thread, so on a fast run we
+                # arrive here before the questions exist. carry_questions is idempotent,
+                # so whichever side gets there first wins and the other is a no-op.
+                _iter.carry_questions(previous_job_id, job_id)
+                if (_iter.get_state(job_id).get("questions") or []):
+                    _iter.draft_answers(job_id, result)
+            except Exception as e:                       # noqa: BLE001
+                # Never fail the run over its Q&A: the report is the product, the
+                # answers are an addition, and an unanswered question is visible and
+                # honest where a lost report is neither.
+                log.warning("[api] drafting carried answers failed for %s: %s", job_id, e)
         return result
 
     jobs.run_async(job_id, work)
@@ -593,12 +760,16 @@ def post_plan(req: PlanRequest):
 
 @app.post("/full")
 def post_full(req: DiscoverRequest):
+    """Discover competitors, then decode taste for the top brands, in one job.
+
+    The convenience composition of /discover and /taste. Returns {job_id}."""
     from discover import discover as discover_fn
     from taste import decode_taste
 
-    job_id = jobs.create("full", req.model_dump())
+    job_id = jobs.create("full", req.model_dump(), owner_id=_current_owner())
 
     def work():
+        """Discover competitors, then decode taste for the top three brands."""
         disc = discover_fn(req.category, geo=req.geo, max_candidates=req.max_candidates)
         opps = (disc.get("synthesis") or {}).get("ranked_opportunities", [])
         tastes = {}
@@ -622,9 +793,10 @@ def post_research_crew(req: CrewRequest):
     invokable product capability, not an idle layer). Parallel specialist agents
     (market scan / demand / pricing / local) → lead synthesis brief.
     """
-    job_id = jobs.create("crew", req.model_dump())
+    job_id = jobs.create("crew", req.model_dump(), owner_id=_current_owner())
 
     def work(progress=None):
+        """Run the multi-agent research crew and return its payload."""
         from agents import run_research_crew
         ev = run_research_crew(req.description, geo=req.geo,
                                address=req.address, dynamic=req.dynamic)
@@ -635,6 +807,7 @@ def post_research_crew(req: CrewRequest):
 
 
 class AuthRequest(BaseModel):
+    """Sign-up and sign-in carry the same two fields, so they share one model."""
     email: str
     password: str
 
@@ -650,6 +823,18 @@ def _set_session(resp: Response, account_id: str) -> None:
 
 @app.post("/auth/signup")
 def auth_signup(req: AuthRequest, response: Response):
+    """Create an account and start a session.
+
+    Every rejection is the same 400: a distinct "already exists" would let a stranger
+    enumerate which addresses are registered.
+
+    RATE LIMITED, like login. Login was throttled and signup was not, which is the wrong
+    way round for cost: a stranger who cannot guess a password can still mint accounts in
+    a loop, and every account carries its own daily run allowance. Free accounts times a
+    report each is an unbounded bill on someone else's key, and nothing else in the system
+    bounds it.
+    """
+    quota.check_login_allowed(f"signup:{_client_ip()}")
     try:
         acct = auth.create_account(req.email, req.password)
     except auth.PasswordTooWeak as e:
@@ -657,6 +842,7 @@ def auth_signup(req: AuthRequest, response: Response):
     except ValueError:
         # Deliberately the same 400 as any other invalid signup: "account already exists"
         # tells a stranger which addresses are registered.
+        quota.record_login_failure(f"signup:{_client_ip()}")
         raise HTTPException(status_code=400, detail="could not create that account")
     _set_session(response, acct)
     return {"ok": True}
@@ -664,16 +850,135 @@ def auth_signup(req: AuthRequest, response: Response):
 
 @app.post("/auth/login")
 def auth_login(req: AuthRequest, response: Response):
+    """Exchange email+password for a session cookie.
+
+    One 401 for both an unknown email and a wrong password, and rate limited before the
+    password is verified at all -- see the comment below for why that ordering matters."""
+    # Rate limited BEFORE the password is checked: verify_password is scrypt (~100ms and
+    # ~16MB each), so an unthrottled endpoint is both a credential-stuffing target and a
+    # cheap way to exhaust memory. Keyed by IP and by email because either one alone is
+    # trivially rotated around. See quota.check_login_allowed.
+    keys = (f"ip:{_client_ip()}", f"email:{(req.email or '').strip().lower()}")
+    try:
+        quota.check_login_allowed(*keys)
+    except quota.QuotaExceeded as e:
+        raise HTTPException(status_code=429, detail=str(e))
+
     acct = auth.authenticate(req.email, req.password)
     if not acct:
-        # One message for an unknown email AND a wrong password — see auth.authenticate.
+        quota.record_login_failure(*keys)
+        # One message for an unknown email AND a wrong password, see auth.authenticate.
         raise HTTPException(status_code=401, detail="invalid email or password")
+    quota.clear_login_failures(*keys)
     _set_session(response, acct)
     return {"ok": True}
 
 
+# --------------------------------------------------------------------- google sign-in --
+# NO NEW DEPENDENCY, and no JWT parsing. The authorization-code flow exchanges the code
+# with Google's token endpoint over TLS and then reads the profile from the userinfo
+# endpoint with the resulting access token. Because both responses come straight from
+# Google over an authenticated channel, there is no id_token signature for us to verify
+# and therefore no chance of verifying it wrongly, which is the usual way homegrown OAuth
+# goes bad.
+_GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
+_GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
+_GOOGLE_USERINFO = "https://openidconnect.googleapis.com/v1/userinfo"
+_OAUTH_STATE_COOKIE = "castor_oauth_state"
+
+
+def google_configured() -> bool:
+    return bool(os.environ.get("GOOGLE_CLIENT_ID")
+                and os.environ.get("GOOGLE_CLIENT_SECRET"))
+
+
+def _google_redirect_uri(request: Request) -> str:
+    """Where Google sends the browser back. Must match the console entry exactly.
+
+    Behind a TLS-terminating proxy the request arrives as http, so the scheme is forced
+    to https outside local development: registering an http:// callback for a public site
+    would send the code back in clear."""
+    explicit = os.environ.get("GOOGLE_REDIRECT_URI", "").strip()
+    if explicit:
+        return explicit
+    base = str(request.base_url).rstrip("/")
+    if os.environ.get("CASTOR_ENV", "").lower() == "production":
+        base = base.replace("http://", "https://", 1)
+    return f"{base}/auth/google/callback"
+
+
+@app.get("/auth/google")
+def auth_google(request: Request):
+    """Send the browser to Google. 404 when unconfigured, so the button never half-works."""
+    if not google_configured():
+        raise HTTPException(status_code=404, detail="google sign-in is not configured")
+    # CSRF: a random state echoed back by Google and compared against a cookie only this
+    # browser holds. Without it, an attacker can complete a login in someone else's browser.
+    state = secrets.token_urlsafe(24)
+    params = urlencode({
+        "client_id": os.environ["GOOGLE_CLIENT_ID"],
+        "redirect_uri": _google_redirect_uri(request),
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "prompt": "select_account",
+    })
+    resp = RedirectResponse(f"{_GOOGLE_AUTH}?{params}", status_code=302)
+    resp.set_cookie(_OAUTH_STATE_COOKIE, state, max_age=600, httponly=True, samesite="lax",
+                    secure=os.environ.get("CASTOR_ENV", "").lower() == "production")
+    return resp
+
+
+@app.get("/auth/google/callback")
+def auth_google_callback(request: Request, code: str = "", state: str = "",
+                         error: str = ""):
+    """Exchange the code, read the profile, start the session."""
+    if not google_configured():
+        raise HTTPException(status_code=404, detail="google sign-in is not configured")
+    if error:
+        return RedirectResponse("/login?error=google_denied", status_code=302)
+    expected = request.cookies.get(_OAUTH_STATE_COOKIE) or ""
+    if not code or not state or not expected or not secrets.compare_digest(state, expected):
+        return RedirectResponse("/login?error=google_state", status_code=302)
+
+    try:
+        import requests as _rq
+        tok = _rq.post(_GOOGLE_TOKEN, timeout=15, data={
+            "code": code,
+            "client_id": os.environ["GOOGLE_CLIENT_ID"],
+            "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
+            "redirect_uri": _google_redirect_uri(request),
+            "grant_type": "authorization_code",
+        })
+        tok.raise_for_status()
+        access = (tok.json() or {}).get("access_token")
+        if not access:
+            raise ValueError("no access token")
+        info = _rq.get(_GOOGLE_USERINFO, timeout=15,
+                       headers={"Authorization": f"Bearer {access}"})
+        info.raise_for_status()
+        profile = info.json() or {}
+    except Exception as e:                                   # noqa: BLE001
+        log.warning("[auth] google exchange failed: %s", e)
+        return RedirectResponse("/login?error=google_failed", status_code=302)
+
+    try:
+        acct = auth.find_or_create_google_account(
+            profile.get("sub") or "", profile.get("email") or "",
+            bool(profile.get("email_verified")))
+    except ValueError as e:
+        log.info("[auth] google sign-in refused: %s", e)
+        return RedirectResponse("/login?error=google_refused", status_code=302)
+
+    resp = RedirectResponse("/survey", status_code=302)
+    _set_session(resp, acct)
+    resp.delete_cookie(_OAUTH_STATE_COOKIE)
+    return resp
+
+
 @app.post("/auth/logout")
 def auth_logout(response: Response):
+    """Clear the session cookie. Always 200, whether or not one was set."""
     response.delete_cookie(SESSION_COOKIE, path="/")
     return {"ok": True}
 
@@ -684,160 +989,92 @@ def auth_me():
     logged out, or the login screen cannot ask whether it is needed."""
     acct = _session_owner()
     if acct:
-        return {"owner": acct, "authenticated": True, "email": _account_email(acct)}
+        return {"owner": acct, "authenticated": True, "email": _account_email(acct),
+                "google": google_configured()}
     local = os.environ.get("CASTOR_ENV", "").lower() != "production"
+    # The login page asks before drawing the Google button: a button that 404s is worse
+    # than no button.
     return {"owner": jobs.LEGACY_OWNER if local else None,
-            "authenticated": False, "local": local}
+            "authenticated": False, "local": local,
+            "google": google_configured()}
 
 
-@app.get("/jobs")
-def get_jobs(limit: int = 50):
-    """Recent jobs. Enriched with a short `params_title` for the workspace sidebar."""
-    recent = jobs.list_recent(limit=limit, owner_id=_current_owner())
-    for j in recent:
-        full = jobs.get(j["id"], owner_id=_current_owner()) or {}
-        desc = ((full.get("params") or {}).get("description")
-                or (full.get("result") or {}).get("profile", {}).get("summary") or "")
-        if desc:
-            j["params_title"] = (desc[:48] + "…") if len(desc) > 48 else desc
-    return recent
+# ------------------------------------------------------------------------- billing --
+class CheckoutRequest(BaseModel):
+    """What is being bought. Prices live in Stripe; this names the product only."""
+    kind: str = Field(..., min_length=1, max_length=32)
+    job_id: str | None = None
 
 
-@app.get("/jobs/{job_id}")
-def get_job(job_id: str):
-    j = _owned_job(job_id)
-    if not j:
-        raise HTTPException(status_code=404, detail="job not found")
-    # The console polls this to decide whether to show a report link. A run that returned
-    # an error instead of a report is stored `complete` with an empty `error` column, so
-    # without this the UI shows a finished job pointing at a report that cannot render.
-    #
-    # ONLY the completed-but-empty case. halt_reason also reports "state=running", which is
-    # the right answer for "may I serve a report" and the wrong one here — reusing it
-    # verbatim relabelled every in-progress job as failed.
-    if (j.get("state") == "complete" and not j.get("error")
-            and (_err := (j.get("result") or {}).get("error"))):
-        j = {**j, "error": str(_err), "state": "error"}
-    return j
+@app.get("/billing/status")
+def billing_status():
+    """What this account holds, and what it can buy.
 
-
-@app.get("/jobs/{job_id}/events")
-def get_job_events(job_id: str, since: int = 0):
-    """Live run events for a job — Wave 3 item 3 (R5: visible MID-run).
-
-    Reads the per-run transcript, which is flushed per event, so this returns what has
-    happened so far while the run is still going. That is finer-grained than polling
-    /jobs/{id}: the partial result only advances at checkpoints, so it can only ever
-    show completed steps, never the tool that is running right now.
-
-    Poll with `?since=next_since` to fetch only what is new. Unknown/never-run jobs are
-    an empty stream, not a 404 — a poller shouldn't have to special-case the window
-    between "job created" and "first event written".
-    """
-    from persistence import transcript as _t
-
-    events = _t.read_events(_t.path_for(job_id))
-    tail = events[since:] if since > 0 else events
-    counts: dict[str, int] = {}
-    for e in events:
-        k = e.get("layer") or "?"
-        counts[k] = counts.get(k, 0) + 1
+    The UI asks before drawing a price. A Buy button on an instance with no Stripe keys is
+    a button that fails, and each kind is priced independently, so a half-configured
+    instance offers only what it can actually sell."""
+    import billing
+    owner = _current_owner()
     return {
-        "job_id": job_id,
-        "events": tail,
-        "next_since": len(events),
-        "steps": [e.get("name") for e in events
-                  if e.get("layer") == "step" and e.get("status") == "complete"],
-        "counts": counts,
+        "configured": billing.configured(),
+        "buyable": {k: billing.buyable(k) for k in billing.PRICE_ENV},
+        "report_credits": billing.balance(owner, "report"),
+        "free_runs_left": max(0, quota._daily_limit(owner) - quota.runs_today(owner)),
     }
 
 
-class FeedbackRequest(BaseModel):
-    rating: int = Field(..., ge=-1, le=1)
-    section: str = "overall"
-    comment: str = ""
+@app.post("/billing/checkout")
+def billing_checkout(req: CheckoutRequest, request: Request):
+    """Start a hosted Stripe Checkout and return its URL.
+
+    The card is entered on Stripe's page, so no card detail reaches this process. Nothing
+    is granted here: a browser arriving at a success URL proves nothing, and only the
+    signed webhook does."""
+    import billing
+    owner = _current_owner(request)
+    base = str(request.base_url).rstrip("/")
+    if os.environ.get("CASTOR_ENV", "").lower() == "production":
+        base = base.replace("http://", "https://", 1)
+    back = (f"{base}/jobs/{req.job_id}/report.html" if req.job_id else f"{base}/survey")
+    try:
+        url = billing.create_checkout(
+            req.kind, owner,
+            success_url=f"{back}?paid={req.kind}",
+            cancel_url=f"{back}?paid=cancelled",
+            job_id=req.job_id)
+    except billing.BillingError as e:
+        raise HTTPException(status_code=402, detail=str(e))
+    return {"url": url}
 
 
-@app.post("/jobs/{job_id}/regenerate")
-def post_regenerate_section(job_id: str, req: RegenSectionRequest):
-    """
-    Regenerate ONE 4Ps section (product/price/place/promotion) with operator steering.
+@app.post("/billing/webhook")
+async def billing_webhook(request: Request):
+    """Stripe reporting a settled payment. The only thing that grants anything.
 
-    Mutates the stored job result in-place and returns the new section. The original
-    section is preserved under `_regen_history` for audit. Pipeline takes ~10-20s
-    instead of re-running the full 5-minute plan.
-    """
-    from four_ps import regenerate_section
+    Reads the RAW body, because the signature covers the bytes Stripe sent and
+    re-serialising the parsed JSON would change them. Deliberately not session
+    authenticated: Stripe has no session, and the signature is the authentication."""
+    import billing
+    raw = await request.body()
+    try:
+        event = billing.verify_webhook(raw, request.headers.get("stripe-signature", ""))
+    except billing.BillingError as e:
+        # 400 rather than 500: a bad signature is a refusal, not a server fault.
+        log.warning("[billing] rejected webhook: %s", e)
+        raise HTTPException(status_code=400, detail=str(e))
+    # 200 even when nothing is granted: an ignored event was handled correctly, and a
+    # non-2xx has Stripe redeliver it until it gives up.
+    return billing.fulfill(event)
 
-    job = _owned_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="job not found")
-    if job.get("kind") != "plan":
-        raise HTTPException(status_code=400, detail=f"can only regenerate sections of plan jobs, got '{job.get('kind')}'")
-    if (_why := halt_reason(job)):
-        raise HTTPException(status_code=409, detail=f"nothing to regenerate from: {_why}")
 
-    result = job.get("result") or {}
-    # Pipeline stores under "four_ps" (legacy tests use "4ps" — accept both)
-    four_ps = result.get("four_ps") or result.get("4ps") or {}
-    fp_key = "four_ps" if result.get("four_ps") else "4ps"
-    if not four_ps or "error" in four_ps:
-        raise HTTPException(status_code=409, detail="job has no usable 4Ps to regenerate")
 
-    section_name = req.section
-    current = four_ps.get(section_name) or {}
 
-    # Pull supporting context from the stored result
-    discover = result.get("discover") or {}
-    competitors = ((discover.get("synthesis") or {}).get("ranked_opportunities") or [])
-    profile = result.get("profile") or {}
-    # Audience: pipeline stores under "audience" (top decoded) or "audiences" (dict);
-    # tests use "tastes" with a "top" key. Accept all three.
-    top_audience = (
-        result.get("audience")
-        or (result.get("tastes") or {}).get("top")
-        or {}
-    )
-    if not top_audience:
-        for source_key in ("audiences", "tastes"):
-            src = result.get(source_key) or {}
-            if isinstance(src, dict):
-                first_key = next((k for k in src if k != "top"), None)
-                if first_key:
-                    top_audience = src[first_key] or {}
-                    break
-    max_diff = result.get("max_diff") or {}
-    # Pipeline stores PSM under "pricing" (legacy: "van_westendorp")
-    van_westendorp = result.get("pricing") or result.get("van_westendorp") or {}
-    place = result.get("place") or {}
 
-    revised = regenerate_section(
-        section_name=section_name,
-        steering=req.steering,
-        current_section=current,
-        profile=profile,
-        competitors=competitors,
-        top_audience=top_audience,
-        max_diff=max_diff,
-        van_westendorp=van_westendorp,
-        place=place,
-    )
-    if "error" in revised:
-        raise HTTPException(status_code=502, detail=revised.get("error"))
 
-    # Preserve the old section under _regen_history for audit
-    history = result.setdefault("_regen_history", {})
-    section_history = history.setdefault(section_name, [])
-    section_history.append({
-        "ts": _time.time(),
-        "steering": req.steering,
-        "previous": current,
-    })
-    four_ps[section_name] = revised
-    result[fp_key] = four_ps
-    jobs.update(job_id, result=result)
-    log.info("regenerated %s for job %s (steering: %s)", section_name, job_id[:8], (req.steering or "")[:40])
-    return {"job_id": job_id, "section": section_name, "revised": revised, "previous_count": len(section_history)}
+
+
+
+
 
 
 # ------------------------------------------------------------------ refinement layer ---
@@ -846,167 +1083,44 @@ def post_regenerate_section(job_id: str, req: RegenSectionRequest):
 # hand-editable with provenance, finalize stamps revision 2. All state lives in its own
 # table (iteration.py); the original result JSON is never touched.
 
-@app.get("/jobs/{job_id}/iteration")
-def get_iteration(job_id: str):
-    if not _owned_job(job_id):
-        raise HTTPException(status_code=404, detail="job not found")
-    import iteration
-    return iteration.get_state(job_id)
 
 
-@app.post("/jobs/{job_id}/annotations")
-def post_annotation(job_id: str, body: dict):
-    if not _owned_job(job_id):
-        raise HTTPException(status_code=404, detail="job not found")
-    import iteration
-    try:
-        return iteration.add_annotation(
-            job_id, section=str((body or {}).get("section") or ""),
-            quote=str((body or {}).get("quote") or ""),
-            comment=str((body or {}).get("comment") or ""),
-            marker=str((body or {}).get("marker") or "comment"))
-    except iteration.IterationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
 
 
-@app.delete("/jobs/{job_id}/annotations/{annotation_id}")
-def delete_annotation(job_id: str, annotation_id: int):
-    if not _owned_job(job_id):
-        raise HTTPException(status_code=404, detail="job not found")
-    import iteration
-    return iteration.remove_annotation(job_id, annotation_id)
 
 
-@app.post("/jobs/{job_id}/questions")
-def post_question(job_id: str, body: dict):
-    if not _owned_job(job_id):
-        raise HTTPException(status_code=404, detail="job not found")
-    import iteration
-    try:
-        return iteration.add_question(job_id, str((body or {}).get("q") or ""))
-    except iteration.IterationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
 
 
-@app.delete("/jobs/{job_id}/questions/{question_id}")
-def delete_question(job_id: str, question_id: int):
-    if not _owned_job(job_id):
-        raise HTTPException(status_code=404, detail="job not found")
-    import iteration
-    return iteration.remove_question(job_id, question_id)
 
 
-@app.post("/jobs/{job_id}/iterate")
-def post_iterate(job_id: str):
-    """Draft grounded answers for every open question and annotation. One LLM call on the
-    free chain; raises rather than fabricating, so unanswered stays visibly unanswered."""
-    j = _owned_job(job_id)
-    if not j:
-        raise HTTPException(status_code=404, detail="job not found")
-    import iteration
-    result = j.get("result") or {}
-    try:
-        return iteration.draft_answers(job_id, result)
-    except iteration.IterationError as e:
-        raise HTTPException(status_code=502, detail=str(e))
 
 
-@app.patch("/jobs/{job_id}/qa/{question_id}")
-def patch_answer(job_id: str, question_id: int, body: dict):
-    if not _owned_job(job_id):
-        raise HTTPException(status_code=404, detail="job not found")
-    import iteration
-    try:
-        return iteration.set_answer(job_id, question_id, str((body or {}).get("a") or ""))
-    except iteration.IterationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
 
 
-@app.patch("/jobs/{job_id}/input-edits")
-def patch_input_edit(job_id: str, body: dict | None = None):
-    """Wave E channel 3: fix a wrong INPUT before the one regeneration. An empty value
-    clears the edit."""
-    if not _owned_job(job_id):
-        raise HTTPException(status_code=404, detail="job not found")
-    import iteration
-    try:
-        st = iteration.set_input_edit(job_id, str((body or {}).get("field") or ""),
-                                      str((body or {}).get("value") or ""))
-        return {"ok": True, "input_edits": st["input_edits"]}
-    except iteration.IterationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
 
 
-@app.post("/jobs/{job_id}/revise")
-def post_revise(job_id: str):
-    """Wave E: the ONE regeneration a report gets. Applies all three revision channels:
-    input edits and reader marks ride the amended brief; typed questions carry into the
-    new job's own Q&A to be answered against the NEW artifact. A report that already
-    revised, or that IS a revision, answers 402: pay for another cycle or take the
-    report as it is."""
-    import iteration
-    j = _owned_job(job_id)
-    if not j:
-        raise HTTPException(status_code=404, detail="job not found")
-    params = j.get("params") or {}
-    st = iteration.get_state(job_id)
-    if st.get("status") == "revised" or params.get("previous_job_id"):
-        raise HTTPException(
-            status_code=402,
-            detail="this report already used its one revision cycle; pay for an extra "
-                   "regeneration or take the report as it is")
-    description = str(params.get("description") or "")
-    if len(description) < 30:
-        raise HTTPException(status_code=422, detail="the original brief is missing")
-    amended = iteration.build_revision_brief(job_id, description)
-    # The intake record follows the edits: a corrected fact is a confirmed fact, and a
-    # correction resolves the field's unknown if it had one.
-    rec = params.get("intake")
-    edits = st.get("input_edits") or {}
-    if isinstance(rec, dict) and edits:
-        rec = dict(rec, facts=dict(rec.get("facts") or {}, **edits),
-                   unknowns=[u for u in (rec.get("unknowns") or []) if u not in edits])
-    out = post_plan(PlanRequest(description=amended, intake=rec,
-                                previous_job_id=job_id,
-                                operator_weights=OperatorWeights()))
-    new_id = out["job_id"]
-    iteration.carry_questions(job_id, new_id)
-    iteration.mark_revised(job_id, new_id)
-    return {"job_id": new_id, "revised_from": job_id}
 
 
-@app.post("/jobs/{job_id}/finalize")
-def post_finalize(job_id: str):
-    if not _owned_job(job_id):
-        raise HTTPException(status_code=404, detail="job not found")
-    import iteration
-    try:
-        return iteration.finalize(job_id)
-    except iteration.IterationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
 
 
-@app.post("/jobs/{job_id}/feedback")
-def post_feedback(job_id: str, req: FeedbackRequest):
-    """Operator submits thumbs-up/down/comment on a plan section."""
-    import feedback as fb_mod
-    j = _owned_job(job_id)
-    if not j:
-        raise HTTPException(status_code=404, detail="job not found")
-    fid = fb_mod.submit(job_id, req.rating, req.section, req.comment)
-    return {"feedback_id": fid, "ok": True}
 
 
-@app.get("/jobs/{job_id}/feedback")
-def get_feedback(job_id: str):
-    """List all feedback for a specific job."""
-    import feedback as fb_mod
-    return {"job_id": job_id, "feedback": fb_mod.get_for_job(job_id)}
+
+
+
+
 
 
 @app.get("/feedback/stats")
 def get_feedback_stats():
-    """Aggregate pipeline quality stats — useful for tuning prompts/weights."""
+    """Aggregate pipeline quality stats, for tuning prompts and weights.
+
+    OPERATOR-ONLY. It takes no job id and returned the most recent negative comments
+    across every tenant to any anonymous caller: the one route here where a stranger
+    needed no identifier at all to read other people's words. Under production it is shut;
+    locally, where there is a single owner, it stays available for tuning."""
+    if os.environ.get("CASTOR_ENV", "").lower() == "production":
+        raise HTTPException(status_code=404, detail="not found")
     import feedback as fb_mod
     return fb_mod.stats()
 
@@ -1035,6 +1149,9 @@ def compare_plans(left: str, right: str):
 
     # Helpful: ensure all expected nested keys exist with safe defaults
     def normalize(r):
+        """Fill in the keys the comparison template reads, so one missing section does not
+        blank the whole side-by-side view.
+        """
         r = r or {}
         r.setdefault("profile", {})
         r.setdefault("viability", {})
@@ -1055,670 +1172,58 @@ def compare_plans(left: str, right: str):
     ))
 
 
-@app.get("/jobs/{job_id}/onepager.html", response_class=HTMLResponse)
-def get_job_onepager(job_id: str):
-    """Compact one-page investor summary. For 'plan' jobs only."""
-    j = _owned_job(job_id)
-    if not j:
-        raise HTTPException(status_code=404, detail="job not found")
-    if (_why := halt_reason(j)):
-        raise HTTPException(status_code=409, detail=f"job produced no report: {_why}")
-    if j["kind"] != "plan":
-        raise HTTPException(status_code=400, detail="one-pager only available for /plan jobs")
-
-    from jinja2 import Environment, FileSystemLoader
-    from datetime import datetime
-    from market_sizing import format_currency
-
-    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=True, undefined=SafeUndefined)
-    tpl = env.get_template("onepager.html")
-
-    r = j["result"] or {}
-    profile = r.get("profile", {})
-    viability = r.get("viability", {})
-    psm = (r.get("pricing", {}) or {}).get("psm", {})
-    competitors = (r.get("discover", {}).get("synthesis", {}) or {}).get("ranked_opportunities", [])
-
-    score = viability.get("viability_score") or 0
-    if score >= 70:
-        viability_color = "#10b981"
-    elif score >= 40:
-        viability_color = "#f59e0b"
-    else:
-        viability_color = "#ef4444"
-
-    html = tpl.render(
-        job_id=job_id,
-        profile=profile,
-        viability=viability,
-        viability_color=viability_color,
-        market_sizing=r.get("market_sizing"),
-        financials=r.get("financials"),
-        personas=r.get("personas"),
-        psm=psm,
-        competitors=competitors,
-        reference_cases=(r.get("discover", {}).get("synthesis", {}) or {}).get("reference_cases", []),
-        steps_completed=r.get("_steps_completed", []),
-        generated_date=datetime.now().strftime("%Y-%m-%d %H:%M"),
-        format_currency=format_currency,
-    )
-    return HTMLResponse(content=html)
-
-
-def display_title(profile: dict) -> str:
-    """The venture name a human should see.
-
-    The LLM often extracts name="Unknown" from a description-only brief. Printing that
-    on a paid deliverable (or a PDF cover) is worse than naming what the report is
-    ABOUT, so fall back to category, then to the first sentence of the summary.
-
-    NOT a route — keep it above the decorator below. Defining it BETWEEN the
-    @app.get and get_job_report_html registered THIS function as the report.html
-    handler, and every request 422'd asking for a `profile` body.
-    """
-    profile = profile or {}
-    name = str(profile.get("name") or "").strip()
-    if name.lower() not in ("", "unknown", "untitled", "n/a", "none", "null"):
-        return name
-    derived = (profile.get("category") or "").strip()
-    if derived:
-        return derived
-    summ = str(profile.get("summary") or "").strip()
-    return summ.split(".")[0][:60] if summ else "Market Research"
-
-
-@app.get("/jobs/{job_id}/trace", response_class=HTMLResponse)
-def get_job_trace(job_id: str):
-    """The debugging view: every block of the report, and exactly what produced it.
-
-    One row per traceable block, with the whole chain — the result path, the module and
-    function that wrote it, the pipeline step it ran in, and the models and tools that step
-    actually used on THIS run. Static map (report/section_provenance) joined to the run's
-    own append-only ledger, so it reports what happened rather than what was intended.
-    """
-    j = _owned_job(job_id)
-    if (_why := halt_reason(j)):
-        raise HTTPException(status_code=404, detail=f"no report to trace: {_why}")
-    r = j.get("result") or {}
-    from report.trace import full_trace, step_activity
-    page = get_job_report_html(job_id).body.decode()
-    rows = full_trace(page, r)
-    acts = step_activity(r)
-
-    def esc(v):
-        import html as _h
-        return _h.escape(str(v if v not in (None, "") else "—"))
-
-    n_result = sum(1 for x in rows if x["kind"] == "result")
-    head = (
-        "<style>body{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;"
-        "background:#0f1117;color:#e5e7eb;margin:0;padding:22px}"
-        "h1{font-size:17px;margin:0 0 4px}h2{font-size:14px;margin:26px 0 8px;color:#c4b5fd}"
-        ".sub{color:#6b7280;margin-bottom:18px}"
-        "table{border-collapse:collapse;width:100%;margin-bottom:20px}"
-        "th,td{border:1px solid #1e2330;padding:6px 8px;text-align:left;vertical-align:top}"
-        "th{background:#151823;color:#9ca3af;font-weight:600;position:sticky;top:0}"
-        "td.p{color:#c4b5fd;white-space:nowrap}td.t{color:#9ca3af;max-width:430px}"
-        ".o{font-weight:700;padding:1px 5px;border-radius:3px;font-size:11px}"
-        ".o-llm{background:#7c3aed33;color:#c4b5fd}.o-computed{background:#05966933;color:#6ee7b7}"
-        ".o-fetched{background:#1d4ed833;color:#93c5fd}.o-simulated{background:#b4530933;color:#fcd34d}"
-        ".o-mixed{background:#4b556333;color:#d1d5db}.o-authored{background:#37415133;color:#9ca3af}"
-        ".inf{color:#b45309}</style>"
-        f"<h1>Report trace &mdash; {esc(job_id)[:8]}</h1>"
-        f"<div class=sub>{len(rows)} traceable blocks &middot; {n_result} from a result path "
-        f"&middot; {len(rows) - n_result} written in the template. "
-        "A block's row names the field, the module, and what that step actually ran.</div>")
-
-    from report.trace import by_script
-    body = ["<h2>What each script produced</h2>"
-            "<div class=sub>One row per script, most of the report first. This is the same "
-            "data as the block table below, grouped the other way &mdash; use it when the "
-            "question is about a script rather than about one sentence.</div>"
-            "<table><tr><th>script</th><th>blocks</th><th>how</th><th>generated with</th>"
-            "<th>tools it used</th><th>sections it owns</th><th>steps</th></tr>"]
-    for g in by_script(page, r):
-        failed = ("<br><span class=inf>tool failures: "
-                  + esc("; ".join(g["tools_failed"][:3])) + "</span>"
-                  if g["tools_failed"] else "")
-        origins = " ".join(f"<span class='o o-{esc(o)}'>{esc(o)}</span>" for o in g["origins"])
-        gen = (esc(", ".join(g["models"])) + (f" &middot; {g['tokens']:,} tok"
-                                              if g["tokens"] else "")
-               if g["models"] else "&mdash;")
-        body.append(
-            f"<tr><td class=p>{esc(g['module'])}</td><td>{g['blocks']}</td>"
-            f"<td>{origins}</td><td class=t>{gen}</td>"
-            f"<td class=t>{esc(', '.join(g['tools'])) if g['tools'] else '&mdash;'}{failed}</td>"
-            f"<td class=t>{esc(', '.join(g['sections'])) if g['sections'] else '&mdash;'}</td>"
-            f"<td class=t>{esc(', '.join(g['steps'])) if g['steps'] else '&mdash;'}</td></tr>")
-    body.append("</table>")
-
-    body += ["<h2>Per-step activity on this run</h2><table><tr><th>step</th><th>llm calls</th>"
-            "<th>models</th><th>tokens</th><th>tools</th><th>attribution</th></tr>"]
-    for step, a in acts.items():
-        attribution = (f"{a['labelled']} recorded"
-                       + (f", <span class=inf>{a['inferred']} inferred from timing</span>"
-                          if a["inferred"] else ""))
-        body.append(
-            f"<tr><td class=p>{esc(step)}</td><td>{a['llm_calls']}</td>"
-            f"<td>{esc(', '.join(a['models']))}</td>"
-            f"<td>{a['in_tok'] + a['out_tok']:,}</td>"
-            f"<td class=t>{esc(', '.join(sorted(a['tools'])))}</td>"
-            f"<td>{attribution}</td></tr>")
-    body.append("</table>")
-
-    body.append("<h2>Every block, in report order</h2><table><tr><th>result path</th>"
-                "<th>origin</th><th>GENERATED BY</th><th>script (file:line)</th>"
-                "<th>function</th><th>step</th><th>text</th></tr>")
-    for x in rows:
-        used = ("&mdash;" if not x.get("step") else
-                f"{x.get('step_llm_calls') or 0} llm"
-                + (f", {len(x.get('step_tools') or [])} tools" if x.get("step_tools") else "")
-                + ("" if x.get("step_activity_known", True)
-                   else " <span class=inf>(ledger gap)</span>"))
-        body.append(
-            f"<tr><td class=p>{esc(x.get('path'))}</td>"
-            f"<td><span class='o o-{esc(x.get('origin') or 'authored')}'>"
-            f"{esc(x.get('origin') or 'authored')}</span></td>"
-            f"<td class=t>{esc(x.get('generated_by'))}</td>"
-            f"<td class=p>{esc(x.get('source_ref') or x.get('module'))}"
-            + ("" if x.get("attribution") == "recorded" else
-               f"<br><span style='color:#6b7280;font-size:11px'>"
-               f"{esc(x.get('attribution'))}</span>")
-            + f"</td><td>{esc(x.get('produced_by'))}</td>"
-            f"<td>{esc(x.get('step'))} <span style='color:#4b5563'>{used}</span></td>"
-            f"<td class=t>{esc(x.get('text'))}</td></tr>")
-    body.append("</table>")
-    return HTMLResponse("<!doctype html><meta charset=utf-8>" + head + "".join(body))
-
-
-def _blocking_list_html(blocking: list) -> str:
-    """The findings, as list items. Shared by the withhold page and the forced banner so
-    the two surfaces can never disagree about what is wrong."""
-    from html import escape as esc
-    return "".join(
-        f"<li style=\"margin:.35rem 0\"><strong>{esc(str(f.get('invariant') or '?'))}</strong>"
-        f" — {esc(str(f.get('detail') or ''))}</li>"
-        for f in blocking)
-
-
-def _withheld_page(job_id: str, blocking: list, remedies: list | None = None,
-                   description: str = "") -> str:
-    """Shown instead of a report the verifier declared unpublishable.
-
-    It NAMES every blocking finding: a report withheld without a reason is unusable to the
-    operator, who then has nothing to act on and no way to judge whether to override."""
-    n = len(blocking)
-    return (
-        "<!doctype html><meta charset=utf-8><title>Report withheld</title>"
-        "<div style=\"font:16px/1.6 -apple-system,system-ui,sans-serif;max-width:46rem;"
-        "margin:12vh auto;padding:0 1.5rem;color:#1f2937\">"
-        "<div style=\"font-size:13px;letter-spacing:.08em;text-transform:uppercase;"
-        "color:#9ca3af\">Castor Advisories</div>"
-        "<h1 style=\"font-size:1.6rem;margin:.4rem 0 .6rem\">This report was withheld</h1>"
-        f"<p style=\"color:#4b5563\">Verification found <strong>{n} blocking "
-        f"issue{'s' if n != 1 else ''}</strong>. A report that fails its own invariants is "
-        "not delivered by default — the findings below have to be resolved, or the run "
-        "regenerated.</p>"
-        f"<ul style=\"color:#4b5563\">{_blocking_list_html(blocking)}</ul>"
-        + _remedy_form_html(remedies or [], description) +
-        "<p style=\"font-size:13px;color:#9ca3af\">Job "
-        f"{job_id}</p>"
-        "<p><a href=\"?force=1\" style=\"display:inline-block;margin-top:.5rem;padding:.55rem 1rem;"
-        "background:#b45309;color:#fff;border-radius:8px;text-decoration:none\">"
-        "Show it anyway (records the override)</a> "
-        "<a href=\"/\" style=\"display:inline-block;margin-top:.5rem;margin-left:.5rem;"
-        "padding:.55rem 1rem;background:#1f2937;color:#fff;border-radius:8px;"
-        "text-decoration:none\">Start a new report</a></p></div>")
-
-
-def _remedy_form_html(remedies: list, description: str) -> str:
-    """The repair form, when any blocking finding traces to a missing INPUT.
-
-    The operator's architecture point (job b98df066): a block whose root cause is input fires
-    ten minutes after the gap was knowable, and a dead-end page makes the operator pay for the
-    pipeline's late discovery. Each remedy asks its one question; the answers are appended to
-    the brief in the phrasing their consumers parse, and a NEW run starts (delta-linked to
-    this one by find_previous_plan). Pipeline-caused blocks get no form — an answer would not
-    fix them, and pretending otherwise is theatre."""
-    if not remedies:
-        return ""
-    import html as _h
-    import json as _json
-    rows = "".join(
-        f'<div style="margin:10px 0"><label style="font-weight:600;font-size:14px">'
-        f'{_h.escape(r["ask"])}</label>'
-        f'<input data-append="{_h.escape(r["append"])}" style="display:block;width:100%;'
-        f'margin-top:6px;padding:9px 11px;border:1px solid #e5e7eb;border-radius:8px;'
-        f'font:inherit" placeholder="your answer"></div>'
-        for r in remedies)
-    return (
-        '<div style="margin:18px 0;padding:16px 18px;border:1px solid #d1d5db;'
-        'border-left:3px solid #047857;border-radius:10px;background:#fff">'
-        '<div style="font-weight:700;font-size:15px">Fix the input, not the report</div>'
-        f'<p style="color:#4b5563;font-size:13.5px;margin:.4rem 0 0">{len(remedies)} of the '
-        'blocking issues trace to information the brief never gave. Answer below and rerun — '
-        'the rest of the brief is kept as-is.</p>'
-        f'{rows}'
-        '<button id="remedyGo" style="margin-top:8px;padding:.6rem 1.1rem;background:#047857;'
-        'color:#fff;border:none;border-radius:8px;font:inherit;font-weight:600;cursor:pointer">'
-        'Answer &amp; rerun</button>'
-        '<span id="remedyMsg" style="margin-left:10px;font-size:13px;color:#6b7280"></span>'
-        "<script>document.getElementById('remedyGo').onclick=async function(){"
-        "var d=" + _json.dumps(description) + ";"
-        "var inputs=document.querySelectorAll('[data-append]');var n=0;"
-        "inputs.forEach(function(el){var v=el.value.trim();"
-        "if(v){d+=' '+el.dataset.append.replace('{}',v);n++;}});"
-        "if(!n){document.getElementById('remedyMsg').textContent='answer at least one';return;}"
-        "this.disabled=true;this.textContent='Starting new run…';"
-        "try{var r=await fetch('/plan',{method:'POST',headers:{'Content-Type':'application/json'},"
-        "body:JSON.stringify({description:d,operator_weights:{}})});"
-        "if(!r.ok)throw new Error((await r.json()).detail||r.statusText);"
-        "document.getElementById('remedyMsg').textContent='rerunning — watch it in the workspace';"
-        "setTimeout(function(){location.href='/workspace';},900);}"
-        "catch(e){this.disabled=false;this.textContent='Answer & rerun';"
-        "document.getElementById('remedyMsg').textContent='failed: '+e.message;}};</script>"
-        "</div>")
-
-
-def _inject_forced_banner(html: str, blocking: list) -> str:
-    """Stamp the override onto the page, above the report.
-
-    Injected at the serving layer rather than threaded through render_report_html, which
-    is documented pure (no DB, no request) — whether a given READER forced delivery is a
-    property of the request, not of the report."""
-    n = len(blocking)
-    banner = (
-        "<div style=\"font:14px/1.5 -apple-system,system-ui,sans-serif;background:#fffbeb;"
-        "border-bottom:2px solid #f59e0b;color:#92400e;padding:12px 18px\">"
-        f"<strong>Served over verification: {n} blocking "
-        f"issue{'s' if n != 1 else ''} outstanding.</strong> This report did not pass its "
-        "own checks and was displayed at an operator's explicit request."
-        f"<ul style=\"margin:.5rem 0 0\">{_blocking_list_html(blocking)}</ul></div>")
-    lowered = html.lower()
-    i = lowered.find("<body")
-    if i != -1:
-        j = html.find(">", i)
-        if j != -1:
-            return html[:j + 1] + banner + html[j + 1:]
-    return banner + html
-
-
-@app.get("/jobs/{job_id}/report.html", response_class=HTMLResponse)
-def get_job_report_html(job_id: str, debug: int = 0, force: int = 0,
-                        annotate: int = 0):
-    """Polished HTML report (print-friendly, Cmd+P → Save as PDF). For 'plan' jobs only.
-
-    `?debug=1` renders the section→script provenance overlay (which module produced each
-    section, the evidence it consumed, and its data character) so a wrong sentence points
-    straight at the script that owns it.
-
-    `?force=1` serves a report the verifier declared unpublishable. Blocking findings
-    WITHHOLD by default (see below); force exists because there are real cases — a demo, a
-    known-cosmetic failure, a buyer who wants the draft with its faults — where shipping is
-    the right call. It never hides the verdict: a forced page carries the banner."""
-    j = _owned_job(job_id)
-    if not j:
-        raise HTTPException(status_code=404, detail="job not found")
-    if halt_reason(j):
-        # M2 fix: never hand a paying human a bare 409 / blank page. A job can be
-        # mid-run ("running"), or have halted ("error", or orphaned by a worker/process
-        # death). Return a friendly HTML status page that explains what happened and
-        # offers to regenerate — instead of an empty body that reads as a broken product.
-        state = j["state"]
-        steps = len(((j.get("result") or {}) or {}).get("_steps_completed") or [])
-        # A run can fail two ways: the worker raised (job.error) or run_plan returned an
-        # error instead of a report (result.error). Both must reach the reader.
-        err = j.get("error") or (j.get("result") or {}).get("error") or ""
-        if state == "complete" and err:
-            state = "halted"
-        if state == "running":
-            headline, detail = ("Report still generating…",
-                                f"This run has completed {steps} steps. Refresh in a moment.")
-        else:  # error / orphaned / pending
-            headline, detail = ("This run didn't finish",
-                                "The pipeline halted before producing a full report"
-                                + (f" — {err}" if err else "")
-                                + f". It reached {steps} steps. Please regenerate.")
-        page = (
-            "<!doctype html><meta charset=utf-8>"
-            "<title>Report unavailable</title>"
-            "<div style=\"font:16px/1.6 -apple-system,system-ui,sans-serif;max-width:42rem;"
-            "margin:18vh auto;padding:0 1.5rem;color:#1f2937\">"
-            f"<div style=\"font-size:13px;letter-spacing:.08em;text-transform:uppercase;"
-            f"color:#9ca3af\">Castor Advisories</div>"
-            f"<h1 style=\"font-size:1.6rem;margin:.4rem 0 .6rem\">{headline}</h1>"
-            f"<p style=\"color:#4b5563\">{detail}</p>"
-            f"<p style=\"font-size:13px;color:#9ca3af\">Job {job_id} · state: {state}</p>"
-            "<p><a href=\"/\" style=\"display:inline-block;margin-top:.5rem;padding:.55rem 1rem;"
-            "background:#1f2937;color:#fff;border-radius:8px;text-decoration:none\">"
-            "Start a new report</a></p></div>"
-        )
-        return HTMLResponse(content=page, status_code=(202 if state == "running" else 409))
-    if j["kind"] != "plan":
-        raise HTTPException(status_code=400, detail="HTML report only available for /plan jobs")
-
-    # The verifier's verdict becomes BINDING here. It used to be advisory all the way to
-    # the reader: run_plan logged "verification found N blocking issue(s)" and this
-    # endpoint rendered the report anyway, so a report the pipeline's own invariants
-    # declared unpublishable reached a buyer looking exactly like a clean one.
-    from report.verifier import blocking_findings
-    _blocking = blocking_findings(j["result"] or {})
-    if _blocking and not force:
-        log.warning("[api] withholding report %s — %d blocking finding(s)",
-                    job_id, len(_blocking))
-        from remedy import input_remedies
-        _remedies = input_remedies(_blocking, j["result"] or {})
-        return HTMLResponse(content=_withheld_page(job_id, _blocking, _remedies,
-                                                   (j.get("params") or {}).get("description")
-                                                   or ""), status_code=409)
-
-    from report.render_html import render_report_html
-    html = render_report_html(j["result"] or {}, job_id=job_id, debug=debug,
-                              annotate=annotate)
-    if _blocking:
-        # Forced. An override that leaves no mark is indistinguishable from a clean pass,
-        # which would be worse than having no gate — so it is recorded in the log AND on
-        # the page itself, above the report, where the reader cannot miss it.
-        log.warning("[api] report %s force-served over %d blocking finding(s): %s",
-                    job_id, len(_blocking),
-                    "; ".join(f.get("invariant", "?") for f in _blocking))
-        html = _inject_forced_banner(html, _blocking)
-    return HTMLResponse(content=html)
-
-
-@app.get("/jobs/{job_id}/report.pdf")
-def get_job_report_pdf(job_id: str, force: int = 0):
-    """
-    W4-3: print-grade PDF export via report/pdf.py.
-
-    Was a raw Chromium print() of the screen HTML — a printout of a web page, with the
-    product toolbar on page 3 and no cover, contents, or figure numbers. Now goes
-    through the print-document layer (WeasyPrint preferred: it is the only engine that
-    resolves target-counter(), i.e. real page numbers in the table of contents).
-    """
-    from fastapi.responses import Response
-    j = _owned_job(job_id)
-    if (_why := halt_reason(j)):
-        raise HTTPException(status_code=404, detail=f"no report to render: {_why}")
-
-    # The verifier's verdict binds on BOTH formats. Without this the PDF reused the HTML
-    # endpoint and rendered the WITHHOLD NOTICE into a cover-paged document returned as
-    # 200 — no leak (the report content never reached the page), but a broken-looking
-    # export instead of a decision, and no way to release the PDF of a report the operator
-    # had deliberately forced. One verdict, both formats, same override.
-    from report.verifier import blocking_findings
-    _blocking = blocking_findings(j["result"] or {})
-    if _blocking and not force:
-        log.warning("[api] withholding PDF %s — %d blocking finding(s)",
-                    job_id, len(_blocking))
-        from remedy import input_remedies
-        _remedies = input_remedies(_blocking, j["result"] or {})
-        return HTMLResponse(content=_withheld_page(job_id, _blocking, _remedies,
-                                                   (j.get("params") or {}).get("description")
-                                                   or ""), status_code=409)
-
-    # Reuse the HTML endpoint by calling its function directly
-    html_response = get_job_report_html(job_id, force=force)
-    html_body = html_response.body.decode() if hasattr(html_response, "body") else str(html_response)
-
-    from report.pdf import available_engine, render_pdf
-    if available_engine() is None:
-        raise HTTPException(status_code=500,
-                            detail="no PDF engine installed (weasyprint or playwright)")
-
-    profile = ((j.get("result") or {}).get("profile") or {})
-    try:
-        pdf_bytes = render_pdf(html_body, {
-            "title": display_title(profile).title(),
-            "job_id": job_id,
-            "generated_at": str(j.get("created_at") or "")[:10],
-        })
-    except Exception as e:
-        log.exception("PDF generation failed")
-        raise HTTPException(status_code=500, detail=f"PDF render failed: {e}")
-
-    filename = f"market-research-{job_id[:8]}.pdf"
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
-@app.get("/jobs/{job_id}/report", response_class=JSONResponse)
-def get_job_report(job_id: str):
-    """Markdown report for a completed job. Returns {markdown}."""
-    import report as report_mod
-
-    j = _owned_job(job_id)
-    if not j:
-        raise HTTPException(status_code=404, detail="job not found")
-    if (_why := halt_reason(j)):
-        raise HTTPException(status_code=409, detail=f"job produced no report: {_why}")
-
-    result = j["result"] or {}
-    kind = j["kind"]
-    if kind == "discover":
-        md = report_mod.render_discover(result)
-    elif kind == "taste":
-        md = report_mod.render_taste(result)
-    elif kind == "match":
-        md = report_mod.render_match(result)
-    elif kind == "full":
-        md = report_mod.render_full(result)
-    else:
-        raise HTTPException(status_code=400, detail=f"unsupported kind {kind}")
-    return {"job_id": job_id, "kind": kind, "markdown": md}
-
-
-# Static frontend — the workspace is now the front door (cycle34).
-_NO_CACHE = {"Cache-Control": "no-cache, must-revalidate"}
-
-
-_ASSET_VERSIONS: dict[tuple, str] = {}
-
-
-def _asset_version(path: Path) -> str:
-    """A cache-buster derived from the file itself.
-
-    web/workspace.html used to load `workspace.js?v=7` — a number typed by hand, in a
-    different file from the one being edited. MEASURED: I changed workspace.js, reloaded,
-    and the browser kept the old script; `typeof renderFields` was `function` while
-    `typeof showConfirmation` was `undefined`. The page was running a half-old bundle, so
-    the new confirmation card never rendered and the Generate button never learned to wait
-    for it. The app looked correct and behaved like an older version, which is far worse
-    than looking stale.
-
-    CONTENT hash, not mtime. mtime was the first attempt and its own test caught it:
-    rewriting a file with identical bytes changes the timestamp, so a checkout, a rebuild or
-    a `touch` would bust every returning browser's cache for a file that did not change.
-    Busting too eagerly is a milder failure than not busting at all, but it is still a
-    failure — the point is that the version tracks the CONTENT.
-
-    Memoised on (mtime, size) so the bytes are re-read only when the file plausibly moved,
-    which keeps this to a dict lookup on the common path.
-    """
-    try:
-        st = path.stat()
-    except OSError:
-        return "0"          # a missing asset is the route's problem, not the page's
-    key = (str(path), int(st.st_mtime_ns), st.st_size)
-    cached = _ASSET_VERSIONS.get(key)
-    if cached:
-        return cached
-    try:
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
-    except OSError:
-        return "0"
-    _ASSET_VERSIONS.clear()          # one asset, one entry — this is not a growing cache
-    _ASSET_VERSIONS[key] = digest
-    return digest
-
-
-def _stamped_html(path: Path) -> HTMLResponse:
-    """Serve an HTML page with its asset references version-stamped."""
-    html = path.read_text(encoding="utf-8")
-    js = WEB_DIR / "workspace.js"
-    html = re.sub(r"(workspace\.js)\?v=[\w.]+", rf"\1?v={_asset_version(js)}", html)
-    return HTMLResponse(html, headers=_NO_CACHE)
-
-
-@app.get("/login", response_class=HTMLResponse)
-def login_page():
-    """Sign in / sign up. #94 shipped the endpoints and no screen, which made the product
-    usable only by someone holding the route list and a curl command."""
-    f = WEB_DIR / "login.html"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="login page not built")
-    return FileResponse(f, headers=_NO_CACHE)
-
-
-@app.get("/")
-def index():
-    # A 401 from the workspace's first fetch is a dead end for a real customer; send them
-    # somewhere they can act. Local installs keep going straight in.
-    if (os.environ.get("CASTOR_ENV", "").lower() == "production"
-            and not _session_owner()):
-        return RedirectResponse("/login", status_code=303)
-    ws = WEB_DIR / "workspace.html"
-    if ws.exists():
-        return _stamped_html(ws)
-    f = WEB_DIR / "index.html"
-    if f.exists():
-        return FileResponse(f, headers=_NO_CACHE)
-    return JSONResponse({"ok": True, "hint": "no web/workspace.html found"})
-
-
-@app.get("/home", response_class=HTMLResponse)
-def home_landing():
-    """The previous marketing/chat landing, kept available at /home."""
-    f = WEB_DIR / "index.html"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="home not found")
-    return FileResponse(f, headers=_NO_CACHE)
-
-
-@app.get("/workspace", response_class=HTMLResponse)
-def workspace_page():
-    """The Manus-parity 3-zone agentic workspace (cycle34)."""
-    f = WEB_DIR / "workspace.html"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="workspace not built")
-    return _stamped_html(f)
-
-
-@app.get("/workspace.js")
-def workspace_js():
-    f = WEB_DIR / "workspace.js"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="workspace.js not found")
-    return FileResponse(f, media_type="application/javascript",
-                        headers=_NO_CACHE)
-
-
-@app.get("/dashboard.html", response_class=HTMLResponse)
-def dashboard_page():
-    f = WEB_DIR / "dashboard.html"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="dashboard not built")
-    return FileResponse(f, headers=_NO_CACHE)
-
-
-@app.get("/progress.html", response_class=HTMLResponse)
-def progress_page():
-    f = WEB_DIR / "progress.html"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="progress page not built")
-    return FileResponse(f, headers=_NO_CACHE)
-
-
-# ---------------------------------------------------------------------------
-# Docs viewer — render docs/**.md as HTML at /docs[/<path>]
-# Added cycle 31 so a partner can read method/process docs via the public tunnel.
-# ---------------------------------------------------------------------------
-DOCS_DIR = Path(__file__).parent / "docs"
-
-
-def _render_docs_index() -> str:
-    """List all markdown files in docs/ as a clickable index."""
-    if not DOCS_DIR.exists():
-        return "<p>No docs directory found.</p>"
-    items = []
-    for md in sorted(DOCS_DIR.rglob("*.md")):
-        rel = md.relative_to(DOCS_DIR).as_posix()
-        depth = rel.count("/")
-        indent = "  " * depth
-        items.append(f'{indent}<li><a href="/docs/{rel}">{rel}</a></li>')
-    body = "\n".join(items)
-    return f"""<!doctype html>
-<html><head><meta charset="utf-8"/><title>Castor Research — Docs</title>
-<style>
-  body {{ font-family: -apple-system, system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 20px; color: #1f2937; }}
-  h1 {{ border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }}
-  a {{ color: #2563eb; text-decoration: none; }}
-  a:hover {{ text-decoration: underline; }}
-  ul {{ list-style: none; padding: 0; }}
-  li {{ padding: 6px 0; font-size: 11pt; font-family: ui-monospace, monospace; }}
-  .nav {{ background: #f3f4f6; padding: 12px 16px; border-radius: 6px; margin: 16px 0; }}
-</style>
-</head><body>
-<h1>Castor Research — Documentation</h1>
-<div class="nav">
-  Two branches: <strong>method/</strong> (how the system works) · <strong>process/</strong> (how we got here).<br/>
-  Start with <a href="/docs/README.md">docs/README.md</a> for the reading order.
-</div>
-<ul>
-{body}
-</ul>
-</body></html>
-"""
-
-
-@app.get("/docs", response_class=HTMLResponse)
-@app.get("/docs/", response_class=HTMLResponse)
-def docs_index():
-    return HTMLResponse(_render_docs_index())
-
-
-@app.get("/docs/{path:path}", response_class=HTMLResponse)
-def docs_render(path: str):
-    """Render a markdown file as HTML."""
-    target = (DOCS_DIR / path).resolve()
-    # Path traversal guard
-    if not str(target).startswith(str(DOCS_DIR.resolve())):
-        raise HTTPException(status_code=400, detail="invalid path")
-    if not target.exists() or not target.is_file():
-        raise HTTPException(status_code=404, detail=f"docs file not found: {path}")
-    if target.suffix != ".md":
-        return FileResponse(target)
-    import markdown as _md
-    md_text = target.read_text(encoding="utf-8")
-    html_body = _md.markdown(md_text, extensions=["tables", "fenced_code", "toc"])
-    parent = "/".join(path.split("/")[:-1])
-    parent_link = f'<a href="/docs/{parent}">../{parent}/</a>' if parent else '<a href="/docs">docs/</a>'
-    return HTMLResponse(f"""<!doctype html>
-<html><head><meta charset="utf-8"/><title>{path} — Castor Docs</title>
-<style>
-  body {{ font-family: -apple-system, system-ui, sans-serif; max-width: 860px; margin: 30px auto; padding: 0 24px; color: #1f2937; line-height: 1.55; }}
-  h1, h2, h3, h4 {{ color: #111827; }}
-  h1 {{ border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }}
-  h2 {{ margin-top: 32px; border-bottom: 1px solid #f3f4f6; padding-bottom: 6px; }}
-  pre {{ background: #f3f4f6; padding: 12px 14px; border-radius: 4px; overflow-x: auto; font-size: 10pt; }}
-  code {{ background: #f3f4f6; padding: 1px 5px; border-radius: 3px; font-size: 90%; }}
-  pre code {{ padding: 0; background: transparent; }}
-  table {{ border-collapse: collapse; margin: 14px 0; font-size: 10pt; width: 100%; }}
-  table th, table td {{ border: 1px solid #e5e7eb; padding: 6px 10px; text-align: left; }}
-  table th {{ background: #f9fafb; font-weight: 700; }}
-  a {{ color: #2563eb; text-decoration: none; }}
-  a:hover {{ text-decoration: underline; }}
-  blockquote {{ border-left: 3px solid #e5e7eb; padding-left: 14px; color: #6b7280; }}
-  .nav {{ font-size: 9pt; color: #6b7280; margin-bottom: 24px; }}
-</style>
-</head><body>
-<div class="nav"><a href="/docs">← all docs</a> · {parent_link} · <a href="/">app home</a></div>
-{html_body}
-</body></html>
-""")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -1798,272 +1303,8 @@ def describe_agent_api(name: str):
     return agents.describe_agent(name)
 
 
-# ---------------------------------------------------------------------------
-# Benchmark dashboard — heatmap of all cases × dimensions
-# Added cycle31-r3. Reads the most-recent /tmp/bench_*.json files and renders
-# a single-page scannable view. No LLM calls; pure HTML.
-# ---------------------------------------------------------------------------
-@app.get("/architecture", response_class=HTMLResponse)
-def architecture_dashboard():
-    """cycle32 Phase 6: live dashboard of registered tools, skills, and active config.
-    Lets agent/UI/operator see the full architecture at a glance — no code reading required."""
-    import tools as tools_mod
-    import skills as skills_mod
-    import config as config_mod
-
-    tools_by_cat = {}
-    for t in tools_mod.list_tools():
-        tools_by_cat.setdefault(t.category, []).append(t)
-
-    skills_by_produces = {}
-    for s in skills_mod.list_skills():
-        skills_by_produces.setdefault(s.produces, []).append(s)
-
-    profile = config_mod.profile_name()
-    profiles = config_mod.available_profiles()
-    cfg = config_mod.get_all()
-
-    def _esc(s: str) -> str:
-        return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-    # Render tools by category
-    tool_blocks = []
-    for cat in sorted(tools_by_cat):
-        rows = []
-        for t in sorted(tools_by_cat[cat], key=lambda x: x.name):
-            rows.append(
-                f'<tr><td><code>{_esc(t.name)}</code></td>'
-                f'<td><code style="font-size:9pt;color:#6b7280">{_esc(t.signature)}</code></td>'
-                f'<td style="font-size:9pt;color:#4b5563">{_esc(t.docstring.split(chr(10))[0])}</td></tr>'
-            )
-        tool_blocks.append(
-            f'<h3>{_esc(cat)} <span style="font-size:9pt;color:#9ca3af">({len(rows)} tools)</span></h3>'
-            f'<table style="width:100%;border-collapse:collapse;font-size:10pt;margin-bottom:18px">'
-            f'<thead style="background:#f9fafb"><tr><th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Name</th><th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Signature</th><th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Description</th></tr></thead>'
-            f'<tbody>' + "".join(f'<tr style="border-bottom:1px solid #e5e7eb">{r[4:-5]}' for r in rows) + '</tbody></table>'
-        )
-
-    # Render skills by produces
-    skill_blocks = []
-    for prod in sorted(skills_by_produces):
-        rows = []
-        for s in sorted(skills_by_produces[prod], key=lambda x: x.name):
-            consumes_str = ", ".join(s.consumes) if s.consumes else "—"
-            rows.append(
-                f'<tr style="border-bottom:1px solid #e5e7eb">'
-                f'<td style="padding:6px 10px"><code>{_esc(s.name)}</code></td>'
-                f'<td style="padding:6px 10px;font-size:9pt;color:#6b7280"><code>{_esc(s.signature)}</code></td>'
-                f'<td style="padding:6px 10px;font-size:9pt;color:#7c3aed">{_esc(consumes_str)}</td>'
-                f'<td style="padding:6px 10px;font-size:9pt;color:#4b5563">{_esc(s.docstring.split(chr(10))[0])}</td>'
-                f'</tr>'
-            )
-        skill_blocks.append(
-            f'<h3>produces: <code style="background:#dbeafe;padding:2px 8px;border-radius:3px">{_esc(prod)}</code> '
-            f'<span style="font-size:9pt;color:#9ca3af">({len(rows)} skill{"s" if len(rows)!=1 else ""})</span></h3>'
-            f'<table style="width:100%;border-collapse:collapse;font-size:10pt;margin-bottom:18px">'
-            f'<thead style="background:#f9fafb"><tr>'
-            f'<th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Name</th>'
-            f'<th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Signature</th>'
-            f'<th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Consumes</th>'
-            f'<th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Description</th>'
-            f'</tr></thead><tbody>' + "".join(rows) + '</tbody></table>'
-        )
-
-    # Render config (top-level keys + values)
-    cfg_rows = []
-    for k in sorted(cfg.keys()):
-        v = cfg[k]
-        if isinstance(v, dict):
-            inner = "<br/>".join(f"<span style='color:#6b7280'>{_esc(kk)}:</span> <code>{_esc(str(vv))}</code>" for kk, vv in v.items())
-            cfg_rows.append(f'<tr><td style="padding:6px 10px;font-weight:600;vertical-align:top"><code>{_esc(k)}</code></td><td style="padding:6px 10px;font-size:9pt">{inner}</td></tr>')
-        else:
-            cfg_rows.append(f'<tr><td style="padding:6px 10px;font-weight:600"><code>{_esc(k)}</code></td><td style="padding:6px 10px"><code>{_esc(str(v))}</code></td></tr>')
-
-    profile_links = " · ".join(
-        f'<code style="background:{"#dbeafe" if p == profile else "#f3f4f6"};padding:2px 8px;border-radius:3px">{_esc(p)}</code>'
-        for p in profiles
-    )
-
-    return HTMLResponse(f"""<!doctype html>
-<html><head><meta charset="utf-8"/><title>Castor Architecture — cycle32</title>
-<style>
-  body {{ font-family: -apple-system, system-ui, sans-serif; max-width: 1200px; margin: 30px auto; padding: 0 24px; color: #1f2937; line-height: 1.5; }}
-  h1 {{ border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }}
-  h2 {{ margin-top: 36px; padding-top: 12px; border-top: 1px solid #e5e7eb; }}
-  h3 {{ margin-top: 18px; }}
-  table {{ border-collapse: collapse; }}
-  table th, table td {{ border: 1px solid #e5e7eb; }}
-  code {{ font-size: 90%; }}
-  .summary-box {{ background: #f9fafb; border: 1px solid #e5e7eb; padding: 14px 18px; border-radius: 6px; margin: 14px 0; }}
-  .nav {{ font-size: 9pt; color: #6b7280; margin-bottom: 24px; }}
-  a {{ color: #2563eb; text-decoration: none; }}
-</style></head><body>
-<div class="nav"><a href="/">app home</a> · <a href="/benchmarks">benchmark dashboard</a> · <a href="/docs">docs</a> · <a href="/api/tools">/api/tools (json)</a> · <a href="/api/skills">/api/skills (json)</a></div>
-
-<h1>Architecture (cycle32 — registry pattern)</h1>
-
-<div class="summary-box">
-  <strong>{len(tools_mod.TOOL_REGISTRY)} tools</strong> across {len(tools_by_cat)} categories ·
-  <strong>{len(skills_mod.SKILL_REGISTRY)} skills</strong> producing {len(skills_by_produces)} report sections ·
-  <strong>active profile:</strong> {profile_links}
-  <br/>
-  <span style="font-size:9pt;color:#6b7280;margin-top:6px;display:inline-block">
-    Adding a new tool/skill is now strictly additive — 1 file, no modification of orchestrator code.
-  </span>
-</div>
-
-<h2>Tools <span style="font-size:11pt;color:#6b7280;font-weight:400">— atomic capability primitives, return Evidence envelopes</span></h2>
-{"".join(tool_blocks)}
-
-<h2>Skills <span style="font-size:11pt;color:#6b7280;font-weight:400">— compose tools to produce a report section</span></h2>
-{"".join(skill_blocks)}
-
-<h2>Active config <span style="font-size:11pt;color:#6b7280;font-weight:400">— profile: <code>{_esc(profile)}</code></span></h2>
-<p style="font-size:10pt;color:#6b7280">Switch profile via <code>PIPELINE_PROFILE=quick</code> env var. Available: {profile_links}</p>
-<table style="width:100%;border-collapse:collapse;font-size:10pt">
-<thead style="background:#f9fafb"><tr><th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Namespace</th><th style="text-align:left;padding:6px 10px;border:1px solid #e5e7eb">Settings</th></tr></thead>
-<tbody>{"".join(cfg_rows)}</tbody>
-</table>
-</body></html>
-""")
 
 
-@app.get("/benchmarks", response_class=HTMLResponse)
-def benchmarks_dashboard():
-    """Scan /tmp/bench_*.json files, build a heatmap view of all known cases."""
-    import glob
-    import json as _json
-
-    # Load every bench dashboard file we know about
-    rows_by_case: dict = {}
-    for path in sorted(glob.glob("/tmp/bench_*.json")):
-        if path.endswith(".samples"):
-            continue
-        try:
-            data = _json.loads(Path(path).read_text())
-        except Exception:
-            continue
-        if not isinstance(data, list):
-            continue
-        for row in data:
-            case = row.get("case")
-            if not case:
-                continue
-            # Extract score
-            grade_obj = row.get("grade") or {}
-            score = grade_obj.get("final_score") or row.get("mean_score")
-            stdev = row.get("stdev_score")
-            n = row.get("n_samples", 1)
-            dims = grade_obj.get("dimensions") or row.get("dimensions_aggregated") or {}
-            # Keep most-recent or highest-sample-count entry
-            existing = rows_by_case.get(case)
-            if existing and existing.get("n_samples", 1) >= n and not stdev:
-                continue
-            if score is None:
-                continue
-            rows_by_case[case] = {
-                "case": case, "score": score, "stdev": stdev, "n_samples": n,
-                "dims": dims, "source_file": Path(path).name,
-            }
-
-    if not rows_by_case:
-        return HTMLResponse("<h1>No bench dashboards found in /tmp/bench_*.json</h1>")
-
-    # Tier classification based on filename heuristics
-    TIER = {
-        "sleep_loop": 0, "devtools_apm": 0, "hr_smb": 0,
-        "cyber_soc": 1, "restaurant_pos": 1, "sales_engagement": 1,
-        "healthcare_ehr": 1, "construction_tech": 1,
-        "fintech_b2b": 2, "edtech_corporate": 2, "insurance_smb": 2,
-    }
-    for c in rows_by_case:
-        if c.startswith("tier3_"):
-            TIER[c] = 3
-
-    cases_sorted = sorted(rows_by_case.values(), key=lambda r: (TIER.get(r["case"], 9), r["case"]))
-    # All dimension keys
-    DIM_KEYS = ["coverage", "tam_accuracy", "cagr_accuracy", "competitor_recall",
-                "icp_alignment", "method_depth", "source_breadth", "differentiators",
-                "personas", "pricing_psm", "unit_economics", "segment_authenticity",
-                "citation_grounding", "validation_honesty", "growth_scenarios", "prose_quality"]
-
-    def cell_color(score) -> str:
-        if score is None: return "#f3f4f6"
-        if score >= 90: return "#bbf7d0"
-        if score >= 75: return "#fde68a"
-        if score >= 50: return "#fed7aa"
-        return "#fecaca"
-
-    def cell_score_only(d) -> str:
-        if not isinstance(d, dict): return "—"
-        return str(d.get("score", "—"))
-
-    head_dims = "".join(f'<th style="padding:4px 6px;font-size:9pt;writing-mode:vertical-rl;border:1px solid #e5e7eb">{d[:14]}</th>' for d in DIM_KEYS)
-    rows_html = []
-    for r in cases_sorted:
-        case = r["case"]
-        tier = TIER.get(case, "?")
-        score = r["score"]
-        stdev = r.get("stdev")
-        n = r.get("n_samples", 1)
-        score_cell = f'<strong>{score:.1f}</strong>' + (f' <span style="font-size:8pt;color:#6b7280">±{stdev}</span>' if stdev else "") + f' <span style="font-size:8pt;color:#9ca3af">({n}×)</span>'
-        dim_cells = ""
-        for dk in DIM_KEYS:
-            d = (r["dims"] or {}).get(dk) or {}
-            s = d.get("score") if isinstance(d, dict) else None
-            color = cell_color(s)
-            dim_cells += f'<td style="background:{color};text-align:center;font-size:9pt;padding:3px 4px;border:1px solid #e5e7eb">{cell_score_only(d)}</td>'
-        rows_html.append(
-            f'<tr><td style="padding:4px 8px;font-size:9pt;color:#6b7280;border:1px solid #e5e7eb">T{tier}</td>'
-            f'<td style="padding:4px 8px;font-size:10pt;font-weight:600;border:1px solid #e5e7eb">{case}</td>'
-            f'<td style="padding:4px 8px;font-size:10pt;border:1px solid #e5e7eb;white-space:nowrap">{score_cell}</td>'
-            f'{dim_cells}</tr>'
-        )
-    body = "\n".join(rows_html)
-
-    # Tier averages
-    from statistics import mean as _mean
-    tier_summaries = []
-    for tier in (0, 1, 2, 3):
-        rows = [r for r in cases_sorted if TIER.get(r["case"]) == tier]
-        if rows:
-            tier_summaries.append(f"<strong>Tier {tier}</strong> n={len(rows)} mean={_mean([r['score'] for r in rows]):.1f}")
-    summary_line = " · ".join(tier_summaries)
-
-    return HTMLResponse(f"""<!doctype html>
-<html><head><meta charset="utf-8"/><title>Castor Bench Dashboard</title>
-<style>
-  body {{ font-family: -apple-system, system-ui, sans-serif; max-width: 1500px; margin: 24px auto; padding: 0 20px; color: #1f2937; }}
-  h1 {{ margin-bottom: 4px; }}
-  .summary {{ font-size: 11pt; color: #4b5563; margin-bottom: 18px; }}
-  table {{ border-collapse: collapse; }}
-  th {{ background: #f9fafb; }}
-  .legend {{ font-size: 10pt; color: #6b7280; margin-top: 14px; }}
-  .swatch {{ display: inline-block; width: 14px; height: 14px; vertical-align: middle; margin-right: 4px; border: 1px solid #e5e7eb; }}
-</style></head><body>
-<h1>Castor Pipeline Benchmark — All Cases</h1>
-<div class="summary">{summary_line} · <a href="/docs">docs</a> · <a href="/">app home</a></div>
-
-<table>
-<thead><tr>
-  <th style="padding:4px 8px;font-size:9pt;border:1px solid #e5e7eb">Tier</th>
-  <th style="padding:4px 8px;font-size:9pt;border:1px solid #e5e7eb">Case</th>
-  <th style="padding:4px 8px;font-size:9pt;border:1px solid #e5e7eb">Score</th>
-  {head_dims}
-</tr></thead>
-<tbody>
-{body}
-</tbody></table>
-
-<div class="legend">
-  <span class="swatch" style="background:#bbf7d0"></span>≥90 (A)
-  <span class="swatch" style="background:#fde68a;margin-left:12px"></span>75-89 (B/C)
-  <span class="swatch" style="background:#fed7aa;margin-left:12px"></span>50-74 (D)
-  <span class="swatch" style="background:#fecaca;margin-left:12px"></span>&lt;50 (F)
-  · Numbers = dimension score 0-100. Empty cells = case-source missing that dimension.
-</div>
-</body></html>
-""")
 
 
 # Serve the web app

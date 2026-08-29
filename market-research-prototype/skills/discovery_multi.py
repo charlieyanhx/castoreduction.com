@@ -19,7 +19,6 @@ classify (LLM). Every candidate keeps its source strategies as provenance.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
 
 from llm import call_json
 from skills.registry import skill

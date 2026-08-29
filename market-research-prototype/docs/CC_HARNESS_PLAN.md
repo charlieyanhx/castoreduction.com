@@ -105,7 +105,7 @@ All KEEP; they move under `capabilities/skills/<domain>/` in the wave that touch
 
 | File | Direction |
 |---|---|
-| `schema.py`, `errors.py`, `logger.py`, `net.py` | KEEP → `core/` |
+| `errors.py`, `logger.py`, `net.py`, `url_guard.py` | KEEP → `core/` |
 | `gates.py` (311, D01–D14) + `harness_gates.py` (329, H01–H20) | **KEEP — the deterministic gate programs.** → `gates/`; every new v2 file lands with its gate check (§3) |
 | `benchmarks/` (judge, prose_judge, score, run_all, cases) | KEEP — R4/R5 rings + the M8 parity judge |
 | `history.py` (111), `feedback.py` (134) | KEEP (workspace endpoints) → `persistence/` |
@@ -221,7 +221,7 @@ castor/
 │   ├── citation.py           NEW  — claim→source store + post-draft CitationAgent (M8)
 │   ├── verifier.py           NEW  — pre-publish adversarial panel, productized R4 (6b, P6)
 │   └── pdf.py                NEW  — WeasyPrint print-grade PDF: cover/TOC/numbered figures (M8)
-├── core/                     ← schema.py errors.py logger.py net.py
+├── core/                     ← errors.py logger.py net.py url_guard.py
 gates/                        ← gates.py harness_gates.py (+ new checks per §3)
 tests/                        ← all test_*.py, mirrored per-package
 web/                          ← workspace.html/js (+ consolidated surfaces)

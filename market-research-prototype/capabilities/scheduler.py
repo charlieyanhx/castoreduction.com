@@ -37,55 +37,18 @@ NO PROCESS-WIDE CEILING HERE — it was tried, and it DEADLOCKS.
 from __future__ import annotations
 
 import time
-import traceback
 from concurrent.futures import (FIRST_COMPLETED, ThreadPoolExecutor,
                                 as_completed, wait)
-from typing import Any, Callable
+from typing import Callable
 
 from tools.registry import Evidence
+
+# One implementation, shared by both doors into tool execution.
+from .safe_call import safe_call as _safe_call
 
 MAX_PARALLEL = 10
 
 
-def _safe_call(fn: Callable, kwargs: dict) -> Evidence:
-    """Call fn(**kwargs), always returning Evidence.
-
-    If fn raises, the exception is caught and returned as error Evidence —
-    the scheduler never propagates exceptions to the caller.
-    If fn returns a raw value (not Evidence), it is wrapped.
-    """
-    t0 = time.monotonic()
-    name = getattr(fn, "__name__", "unknown")
-    try:
-        result = fn(**kwargs)
-    except Exception as e:
-        return Evidence(
-            source=name,
-            category="unknown",
-            count=0,
-            payload=None,
-            fetched_at=time.time(),
-            duration_s=round(time.monotonic() - t0, 3),
-            error=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
-        )
-
-    duration = round(time.monotonic() - t0, 3)
-
-    if isinstance(result, Evidence):
-        if result.duration_s == 0.0:
-            result.duration_s = duration
-        return result
-
-    # Wrap raw return value
-    count = len(result) if hasattr(result, "__len__") else (1 if result is not None else 0)
-    return Evidence(
-        source=name,
-        category="unknown",
-        count=count,
-        payload=result,
-        fetched_at=time.time(),
-        duration_s=duration,
-    )
 
 
 def _call_with_timeout(fn: Callable, kwargs: dict, timeout: float | None) -> Evidence:

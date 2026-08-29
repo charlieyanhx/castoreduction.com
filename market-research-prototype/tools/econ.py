@@ -28,6 +28,10 @@ log = get("tools.econ")
 
 
 class BlsCexSpendArgs(BaseModel):
+    """Validated arguments for a BLS consumer-expenditure lookup.
+
+    Either a category or an explicit series id; the validator below refuses neither.
+    """
     category: Optional[str] = None
     series_id: Optional[str] = None
 

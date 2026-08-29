@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import statistics
 from dataclasses import dataclass, asdict
-from typing import Optional
 
 from skills.registry import skill
 from tools import Evidence
@@ -31,6 +30,11 @@ CONF_MED = 0.60
 
 @dataclass(frozen=True)
 class Estimate:
+    """One estimate of a figure, and where it independently came from.
+
+    `origin` is the field triangulation actually counts: two estimates from the same
+    origin agreeing is one measurement repeated, not corroboration.
+    """
     value: float
     source: str       # human-readable provenance (shown in the report)
     method: str       # e.g. "bottom_up", "top_down", "analog", "capacity"

@@ -50,12 +50,17 @@ sees), `gates.py` (is it true), `context/` (what every prompt carries), `config/
 checkpointed inline. It GREW during the 2026-07-28/29 fix pass — seven fixes went in and
 nothing came out — which is the clearest argument for consolidating it.
 
-It didn't have to be this way. `skills/pipeline_steps.py` declares the same 10 steps as
-registered skills *with a produces/consumes dependency graph* — and **no production module calls
-any of them**. The declarative layer exists and is bypassed, so every step is wired twice. That
-is the honest answer to "why is our orchestrator so long compared to Claude Code or OpenHands."
-Tracked as harness item 4 in [HARNESS_STATE.md](HARNESS_STATE.md); `test_one_orchestrator.py`
-pins the gap so it cannot grow.
+It didn't have to be this way. `skills/pipeline_steps.py` declared the same 10 steps as
+registered skills *with a produces/consumes dependency graph* — and no production module ever
+called any of them, so every step was wired twice.
+
+**RESOLVED 2026-08-26, by deletion rather than by adoption.** The declarative layer, its
+sizing twin `skills/sizing/dispatch.py` (`size_market`), and the two test files that existed
+only to pin them (`test_one_orchestrator.py`, `test_sizing_dispatch.py`) are gone. Keeping a
+second, inert description of the pipeline cost more than it bought: it made the repo look like
+it had a composable orchestrator, and every audit had to re-discover that it did not. `run_plan`
+is now the only orchestrator, which is the honest state. Consolidating `run_plan` itself remains
+the outstanding refactor.
 
 Supporting cast:
 
@@ -102,8 +107,9 @@ These are the 39 root modules. Each computes one thing and returns a dict.
 ## 4. Skills — composition with declared contracts
 
 `@skill(produces=…, consumes=…)` registers a workflow and stamps `module/qualname/file/line`
-into the run ledger. **24 registered, 10 called by identifier from production** — the other 14
-include `size_market` (the documented sizing seam) and all ten of `pipeline_steps`.
+into the run ledger. **13 registered.** It used to be 24, of which 14 were never called;
+the eleven that lived in `pipeline_steps` and `sizing/dispatch` were deleted on 2026-08-26
+rather than wired, so the registry now describes work that actually happens.
 
 | module | what it does |
 |---|---|
@@ -115,7 +121,6 @@ include `size_market` (the documented sizing seam) and all ten of `pipeline_step
 | `skills/price_intel.py` | Scraped price intelligence, grounds the ARPU multiplier. |
 | `skills/narration.py` | Numbers → prose. **This is the "Python computes, LLM narrates" seam.** |
 | `skills/refine_report.py`, `disclosure.py`, `pipeline.py` | Refinement loop, progressive skill docs, whole pipeline as one skill. |
-| `skills/pipeline_steps.py` | **The dead layer.** 10 declared skills, zero production callers. |
 
 ## 5. Tools — primitive I/O, one call each
 
@@ -172,7 +177,6 @@ most of this codebase's historical bugs were something reading `payload` without
 |---|---|---|
 | `persistence/ledger.py` | 281 | Append-only `RunLedger`. One run owns it at a time; events carry `run_id` so two runs cannot mix. |
 | `persistence/transcript.py` | 251 | Per-run JSONL, **flushed per event** — a killed run still has its history. `attach`/`detach` shared by both entrypoints. Replay reconstructs an identical ledger; a truncated tail is survivable. |
-| `persistence/resume.py` | 71 | Resume a killed run, skipping steps whose evidence is intact. |
 | `entry/hooks.py` | 83 | `HookBus` fan-out, so live streaming and the transcript can both observe one run. |
 | `provenance.py` | 33 | A thin view over the ledger. |
 
@@ -205,9 +209,8 @@ just another opinion.
 
 ## Where the bodies are buried
 
-- `plan.py:run_plan` — **1,033 lines** (it grew: seven fixes went in and none came out), and
-  the declarative alternative in `skills/pipeline_steps.py` is inert. Biggest outstanding
-  refactor.
+- `plan.py:run_plan` — the biggest outstanding refactor. It is now the ONLY orchestrator: the
+  inert declarative alternative was deleted rather than adopted (see section 2).
 - `market_sizing.py:estimate_market_size` — 451 lines of LLM sizing, still the default while
   `skills/sizing/` sits beside it.
 - **Reachability, corrected 2026-07-29.** An earlier version of this line said the dead tools
@@ -216,10 +219,10 @@ just another opinion.
   `get_tool("name").fn(...)`. Measured three ways — 22/37 tools called by identifier, **29/37
   with any call path**, and **9/37 actually fired in three live runs**, of which
   `acs_demographics` and `bls_cex_spend` fail every time they are called. The grounding path
-  is wired and failing at runtime, not unwired. 14/24 skills are genuinely uncalled, including
-  `size_market` and all ten of `pipeline_steps`. See
+  is wired and failing at runtime, not unwired. 14/24 skills were genuinely uncalled; the
+  eleven of those that lived in `pipeline_steps` and `sizing/dispatch` have since been deleted.
+  See
   [HARNESS_STATE.md](HARNESS_STATE.md) section 2 for the full breakdown.
-- `schema.py` (175) — Pydantic context models, largely superseded.
 - Anything Census-backed is dark until `CENSUS_API_KEY` is set; it is free, and it is currently
   the highest-leverage change available to a human on this project.
 

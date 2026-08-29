@@ -9,7 +9,7 @@ Two entrypoints:
   fetch_via_wayback(url)   -> str | None    # returns the HTML body of the snapshot
 """
 from __future__ import annotations
-from .http import request, USER_AGENT
+from .http import request
 from logger import get
 
 log = get("scrape.wayback")

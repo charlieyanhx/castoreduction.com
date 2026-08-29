@@ -51,10 +51,12 @@ from __future__ import annotations
 
 import inspect
 import time
-import traceback
 from typing import Callable, Optional
 
 from tools.registry import Evidence
+
+# One implementation, shared by both doors into tool execution.
+from .safe_call import safe_call as _safe_call
 
 # Default budget pulled from config; callers can override per-run.
 _DEFAULT_BUDGET_USD = 5.00
@@ -142,39 +144,6 @@ def _bind(fn: Callable, kwargs: Optional[dict]) -> tuple[Optional[dict], Optiona
     return out, None
 
 
-def _safe_call(fn: Callable, kwargs: dict) -> Evidence:
-    """Call fn(**kwargs), always returning Evidence. Never raises."""
-    t0 = time.monotonic()
-    name = getattr(fn, "__name__", "unknown")
-    try:
-        result = fn(**kwargs)
-    except Exception as e:
-        return Evidence(
-            source=name,
-            category="unknown",
-            count=0,
-            payload=None,
-            fetched_at=time.time(),
-            duration_s=round(time.monotonic() - t0, 3),
-            error=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
-        )
-
-    duration = round(time.monotonic() - t0, 3)
-
-    if isinstance(result, Evidence):
-        if result.duration_s == 0.0:
-            result.duration_s = duration
-        return result
-
-    count = len(result) if hasattr(result, "__len__") else (1 if result is not None else 0)
-    return Evidence(
-        source=name,
-        category="unknown",
-        count=count,
-        payload=result,
-        fetched_at=time.time(),
-        duration_s=duration,
-    )
 
 
 class Gateway:
@@ -186,6 +155,7 @@ class Gateway:
     """
 
     def __init__(self, budget_usd: float | None = None) -> None:
+        """A gateway with a per-run spend ceiling, defaulting to the configured budget."""
         self.remaining_usd: float = (
             budget_usd if budget_usd is not None else _read_config_budget()
         )

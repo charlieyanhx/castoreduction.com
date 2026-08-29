@@ -6,12 +6,9 @@ keep fixes localized here.
 """
 from __future__ import annotations
 
-import urllib.parse
 
-import requests
 
 import net as mrp_http
-from cache import cached
 from logger import get
 
 log = get("sources.articles")

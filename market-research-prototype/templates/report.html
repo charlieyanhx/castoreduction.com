@@ -2302,7 +2302,11 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 {% endif %}
 
 <!-- FEEDBACK WIDGET -->
-<div class="no-print" style="margin-top:40px;padding:20px;background:#f9fafb;border-radius:8px;border:1px dashed #e5e7eb">
+{# Asking "was this useful?" while the reader is still marking the report up competes with
+   the refine actions for the same decision, so refine mode hides this until the report has
+   settled (finalized, or superseded by its revision). It is rendered either way, because
+   which state the report is in is known on the client, not here. #}
+<div id="feedbackBlock" class="no-print" style="margin-top:40px;padding:20px;background:#f9fafb;border-radius:8px;border:1px dashed #e5e7eb">
   <h3 style="margin:0 0 8px;font-size:11pt;color:#1f2937">Was this report useful?</h3>
   <p style="font-size:10pt;color:#6b7280;margin:0 0 10px">Your feedback helps tune the pipeline. Anonymous, stored locally.</p>
   <div id="feedback-buttons">
@@ -2385,188 +2389,643 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
 
 {% if annotate %}
 {# ---------------------------------------------------------------- refine mode (annotate=1).
-   Selection -> comment; a fixed drawer for questions, drafting, hand-edits and finalize.
-   Everything here talks to the /jobs/{id}/... refinement endpoints and stores DATA — the
-   page itself is never edited. no-print keeps refine chrome out of any PDF. #}
+   THE SHAPE: rules at the top, marking inline on the text itself, questions in a section
+   below the report. Everything talks to the /jobs/{id}/... refinement endpoints and stores
+   DATA; the page itself is never edited. no-print keeps refine chrome out of any PDF.
+
+   WHY IT MOVED. It all used to live in one 380px drawer pinned bottom-right: the rules
+   were a one-line tip at the bottom of a scrolling list, the questions sat in the same box
+   as the marks, and every comment, every input fix and every confirmation went through a
+   browser prompt(). A reader could not see what they had highlighted, because nothing was
+   ever highlighted: mark.rf-mark existed in the stylesheet and nothing applied it. #}
 <style>
-  .rf-bar { position: fixed; right: 18px; bottom: 18px; z-index: 90; width: 380px; max-height: 72vh;
-            display: flex; flex-direction: column; background: #fff; border: 1px solid #e5e7eb;
-            border-radius: 14px; box-shadow: 0 12px 40px rgba(16,24,40,.18);
+  /* ---- the rules, on top ------------------------------------------------------- */
+  .rf-top { position: sticky; top: 0; z-index: 90; background: #fbfaf7;
+            border-bottom: 1px solid #e7e5df; padding: 11px 22px;
             font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  .rf-head { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; font-weight: 650;
-             display: flex; justify-content: space-between; align-items: center; }
-  .rf-body { overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
-  .rf-item { border: 1px solid #e5e7eb; border-radius: 9px; padding: 9px 11px; font-size: 12.5px; }
-  .rf-item .rf-q { font-weight: 600; }
-  .rf-item textarea { width: 100%; border: 1px solid #e5e7eb; border-radius: 7px; margin-top: 6px;
-                      padding: 7px 9px; font: inherit; font-size: 12.5px; resize: vertical; min-height: 54px; }
-  .rf-meta { font-size: 10.5px; color: #9ca3af; margin-top: 4px; }
-  .rf-x { float: right; border: none; background: none; color: #9ca3af; cursor: pointer; font-size: 13px; }
-  .rf-add { display: flex; gap: 7px; }
-  .rf-add input { flex: 1; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 12.5px; }
-  .rf-btn { border: none; border-radius: 8px; padding: 8px 13px; font: inherit; font-size: 12.5px;
-            font-weight: 600; cursor: pointer; background: #047857; color: #fff; }
-  .rf-btn.ghost { background: #f3f4f6; color: #374151; }
+  .rf-top-in { max-width: 1180px; margin: 0 auto; display: flex; align-items: center;
+               gap: 14px; flex-wrap: wrap; }
+  /* The UA rule for [hidden] is display:none, and the class above outranks it, so the
+     input-fix row shipped permanently open. */
+  .rf-top-in[hidden], .rf-pill[hidden], .rf-fix[hidden] { display: none; }
+  .rf-title { font-weight: 700; font-size: 12px; letter-spacing: .07em;
+              text-transform: uppercase; color: #047857; }
+  .rf-rule { color: #4b5563; font-size: 12.5px; }
+  .rf-rule b { font-weight: 600; color: #1f2937; }
+  .rf-budget { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .rf-pill { font-size: 11.5px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+             background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0;
+             font-variant-numeric: tabular-nums; }
+  .rf-pill.spent { background: #fff7ed; color: #b45309; border-color: #fed7aa; }
+  .rf-pill.v2 { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
+  .rf-acts { display: flex; gap: 7px; flex-wrap: wrap; }
+  .rf-btn { border: 1px solid #d1d5db; border-radius: 8px; padding: 7px 13px; font: inherit;
+            font-size: 12.5px; font-weight: 600; cursor: pointer; background: #fff;
+            color: #374151; }
+  .rf-btn:hover { border-color: #047857; color: #047857; }
+  .rf-btn.go { background: #047857; border-color: #047857; color: #fff; }
+  .rf-btn.go:hover { opacity: .92; color: #fff; }
   .rf-btn:disabled { opacity: .5; cursor: default; }
-  .rf-foot { padding: 11px 16px; border-top: 1px solid #f3f4f6; display: flex; gap: 8px; }
-  .rf-pop { position: absolute; z-index: 95; background: #111827; color: #fff; border-radius: 8px;
-            padding: 6px 11px; font: 12px -apple-system, sans-serif; cursor: pointer;
-            box-shadow: 0 6px 20px rgba(0,0,0,.3); }
-  .rf-count { font-size: 11px; color: #6b7280; font-weight: 400; }
-  mark.rf-mark { background: #fef3c7; padding: 0 1px; }
+
+  /* ---- marking on the text itself ---------------------------------------------- */
+  mark.rf-mark { background: #fef3c7; border-bottom: 2px solid #fbbf24; padding: 0 1px;
+                 cursor: pointer; }
+  mark.rf-mark.on { background: #fde68a; }
+  .rf-pop { position: absolute; z-index: 95; width: 320px; background: #fff;
+            border: 1px solid #e5e7eb; border-radius: 11px; padding: 12px;
+            box-shadow: 0 12px 40px rgba(16,24,40,.18);
+            font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  .rf-pop .quote { font-size: 12px; color: #6b7280; font-style: italic;
+                   margin-bottom: 8px; max-height: 54px; overflow: hidden; }
+  /* box-sizing, and it matters: this template has no global border-box reset, so a
+     width:100% textarea added its padding and border ON TOP of the popover's inner width
+     and spilled out past the edges of the box containing it. */
+  .rf-pop, .rf-pop * { box-sizing: border-box; }
+  .rf-pop textarea { display: block; width: 100%; max-width: 100%; border: 1px solid #e5e7eb;
+                     border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px;
+                     resize: vertical; min-height: 58px; }
+  .rf-pop textarea:focus { outline: none; border-color: #047857;
+                           box-shadow: 0 0 0 3px rgba(4,120,87,.13); }
+  .rf-pop-row { display: flex; gap: 7px; margin-top: 9px; align-items: center; }
+  .rf-pop-row .grow { margin-left: auto; }
+
+  /* ---- the sections below the report -------------------------------------------- */
+  .rf-sec { max-width: 1180px; margin: 0 auto; padding: 34px 22px 0;
+            font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  .rf-used { font-size: 12.5px; font-weight: 500; color: #9ca3af; margin-left: 8px;
+             font-variant-numeric: tabular-nums; }
+  .rf-buy { margin-left: 10px; border: 1px solid #a7f3d0; background: #ecfdf5; color: #047857;
+            border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 12px;
+            font-weight: 600; cursor: pointer; vertical-align: middle; }
+  .rf-buy:hover { background: #d1fae5; }
+  .rf-sec h2 { font-size: 21px; font-weight: 650; letter-spacing: -.012em; color: #111827;
+               margin: 0 0 4px; }
+  .rf-sec .lede { color: #6b7280; font-size: 13.5px; margin-bottom: 16px; max-width: 62ch; }
+  .rf-card { border: 1px solid #e7e5df; border-radius: 11px; padding: 14px 16px;
+             margin-bottom: 10px; background: #fff; }
+  .rf-card .meta { font-size: 11px; color: #9ca3af; text-transform: uppercase;
+                   letter-spacing: .05em; font-weight: 600; }
+  .rf-card .qtext { font-weight: 650; font-size: 14.5px; margin-top: 3px; }
+  .rf-card .quote { color: #6b7280; font-style: italic; font-size: 13px; margin-top: 5px;
+                    border-left: 2px solid #fbbf24; padding-left: 10px; }
+  .rf-card, .rf-card * { box-sizing: border-box; }
+  .rf-card textarea { display: block; width: 100%; margin-top: 9px; border: 1px solid #e5e7eb;
+                      border-radius: 8px; padding: 9px 11px; font: inherit; font-size: 13.5px;
+                      resize: vertical; min-height: 62px; }
+  .rf-card textarea:focus { outline: none; border-color: #047857;
+                            box-shadow: 0 0 0 3px rgba(4,120,87,.13); }
+  .rf-card .prov { font-size: 11.5px; color: #9ca3af; margin-top: 6px; }
+  .rf-card .prov .ungrounded { color: #b45309; }
+  .rf-x { float: right; border: none; background: none; color: #9ca3af; cursor: pointer;
+          font-size: 14px; line-height: 1; }
+  .rf-x:hover { color: #b45309; }
+  .rf-ask { display: flex; gap: 8px; margin-top: 6px; }
+  .rf-ask input { flex: 1; border: 1px solid #d1d5db; border-radius: 9px; padding: 10px 12px;
+                  font: inherit; font-size: 13.5px; }
+  .rf-ask input:focus { outline: none; border-color: #047857;
+                        box-shadow: 0 0 0 3px rgba(4,120,87,.13); }
+  .rf-empty { color: #9ca3af; font-size: 13.5px; padding: 10px 0 4px; }
+  .rf-card.slot { border-style: dashed; background: #fcfcfb; }
+  .rf-slot-in { box-sizing: border-box; width: 100%; margin-top: 7px; border: 1px solid #e5e7eb; border-radius: 8px;
+                padding: 9px 11px; font: inherit; font-size: 13.5px; }
+  .rf-slot-in:focus { outline: none; border-color: #047857;
+                      box-shadow: 0 0 0 3px rgba(4,120,87,.13); }
+  .rf-card .meta .rf-x { float: right; }
+  .rf-note { margin-top: 6px; font-size: 12.5px; color: #4b5563; }
+  .rf-msg { margin: 10px 0 0; font-size: 13px; color: #b45309; }
+  .rf-confirm { border: 1px solid #fed7aa; background: #fff7ed; border-radius: 10px;
+                padding: 12px 14px; margin-top: 10px; font-size: 13px; color: #7c2d12; }
+  .rf-fix { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .rf-fix input { border: 1px solid #d1d5db; border-radius: 8px; padding: 8px 10px;
+                  font: inherit; font-size: 13px; }
+  .rf-fix input.f { width: 190px; } .rf-fix input.v { flex: 1; min-width: 190px; }
+  @media (max-width: 700px) {
+    .rf-top-in { gap: 9px; } .rf-budget { margin-left: 0; } .rf-rule { display: none; }
+  }
 </style>
-<div class="rf-bar no-print" id="rfBar">
-  <div class="rf-head">Refine this report
-    <span class="rf-count" id="rfCount"></span></div>
-  <div class="rf-body" id="rfBody"></div>
-  <div class="rf-foot">
-    <button class="rf-btn ghost" id="rfDraft">Draft answers</button>
-    <button class="rf-btn ghost" id="rfEdit">Fix an input</button>
-    <button class="rf-btn" id="rfRevise">Regenerate with revisions</button>
-    <button class="rf-btn ghost" id="rfFinal">Finalize v2 (no rerun)</button>
+
+<div class="rf-top no-print" id="rfTop">
+  <div class="rf-top-in">
+    <span class="rf-title">Refine mode</span>
+    <span class="rf-rule"><b>Select any sentence</b> to comment on it.
+      Ask your questions at the foot, correct any input, then regenerate.</span>
+    <span class="rf-budget">
+      <span class="rf-pill" id="rfMarks">0 of 5 marks</span>
+      <span class="rf-pill" id="rfQs">0 of 5 questions</span>
+      <span class="rf-pill v2" id="rfStatus" hidden></span>
+    </span>
   </div>
+  <div class="rf-top-in"><div id="rfMsg"></div></div>
 </div>
+
+<section class="rf-sec no-print" id="rfMarksSec">
+  <h2>Your marks <span class="rf-used" id="rfMarksUsed"></span>
+    <button class="rf-buy" id="rfBuyMarks">Add 5 more for $2</button></h2>
+  <div class="lede" data-lede-marks>Passages you flagged. These ride the regeneration as
+    instructions, so say what is wrong rather than that something is.</div>
+  <div id="rfMarkList"></div>
+</section>
+
+<section class="rf-sec no-print" id="rfQaSec" style="padding-bottom:70px">
+  <h2>Questions and answers <span class="rf-used" id="rfQsUsed"></span>
+    <button class="rf-buy" id="rfBuyQs">Add 5 more for $5</button></h2>
+  <div class="lede" data-lede-qa>Five questions, answered from this report's own data. If
+    the report cannot answer one, it says so rather than inventing something. You can write
+    or edit any answer yourself, and it will be labelled as yours.</div>
+  <div id="rfQList"></div>
+</section>
+
+<section class="rf-sec no-print" id="rfDoneSec" style="padding-bottom:80px">
+  <h2>When you are done</h2>
+  <div class="lede">Regenerating rebuilds the report with your marks and questions folded
+    into the brief, and takes about six minutes. Finalizing keeps this report as it is and
+    stamps it with your marks and answers attached, with no rerun.</div>
+  <div class="rf-acts">
+    <button class="rf-btn" id="rfNotes">How to add notes</button>
+    <button class="rf-btn" id="rfQaJump">Questions and answers</button>
+    <button class="rf-btn" id="rfFix">Fix an input</button>
+    <button class="rf-btn go" id="rfRevise">Regenerate with my notes</button>
+  </div>
+
+  {# The survey, handed back with the founder's own answers in it. Naming a field by hand
+     ("which input is wrong?") asked the reader to know our field names, which is the same
+     rule the intake tree breaks nobody: the founder never sees the taxonomy. #}
+  <div id="rfSurvey" hidden>
+    <div class="lede" style="margin-top:16px">These are the answers this report was built
+      on. Change any of them and the regeneration uses the corrected value.</div>
+    <div id="rfSurveyRows"></div>
+  </div>
+
+  <div id="rfConfirm"></div>
+  <div class="rf-msg" id="rfMsg2"></div>
+  <div id="rfSummary" hidden></div>
+</section>
+
 <script>
 (function () {
   const JOB = {{ job_id|tojson }};
+  const FACTS = {{ (intake_facts or {})|tojson }};
+  let MAX_Q = 5, MAX_A = 15;   // base budgets; the server raises them when a pack is bought
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g,
+    (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+
   const api = (m, p, b) => fetch(p, {method: m, headers: {"Content-Type": "application/json"},
     body: b ? JSON.stringify(b) : undefined}).then(async (r) => {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
       return r.json(); });
+
   let st = null;
+  function say(msg) {
+    // Both, deliberately. Marking happens while scrolled into the report and the actions
+    // are at the foot, so a single message node is always in the wrong place.
+    $("rfMsg").textContent = msg || "";
+    if ($("rfMsg2")) $("rfMsg2").textContent = msg || "";
+  }
+
+  /* The rules belong at the TOP of the page, but this whole block is templated in at the
+     end of the body, where position:sticky pins to the bottom of the document and the bar
+     is never seen. Moving the node is the fix: the report's own chrome is position:static,
+     so nothing collides. The marks and Q&A sections stay exactly where they are, which is
+     below the report, in the reading order. */
+  document.body.insertBefore($("rfTop"), document.body.firstChild);
+
+  /* ---- marks painted onto the report itself -----------------------------------------
+     The whole point of a mark is seeing it. The stored quote is found in the document and
+     wrapped, so reopening the report shows what you flagged instead of a list of text you
+     have to go hunting for. First match only, and never inside refine chrome. */
+  function paintMarks() {
+    document.querySelectorAll("mark.rf-mark").forEach((m) => {
+      const p = m.parentNode;
+      p.replaceChild(document.createTextNode(m.textContent), m);
+      p.normalize();
+    });
+    (st.annotations || []).forEach((a) => wrapFirst(a.quote, a.id));
+  }
+
+  function wrapFirst(quote, id) {
+    const needle = (quote || "").trim();
+    if (needle.length < 3) return;
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => {
+        if (!n.nodeValue || n.nodeValue.indexOf(needle) === -1) return NodeFilter.FILTER_REJECT;
+        if (n.parentElement && n.parentElement.closest(".no-print, script, style"))
+          return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    const node = walker.nextNode();
+    if (!node) return;                       // the passage moved or was reworded; the card
+    const i = node.nodeValue.indexOf(needle); // below still carries it
+    const range = document.createRange();
+    range.setStart(node, i);
+    range.setEnd(node, i + needle.length);
+    const m = document.createElement("mark");
+    m.className = "rf-mark";
+    m.dataset.aid = id;
+    m.onclick = () => {
+      const card = document.querySelector('[data-card="' + id + '"]');
+      if (card) { card.scrollIntoView({block: "center", behavior: "smooth"});
+                  card.querySelector("textarea").focus(); }
+    };
+    try { range.surroundContents(m); } catch (e) { /* spans elements; skip the paint */ }
+  }
+
+  /* ---- render ------------------------------------------------------------------ */
+  /* A SETTLED REPORT IS A RECORD, NOT A WORKSPACE.
+     Once a report is finalized, or superseded by the revision it spent, the marking
+     furniture is not just useless, it is wrong: "0 of 5 used", "Add 5 more for $2" and
+     "select a sentence anywhere in the report" all invite an edit that cannot happen, on
+     a document whose whole point is that it is settled. In that state the marks and Q&A
+     become a record of what was asked and answered, empty sections disappear entirely,
+     and the feedback survey takes the floor instead. */
+  function applyMode() {
+    const done = st && (st.status === "final" || st.status === "revised" || st.revised_to);
+    document.body.classList.toggle("rf-settled", !!done);
+    const hide = (id, yes) => { const n = $(id); if (n) n.hidden = !!yes; };
+    hide("rfTop", done);
+    hide("rfDoneSec", done);
+    hide("rfBuyMarks", done);
+    hide("rfBuyQs", done);
+    const fb = $("feedbackBlock");
+    if (fb) fb.hidden = !done;          // the survey belongs to the finished thing
+    // empty sections say nothing worth saying once nothing can be added to them
+    if (done) {
+      hide("rfMarksSec", !(st.annotations || []).length);
+      hide("rfQaSec", !(st.questions || []).length);
+    } else {
+      hide("rfMarksSec", false);
+      hide("rfQaSec", false);
+    }
+    return done;
+  }
 
   function render() {
-    const b = document.getElementById("rfBody");
-    document.getElementById("rfCount").textContent =
-      `${st.questions.length}/5 questions · ${st.annotations.length}/15 marks` +
-      (st.status === "final" ? " · v2" : "") +
-      (st.status === "revised" ? " · revised" : "");
-    let h = "";
+    const settled = applyMode();
+    const nA = (st.annotations || []).length, nQ = (st.questions || []).length;
+    $("rfMarks").textContent = nA + " of " + MAX_A + " marks";
+    $("rfQs").textContent = nQ + " of " + MAX_Q + " questions";
+    $("rfMarks").className = "rf-pill" + (nA >= MAX_A ? " spent" : "");
+    $("rfQs").className = "rf-pill" + (nQ >= MAX_Q ? " spent" : "");
+    if (st.status === "final" || st.status === "revised") {
+      $("rfStatus").hidden = false;
+      $("rfStatus").textContent = st.status === "final" ? "v2 finalized" : "revised";
+    }
+
     const edits = st.input_edits || {};
+    let h = "";
     for (const f of Object.keys(edits)) {
-      h += `<div class="rf-item"><button class="rf-x" data-del-e="${f}">✕</button>` +
-        `<div class="rf-meta">input fix</div>` +
-        `<div><b>${f}:</b> ${edits[f]}</div></div>`;
+      h += '<div class="rf-card"><button class="rf-x" data-del-e="' + esc(f) + '">✕</button>' +
+        '<div class="meta">input fix</div><div class="qtext">' + esc(f) + "</div>" +
+        '<div class="rf-note">corrected to: ' + esc(edits[f]) + "</div></div>";
     }
-    for (const a of st.annotations) {
-      h += `<div class="rf-item"><button class="rf-x" data-del-a="${a.id}">✕</button>` +
-        `<div class="rf-meta">${a.section}</div>` +
-        `<div style="color:#6b7280">“${a.quote.slice(0, 90)}”</div>` +
-        `<div><b>You:</b> ${a.comment}</div>` +
-        (st.notes.filter(n => n.annotation_id === a.id).map(n =>
-          `<div style="margin-top:4px"><b>Note:</b> ${n.note}</div>`).join("")) + `</div>`;
+    for (const a of st.annotations || []) {
+      h += '<div class="rf-card" data-card="' + esc(a.id) + '">' +
+        '<button class="rf-x" data-del-a="' + esc(a.id) + '">✕</button>' +
+        '<div class="meta">' + esc(a.section) + "</div>" +
+        '<div class="quote">' + esc(a.quote) + "</div>" +
+        '<textarea data-c="' + esc(a.id) + '">' + esc(a.comment) + "</textarea>" +
+        (st.notes || []).filter((n) => n.annotation_id === a.id)
+          .map((n) => '<div class="rf-note"><b>Note back:</b> ' + esc(n.note) + "</div>").join("") +
+        "</div>";
     }
-    for (const q of st.questions) {
-      h += `<div class="rf-item"><button class="rf-x" data-del-q="${q.id}">✕</button>` +
-        `<div class="rf-q">${q.q}</div>` +
-        `<textarea data-a="${q.id}" placeholder="${q.a ? "" : "unanswered — Draft answers, or write one"}">${q.a || ""}</textarea>` +
-        `<div class="rf-meta">${q.a_origin ? ("answer: " + q.a_origin) : "no answer yet"}` +
-        `${q.grounded === false ? " · beyond this report's data" : ""}</div></div>`;
-    }
-    h += `<div class="rf-add"><input id="rfNewQ" maxlength="600" ` +
-         `placeholder="Ask a question (${Math.max(0, 5 - st.questions.length)} left)…">` +
-         `<button class="rf-btn" id="rfAsk">Ask</button></div>` +
-         `<div class="rf-meta">Tip: select any text in the report to attach a comment to it.</div>`;
-    b.innerHTML = h;
+    $("rfMarksUsed").textContent = settled
+      ? (nA === 1 ? "1 passage flagged" : nA + " passages flagged")
+      : nA + " of " + MAX_A + " used";
+    $("rfQsUsed").textContent = settled
+      ? (nQ === 1 ? "1 question asked" : nQ + " questions asked")
+      : nQ + " of " + MAX_Q + " used";
+    $("rfMarkList").innerHTML = h ||
+      '<div class="rf-empty">Nothing marked yet. Select a sentence anywhere in the report.</div>';
 
-    b.querySelectorAll("[data-del-e]").forEach(el => el.onclick =
-      () => api("PATCH", `/jobs/${JOB}/input-edits`,
-                {field: el.dataset.delE, value: ""}).then(load));
-    b.querySelectorAll("[data-del-a]").forEach(el => el.onclick =
-      () => api("DELETE", `/jobs/${JOB}/annotations/${el.dataset.delA}`).then(load));
-    b.querySelectorAll("[data-del-q]").forEach(el => el.onclick =
-      () => api("DELETE", `/jobs/${JOB}/questions/${el.dataset.delQ}`).then(load));
-    b.querySelectorAll("textarea[data-a]").forEach(el => el.onchange = () => {
-      const v = el.value.trim();
-      if (v) api("PATCH", `/jobs/${JOB}/qa/${el.dataset.a}`, {a: v}).then(load);
+    /* FIVE SLOTS, ALWAYS VISIBLE. An "ask one, then another appears" box hides how many
+       you get and makes the budget feel like a wall you keep hitting. Five numbered slots
+       show the whole allowance up front, which is what a budget is for: it invites triage
+       instead of punishing a sixth thought. */
+    let q = "";
+    for (let i = 0; i < MAX_Q; i++) {
+      const it = (st.questions || [])[i];
+      q += '<div class="rf-card' + (it ? "" : " slot") + '">';
+      q += '<div class="meta">Question ' + (i + 1) + " of " + MAX_Q +
+           (it ? '<button class="rf-x" data-del-q="' + esc(it.id) + '">✕</button>' : "") +
+           "</div>";
+      if (it) {
+        q += '<div class="qtext">' + esc(it.q) + "</div>" +
+          '<textarea data-a="' + esc(it.id) + '" placeholder="' +
+          (it.a ? "" : "No answer yet. Write one here, or regenerate to have it answered "
+                     + "from the report's data.") +
+          '">' + esc(it.a || "") + "</textarea>" +
+          '<div class="prov">' + (it.a_origin ? "answer: " + esc(it.a_origin) : "no answer yet") +
+          (it.grounded === false
+            ? ' · <span class="ungrounded">beyond this report\'s data</span>' : "") +
+          (it.based_on && it.based_on.length ? " · from " + esc(it.based_on.join(", ")) : "") +
+          "</div>";
+      } else {
+        q += '<input class="rf-slot-in" data-newq="' + i +
+             '" maxlength="600" placeholder="Type a question about this report…">';
+      }
+      q += "</div>";
+    }
+    $("rfQList").innerHTML = q;
+    document.querySelectorAll("[data-newq]").forEach((el) => {
+      const send = () => {
+        const v = el.value.trim();
+        if (!v) return;
+        el.disabled = true;
+        say("");
+        api("POST", "/jobs/" + JOB + "/questions", {q: v})
+          .then(load).catch((e) => { say(e.message); el.disabled = false; });
+      };
+      el.onkeydown = (e) => { if (e.key === "Enter") send(); };
+      el.onblur = send;
     });
-    const ask = () => {
-      const v = document.getElementById("rfNewQ").value.trim();
-      if (v) api("POST", `/jobs/${JOB}/questions`, {q: v}).then(load).catch(e => alert(e.message));
-    };
-    document.getElementById("rfAsk").onclick = ask;
-    document.getElementById("rfNewQ").onkeydown = (e) => { if (e.key === "Enter") ask(); };
-  }
-  function load() { return api("GET", `/jobs/${JOB}/iteration`).then(s2 => { st = s2; render(); }); }
 
-  document.getElementById("rfDraft").onclick = async (e) => {
-    e.target.disabled = true; e.target.textContent = "Drafting…";
-    try { await api("POST", `/jobs/${JOB}/iterate`); await load(); }
-    catch (err) { alert("Drafting failed: " + err.message); }
-    e.target.disabled = false; e.target.textContent = "Draft answers";
-  };
-  document.getElementById("rfFinal").onclick = async (e) => {
-    try { await api("POST", `/jobs/${JOB}/finalize`); location.href = location.pathname; }
-    catch (err) { alert(err.message); }
-  };
-  /* Wave E channel 3: fix a wrong input. The prompt pair matches the drawer's existing
-     comment flow; a proper composer is queued. */
-  document.getElementById("rfEdit").onclick = async () => {
-    const f = prompt("Which input is wrong? (e.g. pricing, site, expected_volume, "
-                     + "monthly_cost_estimate)");
-    if (!f) return;
-    const v = prompt(`Corrected value for ${f.trim()}:`);
-    if (v === null) return;
-    try { await api("PATCH", `/jobs/${JOB}/input-edits`, {field: f.trim(), value: v.trim()});
-          await load(); }
-    catch (err) { alert(err.message); }
-  };
-  /* Wave E: the ONE regeneration. Edits and marks ride the amended brief; questions are
-     answered against the new artifact. A second attempt is pay-or-take. */
-  document.getElementById("rfRevise").onclick = async (e) => {
-    if (!confirm("Regenerate the report with your input fixes, comments and questions? "
-                 + "This is the one included revision.")) return;
-    e.target.disabled = true; e.target.textContent = "Starting…";
-    try {
-      const r = await api("POST", `/jobs/${JOB}/revise`);
-      alert("Regeneration started. The new report will appear in your reports list.");
-      location.href = "/workspace";
-    } catch (err) {
-      alert(err.message);
-      e.target.disabled = false; e.target.textContent = "Regenerate with revisions";
+    document.querySelectorAll("[data-del-e]").forEach((el) => el.onclick = () =>
+      api("PATCH", "/jobs/" + JOB + "/input-edits", {field: el.dataset.delE, value: ""}).then(load));
+    document.querySelectorAll("[data-del-a]").forEach((el) => el.onclick = () =>
+      api("DELETE", "/jobs/" + JOB + "/annotations/" + el.dataset.delA).then(load));
+    document.querySelectorAll("[data-del-q]").forEach((el) => el.onclick = () =>
+      api("DELETE", "/jobs/" + JOB + "/questions/" + el.dataset.delQ).then(load));
+    document.querySelectorAll("textarea[data-a]").forEach((el) => el.onchange = () => {
+      const v = el.value.trim();
+      if (v) api("PATCH", "/jobs/" + JOB + "/qa/" + el.dataset.a, {a: v}).then(load);
+    });
+    document.querySelectorAll("textarea[data-c]").forEach((el) => el.onchange = () => {
+      const v = el.value.trim();
+      if (!v) return;
+      const a = (st.annotations || []).find((x) => x.id === el.dataset.c);
+      if (!a || a.comment === v) return;
+      api("DELETE", "/jobs/" + JOB + "/annotations/" + a.id)
+        .then(() => api("POST", "/jobs/" + JOB + "/annotations",
+                        {section: a.section, quote: a.quote, comment: v}))
+        .then(load).catch((e) => say(e.message));
+    });
+    if (settled) {
+      const lm = document.querySelector("[data-lede-marks]");
+      const lq = document.querySelector("[data-lede-qa]");
+      if (lm) lm.textContent = "The passages this reader flagged before the report settled.";
+      if (lq) lq.textContent = "Asked by the reader, answered from this report's own data.";
+      document.querySelectorAll("#rfMarkList textarea, #rfQList textarea, "
+        + "#rfQList input, .rf-x").forEach((n) => {
+          if (n.tagName === "BUTTON") n.remove(); else n.readOnly = true;
+        });
     }
-  };
+    paintMarks();
+    paintRevise();
+  }
 
-  /* selection -> comment. The section is the nearest preceding h2; the quote is the
-     selection itself, capped. Data only — the page is never edited. */
+  function load() {
+    return api("GET", "/jobs/" + JOB + "/credits")
+      .then((c) => { MAX_Q = c.limits.questions; MAX_A = c.limits.marks; })
+      .catch(() => {})
+      .then(() => api("GET", "/jobs/" + JOB + "/iteration"))
+      .then((s) => { st = s; render(); });
+  }
+
+  /* BUYING MORE IS A REAL REFUSAL UNTIL CHECKOUT EXISTS. The endpoint answers 402 with the
+     reason, and this shows it rather than pretending the button did something. Granting
+     capacity for free would make the budget decorative, which is worse than not having
+     one. */
+  function buy(kind, label) {
+    return async () => {
+      say("");
+      try {
+        // Stripe Checkout when the instance can sell; the operator override otherwise.
+        // Nothing is granted by coming back from Stripe: the signed webhook does that,
+        // so this only sends the buyer there and reloads when they return.
+        const status = await api("GET", "/billing/status");
+        if (status.configured && status.buyable && status.buyable[kind]) {
+          const out = await api("POST", "/billing/checkout", {kind: kind, job_id: JOB});
+          location.href = out.url;
+          return;
+        }
+        await api("POST", "/jobs/" + JOB + "/credits", {kind: kind, packs: 1});
+        await load();
+      } catch (e) { say(label + ": " + e.message); }
+    };
+  }
+
+  // Returning from a successful checkout: the webhook may land a moment after the browser
+  // does, so reload the budgets shortly after arriving rather than showing a stale count.
+  if (new URLSearchParams(location.search).get("paid")
+      && new URLSearchParams(location.search).get("paid") !== "cancelled") {
+    setTimeout(load, 1500);
+  }
+  $("rfBuyMarks").onclick = buy("marks", "More marks");
+  $("rfBuyQs").onclick = buy("questions", "More questions");
+
+  /* ---- selection to comment, inline. No prompt() ------------------------------------
+     A browser prompt cannot show the passage being commented on, cannot be styled, cannot
+     be cancelled without losing what you typed, and on a phone covers the page. The
+     composer sits where the selection is and shows the quote above the box. */
   let pop = null;
-  document.addEventListener("mouseup", () => {
-    if (pop) { pop.remove(); pop = null; }
-    const sel = window.getSelection();
-    const text = (sel && sel.toString() || "").trim();
-    if (!text || text.length < 3 || sel.rangeCount === 0) return;
-    const range = sel.getRangeAt(0);
-    if (document.getElementById("rfBar").contains(range.commonAncestorContainer)) return;
+  function closePop() { if (pop) { pop.remove(); pop = null; } }
+
+  document.addEventListener("mousedown", (e) => {
+    if (pop && !pop.contains(e.target)) closePop();
+  });
+
+  document.addEventListener("mouseup", (e) => {
+    if (pop && pop.contains(e.target)) return;
+    setTimeout(() => {
+      const sel = window.getSelection();
+      const text = (sel && sel.toString() || "").trim();
+      if (!text || text.length < 3 || sel.rangeCount === 0) return;
+      const range = sel.getRangeAt(0);
+      const host = range.commonAncestorContainer;
+      const hostEl = host.nodeType === 1 ? host : host.parentElement;
+      if (hostEl && hostEl.closest(".no-print")) return;   // never inside refine chrome
+      if ((st.annotations || []).length >= MAX_A) {
+        say("All " + MAX_A + " marks used. Delete one below to add another.");
+        return;
+      }
+      closePop();
+      openComposer(range, text);
+    }, 0);
+  });
+
+  function sectionFor(range) {
+    let node = range.startContainer.nodeType === 1 ? range.startContainer
+                                                   : range.startContainer.parentElement;
+    while (node) {
+      let probe = node;
+      while (probe) {
+        if (probe.tagName === "H2") return probe.textContent.trim();
+        probe = probe.previousElementSibling;
+      }
+      node = node.parentElement;
+    }
+    return "General";
+  }
+
+  function openComposer(range, text) {
     const rect = range.getBoundingClientRect();
     pop = document.createElement("div");
     pop.className = "rf-pop no-print";
-    pop.textContent = "✎ Comment on this";
-    pop.style.left = (window.scrollX + rect.left) + "px";
-    pop.style.top = (window.scrollY + rect.top - 36) + "px";
-    pop.onclick = () => {
-      let node = range.startContainer.nodeType === 1 ? range.startContainer
-                                                     : range.startContainer.parentElement;
-      let section = "General";
-      while (node) {
-        let sib = node.previousElementSibling || node.parentElement;
-        let probe = node;
-        while (probe) {
-          if (probe.tagName === "H2") { section = probe.textContent.trim(); node = null; break; }
-          probe = probe.previousElementSibling;
-        }
-        if (!node) break;
-        node = node.parentElement;
-      }
-      const comment = prompt(`Comment on: “${text.slice(0, 70)}…”`);
-      if (comment && comment.trim()) {
-        api("POST", `/jobs/${JOB}/annotations`,
-            {section, quote: text.slice(0, 400), comment: comment.trim()})
-          .then(load).catch(e => alert(e.message));
-      }
-      pop.remove(); pop = null;
-    };
+    pop.innerHTML =
+      '<div class="quote">“' + esc(text.slice(0, 160)) + (text.length > 160 ? "…" : "") + '”</div>' +
+      '<textarea placeholder="What is wrong with this, or what would you want instead?"></textarea>' +
+      '<div class="rf-pop-row"><span class="grow"></span>' +
+      '<button class="rf-btn" data-x>Cancel</button>' +
+      '<button class="rf-btn go" data-save>Add mark</button></div>';
+    const top = window.scrollY + rect.bottom + 8;
+    const left = Math.min(window.scrollX + rect.left,
+                          window.scrollX + document.documentElement.clientWidth - 340);
+    pop.style.top = top + "px";
+    pop.style.left = Math.max(8, left) + "px";
     document.body.appendChild(pop);
-  });
+    const ta = pop.querySelector("textarea");
+    ta.focus();
+    pop.querySelector("[data-x]").onclick = closePop;
+    const save = () => {
+      const comment = ta.value.trim();
+      if (!comment) { ta.focus(); return; }
+      api("POST", "/jobs/" + JOB + "/annotations",
+          {section: sectionFor(range), quote: text.slice(0, 400), comment: comment})
+        .then(() => { closePop(); window.getSelection().removeAllRanges(); return load(); })
+        .catch((e) => { say(e.message); closePop(); });
+    };
+    pop.querySelector("[data-save]").onclick = save;
+    ta.onkeydown = (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();
+      if (e.key === "Escape") closePop();
+    };
+  }
+
+  /* ---- the actions -------------------------------------------------------------- */
+  /* Two of these just move you to the right place. Refine mode is spread across the page
+     on purpose (rules on top, marking in the text, questions at the foot), so the foot
+     needs a way back to each part. */
+  $("rfNotes").onclick = () => window.scrollTo({top: 0, behavior: "smooth"});
+  $("rfQaJump").onclick = () =>
+    $("rfQaSec").scrollIntoView({behavior: "smooth", block: "start"});
+
+  /* THE SURVEY, HANDED BACK. The old version asked "which input is wrong?" and expected
+     the reader to type a field name out of our schema. They have never seen our schema. */
+  function label(field) {
+    return field.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+  }
+  function renderSurvey() {
+    const edits = (st && st.input_edits) || {};
+    const fields = Object.keys(FACTS || {});
+    if (!fields.length) {
+      $("rfSurveyRows").innerHTML =
+        '<div class="rf-empty">This report has no stored survey answers to correct. It was '
+        + 'run from a written brief rather than the survey.</div>';
+      return;
+    }
+    $("rfSurveyRows").innerHTML = fields.map((f) =>
+      '<div class="rf-card"><div class="meta">' + esc(label(f)) +
+      (edits[f] !== undefined ? " · corrected" : "") + "</div>" +
+      '<input class="rf-slot-in" data-fix="' + esc(f) + '" value="' +
+      esc(edits[f] !== undefined ? edits[f] : FACTS[f]) + '"></div>').join("");
+    document.querySelectorAll("[data-fix]").forEach((el) => {
+      const original = FACTS[el.dataset.fix];
+      el.onchange = () => {
+        const v = el.value.trim();
+        if (v === String(original == null ? "" : original)) return;
+        api("PATCH", "/jobs/" + JOB + "/input-edits", {field: el.dataset.fix, value: v})
+          .then(load).catch((e) => say(e.message));
+      };
+    });
+  }
+  $("rfFix").onclick = () => {
+    const box = $("rfSurvey");
+    box.hidden = !box.hidden;
+    if (!box.hidden) { renderSurvey(); box.scrollIntoView({behavior: "smooth", block: "center"}); }
+  };
+
+  /* ---- the summary, shown after the reader commits --------------------------------
+     What they are signing off on, in one place: the answers the report was built from,
+     what they marked, and what they asked. Before this, finalize reloaded the page and
+     the reader had to go hunting to see whether anything had been recorded at all. */
+  function showSummary(headline, note) {
+    const edits = (st && st.input_edits) || {};
+    const rows = (fields, fn) => fields.length
+      ? fields.map(fn).join("") : '<div class="rf-empty">None.</div>';
+    $("rfSummary").hidden = false;
+    $("rfSummary").innerHTML =
+      '<div class="rf-confirm" style="background:#ecfdf5;border-color:#a7f3d0;color:#065f46">'
+      + "<b>" + esc(headline) + "</b><br>" + esc(note) + "</div>"
+      + "<h2 style=\"margin-top:26px\">What this was built on</h2>"
+      + rows(Object.keys(FACTS || {}), (f) =>
+          '<div class="rf-card"><div class="meta">' + esc(label(f)) +
+          (edits[f] !== undefined ? " · you corrected this" : "") + "</div>" +
+          '<div class="rf-note">' +
+          esc(edits[f] !== undefined ? edits[f] : FACTS[f]) + "</div></div>")
+      + "<h2 style=\"margin-top:26px\">Your marks</h2>"
+      + rows(st.annotations || [], (a) =>
+          '<div class="rf-card"><div class="meta">' + esc(a.section) + "</div>" +
+          '<div class="quote">' + esc(a.quote) + "</div>" +
+          '<div class="rf-note">' + esc(a.comment) + "</div></div>")
+      + "<h2 style=\"margin-top:26px\">Your questions</h2>"
+      + rows(st.questions || [], (q) =>
+          '<div class="rf-card"><div class="qtext">' + esc(q.q) + "</div>" +
+          '<div class="rf-note">' + (q.a ? esc(q.a) : "not answered") + "</div>" +
+          '<div class="prov">' + (q.a_origin ? "answer: " + esc(q.a_origin) : "no answer")
+          + "</div></div>");
+    $("rfSummary").scrollIntoView({behavior: "smooth", block: "start"});
+  }
+
+  /* The ONE included regeneration. Confirmed inline rather than through a browser dialog,
+     because what it costs deserves a sentence the reader can actually read. */
+  /* A REPORT GETS ONE REGENERATION, and the button has to know that before it is pressed.
+     Pressing a live, inviting button and being told the cycle was already spent reads as
+     broken software; the refusal was correct and the presentation was not. */
+  function paintRevise() {
+    const spent = st && (st.status === "revised" || st.revised_to);
+    const btn = $("rfRevise");
+    if (!spent) return;
+    btn.disabled = true;
+    btn.textContent = "Revision already used";
+    btn.classList.remove("go");
+    const where = $("rfConfirm");
+    if (!where.firstChild && st.revised_to) {
+      where.innerHTML = '<div class="rf-confirm">This report has already been regenerated '
+        + 'once, and that is the revision included with it. '
+        + '<a href="/jobs/' + esc(st.revised_to) + '/report.html">Open the newer version</a>.'
+        + "</div>";
+    }
+  }
+
+  $("rfRevise").onclick = () => {
+    const box = $("rfConfirm");
+    /* NO TOGGLE. This used to close the panel on a second press, so the commonest thing a
+       reader does with a button that seems not to have worked, press it again, undid it.
+       The result was a Regenerate button that visibly did nothing. Closing is what "Not
+       yet" is for; this always opens. */
+    const nA = (st.annotations || []).length, nQ = (st.questions || []).length;
+    box.innerHTML = '<div class="rf-confirm">Regenerating rebuilds the whole report with ' +
+      'your ' + nA + ' mark' + (nA === 1 ? "" : "s") + ' and ' + nQ + ' question' +
+      (nQ === 1 ? "" : "s") + ' folded into the brief. It takes about six minutes and it is ' +
+      'the one included revision.<div class="rf-pop-row"><span class="grow"></span>' +
+      '<button class="rf-btn" data-no>Not yet</button>' +
+      '<button class="rf-btn go" data-yes>Regenerate</button></div></div>';
+    box.scrollIntoView({behavior: "smooth", block: "center"});
+    // A long report means the panel can open outside the viewport if the reader clicked
+    // from a keyboard shortcut or a stale scroll position. Flash it so it is found.
+    const card = box.querySelector(".rf-confirm");
+    if (card) {
+      card.animate([{opacity: 0.35}, {opacity: 1}], {duration: 420, easing: "ease-out"});
+      const yes = box.querySelector("[data-yes]");
+      if (yes) setTimeout(() => yes.focus(), 380);
+    }
+    box.querySelector("[data-no]").onclick = () => { box.innerHTML = ""; };
+    box.querySelector("[data-yes]").onclick = async (e) => {
+      e.target.disabled = true; e.target.textContent = "Starting…";
+      try {
+        const r = await api("POST", "/jobs/" + JOB + "/revise");
+        // Straight to the waiting page. The confirm panel above already showed exactly
+        // what was being sent, so the review has happened; what the reader wants now is
+        // the new report, and the progress page hands them to it when it is ready.
+        location.href = "/progress.html?job=" + encodeURIComponent(r.job_id || JOB);
+      } catch (err) {
+        box.innerHTML = '<div class="rf-confirm">' + esc(err.message) + "</div>";
+        e.target.disabled = false;
+        e.target.textContent = "Regenerate";
+      }
+    };
+  };
 
   load();
 })();

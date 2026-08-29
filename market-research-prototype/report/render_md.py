@@ -147,6 +147,7 @@ def render_taste(profile: dict) -> str:
 
 
 def render_match(result: dict) -> str:
+    """The match result as markdown."""
     lines: list[str] = []
     score = result.get("match_score")
     lines.append(f"# Match report — score {score}/100")

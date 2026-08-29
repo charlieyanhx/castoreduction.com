@@ -24,10 +24,8 @@ Output:
   }
 """
 from __future__ import annotations
-import json
 import re
-from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 
 # ---------- content-validity gate (W2/D13) ----------

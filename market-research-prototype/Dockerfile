@@ -23,6 +23,14 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Playwright's BROWSER, not just its library. The apt block above installs the system
+# libraries chromium needs, and requirements.txt installs the python package, but nothing
+# ever downloaded the browser itself — so scrape's JS-challenge fallback (Trustpilot behind
+# AWS WAF) would raise on first use in the container while working fine on a laptop where
+# someone had run `playwright install` months ago. Chromium adds ~150MB to the image;
+# a fallback that cannot run is worth less than the bytes it saves.
+RUN playwright install chromium
+
 # Copy the rest of the application
 COPY . .
 
@@ -40,4 +48,8 @@ ENV JOBS_DB_PATH=/data/jobs.sqlite \
 EXPOSE 8765
 
 # Use shell form so $PORT expands at runtime (Render injects PORT env)
-CMD uvicorn api:app --host 0.0.0.0 --port ${PORT:-8765}
+# --forwarded-allow-ips: uvicorn drops X-Forwarded-For from an untrusted peer, so
+# without it CASTOR_TRUST_PROXY has nothing to read and every visitor still shares
+# one rate-limit key. The container only ever receives traffic from the platform
+# proxy, so trusting that hop is correct here.
+CMD uvicorn api:app --host 0.0.0.0 --port ${PORT:-8765} --forwarded-allow-ips="*"

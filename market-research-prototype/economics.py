@@ -10,7 +10,6 @@ live in one module. Pure math where possible; one LLM call to estimate the
 segment-specific churn / contract / expansion numbers from competitor signals.
 """
 from __future__ import annotations
-import json
 
 from llm import call_json
 from logger import get

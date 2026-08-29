@@ -18,9 +18,11 @@ from __future__ import annotations
 import csv
 import io
 import time
-from typing import Any
 
-import requests
+# Imported for its module attribute, not called here: tests patch `macro_anchors.requests`
+# to intercept the network. Removing it as "unused" breaks that seam.
+import requests  # noqa: F401
+
 
 from cache import get as cache_get, put as cache_put
 from logger import get

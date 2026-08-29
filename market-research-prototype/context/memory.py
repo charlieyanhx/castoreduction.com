@@ -49,6 +49,9 @@ class Memory:
 
     # -- writing ------------------------------------------------------------
     def remember(self, scope: str, key: str, value: str) -> None:
+        """Store one fact in a known scope. Unknown scopes and blank values are ignored, so a
+        bad write cannot invent a scope or plant an empty fact.
+        """
         if scope not in self._facts:
             return
         k, v = str(key).strip(), str(value).strip()

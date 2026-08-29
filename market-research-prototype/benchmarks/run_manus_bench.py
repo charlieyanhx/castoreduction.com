@@ -33,6 +33,7 @@ except Exception:
 
 @dataclass
 class BenchQuery:
+    """One benchmark question, and the callable that answers it with Castor's output."""
     qid: str
     prompt: str
     scale_hint: str
@@ -168,6 +169,7 @@ def _print_human(qid: str, prompt: str, side: dict) -> None:
 
 
 def main() -> None:
+    """Run the selected benchmark queries and print a report, or raw JSON with --json."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--query", help="run only this query id (Q1..Q4)")
     ap.add_argument("--json", action="store_true", help="emit raw JSON instead of a report")

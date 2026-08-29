@@ -157,5 +157,37 @@ class TestNoEndpointBypassesTheChokePoint(unittest.TestCase):
                          f"unscoped job lookup(s) reachable from HTTP: {offenders}")
 
 
+class TestNoEndpointCreatesAnUnownedJob(unittest.TestCase):
+    def test_every_job_created_from_http_names_its_owner(self):
+        """The read path was choked and the WRITE path was not.
+
+        MEASURED: four handlers (/taste, /match, /full, /research/crew) called
+        jobs.create(kind, params) with no owner_id, so the row was born owned by
+        LEGACY_OWNER whoever asked for it. _owned_job then looked the row up with the
+        caller's real account id, did not match, and returned None: an authenticated
+        user got a 404 polling a job they had just created. The same omission puts one
+        account's work in another's bucket the moment two people share an install.
+
+        Scoping the nine READS through one helper cannot fix this, because the defect is
+        at birth. So the write path gets its own guard, in the same shape as the read one.
+        """
+        import ast
+
+        tree = ast.parse(open("api.py").read())
+        offenders = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            f = node.func
+            if not (isinstance(f, ast.Attribute) and f.attr == "create"
+                    and isinstance(f.value, ast.Name) and f.value.id == "jobs"):
+                continue
+            if any(k.arg == "owner_id" for k in node.keywords):
+                continue
+            offenders.append(f"api.py:{node.lineno}")
+        self.assertEqual(offenders, [],
+                         f"job(s) created from HTTP with no owner: {offenders}")
+
+
 if __name__ == "__main__":
     unittest.main()

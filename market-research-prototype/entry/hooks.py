@@ -34,6 +34,9 @@ class HookBus:
             return tok
 
     def unsubscribe(self, token: Optional[int]) -> None:
+        """Remove a subscriber. A None token is ignored, so callers can unsubscribe
+        unconditionally without tracking whether they ever subscribed.
+        """
         if token is None:
             return
         with self._lock:

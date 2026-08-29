@@ -35,6 +35,7 @@ log = get("verifier")
 
 
 class Severity:
+    """How much a finding is worth. BLOCK withholds the report; the others only disclose."""
     BLOCK = "block"        # would ship a wrong number or an unsupported claim
     ADVISORY = "advisory"  # worth disclosing, not worth withholding over
     INFO = "info"
@@ -48,6 +49,7 @@ class Severity:
 
 @dataclass
 class Finding:
+    """One invariant's complaint, with the historical failure class it belongs to."""
     invariant: str
     severity: str
     detail: str
@@ -76,6 +78,11 @@ class Coverage:
 
 @dataclass
 class VerificationResult:
+    """Everything the pre-publication pass concluded, plus what it was able to check.
+
+    `coverage` matters as much as `findings`: a clean verdict from a pass that could
+    only run half its detectors is not the same as a clean report.
+    """
     findings: list[Finding] = field(default_factory=list)
     coverage: Coverage = field(default_factory=Coverage)
 
@@ -84,6 +91,7 @@ class VerificationResult:
         return not any(f.severity == Severity.BLOCK for f in self.findings)
 
     def summary(self) -> dict:
+        """Counts per severity, the publishable verdict, and coverage, as a JSON-able dict."""
         out = {Severity.BLOCK: 0, Severity.ADVISORY: 0, Severity.INFO: 0}
         for f in self.findings:
             out[f.severity] = out.get(f.severity, 0) + 1

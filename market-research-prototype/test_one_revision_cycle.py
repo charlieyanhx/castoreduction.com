@@ -33,8 +33,8 @@ class _TempDB(unittest.TestCase):
 
 
 class TestTheNewLimits(_TempDB):
-    def test_fifteen_marks_and_five_questions(self):
-        self.assertEqual(self.iteration.MAX_ANNOTATIONS, 15)
+    def test_five_marks_and_five_questions(self):
+        self.assertEqual(self.iteration.MAX_ANNOTATIONS, 5)
         self.assertEqual(self.iteration.MAX_QUESTIONS, 5)
 
     def test_the_sixth_question_is_refused(self):
@@ -43,8 +43,8 @@ class TestTheNewLimits(_TempDB):
         with self.assertRaises(self.iteration.IterationError):
             self.iteration.add_question("j1", "one too many?")
 
-    def test_the_sixteenth_mark_is_refused(self):
-        for i in range(15):
+    def test_the_sixth_mark_is_refused(self):
+        for i in range(5):
             self.iteration.add_annotation("j1", section="s", quote=f"q{i}", comment="c")
         with self.assertRaises(self.iteration.IterationError):
             self.iteration.add_annotation("j1", section="s", quote="x", comment="c")
@@ -143,3 +143,156 @@ class TestOneCycleThenPay(_TempDB):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBoughtCapacity(_TempDB):
+    """A pack raises the cap for ONE report. The budgets exist to force triage, so extra
+    capacity is priced rather than free, and it is refused outright until a real checkout
+    exists: a grant that succeeded without payment would make the cap decorative."""
+
+    def test_the_cap_is_refused_without_a_checkout(self):
+        os.environ.pop("CASTOR_ALLOW_UNPAID_CREDITS", None)
+        with self.assertRaises(self.iteration.IterationError):
+            self.iteration.grant("j1", "marks", 1)
+
+    def test_a_bought_pack_raises_only_that_budget(self):
+        os.environ["CASTOR_ALLOW_UNPAID_CREDITS"] = "1"
+        try:
+            base = self.iteration.limits(self.iteration.get_state("j1"))
+            self.assertEqual(base, {"questions": 5, "marks": 5, "reruns": 1})
+            self.iteration.grant("j1", "marks", 1)
+            after = self.iteration.limits(self.iteration.get_state("j1"))
+            self.assertEqual(after["marks"], 10)
+            self.assertEqual(after["questions"], 5, "one pack must not widen the others")
+            self.assertEqual(after["reruns"], 1)
+        finally:
+            os.environ.pop("CASTOR_ALLOW_UNPAID_CREDITS", None)
+
+    def test_the_sixth_mark_is_allowed_once_a_pack_is_bought(self):
+        os.environ["CASTOR_ALLOW_UNPAID_CREDITS"] = "1"
+        try:
+            for i in range(5):
+                self.iteration.add_annotation("j1", section="s", quote=f"q{i}", comment="c")
+            with self.assertRaises(self.iteration.IterationError):
+                self.iteration.add_annotation("j1", section="s", quote="x", comment="c")
+            self.iteration.grant("j1", "marks", 1)
+            self.iteration.add_annotation("j1", section="s", quote="x", comment="c")
+            st = self.iteration.get_state("j1")
+            self.assertEqual(len(st["annotations"]), 6)
+        finally:
+            os.environ.pop("CASTOR_ALLOW_UNPAID_CREDITS", None)
+
+    def test_the_prices_are_the_ones_the_page_shows(self):
+        self.assertEqual(self.iteration.PACK_PRICES_USD["marks"], 2.0)
+        self.assertEqual(self.iteration.PACK_PRICES_USD["questions"], 5.0)
+        self.assertEqual(self.iteration.PACK_PRICES_USD["rerun"], 5.0)
+        self.assertEqual(self.iteration.PACK_SIZES["marks"], 5)
+        self.assertEqual(self.iteration.PACK_SIZES["questions"], 5)
+
+
+class TestCarriedQuestionsGetAnswered(_TempDB):
+    """A question carried into the regeneration must come back answered.
+
+    MEASURED (2026-08-28, job de585f13): carry_questions deliberately copies the reader's
+    questions across UNANSWERED, so that draft_answers can ground them in the NEW artifact
+    rather than the one they were typed against. draft_answers had exactly one caller, the
+    "answer my questions" button. When that button was removed the carried questions simply
+    sat blank: the regenerated report published a Q&A section reading "Not yet answered",
+    and finalize refuses on precisely that, so the reader was blocked with no way forward.
+
+    The answer belongs to the run that can produce it, not to a button somebody has to
+    remember to press. These pin that.
+    """
+
+    def _revised_job(self, patch_draft, question="what should I prioritise?"):
+        """Drive a real /revise through the API with run_plan mocked, and return the new
+        job id once its worker thread has finished."""
+        import time as _t
+        from fastapi.testclient import TestClient
+        import api as api_mod
+        import jobs
+        job_id = jobs.create("plan", {"description": "A coffee cart in Los Angeles for "
+                                                     "commuters and office workers."},
+                             owner_id=None)
+        jobs.update(job_id, state="done", result={"profile": {"name": "x"}})
+        if question:
+            self.iteration.add_question(job_id, question)
+
+        def fake_run_plan(description, **kw):
+            return {"profile": {"name": "x"}, "_steps_completed": ["profile"]}
+
+        with patch("plan.run_plan", side_effect=fake_run_plan), patch_draft:
+            client = TestClient(api_mod.app)
+            r = client.post(f"/jobs/{job_id}/revise")
+            self.assertEqual(r.status_code, 200, r.text)
+            new_id = r.json()["job_id"]
+            for _ in range(100):                    # the worker runs on its own thread
+                if (jobs.get(new_id, owner_id=None) or {}).get("state") in ("complete", "error"):
+                    break
+                _t.sleep(0.05)
+        return job_id, new_id
+
+    def test_the_revision_run_answers_the_carried_question(self):
+        seen = {}
+
+        def fake_draft(job_id, result):
+            seen["job_id"] = job_id
+            seen["result"] = result
+            return self.iteration.get_state(job_id)
+
+        old_id, new_id = self._revised_job(
+            patch("iteration.draft_answers", side_effect=fake_draft))
+        self.assertEqual(seen.get("job_id"), new_id,
+                         "answers must be drafted against the NEW artifact, not the old")
+        self.assertIn("profile", seen.get("result") or {},
+                      "drafting is handed the regenerated result")
+
+    def test_a_revision_with_no_questions_does_not_draft(self):
+        calls = []
+        old_id, new_id = self._revised_job(
+            patch("iteration.draft_answers", side_effect=lambda *a, **k: calls.append(a)),
+            question=None)
+        self.assertEqual(calls, [], "nothing to answer means no model call")
+
+    def test_a_drafting_failure_does_not_fail_the_run(self):
+        """The report is the product; the answers are an addition. An unanswered question
+        is visible and honest, where a lost report is neither."""
+        import jobs
+
+        def boom(job_id, result):
+            raise self.iteration.IterationError("backend refused")
+
+        old_id, new_id = self._revised_job(patch("iteration.draft_answers", side_effect=boom))
+        job = jobs.get(new_id, owner_id=None) or {}
+        self.assertEqual(job.get("state"), "complete",
+                         "a failed Q&A draft must not sink the regenerated report")
+        self.assertIn("profile", job.get("result") or {})
+
+
+class TestTheMarksReachTheRegeneration(_TempDB):
+    """The page tells the reader their marks "ride the regeneration as instructions".
+    That promise is only true if the amended brief actually carries them."""
+
+    def test_a_mark_becomes_an_instruction_in_the_brief(self):
+        job = "j-marks"
+        self.iteration.add_annotation(
+            job, section="Market sizing", quote="TAM of $12.7M across the trade area",
+            comment="this is far too small, 63 competitors already operate here")
+        brief = self.iteration.build_revision_brief(job, "A cafe in Portland.")
+        self.assertIn("Reader feedback the next run must address", brief)
+        self.assertIn("TAM of $12.7M", brief)
+        self.assertIn("far too small", brief)
+
+    def test_a_correction_overrides_the_original_brief(self):
+        job = "j-edits"
+        self.iteration.set_input_edit(job, "avg_ticket", "$8.50")
+        brief = self.iteration.build_revision_brief(job, "A cafe in Portland.")
+        self.assertIn("OVERRIDE", brief)
+        self.assertIn("avg_ticket: $8.50", brief)
+
+    def test_questions_deliberately_stay_out_of_the_brief(self):
+        """They are answered against the new artifact, not used to steer its research."""
+        job = "j-qs"
+        self.iteration.add_question(job, "what should I prioritise?")
+        brief = self.iteration.build_revision_brief(job, "A cafe in Portland.")
+        self.assertNotIn("prioritise", brief)

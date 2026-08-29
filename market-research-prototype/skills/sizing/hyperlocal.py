@@ -680,7 +680,7 @@ def size_hyperlocal(
     figures, pre-validated. Evidence.error is set if validation hard-blocks.
 
     This is the single-premise trade-area ENGINE, normally reached via
-    size_market's routing. Do NOT use directly on an unclassified venture, a
+    the router's decision. Do NOT use directly on an unclassified venture, a
     multi-site rollout (size_regional), or anything digital/online
     (size_national_digital) — that bypasses classify_market_scale's overrides.
     """

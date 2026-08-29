@@ -35,6 +35,7 @@ _FRONT_MATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n(.*)\Z", re.S)
 
 @dataclass(frozen=True)
 class SkillDoc:
+    """Progressive documentation for one skill: a summary always, a body on request."""
     name: str = ""
     summary: str = ""
     body: str = ""

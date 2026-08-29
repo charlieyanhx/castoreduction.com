@@ -70,6 +70,20 @@
     transition: transform .12s ease, opacity .15s ease;
   }
   button[type=submit]:hover { opacity: .92; }
+  .google {
+    display: flex; align-items: center; justify-content: center; gap: .6rem;
+    width: 100%; padding: .72rem 1rem; margin-bottom: .2rem;
+    font: inherit; font-size: .95rem; font-weight: 600; text-decoration: none;
+    color: #3c4043; background: #fff; border: 1px solid #dadce0; border-radius: 8px;
+  }
+  .google:hover { background: #f8f9fa; border-color: #c6c9cc; }
+  .or {
+    display: flex; align-items: center; gap: .75rem; margin: 1rem 0 .4rem;
+    color: #9ca3af; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em;
+  }
+  .or::before, .or::after {
+    content: ""; flex: 1; height: 1px; background: currentColor; opacity: .28;
+  }
   button[type=submit]:active { transform: translateY(1px); }
   button[type=submit][disabled] { opacity: .55; cursor: progress; }
   .swap { margin: 18px 0 0; font-size: 14px; color: var(--muted); text-align: center; }
@@ -114,6 +128,20 @@
       <p class="lede" id="formLede">Welcome back.</p>
 
       <div class="error" id="formError" role="alert"></div>
+
+      <!-- Google first: for most people it is one click against twelve characters they
+           have to invent and remember. Hidden entirely unless the server is configured,
+           so the button is never present-but-broken. -->
+      <a class="google" id="googleBtn" href="/auth/google" hidden>
+        <svg viewBox="0 0 18 18" aria-hidden="true" width="17" height="17">
+          <path fill="#4285F4" d="M17.6 9.2c0-.6-.1-1.3-.2-1.9H9v3.5h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.7-3.9 2.7-6.5z"/>
+          <path fill="#34A853" d="M9 18c2.4 0 4.5-.8 6-2.2l-2.9-2.3c-.8.6-1.9.9-3.1.9-2.4 0-4.4-1.6-5.1-3.8H.9v2.3A9 9 0 0 0 9 18z"/>
+          <path fill="#FBBC05" d="M3.9 10.7a5.4 5.4 0 0 1 0-3.4V5H.9a9 9 0 0 0 0 8l3-2.3z"/>
+          <path fill="#EA4335" d="M9 3.6c1.3 0 2.5.5 3.4 1.3l2.6-2.6A9 9 0 0 0 .9 5l3 2.3C4.6 5.2 6.6 3.6 9 3.6z"/>
+        </svg>
+        Continue with Google
+      </a>
+      <div class="or" id="orLine" hidden><span>or</span></div>
 
       <label for="email">Email</label>
       <input id="email" name="email" type="email" autocomplete="email"
@@ -207,8 +235,28 @@
 
   // Already signed in? Do not make someone log in twice.
   fetch("/auth/me").then(function (r) { return r.json(); }).then(function (me) {
-    if (me && me.authenticated) location.href = "/";
+    if (me && me.authenticated) { location.href = "/"; return; }
+    // Reveal Google only when the server can actually complete the flow.
+    if (me && me.google) {
+      document.getElementById("googleBtn").hidden = false;
+      document.getElementById("orLine").hidden = false;
+    }
   }).catch(function () {});
+
+  // Anything that went wrong on the way back from Google, said plainly.
+  var GOOGLE_ERRORS = {
+    google_denied: "You cancelled the Google sign-in.",
+    google_state: "That sign-in link expired. Try again.",
+    google_failed: "Google sign-in did not complete. Try again, or use an email and password.",
+    google_refused: "We could not use that Google account. It may have an unverified email, " +
+                    "or the address may already belong to a different account."
+  };
+  var oauthErr = new URLSearchParams(location.search).get("error");
+  if (oauthErr && GOOGLE_ERRORS[oauthErr]) {
+    var box = document.getElementById("formError");
+    box.textContent = GOOGLE_ERRORS[oauthErr];
+    box.style.display = "block";
+  }
 
   render();
 })();

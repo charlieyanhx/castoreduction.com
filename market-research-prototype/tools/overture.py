@@ -56,6 +56,7 @@ _EAT_DRINK_MARKERS = ("restaurant", "cafe", "coffee", "bakery", "bar", "pub", "f
 
 
 class OverturePlacesArgs(BaseModel):
+    """Validated arguments for an Overture place census around a point."""
     lat: float = Field(description="site latitude")
     lng: float = Field(description="site longitude")
     radius_m: int = Field(default=1500, description="census radius in meters")

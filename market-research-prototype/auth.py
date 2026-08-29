@@ -91,7 +91,72 @@ def _db() -> sqlite3.Connection:
             email TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
             created_at INTEGER NOT NULL)""")
+    # Google sign-in. Added by ALTER rather than by rebuilding the table: password_hash is
+    # NOT NULL and existing rows depend on it, so an OAuth-only account stores the sentinel
+    # below instead. verify_password fails closed on anything that is not a scrypt string,
+    # so that value can never be logged into with a password, by anyone, ever.
+    if "google_sub" not in {r[1] for r in conn.execute("PRAGMA table_info(accounts)")}:
+        conn.execute("ALTER TABLE accounts ADD COLUMN google_sub TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_google_sub "
+                     "ON accounts(google_sub) WHERE google_sub IS NOT NULL")
     return conn
+
+
+#: Stored in password_hash for an account that has no password. Deliberately not a valid
+#: scrypt string.
+OAUTH_ONLY = "oauth-only-no-password"
+
+
+def find_or_create_google_account(sub: str, email: str, email_verified: bool) -> str:
+    """The account id for a Google identity, creating or linking as needed.
+
+    THE LINKING RULE, and it is the whole security of this function: an existing
+    password account is linked to a Google identity ONLY when Google says it has verified
+    that address. Without that check, anyone able to make Google assert an unverified
+    address could claim the matching account here and inherit its reports. Google verifies
+    gmail and Workspace addresses; it does not always verify others, and the flag is the
+    only way to tell from here.
+
+    Three cases: known Google subject, an existing account with the same verified email
+    (linked), or a new account with no password at all.
+    """
+    sub = (sub or "").strip()
+    e = _norm_email(email)
+    if not sub or "@" not in e:
+        raise ValueError("google returned no usable identity")
+    if not email_verified:
+        raise ValueError("google has not verified that email address")
+
+    c = _db()
+    row = c.execute("SELECT id FROM accounts WHERE google_sub = ?", (sub,)).fetchone()
+    if row:
+        c.close()
+        return row[0]
+
+    existing = c.execute("SELECT id, google_sub FROM accounts WHERE email = ?",
+                         (e,)).fetchone()
+    if existing:
+        if existing[1] and existing[1] != sub:
+            # The address is already bound to a DIFFERENT Google subject. Rebinding it
+            # would hand one person's account to another; refusing is the only safe move.
+            c.close()
+            raise ValueError("that email is already linked to another Google account")
+        c.execute("UPDATE accounts SET google_sub = ? WHERE id = ?", (sub, existing[0]))
+        c.close()
+        log.info("account %s linked to google", existing[0][:8])
+        return existing[0]
+
+    acct_id = str(uuid.uuid4())
+    try:
+        c.execute("INSERT INTO accounts (id, email, password_hash, created_at, google_sub) "
+                  "VALUES (?, ?, ?, ?, ?)",
+                  (acct_id, e, OAUTH_ONLY, int(time.time()), sub))
+    except sqlite3.IntegrityError:
+        c.close()
+        raise ValueError("could not create that account")
+    c.close()
+    log.info("account created via google %s", acct_id[:8])
+    return acct_id
 
 
 def _norm_email(email: str) -> str:
@@ -181,6 +246,12 @@ def _sign(payload_b64: str) -> str:
 
 
 def make_session_token(account_id: str) -> str:
+    """A signed session token for this account: base64(payload).hmac.
+
+    Carries only the account id and issue time. Nothing secret is inside, so the token is
+    readable by anyone holding it; the signature is what makes it unforgeable, and `iat`
+    is what lets read_session_token expire it.
+    """
     payload = base64.urlsafe_b64encode(
         json.dumps({"sub": account_id, "iat": int(time.time())}).encode()
     ).decode().rstrip("=")

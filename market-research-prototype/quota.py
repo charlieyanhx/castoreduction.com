@@ -67,6 +67,11 @@ def _db() -> sqlite3.Connection:
             owner_id TEXT NOT NULL,
             at INTEGER NOT NULL)""")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_run_ledger ON run_ledger(owner_id, at)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS login_failures (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL,
+            at INTEGER NOT NULL)""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_login_failures ON login_failures(key, at)")
     return conn
 
 
@@ -91,6 +96,7 @@ def _daily_limit(owner_id: str) -> int:
 
 
 def runs_today(owner_id: str) -> int:
+    """How many runs this account has started in the last 24 hours."""
     c = _db()
     n = c.execute("SELECT COUNT(*) FROM run_ledger WHERE owner_id = ? AND at > ?",
                   (owner_id, int(time.time()) - _DAY_S)).fetchone()[0]
@@ -116,18 +122,27 @@ def _sweep(c: sqlite3.Connection, owner_id: str) -> None:
             c.execute("DELETE FROM run_slots WHERE owner_id = ?", (owner_id,))
 
 
-def claim_run_slot(owner_id: str, job_id: str | None = None) -> None:
+def claim_run_slot(owner_id: str, job_id: str | None = None,
+                   count_daily: bool = True) -> None:
     """Reserve this account's single concurrent slot, or raise QuotaExceeded.
 
     Order matters: the daily count is checked first (cheap, and the more informative
     refusal), then the slot is claimed by INSERT so concurrency is decided atomically.
+
+    `count_daily=False` is for the ONE included revision. That regeneration is part of the
+    report the reader already has, not a new one, so charging it against the daily cap
+    meant someone who ran three reports could not use the revision cycle they were
+    promised on any of them: the product refusing to honour its own offer. Concurrency
+    still applies either way, because that limit is about what the machine can do at once
+    rather than about what the account is entitled to.
     """
-    limit = _daily_limit(owner_id)
-    used = runs_today(owner_id)
-    if used >= limit:
-        raise QuotaExceeded(
-            f"daily limit of {limit} runs reached ({used} used in the last 24h) — "
-            f"a report is ~6 minutes of live research, so the cap is per account")
+    if count_daily:
+        limit = _daily_limit(owner_id)
+        used = runs_today(owner_id)
+        if used >= limit:
+            raise QuotaExceeded(
+                f"daily limit of {limit} runs reached ({used} used in the last 24h). "
+                f"A report is about 6 minutes of live research, so the cap is per account")
 
     c = _db()
     _sweep(c, owner_id)
@@ -138,9 +153,10 @@ def claim_run_slot(owner_id: str, job_id: str | None = None) -> None:
         c.close()
         raise QuotaExceeded(
             f"a report is already running for this account (limit "
-            f"{MAX_CONCURRENT_RUNS}) — wait for it to finish, or open it from the library")
-    c.execute("INSERT INTO run_ledger (owner_id, at) VALUES (?, ?)",
-              (owner_id, int(time.time())))
+            f"{MAX_CONCURRENT_RUNS}). Wait for it to finish, or open it from the library")
+    if count_daily:
+        c.execute("INSERT INTO run_ledger (owner_id, at) VALUES (?, ?)",
+                  (owner_id, int(time.time())))
     c.close()
 
 
@@ -153,3 +169,88 @@ def release_run_slot(owner_id: str) -> None:
         c.close()
     except Exception as e:                                  # noqa: BLE001
         log.warning("could not release run slot for %s: %s", owner_id[:8], e)
+
+
+# ----------------------------------------------------------------- login rate limiting
+# This module opened by saying POST /plan is the abuse surface and the login page is not.
+# That was half right. /plan is where the MONEY goes, but verify_password is scrypt at
+# n=2**14, r=8, which is ~100ms and ~16MB of memory per attempt BY DESIGN: the cost that
+# protects a stolen database is also a lever an unauthenticated caller can pull as fast as
+# it likes. Unthrottled that is two problems at once, credential stuffing and a cheap
+# memory-exhaustion DoS, and api.py had no limiter on it of any kind.
+#
+# COUNTED PER FAILURE, CLEARED ON SUCCESS, so a person who mistypes a password twice and
+# then gets it right is never closer to a lockout than someone who never missed.
+#
+# TWO KEYS, BOTH ENFORCED. Per-IP alone lets a botnet spray one password across many
+# addresses; per-email alone lets one host walk a password list across many accounts.
+# Neither key is sufficient, so both are checked and either can refuse.
+LOGIN_MAX_FAILURES = 10
+LOGIN_WINDOW_S = 15 * 60
+
+
+def _sweep_login_failures(c: sqlite3.Connection, now: int) -> None:
+    """Drop attempts that have aged out of the window.
+
+    Once per check, not once per key: the DELETE is keyless, so running it inside the
+    per-key loop repeated the same whole-table scan for every key and deleted nothing the
+    first pass had not already taken.
+    """
+    c.execute("DELETE FROM login_failures WHERE at < ?", (now - LOGIN_WINDOW_S,))
+
+
+def _login_failures(c: sqlite3.Connection, key: str, now: int) -> int:
+    """How many failures this key has inside the current window."""
+    row = c.execute("SELECT COUNT(*) FROM login_failures WHERE key = ? AND at >= ?",
+                    (key, now - LOGIN_WINDOW_S)).fetchone()
+    return int(row[0]) if row else 0
+
+
+def check_login_allowed(*keys: str) -> None:
+    """Raise QuotaExceeded if any key has spent its attempts in the current window.
+
+    Called BEFORE the password is verified, so a locked-out caller never reaches scrypt.
+    That ordering is the DoS half of the fix; checking afterwards would still burn the
+    16MB per attempt it is meant to prevent.
+    """
+    now = int(time.time())
+    c = _db()
+    try:
+        _sweep_login_failures(c, now)
+        for key in keys:
+            if not key:
+                continue
+            n = _login_failures(c, key, now)
+            if n >= LOGIN_MAX_FAILURES:
+                log.warning("login refused: %s has %d failures in the window", key[:32], n)
+                raise QuotaExceeded(
+                    f"too many failed sign-in attempts. Try again in "
+                    f"{LOGIN_WINDOW_S // 60} minutes.")
+    finally:
+        c.close()
+
+
+def record_login_failure(*keys: str) -> None:
+    """Best-effort: a limiter that can 500 the login endpoint is worse than one that
+    occasionally misses a count."""
+    now = int(time.time())
+    try:
+        c = _db()
+        for key in keys:
+            if key:
+                c.execute("INSERT INTO login_failures (key, at) VALUES (?, ?)", (key, now))
+        c.close()
+    except Exception as e:                                  # noqa: BLE001
+        log.warning("could not record login failure: %s", e)
+
+
+def clear_login_failures(*keys: str) -> None:
+    """A correct password wipes the slate for both keys."""
+    try:
+        c = _db()
+        for key in keys:
+            if key:
+                c.execute("DELETE FROM login_failures WHERE key = ?", (key,))
+        c.close()
+    except Exception as e:                                  # noqa: BLE001
+        log.warning("could not clear login failures: %s", e)
