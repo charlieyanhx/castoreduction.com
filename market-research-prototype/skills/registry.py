@@ -109,11 +109,11 @@ def skill(produces: str, consumes: Optional[list[str]] = None):
         name = fn.__name__
         sig = str(inspect.signature(fn))
         doc = inspect.getdoc(fn) or ""
-        SKILL_REGISTRY[name] = SkillMeta(
+        SKILL_REGISTRY.register(name, SkillMeta(
             name=name, produces=produces, consumes=list(consumes),
             fn=fn, signature=sig, docstring=doc,
             **_where(fn),
-        )
+        ))
 
         _loc = _where(fn)
 

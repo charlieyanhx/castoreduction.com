@@ -313,6 +313,9 @@ app.include_router(_research_router)
 
 @app.on_event("startup")
 def _refuse_to_boot_misconfigured():
+    if paywall_off():
+        log.warning("[billing] CASTOR_PAYWALL_OFF=1 \u2014 nobody is being asked "
+                    "to pay. Reports run on the free daily allowance.")
     """FAIL AT BOOT, NOT AT THE FIRST LOGIN.
 
     auth._session_secret() raises when CASTOR_ENV=production and SESSION_SECRET is unset,
@@ -971,6 +974,25 @@ def _paywall_preview() -> bool:
     return os.environ.get("CASTOR_PAYWALL_PREVIEW", "") == "1"
 
 
+def paywall_off() -> bool:
+    """CASTOR_PAYWALL_OFF: run the product without asking anyone to pay.
+
+    FOR TESTING THE REST OF THE PRODUCT. Once the paywall works it is in the way of
+    everything behind it: the refinement layer, the Q&A, the regeneration, the share
+    reward all live on the far side of a purchase, and re-buying a report to reach them
+    is a tax on every pass through them.
+
+    DELIBERATELY NOT THE SAME AS UNSETTING THE STRIPE KEYS. Those stay wired, so checkout
+    can still be exercised on purpose; this only stops the gate from standing in the way.
+    It suppresses the survey's gate and the server's 402, and the ordinary free daily
+    allowance takes over, so runs are still bounded.
+
+    It announces itself at startup, because an instance that has quietly stopped charging
+    looks exactly like an instance that is selling.
+    """
+    return os.environ.get("CASTOR_PAYWALL_OFF", "") == "1"
+
+
 def _needs_purchase(owner: str) -> bool:
     """Does the next report have to be paid for?
 
@@ -979,6 +1001,8 @@ def _needs_purchase(owner: str) -> bool:
     survey ends at a button that does nothing.
     """
     import billing
+    if paywall_off():
+        return False
     if billing.balance(owner, "report") > 0:
         return False
     return billing.configured() or _paywall_preview()

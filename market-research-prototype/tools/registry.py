@@ -195,7 +195,7 @@ def tool(
                 "[tool/%s] auto-detected concurrency=mutating — verify this is intentional", name
             )
 
-        TOOL_REGISTRY[name] = ToolMeta(
+        TOOL_REGISTRY.register(name, ToolMeta(
             name=name, category=category, fn=fn,
             signature=sig, docstring=doc, returns=returns,
             concurrency=resolved_concurrency,
@@ -204,7 +204,7 @@ def tool(
             tier_inferred=tier_inferred,
             concurrency_inferred=concurrency_inferred,
             args_model=args_model,
-        )
+        ))
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs) -> Evidence:

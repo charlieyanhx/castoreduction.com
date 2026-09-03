@@ -13,15 +13,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
-import re
 import sqlite3
-import statistics
 import sys
-from dataclasses import dataclass, field
-from typing import Callable, Optional
-from gates.common import Finding, Invariant, not_applicable, _num
+from typing import Optional
+from gates.common import Finding
 
 
 

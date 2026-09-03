@@ -5,17 +5,10 @@ returns a Finding; none of them share state, which is why they split cleanly.
 """
 from __future__ import annotations
 
-import argparse
 import json
-import math
-import os
 import re
-import sqlite3
-import statistics
-import sys
-from dataclasses import dataclass, field
-from typing import Callable, Optional
-from gates.common import Finding, not_applicable, _num
+from typing import Optional
+from gates.common import Finding, _num
 
 
 def d01_complete(r: dict, html: Optional[str]) -> Finding:

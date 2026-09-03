@@ -11,7 +11,7 @@ against it. Append; do not tidy.
 """
 from __future__ import annotations
 
-from gates.common import Finding, Invariant, not_applicable, _num
+from gates.common import Invariant
 from gates.competitors import *   # noqa: F401,F403 — detectors referenced by the table below
 from gates.model import *         # noqa: F401,F403
 from gates.pricing import *       # noqa: F401,F403

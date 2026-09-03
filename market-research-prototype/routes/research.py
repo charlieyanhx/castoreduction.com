@@ -505,7 +505,8 @@ def post_plan(req: PlanRequest):
         # a day, per cookie. The allowance is what an instance with NO processor runs on,
         # which is what the guard below now says. 402 rather than 429, because the answer
         # is a price and not a wait.
-        if not _revision_of and billing.configured():
+        from api import paywall_off
+        if not _revision_of and billing.configured() and not paywall_off():
             jobs.discard(job_id)
             raise HTTPException(
                 status_code=402,
@@ -524,12 +525,30 @@ def post_plan(req: PlanRequest):
 
     def work(progress=None):
         """Run the full plan, forwarding progress so the job can checkpoint as it goes."""
+        # THE STUB REPLACES THE RESEARCH, NOT THE TAIL THAT FOLLOWS IT.
+        #
+        # This used to `return stub` outright, which skipped every line below: the delta
+        # link, carry_forward, draft_answers, the refund check and the notification. So a
+        # regeneration run under the stub carried the reader's questions across and left
+        # them all unanswered — the exact "Not yet answered" failure the comment further
+        # down says it exists to prevent — and the stub's own docstring claimed the
+        # opposite ("everything either side stays real"). It was true of the intent and
+        # false of the code.
+        #
+        # Now the stub only supplies `result` and execution continues, so what is being
+        # tested is the real pipeline around a borrowed report.
         stub = _stub_run(req.description)
         if stub is not None:
+            result = stub
             if progress:
                 progress(stub)
-            return stub
-        # Forward the progress callback so jobs.run_async checkpoint plumbing works
+            quota.release_run_slot(_owner)
+        else:
+            result = _run_the_pipeline(progress)
+        return _finish(result)
+
+    def _run_the_pipeline(progress):
+        """The six minutes of real research, with its slot released whatever happens."""
         try:
             result = run_plan(
                 description=req.description,
@@ -564,6 +583,13 @@ def post_plan(req: PlanRequest):
             # concurrency slot until the hour sweep, locking the account out of the
             # product because one report crashed.
             quota.release_run_slot(_owner)
+        return result
+
+    def _finish(result):
+        """Everything a finished report needs after the research: the delta link, the
+        reader's carried questions answered against the NEW artifact, the refund when
+        nothing was delivered, and the notification. Shared by the real run and the stub,
+        because these are the parts a stubbed run exists to exercise."""
         # Embed previous_job_id + computed deltas in the final result
         if previous_job_id and not result.get("error"):
             from history import compute_deltas
@@ -624,6 +650,7 @@ def post_plan(req: PlanRequest):
         # send that fails is a log line: the report exists either way, and failing the run
         # over its notification would be the tail wagging the dog.
         _notify_owner(_owner, job_id, result)
+        return result
         return result
 
     jobs.run_async(job_id, work)

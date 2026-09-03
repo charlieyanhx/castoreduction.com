@@ -77,20 +77,6 @@ class Registry(MutableMapping, Generic[E]):
         self._entries[name] = entry
         return entry
 
-    # ------------------------------------------------------------------------- reading
-    def get_or_raise(self, name: str) -> E:
-        """The entry, or KeyError naming the kind and the near misses.
-
-        get_tool used to raise a bare KeyError and get_skill used to return None for the
-        same situation. Callers cannot both be right, so this is the one strict reader and
-        `.get()` (from MutableMapping) is the one forgiving reader.
-        """
-        try:
-            return self._entries[name]
-        except KeyError:
-            near = [n for n in self._entries if name.lower() in n.lower()][:5]
-            hint = f" — did you mean {near}?" if near else ""
-            raise KeyError(f"no {self.kind} named {name!r}{hint}") from None
 
     def entries(self, sort_key: Optional[Callable[[E], Any]] = None, **match: Any) -> list[E]:
         """Entries whose attributes equal every keyword given, in a stable order.
@@ -116,6 +102,3 @@ class Registry(MutableMapping, Generic[E]):
             return {"error": f"{self.kind} {name!r} not registered"}
         return {f: getattr(entry, f, None) for f in fields}
 
-    def describe_all(self, fields: tuple[str, ...]) -> list[dict]:
-        """Every entry as a JSON-able dict, in the same stable order as `entries()`."""
-        return [{f: getattr(e, f, None) for f in fields} for e in self.entries()]

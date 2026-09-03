@@ -38,7 +38,7 @@ class TestEveryVariableIsDocumented(unittest.TestCase):
     #: their own section; these are the ones that decide whether the product functions.
     OPERATION = [
         "SESSION_SECRET", "CASTOR_ENV", "CASTOR_PUBLIC_URL", "CASTOR_TRUST_PROXY",
-        "CASTOR_DAILY_RUNS", "CASTOR_DAILY_AUX_RUNS",
+        "CASTOR_DAILY_RUNS", "CASTOR_DAILY_AUX_RUNS", "CASTOR_PAYWALL_OFF",
         "CASTOR_REQUIRE_LOGIN", "CASTOR_ALLOW_UNPAID_CREDITS",
         "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_PRICE_REPORT",
         "STRIPE_PRICE_BUNDLE5", "STRIPE_PRICE_BUNDLE10",

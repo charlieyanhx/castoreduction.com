@@ -70,12 +70,12 @@ def agent(role: str, produces: str, categories: Optional[list[str]] = None,
     def decorator(fn: Callable) -> Callable:
         """Register the agent, then replace its entry's fn with the Evidence-returning wrapper."""
         name = fn.__name__
-        AGENT_REGISTRY[name] = AgentSpec(
+        AGENT_REGISTRY.register(name, AgentSpec(
             name=name, role=role, produces=produces, categories=cats,
             max_steps=max_steps, fn=None,  # set to wrapper below
             signature=str(inspect.signature(fn)),
             docstring=inspect.getdoc(fn) or "",
-        )
+        ))
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs) -> Evidence:

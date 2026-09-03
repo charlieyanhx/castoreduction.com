@@ -15,12 +15,9 @@ Nothing here defines a route, and nothing here imports api, so there is no cycle
 """
 from __future__ import annotations
 
-import hashlib
-import re
 from pathlib import Path
 
 import jinja2
-from fastapi.responses import HTMLResponse
 
 # THE PROJECT ROOT, stated once and explicitly.
 #
