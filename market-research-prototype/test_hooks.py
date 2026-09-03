@@ -81,15 +81,24 @@ class TestLiveEventsEndpoint(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.TemporaryDirectory()
         os.environ["CASTOR_TRANSCRIPT_DIR"] = self.d.name
+        self._c = None
 
     def tearDown(self):
         os.environ.pop("CASTOR_TRANSCRIPT_DIR", None)
         self.d.cleanup()
 
     def _client(self):
-        from fastapi.testclient import TestClient
-        import api
-        return TestClient(api.app)
+        """ONE client per test, reused.
+
+        An anonymous visitor's identity now lives in its castor_guest cookie, so a
+        TestClient's cookie jar IS the tenant: building a second client would be a second
+        visitor, who correctly cannot see the first visitor's job.
+        """
+        if self._c is None:
+            from fastapi.testclient import TestClient
+            import api
+            self._c = TestClient(api.app)
+        return self._c
 
     def _mid_run_transcript(self, job_id):
         """A run that has finished 2 steps and is still going (no final result).
@@ -101,11 +110,16 @@ class TestLiveEventsEndpoint(unittest.TestCase):
         """
         import time as _time
         import jobs
+        # The ownership has to be EXPLICIT now. Anonymous visitors used to collapse into
+        # one shared owner id; each one now gets its own signed guest identity, so a row
+        # seeded under anybody else's id is (rightly) invisible to this client and the
+        # endpoint answers with an empty stream. Ask the client who it is, then seed as it.
+        owner = self._client().get("/auth/me").json()["owner"]
         now = int(_time.time())
         jobs._conn().execute(
             "INSERT OR REPLACE INTO jobs (id, kind, state, params_json, created_at, "
             "updated_at, owner_id) VALUES (?, 'plan', 'running', '{}', ?, ?, ?)",
-            (job_id, now, now, jobs.LEGACY_OWNER))
+            (job_id, now, now, owner))
         from persistence import transcript as T
         w = T.TranscriptWriter(T.path_for(job_id))
         w({"layer": "step", "name": "profile", "status": "complete", "t": 1.0})

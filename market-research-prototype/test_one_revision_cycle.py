@@ -87,17 +87,28 @@ class TestTheRevisionBrief(_TempDB):
 
 
 class TestOneCycleThenPay(_TempDB):
-    def _seed_job(self):
+    def _seed_job(self, owner):
+        """Seed under `owner`, the identity the TestClient actually browses as.
+
+        Anonymous visitors no longer share one "legacy" owner: each gets its own signed
+        guest id from the castor_guest cookie, so a job seeded ownerless is correctly
+        invisible to the client and every route answers 404. Call sites ask
+        /auth/me first and hand the answer in.
+        """
         import jobs
         return jobs.create("plan", {"description": "A coffee cart in Los Angeles for "
                                                    "commuters and office workers."},
-                           owner_id=None)
+                           owner_id=owner)
 
     def test_revise_creates_one_delta_linked_run_then_locks(self):
         from fastapi.testclient import TestClient
         import api as api_mod
         import jobs
-        job_id = self._seed_job()
+        # One client, built first: its cookie jar fixes the guest identity, and the job
+        # has to be seeded under that same identity to be visible to /revise.
+        client = TestClient(api_mod.app)
+        owner = client.get("/auth/me").json()["owner"]
+        job_id = self._seed_job(owner)
         jobs.update(job_id, state="done", result={"profile": {"name": "x"}})
         self.iteration.set_input_edit(job_id, "pricing", "$8")
         self.iteration.add_question(job_id, "what about $10?")
@@ -109,7 +120,6 @@ class TestOneCycleThenPay(_TempDB):
             return {"profile": {"name": "x"}, "_steps_completed": []}
 
         with patch("plan.run_plan", side_effect=fake_run_plan):
-            client = TestClient(api_mod.app)
             r = client.post(f"/jobs/{job_id}/revise")
             self.assertEqual(r.status_code, 200, r.text)
             new_id = r.json()["job_id"]
@@ -132,11 +142,14 @@ class TestOneCycleThenPay(_TempDB):
         from fastapi.testclient import TestClient
         import api as api_mod
         import jobs
-        parent = self._seed_job()
-        child = jobs.create("plan", {"description": "amended brief for the revision run",
-                                     "previous_job_id": parent}, owner_id=None)
-        jobs.update(child, state="done", result={"profile": {"name": "x"}})
+        # Both jobs are seeded under the client's own guest identity: the 402 this pins is
+        # about the revision budget, and it can only be reached by a job the caller owns.
         client = TestClient(api_mod.app)
+        owner = client.get("/auth/me").json()["owner"]
+        parent = self._seed_job(owner)
+        child = jobs.create("plan", {"description": "amended brief for the revision run",
+                                     "previous_job_id": parent}, owner_id=owner)
+        jobs.update(child, state="done", result={"profile": {"name": "x"}})
         r = client.post(f"/jobs/{child}/revise")
         self.assertEqual(r.status_code, 402, r.text)
 
@@ -211,9 +224,14 @@ class TestCarriedQuestionsGetAnswered(_TempDB):
         from fastapi.testclient import TestClient
         import api as api_mod
         import jobs
+        # The client is built first so the job can be seeded under the guest identity it
+        # browses as: an anonymous visitor now owns its own workspace, and a job seeded
+        # ownerless would be invisible to /revise (404) before any of this could run.
+        client = TestClient(api_mod.app)
+        owner = client.get("/auth/me").json()["owner"]
         job_id = jobs.create("plan", {"description": "A coffee cart in Los Angeles for "
                                                      "commuters and office workers."},
-                             owner_id=None)
+                             owner_id=owner)
         jobs.update(job_id, state="done", result={"profile": {"name": "x"}})
         if question:
             self.iteration.add_question(job_id, question)
@@ -222,7 +240,6 @@ class TestCarriedQuestionsGetAnswered(_TempDB):
             return {"profile": {"name": "x"}, "_steps_completed": ["profile"]}
 
         with patch("plan.run_plan", side_effect=fake_run_plan), patch_draft:
-            client = TestClient(api_mod.app)
             r = client.post(f"/jobs/{job_id}/revise")
             self.assertEqual(r.status_code, 200, r.text)
             new_id = r.json()["job_id"]

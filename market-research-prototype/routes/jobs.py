@@ -20,6 +20,7 @@ they lived in api.py.
 """
 from __future__ import annotations
 
+import os
 import time as _time
 
 from fastapi import APIRouter, HTTPException, Response
@@ -111,8 +112,8 @@ def _remedy_form_html(remedies: list, description: str) -> str:
         "try{var r=await fetch('/plan',{method:'POST',headers:{'Content-Type':'application/json'},"
         "body:JSON.stringify({description:d,operator_weights:{}})});"
         "if(!r.ok)throw new Error((await r.json()).detail||r.statusText);"
-        "document.getElementById('remedyMsg').textContent='rerunning — watch it in the workspace';"
-        "setTimeout(function(){location.href='/workspace';},900);}"
+        "document.getElementById('remedyMsg').textContent='rerunning \u2014 taking you to it';"
+        "setTimeout(function(){location.href='/progress.html?job='+encodeURIComponent(r.job_id);},900);}"
         "catch(e){this.disabled=false;this.textContent='Answer & rerun';"
         "document.getElementById('remedyMsg').textContent='failed: '+e.message;}};</script>"
         "</div>")
@@ -237,6 +238,13 @@ def get_jobs(limit: int = 50):
             # and a library that shows it as ready sends people into a wall.
             j["publishable"] = ((result.get("verification") or {})
                                 .get("summary") or {}).get("publishable")
+            # A RUN CAN FAIL WITH state='complete'. run_plan returns {"error": ...} rather
+            # than raising, so the row completes and the result carries the failure. The
+            # detail endpoint already remaps this; the LIST did not, so the library showed
+            # it as "Ready" and the link went to a 409. Measured: 5 of 256 complete rows.
+            if (result or {}).get("error"):
+                j["state"] = "error"
+                j["error"] = j.get("error") or result["error"]
     return recent
 
 
@@ -535,11 +543,19 @@ def post_revise(job_id: str):
         raise HTTPException(status_code=404, detail="job not found")
     params = j.get("params") or {}
     st = iteration.get_state(job_id)
-    if st.get("status") == "revised" or params.get("previous_job_id"):
+    # ONE REGENERATION PER REPORT, AND THE PACK IS THE WAY PAST IT. `previous_job_id` says
+    # this report IS a revision, so a cycle was already spent producing it; `revised` says
+    # it has spent one of its own. Both count, and both are cleared by buying a rerun,
+    # which is the entire purpose of the $5 pack. Before this the pack was grantable and
+    # unspendable: iteration.grant took the money, limits() duly reported two reruns, and
+    # this route refused anyway because it never read limits() at all.
+    used = ((1 if params.get("previous_job_id") else 0)
+            + (1 if st.get("status") == "revised" else 0))
+    if used >= iteration.limits(st)["reruns"]:
         raise HTTPException(
             status_code=402,
-            detail="this report already used its one revision cycle; pay for an extra "
-                   "regeneration or take the report as it is")
+            detail="this report has used every regeneration it has; pay for another "
+                   "rerun or take the report as it is")
     description = str(params.get("description") or "")
     if len(description) < 30:
         raise HTTPException(status_code=422, detail="the original brief is missing")
@@ -556,7 +572,7 @@ def post_revise(job_id: str):
                                 previous_job_id=job_id,
                                 operator_weights=OperatorWeights()))
     new_id = out["job_id"]
-    iteration.carry_questions(job_id, new_id)
+    iteration.carry_forward(job_id, new_id)
     iteration.mark_revised(job_id, new_id)
     return {"job_id": new_id, "revised_from": job_id}
 
@@ -605,6 +621,18 @@ def get_job_onepager(job_id: str):
     if j["kind"] != "plan":
         raise HTTPException(status_code=400, detail="one-pager only available for /plan jobs")
 
+    # THE WITHHOLD VERDICT BINDS HERE TOO. report.html and report.pdf both refuse a report
+    # whose own invariants blocked it; this route did not, so the one deliverable a founder
+    # forwards to an investor was the one that ignored the gate. Measured: on a job with a
+    # BLOCK finding, report.html 409, report.pdf 409, onepager.html 200 with 11KB of the
+    # content the other two withheld.
+    from report.verifier import blocking_findings
+    if blocking_findings(j["result"] or {}):
+        raise HTTPException(
+            status_code=409,
+            detail="this report is being withheld by its own checks; open the full report "
+                   "to see which check and what would clear it")
+
     from jinja2 import Environment, FileSystemLoader
     from datetime import datetime
     from market_sizing import format_currency
@@ -613,7 +641,13 @@ def get_job_onepager(job_id: str):
     tpl = env.get_template("onepager.html")
 
     r = j["result"] or {}
-    profile = r.get("profile", {})
+    profile = dict(r.get("profile", {}) or {})
+    # MEASURED: 80 of 80 recent runs carry no profile.name, so the template's
+    # `{{ profile.name or 'Untitled Venture' }}` rendered the placeholder on every single
+    # one — on the deliverable a founder forwards to an investor. display_title already
+    # falls through name -> category -> first sentence of the summary, and the HTML report
+    # and the PDF cover have both used it for months.
+    profile["name"] = display_title(profile)
     viability = r.get("viability", {})
     psm = (r.get("pricing", {}) or {}).get("psm", {})
     competitors = (r.get("discover", {}).get("synthesis", {}) or {}).get("ranked_opportunities", [])
@@ -750,6 +784,64 @@ def get_job_trace(job_id: str):
     return HTMLResponse("<!doctype html><meta charset=utf-8>" + head + "".join(body))
 
 
+@router.get("/sample", response_class=HTMLResponse)
+def get_sample_report():
+    """ONE report, published deliberately, because the landing page promises one.
+
+    "See a full report before you buy" is the strongest thing on that page and it linked
+    to href="#". Every real report is owner-scoped, so pointing it at a job id 404s for
+    exactly the visitor it is meant to convince.
+
+    NAMED BY THE OPERATOR, never inferred. CASTOR_SAMPLE_JOB_ID is the whole gate: a report
+    contains the founder's own description, their costs and their site, so nothing becomes
+    public because it happened to be recent or happened to pass its checks. Unset, this
+    route 404s rather than guessing.
+
+    annotate=0 and debug=0 are forced. annotate defaults ON elsewhere, and it is what puts
+    the raw intake answers into the page source and the refine controls on screen; neither
+    belongs on a sample, and the controls would 404 for a stranger anyway.
+
+    Withheld reports are refused here as everywhere: a sample is a sales asset, and the one
+    thing worse than no sample is one the product itself declines to stand behind.
+    """
+    sample_id = (os.environ.get("CASTOR_SAMPLE_JOB_ID") or "").strip()
+    if not sample_id:
+        raise HTTPException(status_code=404, detail="no sample report is configured")
+    j = jobs.get_unscoped(sample_id)
+    if not j or j.get("kind") != "plan" or j.get("state") != "complete":
+        raise HTTPException(status_code=404, detail="no sample report is configured")
+    if halt_reason(j):
+        raise HTTPException(status_code=404, detail="the sample report did not complete")
+    from report.verifier import blocking_findings
+    if blocking_findings(j.get("result") or {}):
+        raise HTTPException(status_code=404, detail="the sample report is being withheld")
+    from report.render_html import render_report_html
+    return HTMLResponse(render_report_html(j.get("result") or {}, job_id=sample_id,
+                                           debug=0, annotate=0, public=1))
+
+
+def _refuse_forcing_a_refunded_report(job_id: str, blocking: list, force: int) -> None:
+    """?force=1 does not unlock a report whose credit has already been handed back.
+
+    A withheld report is refunded automatically (routes/research.py) and stays readable
+    behind the "Show it anyway" override. Taking both is taking the money back and keeping
+    the work, and the override is one click on the withhold page. Buying another credit is
+    the way in, and the refusal says so rather than pretending the report is gone.
+
+    Both formats go through this: the HTML page and the PDF export share one verdict, and
+    a guard on only one of them is a guard on neither.
+    """
+    if not (blocking and force):
+        return
+    import billing
+    if billing.was_refunded(job_id):
+        raise HTTPException(
+            status_code=402,
+            detail=("This report was withheld by its own checks and the credit for it has "
+                    "already been returned to you. Spend a credit to open it anyway, or "
+                    "run a fresh report."))
+
+
 @router.get("/jobs/{job_id}/report.html", response_class=HTMLResponse)
 def get_job_report_html(job_id: str, debug: int = 0, force: int = 0,
                         annotate: int = 1):
@@ -792,7 +884,15 @@ def get_job_report_html(job_id: str, debug: int = 0, force: int = 0,
         if state == "running":
             headline, detail = ("Report still generating…",
                                 f"This run has completed {steps} steps. Refresh in a moment.")
-        else:  # error / orphaned / pending
+        elif state == "pending":
+            # QUEUED IS NOT FAILED. Generation is serialized process-wide (_RUN_GATE), so
+            # a second tenant's job legitimately waits minutes — and it was being told
+            # "This run didn't finish. Please regenerate", which invites them to spend
+            # another six minutes queueing behind themselves.
+            headline, detail = ("Waiting to start…",
+                                "Another report is generating right now. Yours starts as "
+                                "soon as it finishes, and nothing is lost while it waits.")
+        else:  # error / orphaned
             headline, detail = ("This run didn't finish",
                                 "The pipeline halted before producing a full report"
                                 + (f" — {err}" if err else "")
@@ -807,11 +907,19 @@ def get_job_report_html(job_id: str, debug: int = 0, force: int = 0,
             f"<h1 style=\"font-size:1.6rem;margin:.4rem 0 .6rem\">{headline}</h1>"
             f"<p style=\"color:#4b5563\">{detail}</p>"
             f"<p style=\"font-size:13px;color:#9ca3af\">Job {job_id} · state: {state}</p>"
-            "<p><a href=\"/\" style=\"display:inline-block;margin-top:.5rem;padding:.55rem 1rem;"
-            "background:#1f2937;color:#fff;border-radius:8px;text-decoration:none\">"
-            "Start a new report</a></p></div>"
+            + ("<p><a href=\"/progress.html?job=" + job_id + "\" "
+               "style=\"display:inline-block;margin-top:.5rem;padding:.55rem 1rem;"
+               "background:#2B3C2B;color:#fff;border-radius:8px;text-decoration:none\">"
+               "Watch it run</a></p></div>"
+               if state in ("running", "pending") else
+               "<p><a href=\"/\" style=\"display:inline-block;margin-top:.5rem;"
+               "padding:.55rem 1rem;background:#2B3C2B;color:#fff;border-radius:8px;"
+               "text-decoration:none\">Start a new report</a></p></div>")
         )
-        return HTMLResponse(content=page, status_code=(202 if state == "running" else 409))
+        # 202 for anything still in flight — running OR queued. A 409 says "this will
+        # not happen"; a job waiting its turn very much will.
+        return HTMLResponse(content=page,
+                            status_code=(202 if state in ("running", "pending") else 409))
     if j["kind"] != "plan":
         raise HTTPException(status_code=400, detail="HTML report only available for /plan jobs")
 
@@ -821,6 +929,7 @@ def get_job_report_html(job_id: str, debug: int = 0, force: int = 0,
     # declared unpublishable reached a buyer looking exactly like a clean one.
     from report.verifier import blocking_findings
     _blocking = blocking_findings(j["result"] or {})
+    _refuse_forcing_a_refunded_report(job_id, _blocking, force)
     if _blocking and not force:
         log.warning("[api] withholding report %s — %d blocking finding(s)",
                     job_id, len(_blocking))
@@ -866,6 +975,7 @@ def get_job_report_pdf(job_id: str, force: int = 0):
     # had deliberately forced. One verdict, both formats, same override.
     from report.verifier import blocking_findings
     _blocking = blocking_findings(j["result"] or {})
+    _refuse_forcing_a_refunded_report(job_id, _blocking, force)
     if _blocking and not force:
         log.warning("[api] withholding PDF %s — %d blocking finding(s)",
                     job_id, len(_blocking))
@@ -929,3 +1039,132 @@ def get_job_report(job_id: str):
     else:
         raise HTTPException(status_code=400, detail=f"unsupported kind {kind}")
     return {"job_id": job_id, "kind": kind, "markdown": md}
+
+
+# ============================================================== the shared library ==
+class ShareRequest(BaseModel):
+    """Publishing your own report, under a name you pick."""
+    #: RENAME ON PUBLISH. What the founder calls a venture in the survey is written for
+    #: themselves; what a stranger scrolls past in a library is a headline. Asking once,
+    #: here, is cheaper than a library full of "my coffee shop idea".
+    title: str = Field(default="", max_length=200)
+    #: Only used when there is no account to hang the coupon on. Where to mail the code.
+    email: str | None = Field(default=None, max_length=254)
+
+
+@router.get("/jobs/{job_id}/share")
+def get_share_state(job_id: str):
+    """Is this published, and what did sharing it earn? Owner only."""
+    import sharing
+    _owned_job(job_id)                       # 404s for anything that is not yours
+    e = sharing.entry(job_id)
+    return {"shared": bool(e), "title": (e or {}).get("title"),
+            "reward_usd": sharing.REWARD_USD,
+            "coupon": sharing.coupon_for_job(job_id)}
+
+
+@router.post("/jobs/{job_id}/share")
+def share_report(job_id: str, req: ShareRequest):
+    """Publish a finished report to the library and pay the founder for it.
+
+    THE OWNER CHECK IS THE WHOLE SECURITY MODEL of this endpoint: publishing is the one
+    operation in the product that makes private research readable by strangers. _owned_job
+    raises 404 for a job that is not yours, which is also the right answer for one that
+    does not exist.
+
+    Only a finished, non-withheld report can go up. A half-run or a report the verifier
+    declined to stand behind is not a sales asset, and putting one in the library would
+    advertise the failure mode rather than the product.
+    """
+    import sharing
+    j = _owned_job(job_id)
+    if not j:
+        raise HTTPException(status_code=404, detail="job not found")
+    if j.get("kind") != "plan" or j.get("state") != "complete":
+        raise HTTPException(status_code=409,
+                            detail="only a finished report can be shared")
+    if halt_reason(j):
+        raise HTTPException(status_code=409, detail="that report did not complete")
+    from report.verifier import blocking_findings
+    if blocking_findings(j.get("result") or {}):
+        raise HTTPException(
+            status_code=409,
+            detail="this report is being withheld, so it cannot go in the library")
+
+    owner = _current_owner()
+    title = (req.title or "").strip()
+    if not title:
+        prof = ((j.get("result") or {}).get("profile") or {})
+        title = (prof.get("name") or "Untitled venture").strip()
+    try:
+        entry = sharing.publish(job_id, owner, title)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    # THE REWARD. Minted once per report — a second POST returns the same code rather than
+    # a second $10 — and delivered wherever this founder can actually be reached.
+    import auth as _auth
+    account_email = None
+    try:
+        from api import _session_owner
+        acct = _session_owner()
+        if acct:
+            account_email = _auth.account_email(acct)
+    except Exception:                                        # noqa: BLE001
+        pass
+    email = (account_email or req.email or "").strip().lower() or None
+    coupon = sharing.mint(job_id, owner, email)
+
+    delivered = "shown"
+    if email and not account_email:
+        # A guest who left an address. The code is on screen either way; the mail is what
+        # makes it survive them closing the tab.
+        try:
+            import mailer
+            if mailer.send_coupon(email, coupon["code"], coupon["value_usd"]):
+                delivered = "email"
+        except Exception as e:                               # noqa: BLE001
+            log.warning("[sharing] could not mail coupon %s: %s", coupon["code"], e)
+    elif account_email:
+        delivered = "account"
+    return {"shared": True, "title": entry["title"], "coupon": coupon,
+            "delivered": delivered,
+            # A code nothing can redeem yet is a promise, not a discount. Say so rather
+            # than letting them find out at a checkout box that rejects it.
+            "redeemable": coupon["code"] not in sharing.pending()}
+
+
+@router.delete("/jobs/{job_id}/share")
+def unshare_report(job_id: str):
+    """Take it back out of the library. The coupon already earned is kept."""
+    import sharing
+    _owned_job(job_id)
+    ok = sharing.withdraw(job_id, _current_owner())
+    return {"shared": False, "was_shared": ok}
+
+
+@router.get("/library/{job_id}/report.html", response_class=HTMLResponse)
+def get_shared_report(job_id: str):
+    """A published report, readable by anyone with the link.
+
+    Rendered exactly as /sample is: annotate=0 and debug=0, so the founder's raw intake
+    answers, their private reader notes and the refine controls stay out of the page. The
+    library entry is the only thing that makes this readable: withdraw it and this 404s
+    again on the next request.
+    """
+    import sharing
+    if not sharing.is_shared(job_id):
+        raise HTTPException(status_code=404, detail="no such report in the library")
+    j = jobs.get_unscoped(job_id)
+    if not j or j.get("kind") != "plan" or j.get("state") != "complete":
+        raise HTTPException(status_code=404, detail="no such report in the library")
+    from report.render_html import render_report_html
+    return HTMLResponse(render_report_html(j.get("result") or {}, job_id=job_id,
+                                           debug=0, annotate=0, public=1))
+
+
+@router.get("/library.json")
+def library_index(limit: int = 60, offset: int = 0):
+    """What is in the library. Deliberately unauthenticated: it is the sales asset."""
+    import sharing
+    return {"reports": sharing.listing(limit, offset)}

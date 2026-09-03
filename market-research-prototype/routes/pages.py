@@ -23,7 +23,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
 
 from logger import get
 from llm import get_usage
-from routes.deps import APP_VERSION, DOCS_DIR, WEB_DIR, _NO_CACHE, _stamped_html
+from routes.deps import APP_VERSION, DOCS_DIR, WEB_DIR, _NO_CACHE
 
 log = get("api")
 
@@ -66,24 +66,59 @@ def _render_docs_index() -> str:
 
 @router.get("/")
 def index():
-    """The workspace. In production an unauthenticated visitor is sent to the login page
-    instead, because a 401 from the workspace's first fetch is a dead end."""
+    """The front door, and it is the survey.
+
+    IT USED TO BE THE WORKSPACE, and that is the whole bug. The 3-zone agentic console is
+    an operator's instrument: it opens on a chat box and a job list and asks the visitor
+    to already know what this is. Every screen we built for a stranger — the prose box,
+    the question tree, the free break-even, the CTA — sat at /survey, which nothing links
+    to from the outside. A first-time visitor typed the domain and got the old product.
+
+    The console did not go anywhere; the library is at /dashboard.html and the account
+    page at /home. The root belongs to the person who has never been here before.
+    """
     # Imported HERE, not at module scope: api imports this module, so importing api back
     # at the top would be a cycle. Resolving it per call also keeps the test seam, since
     # patch.object(api, "_session_owner", ...) is looked up at the moment it is used.
     from api import _session_owner
-    # A 401 from the workspace's first fetch is a dead end for a real customer; send them
-    # somewhere they can act. Local installs keep going straight in.
-    if (os.environ.get("CASTOR_ENV", "").lower() == "production"
+    # THE LOGIN WALL IS GONE FROM THE FRONT DOOR. This redirect predates guest mode, when
+    # production really did refuse an anonymous visitor and a 401 from the first fetch was
+    # a dead end. Guests are a supported tier now: they get their own workspace, their work
+    # is claimed on sign-up, and the whole point of the survey is that a stranger can try
+    # the product before deciding to register. Leaving this in meant that on the real
+    # domain, every first-time visitor met a password box instead of the funnel.
+    # CASTOR_REQUIRE_LOGIN still closes the door for an install that is not a public
+    # product; that is the flag to use, not the environment name.
+    if (os.environ.get("CASTOR_REQUIRE_LOGIN", "").strip().lower() in ("1", "true", "yes")
             and not _session_owner()):
         return RedirectResponse("/login", status_code=303)
-    ws = WEB_DIR / "workspace.html"
-    if ws.exists():
-        return _stamped_html(ws)
-    f = WEB_DIR / "index.html"
+    # A RETURNING FOUNDER GETS THEIR ACCOUNT, A NEW ONE GETS THE SURVEY. Landing someone
+    # with six reports on a blank "tell us about your venture" is the front door forgetting
+    # them. But only when there is something to show: a dashboard of zeros is a worse
+    # welcome than the form, so an account with no reports and no drafts still starts here.
+    try:
+        if _session_owner():
+            import intake as _intake
+            import jobs as _jobs
+            owner = _session_owner()
+            if _jobs.list_recent(limit=1, owner_id=owner) or _intake.drafts(owner, limit=1):
+                return RedirectResponse("/home", status_code=303)
+    except Exception:                                        # noqa: BLE001
+        pass                       # routing is not worth a 500; fall through to the survey
+
+    # THE PRODUCT PAGE IS THE FRONT DOOR, with the survey one click away at /start.
+    # web/landing.html is castor-advisory.html from the repo root, the page commit 30fd9a3
+    # put in place of the old talent site. Its "Generate your report" and "Get started"
+    # buttons pointed at ./market-research-prototype/web/index.html, a file deleted earlier
+    # today, so every call to action on the marketing page was already broken. They point
+    # at /start now, and the survey keeps /survey so nothing that linked there breaks.
+    landing = WEB_DIR / "landing.html"
+    if landing.exists():
+        return FileResponse(landing, headers=_NO_CACHE)
+    f = WEB_DIR / "survey.html"
     if f.exists():
         return FileResponse(f, headers=_NO_CACHE)
-    return JSONResponse({"ok": True, "hint": "no web/workspace.html found"})
+    return JSONResponse({"ok": True, "hint": "no web/landing.html or survey.html"})
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -96,32 +131,75 @@ def login_page():
     return FileResponse(f, headers=_NO_CACHE)
 
 
-@router.get("/home", response_class=HTMLResponse)
-def home_landing():
-    """The previous marketing/chat landing, kept available at /home."""
-    f = WEB_DIR / "index.html"
+@router.get("/forgot", response_class=HTMLResponse)
+def forgot_page():
+    """Ask for a reset link. Linked from the login screen."""
+    f = WEB_DIR / "forgot.html"
     if not f.exists():
-        raise HTTPException(status_code=404, detail="home not found")
+        raise HTTPException(status_code=404, detail="forgot page not built")
     return FileResponse(f, headers=_NO_CACHE)
 
 
-@router.get("/workspace", response_class=HTMLResponse)
-def workspace_page():
-    """The Manus-parity 3-zone agentic workspace (cycle34)."""
-    f = WEB_DIR / "workspace.html"
+@router.get("/reset", response_class=HTMLResponse)
+def reset_page():
+    """Where the reset EMAIL lands. mailer.send_password_reset builds
+    {base}/reset?token=..., so this route existing is what makes the whole recovery flow
+    real rather than a set of endpoints nobody can reach."""
+    f = WEB_DIR / "reset.html"
     if not f.exists():
-        raise HTTPException(status_code=404, detail="workspace not built")
-    return _stamped_html(f)
+        raise HTTPException(status_code=404, detail="reset page not built")
+    return FileResponse(f, headers=_NO_CACHE)
 
 
-@router.get("/workspace.js")
-def workspace_js():
-    """The workspace bundle, served no-cache so a deploy is picked up on reload."""
-    f = WEB_DIR / "workspace.js"
+@router.get("/verify")
+def verify_page(token: str = ""):
+    """Where the confirmation EMAIL lands. It has nothing to ask the reader, so it just
+    spends the token and moves them along rather than rendering a page to click through."""
+    return RedirectResponse(f"/auth/verify?token={token}", status_code=303)
+
+
+@router.get("/brand.css")
+def brand_css():
+    """The shared identity, taken from castor-advisory.com. No-cache like every other
+    asset: a palette change has to reach a browser that already loaded the old one."""
+    f = WEB_DIR / "brand.css"
     if not f.exists():
-        raise HTTPException(status_code=404, detail="workspace.js not found")
-    return FileResponse(f, media_type="application/javascript",
-                        headers=_NO_CACHE)
+        raise HTTPException(status_code=404, detail="brand.css not found")
+    return FileResponse(f, media_type="text/css", headers=_NO_CACHE)
+
+
+@router.get("/account.js")
+def account_js():
+    """The one sign-in control, shared by every page. No-cache for the same reason
+    survey.js and workspace.js are: a deploy must reach a returning browser."""
+    f = WEB_DIR / "account.js"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="account.js not found")
+    return FileResponse(f, media_type="application/javascript", headers=_NO_CACHE)
+
+
+@router.get("/home", response_class=HTMLResponse)
+def home_page():
+    """The account page: credits, runs in flight, the idea notebook, recent reports,
+    settings. Where a RETURNING founder lands; `/` stays the survey for a first visit."""
+    f = WEB_DIR / "home.html"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="home not built")
+    return FileResponse(f, headers=_NO_CACHE)
+
+
+@router.get("/library", response_class=HTMLResponse)
+def library_page():
+    """The shared library: finished reports their owners chose to publish.
+
+    UNAUTHENTICATED ON PURPOSE. It is the strongest sales asset the product has — a
+    stranger weighing $29 wants to read real work — so it must render for someone with no
+    cookie, no account and no interest in making one yet. /library.json is what it reads,
+    and that endpoint carries titles and job ids only: no owner, no email, no draft."""
+    f = WEB_DIR / "library.html"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="library not built")
+    return FileResponse(f, headers=_NO_CACHE)
 
 
 @router.get("/dashboard.html", response_class=HTMLResponse)
@@ -140,6 +218,13 @@ def progress_page():
     if not f.exists():
         raise HTTPException(status_code=404, detail="progress page not built")
     return FileResponse(f, headers=_NO_CACHE)
+
+
+@router.get("/start", response_class=HTMLResponse)
+def start_page():
+    """The product, from the marketing site. Same page as /survey, which keeps working
+    because links and tests already point at it."""
+    return survey_page()
 
 
 @router.get("/survey", response_class=HTMLResponse)

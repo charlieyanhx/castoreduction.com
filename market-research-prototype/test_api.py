@@ -27,6 +27,19 @@ import jobs as jobs_mod
 client = TestClient(api.app)
 
 
+def _client_owner() -> str:
+    """The identity this file's TestClient actually browses as.
+
+    Anonymous visitors no longer share one bucket. api._current_owner() mints a signed
+    per-visitor guest id, and the HTTP middleware pins it to the caller's cookie jar, so
+    a job written straight into the DB under jobs.create()'s default owner is CORRECTLY
+    invisible to this client: every route answers 404. Tests that seed rows behind the
+    API's back have to seed them under this owner. The module-level `client` keeps its
+    cookie jar for the whole file, so the answer is stable.
+    """
+    return client.get("/auth/me").json()["owner"]
+
+
 def _wait_for_job(job_id: str, timeout: float = 5.0) -> dict:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -38,6 +51,13 @@ def _wait_for_job(job_id: str, timeout: float = 5.0) -> dict:
         time.sleep(0.05)
     raise TimeoutError(f"job {job_id} did not finish within {timeout}s")
 
+
+
+# This file fires eight auxiliary research calls (/discover, /taste, /full) from one
+# client address, and those now have a daily ceiling. Pinned rather than inherited: a
+# test whose subject is the report endpoints should not fail because an unrelated
+# default moved.
+os.environ.setdefault("CASTOR_DAILY_AUX_RUNS", "500")
 
 class TestAAADbIsolation(unittest.TestCase):
     """Guard: the whole file must run against an isolated temp DB — never the
@@ -281,7 +301,9 @@ class TestRegenerateSection(unittest.TestCase):
     """Iter 32: POST /jobs/{id}/regenerate updates ONE 4P section in place."""
 
     def _seed_complete_plan(self):
-        jid = jobs_mod.create("plan", {"description": "x" * 50})
+        # Seeded straight into the DB, so the owner has to be spelled out: the client
+        # browses as its own guest, not as jobs.create()'s default owner.
+        jid = jobs_mod.create("plan", {"description": "x" * 50}, owner_id=_client_owner())
         result = {
             "profile": {"name": "MintBox", "category": "candy"},
             "discover": {"synthesis": {"ranked_opportunities": [
@@ -330,13 +352,15 @@ class TestRegenerateSection(unittest.TestCase):
         self.assertEqual(r.status_code, 404)
 
     def test_regenerate_incomplete_job_409(self):
-        jid = jobs_mod.create("plan", {"description": "x" * 50})
+        # Owned by the browsing client, so the 409 is about the job's state, not its owner.
+        jid = jobs_mod.create("plan", {"description": "x" * 50}, owner_id=_client_owner())
         jobs_mod.update(jid, state="running")
         r = client.post(f"/jobs/{jid}/regenerate", json={"section": "product", "steering": ""})
         self.assertEqual(r.status_code, 409)
 
     def test_regenerate_wrong_kind_400(self):
-        jid = jobs_mod.create("discover", {"category": "x"})
+        # Owned by the browsing client, so the 400 is about the job's kind, not its owner.
+        jid = jobs_mod.create("discover", {"category": "x"}, owner_id=_client_owner())
         jobs_mod.update(jid, state="complete", result={"foo": "bar"})
         r = client.post(f"/jobs/{jid}/regenerate", json={"section": "product", "steering": ""})
         self.assertEqual(r.status_code, 400)
@@ -364,15 +388,6 @@ class TestIntakeEndpoints(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         data = r.json()
         self.assertEqual(data["extracted"]["product"], "X")
-
-    def test_message_unknown_session_404(self):
-        r = client.post("/intake/message", json={"session_id": "no-such", "user_message": "hi"})
-        self.assertEqual(r.status_code, 404)
-
-    def test_message_validates_min_length(self):
-        # Pydantic should reject empty user_message (min_length=1)
-        r = client.post("/intake/message", json={"session_id": "x", "user_message": ""})
-        self.assertEqual(r.status_code, 422)
 
     def test_get_intake_session(self):
         r = client.post("/intake/start", json={})

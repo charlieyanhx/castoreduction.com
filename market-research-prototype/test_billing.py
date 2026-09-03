@@ -208,57 +208,108 @@ if __name__ == "__main__":
 class TestThePaywallOnTheRun(_Billing):
     """Running out of free runs becomes a purchase, but only once a price exists."""
 
+    #: The address this suite's client dials from. Named rather than left to the default
+    #: because a guest's DAILY allowance is counted against the ADDRESS, not the cookie
+    #: (quota.guest_ledger_key), so a test that wants the allowance already spent has to
+    #: spend it under the same key POST /plan will read.
+    CLIENT_IP = "203.0.113.7"
+
     def _client(self):
         from fastapi.testclient import TestClient
         import api as api_mod
-        return TestClient(api_mod.app)
+        return TestClient(api_mod.app, client=(self.CLIENT_IP, 50000))
+
+    def _visitor(self, client):
+        """Who this client is browsing as.
+
+        An anonymous visitor is no longer one shared LEGACY_OWNER: api._current_owner
+        mints a per-visitor signed guest id and the middleware hands it back as a cookie.
+        So the quota ledger and the credit balance have to be seeded under the identity
+        THIS client carries, or the run the test sets up belongs to nobody it is about.
+        /auth/me is the canonical way to ask, and the client's cookie jar keeps the
+        answer stable for every later request it makes, which is also why each test
+        builds its client once and reuses it.
+        """
+        return client.get("/auth/me").json()["owner"]
 
     def _exhaust_free_runs(self, owner):
         import quota
+        # client_ip, because a guest's daily runs are ledgered against their address:
+        # spending the allowance under the bare guest id would leave the address's
+        # allowance untouched and the paywall would never be reached.
         for i in range(quota._daily_limit(owner)):
-            quota.claim_run_slot(owner, job_id=f"free{i}")
+            quota.claim_run_slot(owner, job_id=f"free{i}", client_ip=self.CLIENT_IP)
             quota.release_run_slot(owner)
 
     def test_without_a_price_the_refusal_is_unchanged(self):
         """An instance that cannot sell must behave exactly as it did before billing."""
-        import jobs
         from unittest.mock import patch
         os.environ.pop("STRIPE_PRICE_REPORT", None)
         os.environ.pop("STRIPE_SECRET_KEY", None)
-        self._exhaust_free_runs(jobs.LEGACY_OWNER)
+        client = self._client()
+        self._exhaust_free_runs(self._visitor(client))
         with patch("plan.run_plan", side_effect=lambda description, **k: {"profile": {}}):
-            r = self._client().post("/plan", json={
+            r = client.post("/plan", json={
                 "description": "A specialty coffee shop in Portland for local residents.",
                 "operator_weights": {}})
         self.assertEqual(r.status_code, 429)
 
     def test_with_a_price_and_a_credit_the_run_starts(self):
-        import billing, jobs
+        import billing
         from unittest.mock import patch
         os.environ["STRIPE_SECRET_KEY"] = "sk_test_x"
         os.environ["STRIPE_PRICE_REPORT"] = "price_report"
-        self._exhaust_free_runs(jobs.LEGACY_OWNER)
-        billing.fulfill(_session_event(account=jobs.LEGACY_OWNER, session_id="cs_run"))
-        self.assertEqual(billing.balance(jobs.LEGACY_OWNER, "report"), 1)
+        client = self._client()
+        buyer = self._visitor(client)
+        self._exhaust_free_runs(buyer)
+        # The credit is granted to the visitor who will spend it: credits are per owner,
+        # and this client is a guest with its own id rather than the shared legacy one.
+        billing.fulfill(_session_event(account=buyer, session_id="cs_run"))
+        self.assertEqual(billing.balance(buyer, "report"), 1)
         with patch("plan.run_plan", side_effect=lambda description, **k: {"profile": {}}):
-            r = self._client().post("/plan", json={
+            r = client.post("/plan", json={
                 "description": "A specialty coffee shop in Portland for local residents.",
                 "operator_weights": {}})
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(billing.balance(jobs.LEGACY_OWNER, "report"), 0,
+        self.assertEqual(billing.balance(buyer, "report"), 0,
                          "the credit must actually be spent")
 
     def test_with_a_price_but_no_credit_it_still_refuses(self):
-        import jobs
+        """402 NOW, NOT 429, and the change is the point rather than a detail.
+
+        This asserted 429: run out of the free allowance, then be told to come back
+        tomorrow. That was right when free runs came first and a credit was the fallback.
+        A credit is now the primary entitlement, so an instance that can sell refuses
+        BEFORE the allowance is considered, and the honest answer is a price rather than a
+        wait. The test's own name still describes it exactly: it still refuses."""
         from unittest.mock import patch
         os.environ["STRIPE_SECRET_KEY"] = "sk_test_x"
         os.environ["STRIPE_PRICE_REPORT"] = "price_report"
-        self._exhaust_free_runs(jobs.LEGACY_OWNER)
+        client = self._client()
+        self._exhaust_free_runs(self._visitor(client))
         with patch("plan.run_plan", side_effect=lambda description, **k: {"profile": {}}):
-            r = self._client().post("/plan", json={
+            r = client.post("/plan", json={
                 "description": "A specialty coffee shop in Portland for local residents.",
                 "operator_weights": {}})
-        self.assertEqual(r.status_code, 429)
+        self.assertEqual(r.status_code, 402)
+
+    def test_it_refuses_with_the_free_allowance_still_untouched(self):
+        """The stronger property, and the one the old ordering could not have.
+
+        The paywall used to be reachable only after the free runs were gone, which meant a
+        selling instance handed out CASTOR_DAILY_RUNS reports a day to anyone who never
+        opened the survey. Nothing was exhausted here."""
+        from unittest.mock import patch
+        os.environ["STRIPE_SECRET_KEY"] = "sk_test_x"
+        os.environ["STRIPE_PRICE_REPORT"] = "price_report"
+        client = self._client()
+        self.assertGreater(client.get("/billing/status").json()["free_runs_left"], 0)
+        with patch("plan.run_plan", side_effect=lambda description, **k: {"profile": {}}):
+            r = client.post("/plan", json={
+                "description": "A specialty coffee shop in Portland for local residents.",
+                "operator_weights": {}})
+        self.assertEqual(r.status_code, 402,
+                         "a paywalled instance must not give the run away for free")
 
     def test_a_credit_never_buys_past_the_concurrency_limit(self):
         """Money buys allowance, not a second simultaneous run: that limit is about what
@@ -267,14 +318,19 @@ class TestThePaywallOnTheRun(_Billing):
         from unittest.mock import patch
         os.environ["STRIPE_SECRET_KEY"] = "sk_test_x"
         os.environ["STRIPE_PRICE_REPORT"] = "price_report"
-        billing.fulfill(_session_event(account=jobs.LEGACY_OWNER, session_id="cs_conc"))
-        jid = jobs.create("plan", {"description": "x"}, owner_id=jobs.LEGACY_OWNER)
+        client = self._client()
+        buyer = self._visitor(client)
+        # Both the credit and the in-flight run belong to the guest this client browses
+        # as: the concurrency slot is keyed on the owner, so a job seeded under any other
+        # id would be a run in flight for somebody else and would block nothing.
+        billing.fulfill(_session_event(account=buyer, session_id="cs_conc"))
+        jid = jobs.create("plan", {"description": "x"}, owner_id=buyer)
         jobs.update(jid, state="running")
-        quota.claim_run_slot(jobs.LEGACY_OWNER, job_id=jid)      # one already in flight
+        quota.claim_run_slot(buyer, job_id=jid)                  # one already in flight
         with patch("plan.run_plan", side_effect=lambda description, **k: {"profile": {}}):
-            r = self._client().post("/plan", json={
+            r = client.post("/plan", json={
                 "description": "A specialty coffee shop in Portland for local residents.",
                 "operator_weights": {}})
         self.assertEqual(r.status_code, 429)
-        self.assertEqual(billing.balance(jobs.LEGACY_OWNER, "report"), 1,
+        self.assertEqual(billing.balance(buyer, "report"), 1,
                          "a refused run must not silently eat the credit")

@@ -4,29 +4,36 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Building your report · Castor Research</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap">
+<link rel="stylesheet" href="/brand.css">
 <style>
+  /* [hidden] is a UA rule and ANY author `display:` beats it. See login.html. */
+  [hidden] { display: none !important; }
+
   /* Same warm paper as the survey and the workspace. The founder has just come from the
      survey, and handing them a different visual language at the moment they have committed
      reads as being passed to a different company. */
   :root {
-    --bg: oklch(97.3% 0.006 85);
-    --surface: oklch(99.4% 0.002 85);
-    --surface-2: oklch(95.8% 0.006 85);
-    --line: oklch(90% 0.008 85);
-    --text: oklch(23% 0.015 250);
-    --text-dim: oklch(48% 0.015 250);
-    --text-faint: oklch(62% 0.012 250);
-    --shadow-1: 0 1px 2px oklch(30% 0.02 85 / .05), 0 4px 16px -6px oklch(30% 0.02 85 / .09);
+    --bg: var(--brand-paper);
+    --surface: var(--brand-surface);
+    --surface-2: var(--brand-surface-2);
+    --line: var(--brand-line);
+    --text: var(--brand-ink);
+    --text-dim: var(--brand-ink-dim);
+    --text-faint: var(--brand-ink-faint);
+    --shadow-1: var(--brand-shadow);
     --shadow-2: 0 2px 4px oklch(30% 0.02 85 / .06), 0 14px 36px -12px oklch(30% 0.02 85 / .16);
-    --accent: oklch(48.5% 0.105 163.5);
-    --accent-soft: oklch(95.5% 0.028 163.5);
-    --warn-ink: oklch(45% 0.13 62);
-    --warn-bg: oklch(97.5% 0.022 75);
-    --warn-line: oklch(88% 0.05 75);
-    --radius: 12px;
-    --serif: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
-    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
-    --mono: "SF Mono", ui-monospace, "Cascadia Code", monospace;
+    --accent: var(--brand-accent-ink);
+    --accent-soft: var(--brand-accent-bg);
+    --warn-ink: var(--brand-warn);
+    --warn-bg: var(--brand-warn-bg);
+    --warn-line: var(--brand-warn-line);
+    --radius: var(--brand-r);
+    --serif: var(--brand-sans);
+    --sans: var(--brand-sans);
+    --mono: var(--brand-mono);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
@@ -36,7 +43,7 @@
   .rail { position: sticky; top: 0; z-index: 20; display: flex; align-items: center;
           gap: 14px; padding: 13px 24px; background: oklch(97.3% 0.006 85 / .88);
           backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
-  .brand { font-family: var(--serif); font-size: 16px; font-weight: 600;
+  .brand { font-family: var(--serif); font-size: 16px; font-weight: var(--brand-display-weight);
            letter-spacing: -.01em; text-decoration: none; color: var(--text); }
   .brand span { color: var(--accent); }
   .navlink { margin-left: auto; font-size: 12.5px; color: var(--text-dim);
@@ -45,7 +52,7 @@
 
   main { max-width: 860px; margin: 0 auto; padding: 44px 24px 90px; }
   h1 { font-family: var(--serif); font-size: clamp(26px, 1.4rem + 1.6vw, 36px);
-       font-weight: 600; letter-spacing: -.02em; line-height: 1.15; }
+       font-weight: var(--brand-display-weight); letter-spacing: -.02em; line-height: 1.15; }
   .sub { margin-top: 11px; font-size: 15px; color: var(--text-dim); max-width: 56ch; }
   .clock { margin-left: 12px; font-family: var(--mono); font-size: .5em;
            font-weight: 500; color: var(--text-faint); letter-spacing: 0;
@@ -90,7 +97,7 @@
   .done-card { margin-top: 30px; padding: 26px 28px; background: var(--surface);
                border: 1px solid var(--line); border-left: 3px solid var(--accent);
                border-radius: var(--radius); box-shadow: var(--shadow-2); }
-  .done-card h2 { font-family: var(--serif); font-size: 22px; font-weight: 600;
+  .done-card h2 { font-family: var(--serif); font-size: 22px; font-weight: var(--brand-display-weight);
                   letter-spacing: -.015em; }
   .done-card p { margin-top: 9px; font-size: 14.5px; color: var(--text-dim);
                  max-width: 54ch; }
@@ -102,10 +109,18 @@
             color: var(--text-dim); }
   .bad-card { margin-top: 30px; padding: 20px 22px; background: var(--warn-bg);
               border: 1px solid var(--warn-line); border-radius: var(--radius); }
-  .bad-card h2 { font-family: var(--serif); font-size: 19px; font-weight: 600;
+  .bad-card h2 { font-family: var(--serif); font-size: 19px; font-weight: var(--brand-display-weight);
                  color: var(--warn-ink); }
   .bad-card p { margin-top: 8px; font-size: 14px; color: var(--warn-ink); max-width: 56ch; }
   .bad-card a { color: var(--warn-ink); }
+  /* The description a stopped run was given, handed back verbatim. The interview it came
+     from is closed once a run is accepted, so this text is the only part of ten minutes of
+     answering that the founder can still get at. It has to be selectable, and long briefs
+     have to scroll rather than push the way out off the card. */
+  .brief { margin-top: 10px; padding: 12px 14px; max-width: 56ch; max-height: 190px;
+           overflow-y: auto; font-size: 13px; line-height: 1.55; color: var(--text-dim);
+           background: var(--surface); border: 1px solid var(--warn-line);
+           border-radius: 8px; white-space: pre-wrap; }
 
   .aside { margin-top: 26px; font-size: 13px; color: var(--text-faint); }
   .aside a { color: var(--accent); }
@@ -120,8 +135,8 @@
 <body>
 
 <header class="rail">
-  <a class="brand" href="/">Castor <span>Research</span></a>
-  <a class="navlink" href="/dashboard.html">Your library</a>
+  <a class="brand-mark" href="/home"><svg viewBox="0 0 100 100" width="32" height="32"><g transform="translate(10,8)"><ellipse cx="40" cy="38" rx="38" ry="35" fill="#B07840"/><ellipse cx="40" cy="46" rx="28" ry="24" fill="#D4A870"/><circle cx="28" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="29.5" cy="28.5" r="2" fill="white"/><circle cx="52" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="53.5" cy="28.5" r="2" fill="white"/><ellipse cx="40" cy="42" rx="6" ry="4.5" fill="#2B3C2B"/><path d="M35 48 Q40 54 45 48" stroke="#2B3C2B" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="4" y1="38" x2="22" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="2" y1="46" x2="20" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="4" y1="54" x2="22" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="38" x2="58" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="78" y1="46" x2="60" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="54" x2="58" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><ellipse cx="12" cy="12" rx="9" ry="8" fill="#B07840"/><ellipse cx="68" cy="12" rx="9" ry="8" fill="#B07840"/></g></svg><div><span class="word">Castor</span><span class="sub">Research</span></div></a>
+  <a class="navlink" id="libLink" href="/dashboard.html" hidden>Your library</a>
 </header>
 
 <main>
@@ -207,6 +222,33 @@
   var since = 0;
   var seen = [];
   var finished = false;
+  /* The description this run was given. Kept because a stopped run's only useful exit is
+     handing it back: see fail(). */
+  var runDescription = "";
+
+  /* `pending` IS A REAL STATE, not the millisecond before `running`. Generation is
+     serialized process-wide by the run gate in jobs.py, so a job submitted while another
+     report is generating sits in `pending` for as long as that one takes, which can be
+     the whole six minutes. This page said "Building your report" throughout, with no
+     phase lighting up and no events in the feed: identical to what a hung run looks like.
+     Say it is queued, and say why, so the wait is explained rather than suspicious. */
+  var COPY = {
+    running: {
+      title: "Building your report",
+      sub: "This takes about six minutes of live research. You can close this tab and " +
+           "come back to it, the work carries on without you.",
+      lab: "What it is doing right now",
+      empty: "Warming up. The first searches start in a few seconds."
+    },
+    queued: {
+      title: "Your report is queued",
+      sub: "We run one report at a time, so this one starts as soon as the report ahead " +
+           "of it finishes. Nothing is lost by waiting, and you can close this tab and " +
+           "come back to it.",
+      lab: "Waiting to start",
+      empty: "Nothing yet. The first searches start once the report ahead of this one is done."
+    }
+  };
 
   function fmt(secs) {
     var m = Math.floor(secs / 60), s = Math.floor(secs % 60);
@@ -220,7 +262,7 @@
     return n;
   }
 
-  function renderPhases(done, runFinished) {
+  function renderPhases(done, runFinished, queued) {
     var set = {};
     (done || []).forEach(function (k) { set[k] = 1; });
     var host = $("phases");
@@ -243,7 +285,10 @@
       var started = p.keys.some(function (k) { return set[k]; });
       var cls = "phase";
       if (complete) cls += " done";
-      else if (!liveFound) { cls += " live"; liveFound = true; }
+      // Nothing pulses while the job is queued. The pulsing dot is the page's one claim
+      // that work is happening this second, and on a `pending` job it was claiming that
+      // for minutes while the step never moved.
+      else if (!liveFound && !queued) { cls += " live"; liveFound = true; }
       var row = el("div", cls);
       row.appendChild(el("div", "dot"));
       var body = el("div");
@@ -299,6 +344,7 @@
     var withheld = v && v.publishable === false;
     var blocks = (v && v.block) || 0;
 
+    stopClock();          // the heading rewrite below deletes the #clock span
     $("title").textContent = withheld ? "We are not publishing this one"
                                       : "Your report is ready";
     $("sub").textContent = withheld
@@ -334,8 +380,19 @@
     });
   }
 
+  /* THIS PANEL PROMISED A DOOR THAT IS NOT THERE. It read "Your answers are saved" over a
+     link to a bare /survey, and survey.js only resumes an interview from ?s=<session id>,
+     so that link opened a blank first question. The session id is not recoverable here
+     either: the job's params carry the intake RECORD (facts, unknowns, warnings shown) and
+     never the session it came from. Nor is the interview sitting in the drafts notebook,
+     because a session is marked confirmed the moment /plan accepts the run and drafts()
+     deliberately skips confirmed sessions. So the honest statement is that this run cannot
+     be resumed. What does survive is the description the run was given, and that is worth
+     handing back: pasting it into the first box of a new interview is the real way out of
+     here, and it is the difference between losing ten minutes and losing one. */
   function fail(message) {
     finished = true;
+    stopClock();          // as in succeed(): the clock span does not survive this
     $("title").textContent = "This run stopped early";
     $("sub").textContent = "";
     var card = el("div", "bad-card");
@@ -343,15 +400,30 @@
     card.appendChild(el("p", null, message ||
       "Something went wrong partway through and the run was stopped."));
     var p = el("p");
-    p.appendChild(document.createTextNode("Your answers are saved. You can "));
+    p.appendChild(document.createTextNode("This run cannot be picked up where it left off. You can "));
     var a = document.createElement("a");
     a.href = "/survey";
-    a.textContent = "start a new run";
+    a.textContent = "start a new one";
     p.appendChild(a);
-    p.appendChild(document.createTextNode(", and anything that finished is in your library."));
+    p.appendChild(document.createTextNode(", which asks the questions again, and anything that finished is in "));
+    var lib = document.createElement("a");
+    lib.href = "/dashboard.html";
+    lib.textContent = "your library";
+    p.appendChild(lib);
+    p.appendChild(document.createTextNode("."));
     card.appendChild(p);
+    if (runDescription) {
+      card.appendChild(el("p", null, "This is the description the run was working from. " +
+        "Paste it into the first box of the new interview and you will not have to type it again."));
+      card.appendChild(el("div", "brief", runDescription));
+    }
     $("outcome").innerHTML = "";
     $("outcome").appendChild(card);
+    // The pulsing dot is a claim that a step is running this second, so it cannot outlive
+    // the run. A stopped run kept one phase pulsing under "This run stopped early", which
+    // reads as the page having lost track of itself.
+    var live = $("phases").querySelector(".phase.live");
+    if (live) live.className = "phase";
     quietFeed();
   }
 
@@ -366,31 +438,102 @@
     }
   }
 
-  function tick() {
-    if (createdAt) {
-      $("clock").textContent = fmt(Math.max(0, Date.now() / 1000 - createdAt));
-    }
+  /* Queued and running are the same screen with different promises on it, and a job moves
+     from one to the other mid-poll, so the copy is set from the state on every pass rather
+     than once. The clock span lives inside the h1, so only the leading text node is
+     rewritten; replacing textContent here would delete the clock. */
+  function setWaiting(queued) {
+    if (finished) return;
+    var c = queued ? COPY.queued : COPY.running;
+    var head = $("title").firstChild;
+    if (head) head.nodeValue = c.title;
+    $("sub").textContent = c.sub;
+    $("feedLab").textContent = c.lab;
+    var empty = $("feed").querySelector(".feed-empty");
+    if (empty) empty.textContent = c.empty;
   }
+
+  /* THE CLOCK STOPS WHEN THE RUN DOES, and it has to be stopped rather than merely
+     guarded. succeed() and fail() both set $("title").textContent, which deletes the
+     #clock span living inside that h1 — the hazard setWaiting() documents and avoids by
+     rewriting only the leading text node. Nothing stopped this interval, so every
+     finished report page threw an uncaught TypeError once a second for as long as the tab
+     stayed open, and kept a timer alive to do it.
+
+     The guard on the element stays as well: a second way for the span to disappear should
+     cost a skipped frame, not an error loop. */
+  var clockTimer = null;
+
+  function stopClock() {
+    if (clockTimer !== null) { clearInterval(clockTimer); clockTimer = null; }
+  }
+
+  function tick() {
+    if (!createdAt) return;
+    var c = $("clock");
+    if (!c) { stopClock(); return; }
+    c.textContent = fmt(Math.max(0, Date.now() / 1000 - createdAt));
+  }
+
+  /* THE LIBRARY LINK IS FOR SOMEONE WHO HAS ONE. A signed-out visitor watching their
+     first run has exactly one report, and it is on this screen: offering "your library"
+     tells them there is somewhere else to be, and the page it opens is empty. Ask who is
+     watching, and reveal it only for an account with something in it. Fire and forget:
+     nothing here may delay or disturb the poll below. */
+  (function revealLibrary() {
+    fetch("/auth/me").then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (me) {
+        if (me && me.authenticated && (me.reports || 0) > 0) {
+          var l = document.getElementById("libLink");
+          if (l) l.hidden = false;
+        }
+      })
+      .catch(function () { /* the link stays hidden, which is the safe default */ });
+  })();
 
   async function poll() {
     try {
-      var j = await (await fetch("/jobs/" + encodeURIComponent(jobId))).json();
+      // CHECK THE STATUS BEFORE TRUSTING THE BODY. A 404 or 401 answer has no `state`,
+      // so neither terminal branch below fires and the page re-polls forever: a permanent
+      // "Building your report" after a lost guest cookie, an expired session, a shared
+      // link or a typo. The event feed hides it too, because it answers 200 with an empty
+      // stream for an unknown id so it cannot be used to probe which ids exist.
+      var res = await fetch("/jobs/" + encodeURIComponent(jobId));
+      if (res.status === 404 || res.status === 401 || res.status === 403) {
+        tick();
+        return fail(res.status === 404
+          ? "We cannot find that report. It may belong to another account, or the link "
+            + "may be from a browser session that has since been cleared."
+          : "You are signed out. Sign in and open it from your library.");
+      }
+      if (!res.ok) { tick(); setTimeout(poll, 2500); return; }   // 5xx: keep trying
+      var j = await res.json();
       if (j.created_at) createdAt = j.created_at;
+      // Kept for fail(): the description is the one piece of the interview a stopped run
+      // can still hand back.
+      if (j.params && j.params.description) runDescription = String(j.params.description);
+      var queued = j.state === "pending";
       renderPhases((j.result && j.result._steps_completed) || [],
-                   j.state === "complete");
+                   j.state === "complete", queued);
+      setWaiting(queued);
 
       try {
-        var ev = await (await fetch("/jobs/" + encodeURIComponent(jobId) +
-                                    "/events?since=" + since)).json();
+        var evRes = await fetch("/jobs/" + encodeURIComponent(jobId) +
+                                "/events?since=" + since);
+        // CHECK THE STATUS HERE TOO. A 5xx answers with a JSON error detail, which parses
+        // fine and simply has no `events`, so a failing stream fell through to the empty
+        // line below and rendered as "Warming up" for the length of the run.
+        var ev = evRes.ok ? await evRes.json() : null;
         if (ev && ev.events && ev.events.length) {
           seen = seen.concat(ev.events);
           since = ev.next_since || since;
           renderFeed(seen);
         } else if (!seen.length) {
           $("feed").innerHTML = "";
-          $("feed").appendChild(el("div", "feed-empty", finished
-            ? "This run predates the live activity log, so there is nothing to replay here."
-            : "Warming up. The first searches start in a few seconds."));
+          $("feed").appendChild(el("div", "feed-empty",
+            finished ? "This run predates the live activity log, so there is nothing to replay here."
+            : !evRes.ok ? "The activity log is not answering right now. The run itself carries on."
+            : (queued ? COPY.queued.empty : COPY.running.empty)));
         }
       } catch (e) { /* the event stream is a bonus, never the thing that breaks the page */ }
 
@@ -404,9 +547,10 @@
   }
 
   renderPhases([]);
-  setInterval(tick, 1000);
+  clockTimer = setInterval(tick, 1000);
   poll();
 })();
 </script>
+<script src="/account.js" defer></script>
 </body>
 </html>

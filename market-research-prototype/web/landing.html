@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Castor Research - Automated Market Research Reports</title>
+    <meta name="description" content="Castor Research generates structured, cited market research reports for founders, small businesses, and investment teams. Competitive landscape, market sizing, personas, and more in minutes.">
+    <meta property="og:title" content="Castor Research">
+    <meta property="og:description" content="Fast, structured market research reports built for founders and operators who don't have a research team.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://castorresearch.com">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Castor Research">
+    <meta name="twitter:description" content="Automated market research reports. No analyst needed to run them, no MBA needed to read them.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><g transform='translate(10,8)'><ellipse cx='40' cy='38' rx='38' ry='35' fill='%23B07840'/><ellipse cx='40' cy='46' rx='28' ry='24' fill='%23D4A870'/><circle cx='28' cy='30' r='5.5' fill='%232B3C2B'/><circle cx='52' cy='30' r='5.5' fill='%232B3C2B'/></g></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background-color: #F7F5F0;
+            color: #2B3C2B;
+            line-height: 1.6;
+        }
+        button { border: none; background: none; cursor: pointer; font-family: inherit; }
+        button:focus { outline: none; }
+        a { text-decoration: none; color: inherit; }
+
+        /* Accessibility */
+        button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+            outline: 2px solid #B07840; outline-offset: 2px;
+        }
+        .skip-link {
+            position: absolute; top: -100%; left: 1rem; padding: 0.75rem 1.5rem;
+            background: #2B3C2B; color: white; font-weight: 600; border-radius: 0 0 0.5rem 0.5rem;
+            z-index: 200; font-size: 0.875rem; transition: top 0.2s ease;
+        }
+        .skip-link:focus { top: 0; }
+
+        /* Navigation */
+        nav { position: fixed; top: 0; left: 0; right: 0; z-index: 50; transition: all 300ms ease; }
+        nav.scrolled { background-color: rgba(255,255,255,0.95); backdrop-filter: blur(12px); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        nav:not(.scrolled) { background-color: rgba(247,245,240,0.8); backdrop-filter: blur(8px); }
+        .nav-content { max-width: 80rem; margin: 0 auto; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
+        .nav-logo { display: flex; align-items: center; gap: 0.625rem; cursor: pointer; border: none; background: none; padding: 0; text-decoration: none; }
+        .nav-logo-text { color: #2B3C2B; font-size: 1.25rem; font-weight: 900; letter-spacing: -0.015em; }
+        .nav-logo-subtext { color: #5A6E5A; font-size: 0.75rem; font-weight: 500; margin-left: 0.5rem; letter-spacing: 0.1em; }
+        .nav-links { display: none; gap: 0.25rem; align-items: center; }
+        .nav-links.desktop { display: flex; }
+        .nav-link { padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; transition: all 200ms ease; background: transparent; border: none; cursor: pointer; color: #5A6E5A; text-decoration: none; }
+        .nav-link:hover { color: #2B3C2B; background-color: rgba(43,60,43,0.04); }
+        .nav-cta { display: none; gap: 0.75rem; align-items: center; }
+        .nav-cta.desktop { display: flex; }
+        .nav-cta-btn { padding: 0.625rem 1.25rem; background-color: #2B3C2B; color: white; font-weight: 600; border-radius: 0.5rem; font-size: 0.875rem; transition: all 200ms ease; text-decoration: none; display: inline-block; }
+        .nav-cta-btn:hover { box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
+        .hamburger { display: none; background: none; border: none; cursor: pointer; color: #2B3C2B; padding: 0; }
+        .mobile-menu { display: none; background-color: rgba(255,255,255,0.95); backdrop-filter: blur(12px); border-top: 1px solid rgba(43,60,43,0.1); padding: 1.5rem; }
+        .mobile-menu.active { display: block; }
+        .mobile-menu-link { display: block; width: 100%; text-align: left; padding: 0.75rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; transition: all 200ms ease; background: transparent; border: none; cursor: pointer; margin-bottom: 0.5rem; color: #5A6E5A; text-decoration: none; }
+        .mobile-menu-link:hover { color: #2B3C2B; background-color: rgba(43,60,43,0.04); }
+
+        @media (max-width: 1023px) {
+            .nav-links.desktop { display: none; }
+            .nav-cta.desktop { display: none; }
+            .hamburger { display: block; }
+            .nav-logo-subtext { display: none; }
+        }
+
+        /* Hero */
+        .hero { position: relative; padding: 8rem 1.5rem 6rem; overflow: hidden; }
+        .hero-bg { position: absolute; inset: 0; }
+        .hero-content { max-width: 64rem; margin: 0 auto; text-align: center; position: relative; z-index: 10; }
+        .section-tag { display: inline-block; padding: 0.375rem 1rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.12em; margin-bottom: 1rem; background-color: rgba(176,120,64,0.08); border: 1px solid rgba(176,120,64,0.2); color: #B07840; text-transform: uppercase; }
+        .hero h1 { font-size: clamp(2.25rem,8vw,4.5rem); font-weight: 900; line-height: 1.25; margin-bottom: 1.5rem; color: #2B3C2B; }
+        .hero p { font-size: clamp(1.125rem,3vw,1.25rem); max-width: 42rem; margin: 0 auto 2.5rem; line-height: 1.625; color: #5A6E5A; }
+
+        /* Feature Cards */
+        .feature-card { border-radius: 1rem; padding: 2rem; transition: all 200ms ease; background-color: rgba(43,60,43,0.03); border: 1px solid rgba(43,60,43,0.1); }
+        .feature-card:hover { transform: translateY(-4px); box-shadow: 0 8px 24px rgba(43,60,43,0.06); border-color: rgba(43,60,43,0.16); }
+        .feature-card-icon { width: 3rem; height: 3rem; border-radius: 0.75rem; display: flex; align-items: center; justify-content: center; margin-bottom: 1.25rem; background-color: rgba(176,120,64,0.12); }
+        .feature-card-icon svg { color: #B07840; width: 22px; height: 22px; }
+        .feature-card h3 { font-size: 1.125rem; font-weight: 700; margin-bottom: 0.75rem; color: #2B3C2B; }
+        .feature-card p { font-size: 0.875rem; line-height: 1.625; color: #5A6E5A; }
+
+        /* CTA Button */
+        .cta-button { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.875rem 1.75rem; font-weight: 700; border-radius: 0.75rem; font-size: 0.875rem; transition: all 200ms ease; border: none; cursor: pointer; text-decoration: none; }
+        .cta-button.primary { background-color: #2B3C2B; color: white; }
+        .cta-button.primary:hover { box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); transform: translateY(-2px); }
+        .cta-button.secondary { border: 1px solid rgba(43,60,43,0.2); color: #2B3C2B; }
+        .cta-button.secondary:hover { background-color: rgba(255,255,255,0.6); }
+        .cta-button svg { width: 18px; height: 18px; }
+
+        /* Check Item */
+        .check-item { display: flex; gap: 0.75rem; border-radius: 0.75rem; padding: 1.25rem; background-color: rgba(43,60,43,0.03); border: 1px solid rgba(43,60,43,0.1); align-items: flex-start; }
+        .check-item svg { flex-shrink: 0; margin-top: 0.125rem; color: #B07840; width: 18px; height: 18px; }
+        .check-item span { font-size: 0.875rem; color: #5A6E5A; }
+
+        /* Section */
+        section { padding: 1.5rem 1.5rem 4rem; }
+        section h2 { font-size: clamp(1.875rem,5vw,2.25rem); font-weight: 900; color: #2B3C2B; }
+        section > div > h2 { margin-bottom: 1.5rem; }
+        section > div > p { font-size: 1rem; line-height: 1.625; color: #5A6E5A; }
+
+        /* Utility */
+        .max-w-xl { max-width: 36rem; } .max-w-2xl { max-width: 42rem; } .max-w-3xl { max-width: 48rem; }
+        .max-w-4xl { max-width: 56rem; } .max-w-5xl { max-width: 64rem; } .max-w-6xl { max-width: 72rem; } .max-w-7xl { max-width: 80rem; }
+        .mx-auto { margin-left: auto; margin-right: auto; }
+        .text-center { text-align: center; }
+        .grid { display: grid; gap: 1.5rem; }
+        .content-grid { display: grid; gap: 1.5rem; }
+
+        /* Footer */
+        footer { background-color: #2B3C2B; padding: 4rem 1.5rem; color: white; }
+        footer h4 { color: white; font-weight: 600; font-size: 0.875rem; margin-bottom: 1rem; }
+        footer a, footer button { color: rgba(255,255,255,0.4); font-size: 0.875rem; transition: color 200ms ease; text-align: left; }
+        footer a:hover, footer button:hover { color: white; }
+
+        /* Step items */
+        .step-item { display: flex; gap: 1.5rem; border-radius: 0.75rem; padding: 1.5rem; transition: all 200ms ease; background-color: rgba(43,60,43,0.03); border: 1px solid rgba(43,60,43,0.1); }
+        .step-item:hover { transform: translateY(-2px); }
+        .step-number { width: 2.5rem; height: 2.5rem; border-radius: 0.75rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background-color: rgba(176,120,64,0.12); font-weight: 900; font-size: 0.875rem; color: #B07840; }
+        .step-item h4 { font-weight: 700; margin-bottom: 0.25rem; color: #2B3C2B; }
+        .step-item p { font-size: 0.875rem; color: #5A6E5A; }
+
+        /* Insight boxes */
+        .insight-box { border-radius: 1rem; padding: 2rem; background-color: rgba(43,60,43,0.05); border: 1px solid rgba(43,60,43,0.12); }
+        .insight-box.brown { background-color: rgba(176,120,64,0.05); border: 1px solid rgba(176,120,64,0.12); }
+        .insight-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+        .insight-icon { width: 2.5rem; height: 2.5rem; border-radius: 0.75rem; display: flex; align-items: center; justify-content: center; background-color: rgba(43,60,43,0.1); }
+        .insight-icon.brown { background-color: rgba(176,120,64,0.12); }
+        .insight-icon svg { width: 20px; height: 20px; color: #2B3C2B; }
+        .insight-icon.brown svg { color: #B07840; }
+        .insight-header h3 { font-size: 1.25rem; font-weight: 700; color: #2B3C2B; }
+        .insight-text { font-size: 0.875rem; line-height: 1.625; color: #5A6E5A; margin-bottom: 1rem; }
+        .insight-highlight { font-size: 0.875rem; font-weight: 600; color: #B07840; }
+
+        /* CTA box */
+        .cta-box { border-radius: 1.875rem; padding: 3rem; text-align: center; background-color: rgba(43,60,43,0.05); border: 1px solid rgba(43,60,43,0.1); }
+        .cta-box.dark { background-color: #2B3C2B; }
+        .cta-box h2 { font-size: clamp(1.875rem,5vw,1.875rem); font-weight: 900; margin-bottom: 1rem; }
+        .cta-box.dark h2 { color: white; }
+        .cta-box p { margin-bottom: 2rem; }
+        .cta-box.dark p { color: rgba(255,255,255,0.6); }
+
+        /* Pricing cards */
+        .pricing-card { border-radius: 1rem; padding: 2rem; background-color: rgba(43,60,43,0.03); border: 1px solid rgba(43,60,43,0.1); display: flex; flex-direction: column; }
+        .pricing-card.featured { background-color: #2B3C2B; border-color: #2B3C2B; }
+        .pricing-card .price { font-size: 2.5rem; font-weight: 900; color: #2B3C2B; line-height: 1; margin: 1rem 0 0.25rem; }
+        .pricing-card.featured .price { color: white; }
+        .pricing-card .price-label { font-size: 0.75rem; font-weight: 600; color: #B07840; letter-spacing: 0.08em; text-transform: uppercase; }
+        .pricing-card.featured .price-label { color: rgba(176,120,64,0.8); }
+        .pricing-card h3 { font-size: 1.125rem; font-weight: 700; color: #2B3C2B; margin-bottom: 0.5rem; }
+        .pricing-card.featured h3 { color: white; }
+        .pricing-card .pricing-desc { font-size: 0.875rem; color: #5A6E5A; line-height: 1.5; flex-grow: 1; margin: 0.75rem 0 1.5rem; }
+        .pricing-card.featured .pricing-desc { color: rgba(255,255,255,0.6); }
+        .pricing-card .per-report { font-size: 0.8125rem; font-weight: 600; color: #5A6E5A; margin-bottom: 1.5rem; }
+        .pricing-card.featured .per-report { color: rgba(255,255,255,0.5); }
+        .pricing-btn { display: block; width: 100%; padding: 0.875rem 1.75rem; font-weight: 700; border-radius: 0.75rem; font-size: 0.875rem; transition: all 200ms ease; border: none; cursor: pointer; text-align: center; text-decoration: none; background-color: rgba(176,120,64,0.12); color: #B07840; }
+        .pricing-btn:hover { background-color: rgba(176,120,64,0.2); }
+        .pricing-card.featured .pricing-btn { background-color: #B07840; color: white; }
+        .pricing-card.featured .pricing-btn:hover { box-shadow: 0 10px 15px -3px rgba(0,0,0,0.2); }
+
+        /* Report contents list */
+        .report-item { display: flex; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid rgba(43,60,43,0.08); }
+        .report-item:last-child { border-bottom: none; }
+        .report-item-dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; background-color: #B07840; flex-shrink: 0; margin-top: 0.45rem; }
+        .report-item-title { font-size: 0.9375rem; font-weight: 700; color: #2B3C2B; margin-bottom: 0.2rem; }
+        .report-item-desc { font-size: 0.8125rem; color: #5A6E5A; line-height: 1.5; }
+
+        /* Scroll animations */
+        .animate-on-scroll { opacity: 0; transform: translateY(30px); transition: opacity 0.7s cubic-bezier(0.25,0.46,0.45,0.94), transform 0.7s cubic-bezier(0.25,0.46,0.45,0.94); }
+        .animate-on-scroll.visible { opacity: 1; transform: translateY(0); }
+        .animate-on-scroll.visible .feature-card,
+        .animate-on-scroll.visible .check-item,
+        .animate-on-scroll.visible .step-item,
+        .animate-on-scroll.visible .insight-box,
+        .animate-on-scroll.visible .pricing-card { opacity: 0; animation: staggerIn 0.5s cubic-bezier(0.25,0.46,0.45,0.94) forwards; }
+        .animate-on-scroll.visible .feature-card:nth-child(1), .animate-on-scroll.visible .check-item:nth-child(1), .animate-on-scroll.visible .step-item:nth-child(1), .animate-on-scroll.visible .insight-box:nth-child(1), .animate-on-scroll.visible .pricing-card:nth-child(1) { animation-delay: 0s; }
+        .animate-on-scroll.visible .feature-card:nth-child(2), .animate-on-scroll.visible .check-item:nth-child(2), .animate-on-scroll.visible .step-item:nth-child(2), .animate-on-scroll.visible .insight-box:nth-child(2), .animate-on-scroll.visible .pricing-card:nth-child(2) { animation-delay: 0.1s; }
+        .animate-on-scroll.visible .feature-card:nth-child(3), .animate-on-scroll.visible .check-item:nth-child(3), .animate-on-scroll.visible .step-item:nth-child(3), .animate-on-scroll.visible .pricing-card:nth-child(3) { animation-delay: 0.2s; }
+        .animate-on-scroll.visible .feature-card:nth-child(4), .animate-on-scroll.visible .check-item:nth-child(4) { animation-delay: 0.3s; }
+        @keyframes staggerIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Modal */
+        .modal-overlay { position: fixed; inset: 0; z-index: 100; background-color: rgba(0,0,0,0.5); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 1.5rem; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+        .modal-overlay.active { opacity: 1; pointer-events: auto; }
+        .modal { background-color: #F7F5F0; border-radius: 1.5rem; padding: 2.5rem; max-width: 480px; width: 100%; max-height: 90vh; overflow-y: auto; transform: translateY(20px) scale(0.97); transition: transform 0.3s ease; position: relative; }
+        .modal-overlay.active .modal { transform: translateY(0) scale(1); }
+        .modal-close { position: absolute; top: 1rem; right: 1rem; width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(43,60,43,0.08); border: none; cursor: pointer; color: #5A6E5A; transition: all 200ms ease; }
+        .modal-close:hover { background: rgba(43,60,43,0.15); color: #2B3C2B; }
+        .modal h2 { font-size: 1.5rem; font-weight: 900; color: #2B3C2B; margin-bottom: 0.5rem; }
+        .modal > p { font-size: 0.875rem; color: #5A6E5A; margin-bottom: 1.5rem; line-height: 1.5; }
+        .form-group { margin-bottom: 1rem; }
+        .form-group label { display: block; font-size: 0.8125rem; font-weight: 600; color: #2B3C2B; margin-bottom: 0.375rem; }
+        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 0.75rem 1rem; border: 1px solid rgba(43,60,43,0.15); border-radius: 0.625rem; font-family: inherit; font-size: 0.875rem; background-color: white; color: #2B3C2B; transition: border-color 200ms ease, box-shadow 200ms ease; outline: none; }
+        .form-group input:focus, .form-group textarea:focus, .form-group select:focus { border-color: #B07840; box-shadow: 0 0 0 3px rgba(176,120,64,0.12); }
+        .form-group textarea { resize: vertical; min-height: 80px; }
+        .form-submit { width: 100%; padding: 0.875rem 1.75rem; background-color: #2B3C2B; color: white; font-weight: 700; border-radius: 0.75rem; font-size: 0.875rem; border: none; cursor: pointer; transition: all 200ms ease; margin-top: 0.5rem; }
+        .form-submit:hover { box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); transform: translateY(-1px); }
+        .form-submit:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
+        .form-success { text-align: center; padding: 2rem 0; }
+        .form-success svg { width: 48px; height: 48px; color: #4A7A4A; margin-bottom: 1rem; }
+        .form-success h3 { font-size: 1.25rem; font-weight: 700; color: #2B3C2B; margin-bottom: 0.5rem; }
+        .form-success p { font-size: 0.875rem; color: #5A6E5A; }
+
+        /* 2x2 grid */
+        .grid-2x2 { grid-template-columns: repeat(2, 1fr); }
+        @media (max-width: 640px) { .grid-2x2 { grid-template-columns: 1fr; } }
+        @media (max-width: 768px) { .whitespace-layout { grid-template-columns: 1fr !important; } }
+
+        /* Pricing strikethrough / beta badge */
+        .price-regular { font-size: 0.875rem; color: #8A9A8A; text-decoration: line-through; margin-bottom: 0.25rem; }
+        .pricing-card.featured .price-regular { color: rgba(255,255,255,0.35); }
+        .beta-badge { display: inline-block; padding: 0.2rem 0.6rem; background-color: rgba(176,120,64,0.15); color: #B07840; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; border-radius: 9999px; margin-bottom: 0.5rem; }
+        .pricing-card.featured .beta-badge { background-color: rgba(176,120,64,0.25); color: rgba(176,120,64,0.9); }
+
+        /* Comparison table */
+        .comparison-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .comparison-table { width: 100%; border-collapse: collapse; min-width: 560px; }
+        .comparison-table th { padding: 1rem 1.25rem; font-size: 0.875rem; font-weight: 700; text-align: left; border-bottom: 2px solid rgba(43,60,43,0.12); }
+        .comparison-table th.castor-col { background-color: rgba(43,60,43,0.05); color: #2B3C2B; border-radius: 0.75rem 0.75rem 0 0; }
+        .comparison-table th.other-col { color: #8A9A8A; }
+        .comparison-table td { padding: 0.875rem 1.25rem; font-size: 0.875rem; border-bottom: 1px solid rgba(43,60,43,0.06); vertical-align: top; line-height: 1.5; }
+        .comparison-table td.castor-col { background-color: rgba(43,60,43,0.03); color: #2B3C2B; font-weight: 500; }
+        .comparison-table td.other-col { color: #5A6E5A; }
+        .comparison-table tr:last-child td { border-bottom: none; }
+        .comparison-table .row-label { font-size: 0.8125rem; font-weight: 600; color: #2B3C2B; padding-right: 1rem; white-space: nowrap; }
+        .comparison-placeholder { color: #B07840; font-style: italic; font-size: 0.8125rem; }
+
+        /* Consulting section */
+        .consulting-card { border-radius: 1.5rem; padding: 3rem; background: linear-gradient(135deg, rgba(43,60,43,0.05) 0%, rgba(176,120,64,0.05) 100%); border: 1px solid rgba(176,120,64,0.15); }
+
+        /* Reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            .animate-on-scroll { opacity: 1 !important; transform: none !important; transition: none !important; }
+            .animate-on-scroll.visible .feature-card, .animate-on-scroll.visible .check-item, .animate-on-scroll.visible .step-item, .animate-on-scroll.visible .insight-box, .animate-on-scroll.visible .pricing-card { animation: none !important; opacity: 1 !important; }
+            .modal-overlay, .modal { transition: none !important; }
+        }
+    
+/* Castor Research entry points, added when the site and the product were merged.
+   The page's own tokens: #2B3C2B ink, #B07840 bronze. */
+.nav-signin{color:#2B3C2B;font-weight:600;text-decoration:none;padding:.45rem .8rem;
+  border-radius:6px;transition:background .15s ease,color .15s ease}
+.nav-signin:hover{background:rgba(176,120,64,.12);color:#8A5C2E}
+</style>
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
+
+    <nav id="navbar" aria-label="Main navigation">
+        <div class="nav-content">
+            <a href="#home" class="nav-logo">
+                <svg viewBox="0 0 100 100" width="32" height="32"><g transform="translate(10,8)"><ellipse cx="40" cy="38" rx="38" ry="35" fill="#B07840"/><ellipse cx="40" cy="46" rx="28" ry="24" fill="#D4A870"/><circle cx="28" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="29.5" cy="28.5" r="2" fill="white"/><circle cx="52" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="53.5" cy="28.5" r="2" fill="white"/><ellipse cx="40" cy="42" rx="6" ry="4.5" fill="#2B3C2B"/><path d="M35 48 Q40 54 45 48" stroke="#2B3C2B" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="4" y1="38" x2="22" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="2" y1="46" x2="20" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="4" y1="54" x2="22" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="38" x2="58" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="78" y1="46" x2="60" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="54" x2="58" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><ellipse cx="12" cy="12" rx="9" ry="8" fill="#B07840"/><ellipse cx="68" cy="12" rx="9" ry="8" fill="#B07840"/></g></svg>
+                <div><span class="nav-logo-text">CASTOR</span><span class="nav-logo-subtext">RESEARCH</span></div>
+            </a>
+            <div class="nav-links desktop">
+                <a href="#how-it-works" class="nav-link">How It Works</a>
+                <a href="#comparison" class="nav-link">See the Difference</a>
+                <a href="#pricing" class="nav-link">Pricing</a>
+                <a href="#consulting" class="nav-link">Consult</a>
+                <a href="#corporate" class="nav-link">Corporate</a>
+            </div>
+            <div class="nav-cta desktop">
+                <a href="/login" class="nav-signin">Sign in</a>
+                <a href="/start" class="nav-cta-btn">Generate your report</a>
+            </div>
+            <button class="hamburger" id="hamburgerBtn" onclick="toggleMobileMenu()" aria-label="Toggle menu">
+                <svg id="hamburgerIcon" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+            </button>
+        </div>
+        <div class="mobile-menu" id="mobileMenu">
+            <a href="#how-it-works" class="mobile-menu-link" onclick="closeMobileMenu()">How It Works</a>
+            <a href="#comparison" class="mobile-menu-link" onclick="closeMobileMenu()">See the Difference</a>
+            <a href="#pricing" class="mobile-menu-link" onclick="closeMobileMenu()">Pricing</a>
+            <a href="#consulting" class="mobile-menu-link" onclick="closeMobileMenu()">Consult</a>
+            <a href="#corporate" class="mobile-menu-link" onclick="closeMobileMenu()">Corporate</a>
+            <a href="/login" class="mobile-link">Sign in</a>
+                <a href="/start" class="mobile-menu-link" style="font-weight: 700; color: #2B3C2B; margin-top: 0.5rem; border-top: 1px solid rgba(43,60,43,0.08); padding-top: 1rem;">Generate your report</a>
+        </div>
+    </nav>
+
+    <main id="main-content" style="min-height: 100vh;">
+
+        <!-- HERO -->
+        <section id="home" class="hero">
+            <div class="hero-bg" style="background: linear-gradient(to bottom, rgba(43,60,43,0.04), transparent);">
+                <div style="position: absolute; top: 5rem; left: 25%; width: 24rem; height: 24rem; border-radius: 9999px; filter: blur(80px); background-color: rgba(43,60,43,0.06);"></div>
+                <div style="position: absolute; bottom: 0; right: 25%; width: 20rem; height: 20rem; border-radius: 9999px; filter: blur(80px); background-color: rgba(176,120,64,0.06);"></div>
+            </div>
+            <div class="hero-content">
+                <span class="section-tag">Beta Pricing Active</span>
+                <h1><span style="display: block; color: #2B3C2B; white-space: nowrap; font-size: clamp(1.5rem,4.5vw,3rem);">Research-grade market reports.</span><span style="display: block; color: #B07840; font-size: clamp(1.5rem,4.5vw,3rem);">No analyst, no wait.</span></h1>
+                <p>Castor Research takes your business description and generates a structured, cited market report covering competitive landscape, pricing, buyer personas, market sizing, and a viability score. It runs in minutes and delivers the same rigorous output every time.</p>
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 1rem;">
+                    <a href="/start" class="cta-button primary">Generate your report <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></a>
+                    <a href="#sample-report" class="cta-button secondary">View a sample report <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></a>
+                </div>
+                <p style="margin-top: 1.5rem; font-size: 0.8125rem; color: #5A6E5A;">Reports from $29. No account required.</p>
+            </div>
+        </section>
+
+        <!-- THREE AUDIENCES -->
+        <section id="audiences">
+            <div class="max-w-6xl mx-auto animate-on-scroll">
+                <div class="text-center" style="margin-bottom: 3rem;">
+                    <span class="section-tag">Who It's For</span>
+                    <h2>Built for teams that move fast without analyst overhead.</h2>
+                </div>
+                <div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
+                    <div class="feature-card">
+                        <div class="feature-card-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg>
+                        </div>
+                        <h3>Emerging Founders</h3>
+                        <p>Before you build, you need to know who else is in the space, whether the market is big enough, and what customers in your category actually care about. Castor gives you a competitive landscape, real pricing benchmarks, and a viability score before you commit time or money.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-card-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="9"></line><line x1="9" y1="15" x2="15" y2="15"></line><line x1="9" y1="12" x2="15" y2="12"></line></svg>
+                        </div>
+                        <h3>Small Business Owners</h3>
+                        <p>You know your business but may not have a clear picture of your market. Castor surfaces where you sit relative to competitors, what buyers in your category are saying publicly, and where your pricing and positioning have room to improve.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-card-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+                        </div>
+                        <h3>Accelerators and VCs</h3>
+                        <p>Running the same research process across a portfolio manually does not scale. Castor runs the same rigorous analysis on any company in minutes. Buy a pack and use it across your deal flow or portfolio companies without spinning up an analyst for each one.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- WHAT YOU GET -->
+        <section id="what-you-get" style="background-color: rgba(43,60,43,0.02);">
+            <div class="max-w-5xl mx-auto animate-on-scroll">
+                <div class="text-center" style="margin-bottom: 3rem;">
+                    <span class="section-tag">The Report</span>
+                    <h2>What the report covers.</h2>
+                    <p style="max-width: 36rem; margin: 1rem auto 0;">Every Castor report includes the same ten sections, every time. No prompting required, no sections left out because you forgot to ask.</p>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0 3rem;">
+                    <div>
+                        <div class="report-item">
+                            <div class="report-item-dot"></div>
+                            <div><div class="report-item-title">Viability Score</div><div class="report-item-desc">A 1 to 100 score with a confidence rating and plain-English interpretation of what the number means for your specific idea.</div></div>
+                        </div>
+                        <div class="report-item">
+                            <div class="report-item-dot"></div>
+                            <div><div class="report-item-title">Executive Summary</div><div class="report-item-desc">The five findings that most affect your decision to move forward, written to be read in two minutes.</div></div>
+                        </div>
+                        <div class="report-item">
+                            <div class="report-item-dot"></div>
+                            <div><div class="report-item-title">Competitive Landscape</div><div class="report-item-desc">Real direct and adjacent competitors, tagged and mapped. Filtered of irrelevant megabrands so you see the actual competitive field.</div></div>
+                        </div>
+                        <div class="report-item">
+                            <div class="report-item-dot"></div>
+                            <div><div class="report-item-title">Market Sizing</div><div class="report-item-desc">TAM, SAM, and SOM estimates with sourcing and methodology shown so you can evaluate the numbers yourself.</div></div>
+                        </div>
+                        <div class="report-item">
+                            <div class="report-item-dot"></div>
+                            <div><div class="report-item-title">Target Personas</div><div class="report-item-desc">1 to 3 buyer profiles built from real customer reviews across top competitors, with one identified as your best entry point.</div></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="report-item">
+                            <div class="report-item-dot"></div>
+                            <div><div class="report-item-title">Pricing Analysis</div><div class="report-item-desc">Price sensitivity modeling anchored to real competitor pricing data, not estimated ranges.</div></div>
+                        </div>
+                        <div class="report-item">
+                            <div class="report-item-dot"></div>
+                            <div><div class="report-item-title">3-Year Revenue Scenarios</div><div class="report-item-desc">Conservative, base, and aggressive projections with the break-even year identified for each.</div></div>
+                        </div>
+                        <div class="report-item">
+                            <div class="report-item-dot"></div>
+                            <div><div class="report-item-title">4Ps Marketing Plan</div><div class="report-item-desc">Product, price, place, and promotion with specific, actionable signals tied to your category and audience.</div></div>
+                        </div>
+                        <div class="report-item">
+                            <div class="report-item-dot"></div>
+                            <div><div class="report-item-title">Critical Assumptions</div><div class="report-item-desc">The conditions that would have to hold for the viability score to be accurate, and what would invalidate it.</div></div>
+                        </div>
+                        <div class="report-item">
+                            <div class="report-item-dot"></div>
+                            <div><div class="report-item-title">Numbered Citations</div><div class="report-item-desc">Every claim in the report links to a source. Nothing is fabricated to fill a section.</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- HOW IT WORKS -->
+        <section id="how-it-works">
+            <div class="max-w-4xl mx-auto animate-on-scroll">
+                <div class="text-center" style="margin-bottom: 3rem;">
+                    <span class="section-tag">How It Works</span>
+                    <h2>Describe your business. Get your report.</h2>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                    <div class="step-item">
+                        <div class="step-number">1</div>
+                        <div>
+                            <h4>Describe your business</h4>
+                            <p>Start a chat and describe your idea at whatever level you have it. A few sentences is enough to start. If the model needs more to generate an accurate report, it asks specific follow-up questions: what price point were you considering, where do you plan to sell, who is your target customer. You do not need to know the right questions to ask. The system does.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">2</div>
+                        <div>
+                            <h4>The pipeline runs</h4>
+                            <p>Castor pulls from real sources including competitor sites, customer review platforms, pricing pages, search trend data, and social signals. It runs them through a structured 14-step analysis pipeline and synthesizes the output into a single report. The process takes minutes, not days.</p>
+                        </div>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">3</div>
+                        <div>
+                            <h4>Download your report</h4>
+                            <p>Your report is ready in minutes. Download it as a PDF or receive it by email. No account required. Credits are tied to the email you use at purchase, so if you bought a pack, just enter the same email to run your next report.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- WHY CASTOR -->
+        <section id="why-castor" style="background-color: rgba(43,60,43,0.02);">
+            <div class="max-w-6xl mx-auto animate-on-scroll">
+                <div class="text-center" style="margin-bottom: 3rem;">
+                    <span class="section-tag">Why Castor</span>
+                    <h2>What makes it different from just prompting an AI.</h2>
+                </div>
+                <div class="content-grid grid-2x2">
+                    <div class="insight-box">
+                        <div class="insight-header">
+                            <div class="insight-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg></div>
+                            <h3>Consistent, structured output every time</h3>
+                        </div>
+                        <p class="insight-text">When you prompt a general AI model, you get a different answer every time depending on how you ask. The output is reactive and unstructured. Castor runs a fixed pipeline that produces the same report format every time, regardless of how the input is phrased. You know what you're getting before you start.</p>
+                    </div>
+                    <div class="insight-box brown">
+                        <div class="insight-header">
+                            <div class="insight-icon brown"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg></div>
+                            <h3>It helps you articulate what you actually need</h3>
+                        </div>
+                        <p class="insight-text">Most people don't know what questions to ask about their own business. The chat interface is designed to pull the right information from you through targeted follow-up questions. You don't need a research background or prior knowledge of market research frameworks to get a useful output.</p>
+                    </div>
+                    <div class="insight-box">
+                        <div class="insight-header">
+                            <div class="insight-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></div>
+                            <h3>Every claim has a source</h3>
+                        </div>
+                        <p class="insight-text">Competitor prices come from real pricing pages. Personas are built from scraped customer reviews. Market sizing uses stated methodology and data quality indicators. Every section in the report cites where its data came from so you can verify it yourself.</p>
+                    </div>
+                    <div class="insight-box brown">
+                        <div class="insight-header">
+                            <div class="insight-icon brown"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="23" y1="21" x2="23" y2="19"></line><line x1="19" y1="21" x2="19" y2="19"></line><path d="M21 11v-1a4 4 0 0 0-4-4 4 4 0 0 0-1.3.22"></path></svg></div>
+                            <h3>Built for operators without research infrastructure</h3>
+                        </div>
+                        <p class="insight-text">Large companies have research teams or budget to hire firms that charge thousands per engagement. Castor is priced and designed for the founder, the small business owner, and the lean investment firm that needs the same quality output without the overhead or the wait.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- WHITESPACE MAP + DIFFERENTIATORS -->
+        <section id="competitors">
+            <div class="max-w-6xl mx-auto animate-on-scroll">
+                <div class="text-center" style="margin-bottom: 3rem;">
+                    <span class="section-tag">Where We Sit</span>
+                    <h2>The market research landscape.</h2>
+                    <p style="max-width: 36rem; margin: 1rem auto 0;">Most tools serve researchers who already know what they need. We serve everyone else.</p>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; align-items: stretch;">
+                    <!-- Whitespace map -->
+                    <div style="border-radius: 1rem; overflow: hidden; border: 1px solid rgba(43,60,43,0.12); background: white; padding: 1.5rem; display: flex; align-items: center;">
+                        <svg viewBox="0 0 400 325" width="100%" style="display: block;">
+                            <!-- Background -->
+                            <rect width="400" height="360" fill="white"/>
+
+
+                            <!-- Axis lines -->
+                            <line x1="205" y1="15" x2="205" y2="305" stroke="#2B3C2B" stroke-width="1.5"/>
+                            <line x1="25" y1="185" x2="385" y2="185" stroke="#2B3C2B" stroke-width="1.5"/>
+
+                            <!-- Axis labels -->
+                            <text x="30" y="182" font-family="Inter,sans-serif" font-size="9" font-weight="600" fill="#2B3C2B" text-anchor="start">For experts</text>
+                            <text x="380" y="182" font-family="Inter,sans-serif" font-size="9" font-weight="600" fill="#2B3C2B" text-anchor="end">For anyone</text>
+                            <text x="208" y="22" font-family="Inter,sans-serif" font-size="9" font-weight="600" fill="#2B3C2B">Comprehensive</text>
+                            <text x="208" y="312" font-family="Inter,sans-serif" font-size="9" font-weight="600" fill="#2B3C2B">Shallow</text>
+
+                            <!-- Competitors — gray dots -->
+                            <!-- Traditional Firms: far left, very high -->
+                            <circle cx="55" cy="45" r="5" fill="#c8cfc8"/>
+                            <text x="65" y="42" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">Research Firms</text>
+
+                            <!-- Quantilope: left, high -->
+                            <circle cx="70" cy="85" r="5" fill="#c8cfc8"/>
+                            <text x="80" y="89" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">Quantilope</text>
+
+                            <!-- Manus: left-center, mid-high -->
+                            <circle cx="95" cy="120" r="5" fill="#c8cfc8"/>
+                            <text x="105" y="124" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">Manus</text>
+
+                            <!-- DimeADozen: left-center, high -->
+                            <circle cx="130" cy="70" r="5" fill="#c8cfc8"/>
+                            <text x="140" y="74" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">DimeADozen</text>
+
+                            <!-- ChatGPT/Claude: left, mid -->
+                            <circle cx="80" cy="160" r="5" fill="#c8cfc8"/>
+                            <text x="90" y="164" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">ChatGPT / Claude</text>
+
+                            <!-- Aomni: far left, mid -->
+                            <circle cx="50" cy="140" r="5" fill="#c8cfc8"/>
+                            <text x="60" y="144" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">Aomni</text>
+
+                            <!-- Preuve AI: right, mid-high -->
+                            <circle cx="295" cy="105" r="5" fill="#c8cfc8"/>
+                            <text x="305" y="109" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">Preuve AI</text>
+
+                            <!-- IdeaProof: right, mid -->
+                            <circle cx="310" cy="155" r="5" fill="#c8cfc8"/>
+                            <text x="320" y="159" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">IdeaProof</text>
+
+                            <!-- FounderPal: far right, mid-low -->
+                            <circle cx="345" cy="215" r="5" fill="#c8cfc8"/>
+                            <text x="310" y="230" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">FounderPal</text>
+
+                            <!-- ValidatorAI: far right, low -->
+                            <circle cx="355" cy="250" r="5" fill="#c8cfc8"/>
+                            <text x="315" y="265" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">ValidatorAI</text>
+
+                            <!-- SparkRockets: right, low -->
+                            <circle cx="290" cy="265" r="5" fill="#c8cfc8"/>
+                            <text x="230" y="279" font-family="Inter,sans-serif" font-size="9" fill="#8A9A8A">SparkRockets</text>
+
+                            <!-- Castor — highlighted star -->
+                            <circle cx="270" cy="58" r="14" fill="rgba(176,120,64,0.15)" stroke="#B07840" stroke-width="1.5"/>
+                            <circle cx="270" cy="58" r="7" fill="#B07840"/>
+                            <text x="270" y="40" font-family="Inter,sans-serif" font-size="10" font-weight="700" fill="#2B3C2B" text-anchor="middle">Castor</text>
+
+                        </svg>
+                    </div>
+
+                    <!-- Differentiators banner -->
+                    <div style="background-color: #2B3C2B; border-radius: 1rem; padding: 2rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                        <div>
+                            <span style="font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(176,120,64,0.8);">Why Castor</span>
+                            <h3 style="color: white; font-size: 1.25rem; font-weight: 900; margin-top: 0.5rem; line-height: 1.3;">Comprehensive output. Built for people who aren't researchers.</h3>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 0.875rem;">
+                            <div style="display: flex; gap: 0.875rem; align-items: flex-start;">
+                                <div style="width: 1.5rem; height: 1.5rem; border-radius: 50%; background: rgba(176,120,64,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.1rem;">
+                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#B07840" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                </div>
+                                <div>
+                                    <div style="color: white; font-weight: 700; font-size: 0.875rem;">Guided intake</div>
+                                    <div style="color: rgba(255,255,255,0.5); font-size: 0.8125rem; margin-top: 0.125rem;">You don't need to know what to ask. The chat interface asks for you.</div>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.875rem; align-items: flex-start;">
+                                <div style="width: 1.5rem; height: 1.5rem; border-radius: 50%; background: rgba(176,120,64,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.1rem;">
+                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#B07840" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                </div>
+                                <div>
+                                    <div style="color: white; font-weight: 700; font-size: 0.875rem;">10 sections, every time</div>
+                                    <div style="color: rgba(255,255,255,0.5); font-size: 0.8125rem; margin-top: 0.125rem;">Same structure every run. Compare ideas on identical dimensions.</div>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.875rem; align-items: flex-start;">
+                                <div style="width: 1.5rem; height: 1.5rem; border-radius: 50%; background: rgba(176,120,64,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.1rem;">
+                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#B07840" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                </div>
+                                <div>
+                                    <div style="color: white; font-weight: 700; font-size: 0.875rem;">Buyer personas and 4Ps included</div>
+                                    <div style="color: rgba(255,255,255,0.5); font-size: 0.8125rem; margin-top: 0.125rem;">No other tool at this price gives you both. Built for people who need to know what to do next.</div>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.875rem; align-items: flex-start;">
+                                <div style="width: 1.5rem; height: 1.5rem; border-radius: 50%; background: rgba(176,120,64,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.1rem;">
+                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#B07840" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                </div>
+                                <div>
+                                    <div style="color: white; font-weight: 700; font-size: 0.875rem;">Every claim cited</div>
+                                    <div style="color: rgba(255,255,255,0.5); font-size: 0.8125rem; margin-top: 0.125rem;">Real competitor data, real pricing pages, real reviews. Nothing fabricated.</div>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.875rem; align-items: flex-start;">
+                                <div style="width: 1.5rem; height: 1.5rem; border-radius: 50%; background: rgba(176,120,64,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.1rem;">
+                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#B07840" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                </div>
+                                <div>
+                                    <div style="color: white; font-weight: 700; font-size: 0.875rem;">$29 flat, no credit uncertainty</div>
+                                    <div style="color: rgba(255,255,255,0.5); font-size: 0.8125rem; margin-top: 0.125rem;">You know what you're paying before you start. No surprise bills.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SIDE-BY-SIDE COMPARISON -->
+        <section id="comparison" style="background-color: rgba(43,60,43,0.02);">
+            <div class="max-w-6xl mx-auto animate-on-scroll">
+                <div class="text-center" style="margin-bottom: 3rem;">
+                    <span class="section-tag">See the Difference</span>
+                    <h2>Castor vs. the alternatives.</h2>
+                    <p style="max-width: 36rem; margin: 1rem auto 0;">How Castor stacks up against the four closest tools on the dimensions that actually matter.</p>
+                </div>
+                <div class="comparison-wrap">
+                    <table class="comparison-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 18%; color: #8A9A8A; font-weight: 600; font-size: 0.8125rem;"></th>
+                                <th class="castor-col" style="text-align: center;">
+                                    <div style="display: flex; align-items: center; gap: 0.5rem; justify-content: center; margin-bottom: 0.25rem;">
+                                        <svg viewBox="0 0 100 100" width="16" height="16"><g transform="translate(10,8)"><ellipse cx="40" cy="38" rx="38" ry="35" fill="#B07840"/><ellipse cx="40" cy="46" rx="28" ry="24" fill="#D4A870"/><circle cx="28" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="52" cy="30" r="5.5" fill="#2B3C2B"/></g></svg>
+                                        Castor Research
+                                    </div>
+                                    <div style="font-size: 0.75rem; font-weight: 500; color: #B07840;">$29 beta</div>
+                                </th>
+                                <th class="other-col" style="text-align: center;">
+                                    <div style="margin-bottom: 0.25rem;">Preuve AI</div>
+                                    <div style="font-size: 0.75rem; font-weight: 500;">$29</div>
+                                </th>
+                                <th class="other-col" style="text-align: center;">
+                                    <div style="margin-bottom: 0.25rem;">DimeADozen</div>
+                                    <div style="font-size: 0.75rem; font-weight: 500;">$9 – $129</div>
+                                </th>
+                                <th class="other-col" style="text-align: center;">
+                                    <div style="margin-bottom: 0.25rem;">IdeaProof</div>
+                                    <div style="font-size: 0.75rem; font-weight: 500;">€19 – €99</div>
+                                </th>
+                                <th class="other-col" style="text-align: center;">
+                                    <div style="margin-bottom: 0.25rem;">Manus</div>
+                                    <div style="font-size: 0.75rem; font-weight: 500;">$20+/mo</div>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="row-label">Time to deliver</td>
+                                <td class="castor-col" style="text-align: center;">Minutes</td>
+                                <td class="other-col" style="text-align: center;">Minutes</td>
+                                <td class="other-col" style="text-align: center;">Minutes</td>
+                                <td class="other-col" style="text-align: center;">~90 seconds</td>
+                                <td class="other-col" style="text-align: center;">Minutes – hours</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">Price per report</td>
+                                <td class="castor-col" style="text-align: center;">$29 flat</td>
+                                <td class="other-col" style="text-align: center;">$29 flat</td>
+                                <td class="other-col" style="text-align: center;">$9 or $129</td>
+                                <td class="other-col" style="text-align: center;">€6 – €19</td>
+                                <td class="other-col" style="text-align: center;">Unpredictable (credit-based)</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">Built for non-experts</td>
+                                <td class="castor-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                                <td class="other-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Partial</td>
+                                <td class="other-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">Guided chat intake</td>
+                                <td class="castor-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">Consistent structure</td>
+                                <td class="castor-col" style="text-align: center;">10 sections, every time</td>
+                                <td class="other-col" style="text-align: center;">13 sections</td>
+                                <td class="other-col" style="text-align: center;">4 sections ($9) / 150+ pages ($129)</td>
+                                <td class="other-col" style="text-align: center;">6 sections</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B;">Varies by task</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">Real data sourcing</td>
+                                <td class="castor-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes — live scraping</td>
+                                <td class="other-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes — 60+ sources</td>
+                                <td class="other-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes — 1,200+ URLs</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Unverified</td>
+                                <td class="other-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">Buyer personas</td>
+                                <td class="castor-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Sometimes</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">4Ps marketing plan</td>
+                                <td class="castor-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Sometimes</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">3-year revenue model</td>
+                                <td class="castor-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes</td>
+                                <td class="other-col" style="text-align: center; color: #C0392B; font-weight: 700;">No</td>
+                                <td class="other-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes ($129 tier)</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Basic</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Sometimes</td>
+                            </tr>
+                            <tr>
+                                <td class="row-label">Scales for portfolio use</td>
+                                <td class="castor-col" style="text-align: center; color: #4A7A4A; font-weight: 700;">Yes — same output every run</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Possible</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Possible</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Possible</td>
+                                <td class="other-col" style="text-align: center; color: #8A9A8A;">Yes but inconsistent</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- SAMPLE REPORT -->
+        <section id="sample-report">
+            <div class="max-w-3xl mx-auto animate-on-scroll">
+                <div class="cta-box">
+                    <span class="section-tag">Sample Report</span>
+                    <h2>See a full report before you buy.</h2>
+                    <p style="color: #5A6E5A;">We ran Castor on a real DTC product idea. The full output is available to review before you commit to a purchase.</p>
+                    <a href="/sample" class="cta-button primary" style="margin: 0 auto;">View sample report <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></a>
+                    <p style="color: #5A6E5A; font-size: 0.875rem; margin-top: 1rem;">Or read the <a href="/library" style="color: #2B3C2B; font-weight: 600;">library</a>: reports published by the founders who commissioned them.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- PRICING -->
+        <section id="pricing" style="background-color: rgba(43,60,43,0.02);">
+            <div class="max-w-5xl mx-auto animate-on-scroll">
+                <div class="text-center" style="margin-bottom: 1.5rem;">
+                    <span class="section-tag">Pricing</span>
+                    <h2>Beta pricing.</h2>
+                    <p style="max-width: 36rem; margin: 1rem auto 0;">We are in active development. Prices are discounted while we build. They will return to standard rates as the product matures. Credits are tied to the email you use at purchase and do not expire.</p>
+                </div>
+                <div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-top: 2.5rem;">
+                    <div class="pricing-card">
+                        <div class="price-label">Single Report</div>
+                        <div class="price-regular">Regular price: $75</div>
+                        <span class="beta-badge">Beta — save 61%</span>
+                        <div class="price">$29</div>
+                        <p class="pricing-desc">One report. PDF download and email delivery included. Good for a one-time validation or competitive check.</p>
+                        <a href="/start" class="pricing-btn">Get started</a>
+                    </div>
+                    <div class="pricing-card featured">
+                        <div class="price-label">5-Pack</div>
+                        <div class="price-regular">Regular price: $375 ($75/report)</div>
+                        <span class="beta-badge">Beta — save 74%</span>
+                        <div class="price">$99</div>
+                        <div class="per-report">about $20 per report</div>
+                        <p class="pricing-desc">For founders running multiple ideas or businesses doing periodic research. Credits do not expire.</p>
+                        <a href="/start" class="pricing-btn">Get started</a>
+                    </div>
+                    <div class="pricing-card">
+                        <div class="price-label">10-Pack</div>
+                        <div class="price-regular">Regular price: $750 ($75/report)</div>
+                        <span class="beta-badge">Beta — save 77%</span>
+                        <div class="price">$175</div>
+                        <div class="per-report">about $17.50 per report</div>
+                        <p class="pricing-desc">For accelerators and VCs running research across a portfolio. Same rigorous output on every company.</p>
+                        <a href="/start" class="pricing-btn">Get started</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CONSULTING -->
+        <section id="consulting">
+            <div class="max-w-4xl mx-auto animate-on-scroll">
+                <div class="consulting-card">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2.5rem; align-items: center;">
+                        <div>
+                            <span class="section-tag">Want More?</span>
+                            <h2 style="margin-top: 1rem; margin-bottom: 1rem;">Talk to an expert, not just a tool.</h2>
+                            <p style="color: #5A6E5A; margin-bottom: 1rem;">Your report gives you the data. A conversation helps you figure out what to do with it.</p>
+                            <p style="color: #5A6E5A; margin-bottom: 1.5rem;">The founder of Castor Research is a PhD candidate in marketing. Book a one-hour session to walk through your report, pressure-test your positioning, dig into a specific section, or think through your go-to-market strategy with someone who has the research background to back it up.</p>
+                            <button class="cta-button primary" onclick="openContactModal()">Book a session <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 1rem;">
+                            <div class="check-item">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                <span>1-hour 1-on-1 session via video call</span>
+                            </div>
+                            <div class="check-item">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                <span>Walk through your report findings together</span>
+                            </div>
+                            <div class="check-item">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                <span>Positioning, go-to-market, pricing strategy, or competitive analysis</span>
+                            </div>
+                            <div class="check-item">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                <span>PhD-level marketing research expertise applied to your specific business</span>
+                            </div>
+                            <div style="margin-top: 0.5rem; padding: 1rem 1.25rem; border-radius: 0.75rem; background-color: rgba(176,120,64,0.08); border: 1px solid rgba(176,120,64,0.15);">
+                                <div style="font-size: 0.75rem; font-weight: 600; color: #B07840; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.25rem;">Session rate</div>
+                                <div style="font-size: 1.5rem; font-weight: 900; color: #2B3C2B;">$150 <span style="font-size: 0.875rem; font-weight: 500; color: #5A6E5A;">/ hour</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CORPORATE -->
+        <section id="corporate" style="background-color: rgba(43,60,43,0.02);">
+            <div class="max-w-4xl mx-auto animate-on-scroll">
+                <div class="content-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2rem; align-items: center;">
+                    <div>
+                        <span class="section-tag">Corporate and Partnerships</span>
+                        <h2 style="margin-top: 1rem; margin-bottom: 1rem;">Higher volume, custom integrations, or white-labeled reports?</h2>
+                        <p style="color: #5A6E5A; margin-bottom: 1.5rem;">If you are running Castor at significant volume, need reports branded for your firm, or want to explore a custom integration, reach out directly. We work with investment firms, accelerators, and enterprise teams on bespoke arrangements.</p>
+                        <button class="cta-button primary" onclick="openContactModal()">Get in touch <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 1rem;">
+                        <div class="check-item">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                            <span>High-volume report packages at custom pricing</span>
+                        </div>
+                        <div class="check-item">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                            <span>White-labeled reports for investment firms and accelerators</span>
+                        </div>
+                        <div class="check-item">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                            <span>API access for teams integrating research into existing workflows</span>
+                        </div>
+                        <div class="check-item">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                            <span>Custom report sections or vertical-specific configurations</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer>
+        <div class="max-w-6xl mx-auto">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2.5rem; margin-bottom: 3rem;">
+                <div>
+                    <div style="display: flex; align-items: center; gap: 0.625rem; margin-bottom: 1rem;">
+                        <svg viewBox="0 0 100 100" width="28" height="28"><g transform="translate(10,8)"><ellipse cx="40" cy="38" rx="38" ry="35" fill="#B07840"/><ellipse cx="40" cy="46" rx="28" ry="24" fill="#D4A870"/><circle cx="28" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="52" cy="30" r="5.5" fill="#2B3C2B"/></g></svg>
+                        <span style="color: white; font-weight: 900; font-size: 1rem; letter-spacing: -0.015em;">CASTOR RESEARCH</span>
+                    </div>
+                    <p style="color: rgba(255,255,255,0.4); font-size: 0.875rem; line-height: 1.625;">Automated market research for founders, small businesses, and investment teams.</p>
+                </div>
+                <div>
+                    <h4>Product</h4>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <a href="#how-it-works">How It Works</a>
+                        <a href="#what-you-get">What You Get</a>
+                        <a href="#sample-report">Sample Report</a>
+                        <a href="#pricing">Pricing</a>
+                    </div>
+                </div>
+                <div>
+                    <h4>Company</h4>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <a href="#corporate">Corporate and Partnerships</a>
+                        <button onclick="openContactModal()">Contact Us</button>
+                    </div>
+                </div>
+            </div>
+            <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 2rem; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem;">
+                <p style="color: rgba(255,255,255,0.3); font-size: 0.8125rem;">2026 Castor Research. All rights reserved.</p>
+                <p style="color: rgba(255,255,255,0.3); font-size: 0.8125rem;">Beta pricing active. Prices subject to change.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Contact Modal -->
+    <div id="modalOverlay" class="modal-overlay" onclick="closeModalOnBackdrop(event)" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal">
+            <button class="modal-close" onclick="closeModal()" aria-label="Close">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+            <div id="modalFormContent">
+                <h2 id="modalTitle">Get in touch</h2>
+                <p>Tell us about your use case and we will follow up within one business day.</p>
+                <form id="contactForm" onsubmit="handleFormSubmit(event)">
+                    <div class="form-group">
+                        <label for="form-name">Name *</label>
+                        <input type="text" id="form-name" name="name" placeholder="Your name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="form-email">Email *</label>
+                        <input type="email" id="form-email" name="email" placeholder="you@company.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="form-org">Organization</label>
+                        <input type="text" id="form-org" name="organization" placeholder="Firm or company name">
+                    </div>
+                    <div class="form-group">
+                        <label for="form-message">What are you looking for? *</label>
+                        <textarea id="form-message" name="message" placeholder="High-volume reports, white-labeling, API access, other..." required></textarea>
+                    </div>
+                    <button type="submit" class="form-submit">Send message</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var EMAIL = 'education.castor.llc@gmail.com';
+        var mobileMenuOpen = false;
+
+        function toggleMobileMenu() {
+            var menu = document.getElementById('mobileMenu');
+            mobileMenuOpen = !mobileMenuOpen;
+            menu.classList.toggle('active');
+            var icon = document.getElementById('hamburgerIcon');
+            icon.innerHTML = mobileMenuOpen
+                ? '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>'
+                : '<line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line>';
+        }
+
+        function closeMobileMenu() {
+            if (!mobileMenuOpen) return;
+            toggleMobileMenu();
+        }
+
+        window.addEventListener('scroll', function () {
+            var navbar = document.getElementById('navbar');
+            if (window.scrollY > 20) navbar.classList.add('scrolled');
+            else navbar.classList.remove('scrolled');
+        });
+
+        function revealVisibleSections() {
+            var sections = document.querySelectorAll('.animate-on-scroll:not(.visible)');
+            var vh = window.innerHeight;
+            sections.forEach(function (section) {
+                if (section.getBoundingClientRect().top < vh * 0.92) section.classList.add('visible');
+            });
+        }
+        window.addEventListener('scroll', revealVisibleSections, { passive: true });
+        revealVisibleSections();
+
+        function openContactModal() {
+            document.getElementById('modalOverlay').classList.add('active');
+            document.body.style.overflow = 'hidden';
+            setTimeout(function () {
+                var fi = document.querySelector('#modalFormContent input');
+                if (fi) fi.focus();
+            }, 300);
+        }
+
+        function closeModal() {
+            document.getElementById('modalOverlay').classList.remove('active');
+            document.body.style.overflow = '';
+        }
+
+        function closeModalOnBackdrop(e) {
+            if (e.target === e.currentTarget) closeModal();
+        }
+
+        document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
+
+        function handleFormSubmit(e) {
+            e.preventDefault();
+            var form = e.target;
+            var btn = form.querySelector('.form-submit');
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
+            var data = new FormData(form);
+            var bodyLines = [];
+            for (var pair of data.entries()) { bodyLines.push(pair[0] + ': ' + pair[1]); }
+            var body = bodyLines.join('\n');
+            setTimeout(function () {
+                document.getElementById('modalFormContent').innerHTML = '<div class="form-success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><h3>Message received.</h3><p>We will follow up at the email you provided within one business day.</p></div>';
+                window.location.href = 'mailto:' + EMAIL + '?subject=' + encodeURIComponent('Corporate Inquiry - Castor Research') + '&body=' + encodeURIComponent(body);
+                setTimeout(closeModal, 3000);
+            }, 600);
+        }
+    </script>
+</body>
+</html>

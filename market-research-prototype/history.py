@@ -14,6 +14,8 @@ Deltas computed:
   - Recommended next steps (changed?)
 """
 from __future__ import annotations
+
+import os
 import hashlib
 import re
 import json
@@ -25,7 +27,21 @@ from logger import get
 
 log = get("history")
 
-DB = Path(__file__).parent / ".jobs.sqlite"
+DB = Path(__file__).parent / ".jobs.sqlite"  # back-compat default; use _db_path()
+
+def _db_path() -> Path:
+    """Resolved PER CALL, like jobs._db_path, and that is the whole point.
+
+    This module used to bind `DB = Path(__file__).parent / ".jobs.sqlite"` at IMPORT time.
+    Every other consumer of that database reads JOBS_DB_PATH per connection, so in the
+    container — where the Dockerfile sets JOBS_DB_PATH=/data/jobs.sqlite onto the mounted
+    volume — this one module opened /app/.jobs.sqlite instead: a different file, on the
+    image layer, discarded on every deploy. Binding at import also meant a test that set
+    the env var after import could not redirect it, which is the reverse of the isolation
+    conftest believes it has.
+    """
+    return Path(os.environ.get("JOBS_DB_PATH")
+                or (Path(__file__).parent / ".jobs.sqlite"))
 _lock = threading.Lock()
 
 
@@ -35,16 +51,43 @@ def hash_description(description: str) -> str:
     return hashlib.sha256(normalized.encode()).hexdigest()[:16]
 
 
-def find_previous_plan(description: str, exclude_job_id: str = "") -> str | None:
-    """Return the most recent completed plan job_id matching this description, or None."""
+def find_previous_plan(description: str, exclude_job_id: str = "",
+                      owner_id: str | None = None) -> str | None:
+    """The caller's most recent completed plan with this same description, or None.
+
+    OWNER_ID IS NOT OPTIONAL IN PRACTICE, and passing None means "search nobody" rather
+    than "search everybody". This function matched on the description hash alone across
+    the whole jobs table, and its answer becomes previous_job_id in post_plan, which is
+    handed to iteration.carry_forward — and carry_forward copies the reader's MARKS AND
+    QUESTIONS onto the new report. Those are up to 1000 characters of free text each, and
+    they are where a founder types the number they did not want published.
+
+    So two people describing a venture in the same words shared private notes, one
+    direction, silently. The client-supplied previous_job_id beside it was already scoped
+    against exactly this; the implicit lookup was not. The shared library, where real
+    descriptions are now readable, turns "the same words" from a coincidence into
+    something anyone can arrange.
+
+    None means unscoped, and unscoped now returns nothing at all: a caller who cannot say
+    whose history to search must not be handed somebody's.
+    """
+    if not owner_id:
+        return None
     h = hash_description(description)
     with _lock:
-        conn = sqlite3.connect(DB, timeout=10)
+        # jobs._conn(), not a bare connect: it ensures the schema. This module reads the
+        # `jobs` table without ever creating it, which was invisible while the path was
+        # hardcoded to a database that always existed. Resolving JOBS_DB_PATH properly
+        # meant it could now be pointed at a fresh file, and the first lookup raised
+        # "no such table: jobs" instead of answering "no previous plan".
+        import jobs as _jobs
+        conn = _jobs._conn()
         # We store description in params_json — query that
         rows = conn.execute(
             "SELECT id, params_json, created_at FROM jobs "
-            "WHERE kind = 'plan' AND state = 'complete' "
-            "ORDER BY created_at DESC LIMIT 50"
+            "WHERE kind = 'plan' AND state = 'complete' AND owner_id = ? "
+            "ORDER BY created_at DESC LIMIT 50",
+            (owner_id,)
         ).fetchall()
         conn.close()
     for jid, params_json, _ts in rows:

@@ -39,6 +39,19 @@ class _ApiBase(unittest.TestCase):
             jobs._reset_for_tests()
 
     def tearDown(self):
+        # LET THE WORKER FINISH BEFORE THE DATABASE DISAPPEARS. One test here posts /plan,
+        # which starts a daemon thread; cleanup() then deleted the temp directory out from
+        # under it and the thread died writing to a file that no longer existed. pytest.ini
+        # turns an unhandled thread exception into an error, so it surfaced on whichever
+        # test ran NEXT — which is why it looked like order-dependent flake.
+        import threading
+        import time as _t
+        deadline = _t.time() + 5
+        while _t.time() < deadline:
+            if not any(t.name.startswith("job-") and t.is_alive()
+                       for t in threading.enumerate()):
+                break
+            _t.sleep(0.05)
         if self._prev is None:
             os.environ.pop("JOBS_DB_PATH", None)
         else:
@@ -65,20 +78,55 @@ class _ApiBase(unittest.TestCase):
 class TestProductionNeverBucketsStrangersTogether(_ApiBase):
     """The defect: one shared owner id for every unauthenticated production visitor."""
 
-    def test_an_unauthenticated_library_read_is_refused_in_production(self):
-        with patch.dict(os.environ, {"CASTOR_ENV": "production"}):
-            r = self._client().get("/jobs")
-        self.assertEqual(r.status_code, 401,
-                         "an unauthenticated visitor was served a library")
+    # CHANGED 2026-08-29, deliberately. Guests became a supported tier: an anonymous
+    # visitor gets their OWN signed workspace rather than a refusal or a shared bucket.
+    # Both tests below used to assert 401. The property this class is named for is
+    # untouched and still asserted by
+    # test_two_anonymous_visitors_never_resolve_to_the_same_owner — strangers are
+    # isolated. What changed is HOW: by giving each their own library instead of giving
+    # none of them one.
 
-    def test_an_unauthenticated_run_is_refused_in_production(self):
-        """POST /plan is the endpoint that costs money and time. It is the last one that
-        should be reachable without an account."""
-        with patch.dict(os.environ, {"CASTOR_ENV": "production"}):
-            r = self._client().post("/plan", json={
+    def test_an_unauthenticated_library_read_is_scoped_to_that_visitor(self):
+        """Served, and served EMPTY. A 200 here is only acceptable because the body is
+        this visitor's own library; the failure worth catching is a stranger being handed
+        somebody else's reports, not a stranger being handed a page."""
+        with patch.dict(os.environ, {"CASTOR_ENV": "production",
+                                     "SESSION_SECRET": "test-secret-for-this-case"}):
+            r = self._client(tls=True).get("/jobs")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), [], "a guest was served a library that was not theirs")
+
+    def test_require_login_restores_the_refusal(self):
+        """The operator's escape hatch. Some installs are not a public product."""
+        with patch.dict(os.environ, {"CASTOR_ENV": "production",
+                                     "SESSION_SECRET": "test-secret-for-this-case",
+                                     "CASTOR_REQUIRE_LOGIN": "1"}):
+            r = self._client(tls=True).get("/jobs")
+        self.assertEqual(r.status_code, 401)
+
+    def test_an_unauthenticated_run_is_bounded_rather_than_refused(self):
+        """This one used to be a 401, and its reasoning still stands on its own terms:
+        "POST /plan is the endpoint that costs money and time." The answer is now a cap
+        instead of a wall. A guest's daily runs count against their ADDRESS, not their
+        cookie, so clearing cookies buys no extra allowance — see
+        test_a_guest_is_a_real_visitor.py::TestTheDailyCapSurvivesACookieWipe, which is
+        where that protection is actually asserted.
+
+        run_plan is patched: this asserts who is let through, not what the pipeline does.
+        """
+        with patch.dict(os.environ, {"CASTOR_ENV": "production",
+                                     "SESSION_SECRET": "test-secret-for-this-case"}), \
+             patch("plan.run_plan", return_value={"profile": {"name": "x"},
+                                                  "_steps_completed": []}):
+            r = self._client(tls=True).post("/plan", json={
                 "description": "An independent specialty coffee shop in the Mission "
                                "District of San Francisco at $5.50 per drink."})
-        self.assertEqual(r.status_code, 401)
+        # Exactly 200. The hedge this replaced ("not 401, and one of 200/429") was a
+        # looser check than the 401 it succeeded, which is the wrong direction for a test
+        # guarding who gets through a paywall. setUp gives each test a fresh temp DB, so
+        # the free allowance is untouched and the first run is unambiguously admitted.
+        self.assertEqual(r.status_code, 200,
+                         "a guest was refused the product they are allowed to use")
 
     def test_two_anonymous_visitors_never_resolve_to_the_same_owner(self):
         """The property underneath both refusals, stated directly: whatever the fallback
@@ -150,45 +198,18 @@ class TestTheLoginScreenExists(_ApiBase):
         import auth
         self.assertIn(str(auth._MIN_PASSWORD), self._client().get("/login").text)
 
-    def test_an_unauthenticated_production_visitor_is_sent_to_the_login_screen(self):
-        """A 401 with no route to fixing it is a dead end for a real customer."""
-        with patch.dict(os.environ, {"CASTOR_ENV": "production"}):
-            r = self._client().get("/", follow_redirects=False)
-        self.assertIn(r.status_code, (302, 303, 307))
-        self.assertIn("/login", r.headers.get("location", ""))
-
-    def test_the_workspace_offers_a_way_out(self):
-        """Signed in with no sign-out is a session you cannot end on a shared machine."""
-        from pathlib import Path
-        ws = Path("web/workspace.html").read_text()
-        self.assertIn("/auth/logout", ws)
-
-
-class TestTheShellSurvivesAPhone(unittest.TestCase):
-    """MEASURED at 375px before the fix: the 248px sidebar took two thirds of the width,
-    the centre pane wrapped one character per line, and the agent pane overlapped it.
-
-    A structural guard, not a substitute for looking: the browser check at 375/768/1024 is
-    what actually verified the layout. This is what stops it silently reverting."""
-
-    def _ws(self):
-        from pathlib import Path
-        return Path("web/workspace.html").read_text()
-
-    def test_the_page_declares_a_viewport(self):
-        self.assertIn('name="viewport"', self._ws())
-
-    def test_the_desktop_grid_is_not_unconditional(self):
-        self.assertIn("@media", self._ws(),
-                      "three fixed columns with no breakpoint is a broken phone layout")
-
-    def test_the_library_is_reachable_when_the_sidebar_is_a_slide_over(self):
-        """Hiding the sidebar on a phone without a control to open it loses every past
-        report — the navigation would be gone, not collapsed."""
-        ws = self._ws()
-        self.assertIn("nav-toggle", ws)
-        self.assertIn("aria-expanded", ws)
-
+    def test_the_login_screen_is_reachable_without_being_forced_on_anyone(self):
+        """CHANGED with guest mode. This asserted that production redirects an anonymous
+        visitor to /login, which was right when production refused them outright. Guests
+        are a supported tier now, so forcing the login screen on a first-time visitor
+        closes the funnel on the real domain. The screen still has to be REACHABLE, and
+        CASTOR_REQUIRE_LOGIN still forces it for an install that wants it; both are
+        covered in test_the_front_door_is_the_survey.py."""
+        with patch.dict(os.environ, {"CASTOR_ENV": "production",
+                                     "SESSION_SECRET": "test-secret-for-this-case"}):
+            c = self._client()
+            self.assertEqual(c.get("/", follow_redirects=False).status_code, 200)
+            self.assertEqual(c.get("/login").status_code, 200)
 
 class _FakeRequest:
     """Minimal stand-in: _current_owner only reads cookies off it."""

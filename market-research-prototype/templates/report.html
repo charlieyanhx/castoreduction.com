@@ -2305,7 +2305,60 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 {# Asking "was this useful?" while the reader is still marking the report up competes with
    the refine actions for the same decision, so refine mode hides this until the report has
    settled (finalized, or superseded by its revision). It is rendered either way, because
-   which state the report is in is known on the client, not here. #}
+   which state the report is in is known on the client, not here.
+
+   THE GATE IS KEPT AND THE TRANSITION IS NOW REACHABLE. Measured: a first report is
+   "draft", the only settling move on the page was the six-minute regeneration, and the
+   Finalize control the foot copy promised did not exist, so this survey never appeared on
+   a first report in its life. The fix is the missing button, not an ungated survey: see
+   #rfFinal below. #}
+{# ANNOTATE=0 IS A STRANGER READING A PUBLISHED COPY. The share offer is for the
+   report's OWNER, so it must not even be in the markup of a library page: hidden
+   or not, a stranger should not be shipped a card offering them $10 for someone
+   else's work. Same gate the refine controls use, for the same reason. #}
+{% if annotate %}
+<!-- THE SHARE OFFER. It sits above the feedback block and below the report itself,
+     because it is the first thing worth doing with a finished report and the last thing
+     worth doing before leaving the page. Hidden until the report has settled — the same
+     `done` flag the feedback survey waits on — so it never appears beside a revision that
+     is still running. -->
+<div id="shareBlock" class="no-print" hidden style="margin-top:40px;padding:22px;background:#fff;border-radius:10px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,.05)">
+  <div style="font-size:9pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#2B3C2B;margin-bottom:7px">Earn $10</div>
+  <h3 style="margin:0 0 8px;font-size:13pt;color:#111827">Put this report in our library</h3>
+  <p id="shareCopy" style="font-size:10pt;color:#4b5563;margin:0 0 14px;line-height:1.6;max-width:62ch">
+    Founders deciding whether this is worth buying want to read real work. Publish yours
+    and we will send you a <b>$10 code</b> off your next report. Your survey answers, your
+    private notes and your marks are never published. Only the report itself, under
+    a name you choose. You can take it down whenever you like.
+  </p>
+  <div id="shareForm">
+    <label style="display:block;font-size:9.5pt;color:#6b7280;margin-bottom:4px">Call it something a stranger would recognise</label>
+    <input id="shareTitle" type="text" maxlength="120" placeholder="e.g. Specialty coffee shop, Portland OR"
+           style="width:100%;max-width:460px;padding:9px 11px;border:1px solid #d1d5db;border-radius:6px;font-size:10pt;font-family:inherit">
+    <div id="shareEmailRow" hidden style="margin-top:10px">
+      <label style="display:block;font-size:9.5pt;color:#6b7280;margin-bottom:4px">Where should we send the code?</label>
+      <input id="shareEmail" type="email" maxlength="254" placeholder="you@example.com"
+             style="width:100%;max-width:460px;padding:9px 11px;border:1px solid #d1d5db;border-radius:6px;font-size:10pt;font-family:inherit">
+      <p style="font-size:9pt;color:#9ca3af;margin:6px 0 0">Or <a id="shareRegister" style="color:#2B3C2B;cursor:pointer">create an account</a> and it is stored there instead, with your reports.</p>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button id="shareGo" type="button" style="padding:9px 18px;background:#2B3C2B;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:10pt">Share it and claim $10</button>
+      <span id="shareErr" style="font-size:9.5pt;color:#b91c1c"></span>
+    </div>
+  </div>
+  <div id="shareDone" hidden>
+    <p style="font-size:10pt;color:#111827;margin:0 0 10px">Published. <span id="shareDoneWhere"></span></p>
+    <div style="display:inline-block;padding:11px 16px;border:1px dashed #2B3C2B;border-radius:8px;background:#f6f7f5">
+      <div style="font-size:8.5pt;letter-spacing:.09em;text-transform:uppercase;color:#6b7280">Your code</div>
+      <div id="shareCode" style="font-size:15pt;font-weight:700;letter-spacing:.06em;color:#2B3C2B;font-variant-numeric:tabular-nums"></div>
+    </div>
+    <p style="font-size:9.5pt;color:#6b7280;margin:12px 0 0">
+      Enter it in the discount box at checkout. <a id="shareView" href="#" style="color:#2B3C2B">See your listing</a>
+      &middot; <a id="shareUndo" href="#" style="color:#6b7280">take it back down</a>
+    </p>
+  </div>
+</div>
+{% endif %}
 <div id="feedbackBlock" class="no-print" style="margin-top:40px;padding:20px;background:#f9fafb;border-radius:8px;border:1px dashed #e5e7eb">
   <h3 style="margin:0 0 8px;font-size:11pt;color:#1f2937">Was this report useful?</h3>
   <p style="font-size:10pt;color:#6b7280;margin:0 0 10px">Your feedback helps tune the pipeline. Anonymous, stored locally.</p>
@@ -2318,25 +2371,43 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
   <div id="feedback-thanks" style="display:none;color:#10b981;font-weight:600;margin-top:10px">✓ Thanks for the feedback!</div>
 </div>
 <script>
+// A REFUSED POST USED TO READ AS A THANK YOU. Nothing checked r.ok, so a 404 on someone
+// else's job, or a 500, still swapped the buttons for "Thanks for the feedback!" and the
+// rating was never stored. The status is checked, and a failure says so in the block
+// itself rather than in an alert the reader has to dismiss.
 async function submitFeedback(rating) {
   const comment = document.getElementById('feedback-comment').value;
+  const note = document.getElementById('feedback-thanks');
   try {
-    await fetch('/jobs/{{ job_id }}/feedback', {
+    const r = await fetch('/jobs/{{ job_id }}/feedback', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({rating, section: 'overall', comment}),
     });
+    if (!r.ok) {
+      const detail = (await r.json().catch(() => ({}))).detail || r.statusText;
+      throw new Error(detail);
+    }
     document.getElementById('feedback-buttons').style.display = 'none';
     document.getElementById('feedback-comment').style.display = 'none';
-    document.getElementById('feedback-thanks').style.display = 'block';
+    note.textContent = '✓ Thanks for the feedback!';   // a retry after a failure lands here
+    note.style.color = 'var(--accent)';
+    note.style.display = 'block';
   } catch(e) {
-    alert('Feedback submit failed: ' + e.message);
+    note.textContent = 'Not recorded: ' + e.message + '. Your note is still in the box; '
+      + 'press the same button again to retry.';
+    note.style.color = 'var(--qualify)';
+    note.style.display = 'block';
   }
 }
 </script>
 
 <footer>
-{% if iteration %}
+{# `public` AND NOT `annotate`. annotate=0 already hid the refine controls, and this block
+   is the CONTENT: the reader's margin notes and their questions, which render into the
+   page body and into the PDF. A published library page is read by strangers, and a
+   founder's mark is where the real rent goes. The owner's own export keeps carrying it. #}
+{% if iteration and not public %}
 {# ------------------------------------------------------------------ the refinement layer.
    Reader marks and Q&A are DATA layered on the artifact (iteration.py) — the original
    result is untouched and this block derives from the layer, so the PDF carries it too.
@@ -2407,7 +2478,7 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
                gap: 14px; flex-wrap: wrap; }
   /* The UA rule for [hidden] is display:none, and the class above outranks it, so the
      input-fix row shipped permanently open. */
-  .rf-top-in[hidden], .rf-pill[hidden], .rf-fix[hidden] { display: none; }
+  .rf-top-in[hidden], .rf-pill[hidden], .rf-fix[hidden], .rf-acts[hidden] { display: none; }
   .rf-title { font-weight: 700; font-size: 12px; letter-spacing: .07em;
               text-transform: uppercase; color: #047857; }
   .rf-rule { color: #4b5563; font-size: 12.5px; }
@@ -2518,9 +2589,15 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
   <div class="rf-top-in"><div id="rfMsg"></div></div>
 </div>
 
+{# THE PRICE IS NOT OURS TO TYPE. These two buttons read "Add 5 more for $2" and "for $5"
+   in the markup while GET /jobs/{id}/credits already returns prices_usd and pack_sizes,
+   and billing.py's own rule is that no amount of money is hardcoded in this repository:
+   an operator who reprices a pack changed one env var and the report still quoted the old
+   number. The label is written from the response below, and says only "Add N more" when
+   the price cannot be read. #}
 <section class="rf-sec no-print" id="rfMarksSec">
   <h2>Your marks <span class="rf-used" id="rfMarksUsed"></span>
-    <button class="rf-buy" id="rfBuyMarks">Add 5 more for $2</button></h2>
+    <button class="rf-buy" id="rfBuyMarks">Add more marks</button></h2>
   <div class="lede" data-lede-marks>Passages you flagged. These ride the regeneration as
     instructions, so say what is wrong rather than that something is.</div>
   <div id="rfMarkList"></div>
@@ -2528,10 +2605,18 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
 
 <section class="rf-sec no-print" id="rfQaSec" style="padding-bottom:70px">
   <h2>Questions and answers <span class="rf-used" id="rfQsUsed"></span>
-    <button class="rf-buy" id="rfBuyQs">Add 5 more for $5</button></h2>
+    <button class="rf-buy" id="rfBuyQs">Add more questions</button></h2>
   <div class="lede" data-lede-qa>Five questions, answered from this report's own data. If
     the report cannot answer one, it says so rather than inventing something. You can write
     or edit any answer yourself, and it will be labelled as yours.</div>
+  {# THE CONTROL THE COPY ALREADY SOLD. The lede above, and the $5 pack, both promise
+     answers drawn from this report's own data. POST /jobs/{id}/iterate does exactly that
+     in one call and had no caller anywhere in the browser, so on a first report the only
+     route to an answer was spending the single included regeneration. #}
+  <div class="rf-acts" id="rfAnswerRow" hidden style="margin-bottom:14px">
+    <button class="rf-btn go" id="rfAnswer">Answer these from the report</button>
+    <span class="rf-note" id="rfAnswerNote" style="align-self:center;margin-top:0"></span>
+  </div>
   <div id="rfQList"></div>
 </section>
 
@@ -2540,10 +2625,16 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
   <div class="lede">Regenerating rebuilds the report with your marks and questions folded
     into the brief, and takes about six minutes. Finalizing keeps this report as it is and
     stamps it with your marks and answers attached, with no rerun.</div>
+  {# FINALIZE WAS SOLD BY THE LEDE ABOVE AND HAD NO BUTTON. POST /jobs/{id}/finalize has
+     been here the whole time and nothing in the browser called it, so the only reachable
+     ending was the six-minute rerun. It is also the transition the feedback survey waits
+     on (applyMode hides the survey until the report has settled), so with no control a
+     first report never showed the survey at all. #}
   <div class="rf-acts">
     <button class="rf-btn" id="rfNotes">How to add notes</button>
     <button class="rf-btn" id="rfQaJump">Questions and answers</button>
     <button class="rf-btn" id="rfFix">Fix an input</button>
+    <button class="rf-btn" id="rfFinal">Finalize as it is</button>
     <button class="rf-btn go" id="rfRevise">Regenerate with my notes</button>
   </div>
 
@@ -2558,14 +2649,26 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
 
   <div id="rfConfirm"></div>
   <div class="rf-msg" id="rfMsg2"></div>
-  <div id="rfSummary" hidden></div>
+</section>
+
+{# THE RECEIPT HAS TO OUTLIVE THE WORKSPACE. rfSummary used to sit inside rfDoneSec, and
+   settled mode hides that whole section, so the summary a successful finalize draws would
+   have been hidden by the same click that produced it. #}
+<section class="rf-sec no-print" id="rfSummarySec" hidden style="padding-bottom:80px">
+  <div id="rfSummary"></div>
 </section>
 
 <script>
 (function () {
   const JOB = {{ job_id|tojson }};
+  // The founder's own name for the venture, as the default library listing.
+  const REPORT_TITLE = {{ (profile.name or "")|tojson }};
   const FACTS = {{ (intake_facts or {})|tojson }};
   let MAX_Q = 5, MAX_A = 15;   // base budgets; the server raises them when a pack is bought
+  // What the server last said about this report's budgets: the caps, the list prices and
+  // the pack sizes. Empty until the first GET /credits answers, which is why every reader
+  // of these has a no-value branch.
+  let LIMITS = {}, PRICES = {}, PACKS = {};
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g,
     (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
@@ -2649,6 +2752,12 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
     hide("rfBuyQs", done);
     const fb = $("feedbackBlock");
     if (fb) fb.hidden = !done;          // the survey belongs to the finished thing
+    // THE SHARE OFFER DOES NOT WAIT FOR FINALIZE, unlike the survey above it. Finalize is
+    // a deliberate act most founders never perform, so gating the reward on it would hide
+    // it from nearly everyone it is meant for — and the objection it would answer (that a
+    // shared report goes stale when it is revised) is not real: the library renders the
+    // job's CURRENT result, so a revision updates the published copy too.
+    initShare();
     // empty sections say nothing worth saying once nothing can be added to them
     if (done) {
       hide("rfMarksSec", !(st.annotations || []).length);
@@ -2660,9 +2769,129 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
     return done;
   }
 
+  /* ---------------------------------------------------------------- the share offer --
+     Asked once, when the report has settled. Everything it needs is on the report page
+     already except who the reader is, so it makes exactly two calls: one to find out
+     whether this is already published, and one to publish. */
+  let shareReady = false;
+  async function initShare() {
+    if (shareReady) return;
+    shareReady = true;
+    const block = $("shareBlock");
+    if (!block || !JOB) return;
+    let state = null;
+    try {
+      const r = await fetch("/jobs/" + encodeURIComponent(JOB) + "/share");
+      if (!r.ok) return;                 // not the owner: the offer is not theirs to take
+      state = await r.json();
+    } catch (e) { return; }              // an outage hides the offer, it does not break the page
+
+    // Signed in? Then the coupon has somewhere to live and we do not ask for an address.
+    let me = {};
+    try { me = await (await fetch("/auth/me")).json(); } catch (e) { /* treat as guest */ }
+    const signedIn = !!me.authenticated;
+    const emailRow = $("shareEmailRow");
+    if (emailRow) emailRow.hidden = signedIn;
+    // THE HREF IS SET HERE, NOT IN THE MARKUP. A hardcoded link to the sign-in page is a
+    // hand-rolled auth control, which is the duplication account.js exists to replace,
+    // and this one has to carry a `next` back to this exact report anyway.
+    const reg = $("shareRegister");
+    if (reg) reg.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
+
+    block.hidden = false;
+    if (state.shared && state.coupon) { showShared(state.title, state.coupon, signedIn ? "account" : "shown"); return; }
+    const title = $("shareTitle");
+    if (title && !title.value) title.value = (state.title || REPORT_TITLE || "").slice(0, 120);
+
+    $("shareGo").onclick = async () => {
+      const btn = $("shareGo"), errN = $("shareErr");
+      errN.textContent = "";
+      const email = (!signedIn && $("shareEmail") ? $("shareEmail").value.trim() : "");
+      if (!signedIn && !email) {
+        // THE ONE THING WE INSIST ON. Without an account and without an address there is
+        // nowhere to put the code, and a reward that vanishes with the tab is not one.
+        errN.textContent = "Add an email so we can send you the code, or sign in first.";
+        return;
+      }
+      btn.disabled = true;
+      const was = btn.textContent;
+      btn.textContent = "Publishing…";
+      try {
+        const r = await fetch("/jobs/" + encodeURIComponent(JOB) + "/share", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title: ($("shareTitle") || {}).value || "", email: email })
+        });
+        const out = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(out.detail || ("the server said " + r.status));
+        showShared(out.title, out.coupon, out.delivered, out.redeemable);
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = was;
+        errN.textContent = "Could not publish it: " + e.message;
+      }
+    };
+  }
+
+  function showShared(title, coupon, delivered, redeemable) {
+    $("shareForm").hidden = true;
+    $("shareCopy").hidden = true;
+    $("shareDone").hidden = false;
+    $("shareCode").textContent = coupon.code;
+    const where = delivered === "email"
+      ? "The code is on its way to your inbox as well."
+      : (delivered === "account"
+         ? "It is saved to your account, so it is here whenever you need it."
+         : "Write it down: it is not stored anywhere you can sign in to yet.");
+    $("shareDoneWhere").textContent = where
+      + (redeemable === false
+         ? " It becomes redeemable as soon as checkout is live on this instance." : "");
+    $("shareView").href = "/library/" + encodeURIComponent(JOB) + "/report.html";
+    $("shareView").target = "_blank";
+    $("shareUndo").onclick = async (ev) => {
+      ev.preventDefault();
+      try {
+        await fetch("/jobs/" + encodeURIComponent(JOB) + "/share", { method: "DELETE" });
+        // The code was earned and is kept; only the listing goes.
+        $("shareDoneWhere").textContent =
+          "Taken back out of the library. Your code is still yours.";
+        $("shareView").remove();
+        ev.target.remove();
+      } catch (e) { /* leaving the panel as-is is the honest failure */ }
+    };
+  }
+
+  /* WHAT A PACK COSTS COMES FROM THE SERVER. `prices_usd` and `pack_sizes` ride on GET
+     /credits precisely so this page never has to know an amount, and an instance that
+     reprices a pack in Stripe should not have to redeploy the report template. When the
+     price is unknown the button still works and simply does not quote one: no number
+     beats a stale number on a button that takes money. */
+  const money = (n) => (typeof n === "number" && isFinite(n) && n >= 0)
+    ? "$" + (n % 1 === 0 ? String(n) : n.toFixed(2)) : null;
+
+  function buyLabel(kind, noun) {
+    const size = PACKS[kind], price = money(PRICES[kind]);
+    return "Add " + (size ? size + " more " : "more ") + noun + (price ? " for " + price : "");
+  }
+
+  function paintOpenWork(settled) {
+    // The answer control only means something while something is unanswered, and never on
+    // a report that has settled: draft_answers writes into a record that is closed.
+    const openQ = (st.questions || []).filter((q) => !(q.a || "").trim()).length;
+    const answered = new Set((st.notes || []).map((n) => n.annotation_id));
+    const openA = (st.annotations || []).filter((a) => !answered.has(a.id)).length;
+    const row = $("rfAnswerRow");
+    row.hidden = !!settled || !(openQ + openA);
+    $("rfAnswerNote").textContent = row.hidden ? "" :
+      "Drawn from this report's own data. A question it cannot answer says so.";
+    return {openQ: openQ, openA: openA};
+  }
+
   function render() {
     const settled = applyMode();
     const nA = (st.annotations || []).length, nQ = (st.questions || []).length;
+    $("rfBuyMarks").textContent = buyLabel("marks", "marks");
+    $("rfBuyQs").textContent = buyLabel("questions", "questions");
+    paintOpenWork(settled);
     $("rfMarks").textContent = nA + " of " + MAX_A + " marks";
     $("rfQs").textContent = nQ + " of " + MAX_Q + " questions";
     $("rfMarks").className = "rf-pill" + (nA >= MAX_A ? " spent" : "");
@@ -2776,8 +3005,22 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
 
   function load() {
     return api("GET", "/jobs/" + JOB + "/credits")
-      .then((c) => { MAX_Q = c.limits.questions; MAX_A = c.limits.marks; })
-      .catch(() => {})
+      .then((c) => {
+        // KEEP THE DEFAULTS WHEN THE BODY IS SHORT. `c.limits || {}` looks safer than
+        // reading c.limits.questions directly, and is worse: the read no longer throws
+        // into the catch that used to leave MAX_Q/MAX_A standing, so they became
+        // undefined. render() then printed "0 of undefined marks", the cap test never
+        // fired, and the question slots disappeared entirely because the loop counts to
+        // MAX_Q. Fall back to the declared numbers instead of to nothing.
+        LIMITS = c.limits || {};
+        if (typeof LIMITS.questions === "number") MAX_Q = LIMITS.questions;
+        if (typeof LIMITS.marks === "number") MAX_A = LIMITS.marks;
+        // The amounts and the pack sizes are the server's to state. See buyLabel.
+        PRICES = c.prices_usd || {}; PACKS = c.pack_sizes || {};
+      })
+      // A price we could not read is not a price we may guess: drop back to a label with
+      // no amount in it rather than leaving whatever was there last.
+      .catch(() => { PRICES = {}; PACKS = {}; })
       .then(() => api("GET", "/jobs/" + JOB + "/iteration"))
       .then((s) => { st = s; render(); });
   }
@@ -2796,6 +3039,7 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
         const status = await api("GET", "/billing/status");
         if (status.configured && status.buyable && status.buyable[kind]) {
           const out = await api("POST", "/billing/checkout", {kind: kind, job_id: JOB});
+          rememberBaseline(kind);   // so the return trip can tell landed from still in flight
           location.href = out.url;
           return;
         }
@@ -2805,14 +3049,86 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
     };
   }
 
-  // Returning from a successful checkout: the webhook may land a moment after the browser
-  // does, so reload the budgets shortly after arriving rather than showing a stale count.
-  if (new URLSearchParams(location.search).get("paid")
-      && new URLSearchParams(location.search).get("paid") !== "cancelled") {
-    setTimeout(load, 1500);
-  }
   $("rfBuyMarks").onclick = buy("marks", "More marks");
   $("rfBuyQs").onclick = buy("questions", "More questions");
+
+  /* ---- coming back from Stripe --------------------------------------------------------
+     MEASURED: the return landed silently. A successful checkout reloaded the budgets once,
+     1.5s after arriving, and said nothing at all, so a webhook that took two seconds left
+     the reader looking at the same count they had before they paid, with no word that
+     anything had happened. And ?paid=cancelled did nothing whatsoever, which on screen is
+     indistinguishable from a Buy button that failed.
+
+     The webhook is a separate delivery from Stripe to us and may land after the browser
+     does, so this polls rather than reading once, and it says which of the three states it
+     is in: confirmed, still waiting, or cancelled. */
+  const PACK_NOUN = {marks: "marks", questions: "questions", rerun: "regenerations"};
+  const LIMIT_KEY = {marks: "marks", questions: "questions", rerun: "reruns"};
+  const MEMO = "rf-paid-" + JOB;
+
+  // The baseline has to be taken BEFORE leaving for Stripe. Reading it on the way back
+  // cannot tell a landed webhook from one still in flight, because a webhook that already
+  // won the race is indistinguishable from a pack that was never bought.
+  function rememberBaseline(kind) {
+    try {
+      sessionStorage.setItem(MEMO, JSON.stringify(
+        {kind: kind, was: LIMITS[LIMIT_KEY[kind] || kind]}));
+    } catch (e) { /* storage refused; the return says the count instead of a verdict */ }
+  }
+
+  function takeBaseline(kind) {
+    let was = null;
+    try {
+      const memo = JSON.parse(sessionStorage.getItem(MEMO) || "null");
+      if (memo && memo.kind === kind && typeof memo.was === "number") was = memo.was;
+      sessionStorage.removeItem(MEMO);
+    } catch (e) { /* nothing recorded: see the no-baseline copy below */ }
+    return was;
+  }
+
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function afterCheckout(kind) {
+    const noun = PACK_NOUN[kind] || kind;
+    const key = LIMIT_KEY[kind] || kind;
+    const base = takeBaseline(kind);
+    let now = LIMITS[key];
+    say("Payment received. Waiting for Stripe to confirm the " + noun + " pack…");
+    for (let i = 0; i < 6; i++) {
+      now = LIMITS[key];
+      if (base !== null && typeof now === "number" && now > base) {
+        say("Payment confirmed. This report now has " + now + " " + noun + ".");
+        return;
+      }
+      await wait(1500);
+      await load().catch(() => {});
+    }
+    // READ THE LAST REFRESH. The check sits at the top of the loop, so the sixth load's
+    // result was never examined: a webhook landing on the final poll left this saying
+    // Stripe had not confirmed while render() had already repainted the counter above
+    // with the new number. The page contradicted itself on the one screen where money
+    // changed hands.
+    now = LIMITS[key];
+    if (base !== null && typeof now === "number" && now > base) {
+      say("Payment confirmed. This report now has " + now + " " + noun + ".");
+      return;
+    }
+    say(base === null
+      ? "Payment received. This report's " + noun + " budget reads " + now + "."
+      : "Payment received, and Stripe has not confirmed the " + noun + " pack yet. It "
+        + "lands on its own; reload this page in a minute to pick it up.");
+  }
+
+  function afterReturn() {
+    const paid = new URLSearchParams(location.search).get("paid");
+    if (!paid) return;
+    if (paid === "cancelled") {
+      takeBaseline("");        // drop the memo: nothing was bought, so nothing to compare
+      say("Checkout cancelled. You were not charged and your budgets are unchanged.");
+      return;
+    }
+    return afterCheckout(paid);
+  }
 
   /* ---- selection to comment, inline. No prompt() ------------------------------------
      A browser prompt cannot show the passage being commented on, cannot be styled, cannot
@@ -2835,6 +3151,15 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
       const host = range.commonAncestorContainer;
       const hostEl = host.nodeType === 1 ? host : host.parentElement;
       if (hostEl && hostEl.closest(".no-print")) return;   // never inside refine chrome
+      /* THE LISTENER OUTRUNS THE DATA. This is bound while the page is parsed, and `st`
+         only exists once two awaited GETs (/credits, then /iteration) have both come back.
+         A reader who selected a sentence inside that window hit `st.annotations` on null:
+         the handler threw, no composer opened, and the report read as a page where
+         selecting text does nothing. There is no budget to check yet, so say so. */
+      if (!st) {
+        say("Still loading this report's marks. Select the sentence again in a moment.");
+        return;
+      }
       if ((st.annotations || []).length >= MAX_A) {
         say("All " + MAX_A + " marks used. Delete one below to add another.");
         return;
@@ -2935,6 +3260,97 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
     if (!box.hidden) { renderSurvey(); box.scrollIntoView({behavior: "smooth", block: "center"}); }
   };
 
+  // The same window the mouseup guard covers: every button below is live before
+  // /iteration has answered, and every one of them reads st.
+  const notReady = () => {
+    if (st) return false;
+    say("Still loading this report. Try that again in a moment.");
+    return true;
+  };
+
+  /* ---- answering from the report's own data ----------------------------------------
+     THE CONTROL THE COPY WAS ALREADY SELLING. Both ledes on this page, and the questions
+     pack itself, promise answers drawn from this report's own data; POST
+     /jobs/{id}/iterate is exactly that call and had no caller in the browser. So on a
+     first report the only route to an answer was the one included regeneration, six
+     minutes and the reader's single revision spent to answer a question the artifact
+     already contained. It refuses rather than inventing, so an unanswered question stays
+     visibly unanswered and the reader is told which ones. */
+  $("rfAnswer").onclick = async () => {
+    if (notReady()) return;
+    const btn = $("rfAnswer"), label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Reading the report…";
+    say("");
+    try {
+      await api("POST", "/jobs/" + JOB + "/iterate");
+      await load();
+      const left = (st.questions || []).filter((q) => !(q.a || "").trim()).length;
+      // Only what is on the page: a blank means the drafting returned nothing for it, and
+      // guessing at the reason on the reader's behalf is how a page starts lying.
+      say(left
+        ? left + (left === 1 ? " question" : " questions") + " came back without an answer. "
+          + "Write one yourself, or fold it into a regeneration."
+        // NO BLANKET CITATION CLAIM. draft_answers deliberately blanks based_on when an
+        // answer is not grounded ("a refusal must not wear citations it did not use"), so
+        // an ungrounded answer still counts as answered and this asserted a source it does
+        // not have. It also counted only questions, while the button appears for open
+        // marks too, so a reader with three marks and no questions saw it regardless.
+        : "Done. Grounded answers name the sections they drew on; anything the report "
+          + "could not support says so instead.");
+    } catch (e) {
+      say("Answering failed: " + e.message + ". Nothing was changed; try again.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  };
+
+  /* ---- finalize ---------------------------------------------------------------------
+     WIRED, BECAUSE THE PAGE SELLS IT. The lede above has always said finalizing keeps the
+     report as it is with the marks and answers attached, and there was no such control:
+     POST /jobs/{id}/finalize existed, showSummary() below was written for it, and nothing
+     called either. The only ending a reader could reach was the six-minute rerun, and the
+     feedback survey, which applyMode holds back until the report has settled, therefore
+     never appeared on a first report at all.
+
+     finalize refuses (422) while any question is blank, which is the right rule for a
+     document whose Q&A section is part of the promise, so the refusal is shown with the
+     control that clears it. */
+  $("rfFinal").onclick = () => {
+    if (notReady()) return;
+    const box = $("rfConfirm");
+    const nA = (st.annotations || []).length, nQ = (st.questions || []).length;
+    box.innerHTML = '<div class="rf-confirm">Finalizing keeps this report exactly as it ' +
+      'is and stamps it with your ' + nA + ' mark' + (nA === 1 ? "" : "s") + ' and ' + nQ +
+      ' question' + (nQ === 1 ? "" : "s") + ' attached. Nothing is rerun, and marking ' +
+      'closes.<div class="rf-pop-row"><span class="grow"></span>' +
+      '<button class="rf-btn" data-no>Not yet</button>' +
+      '<button class="rf-btn go" data-yes>Finalize</button></div></div>';
+    box.scrollIntoView({behavior: "smooth", block: "center"});
+    box.querySelector("[data-no]").onclick = () => { box.innerHTML = ""; };
+    box.querySelector("[data-yes]").onclick = async (e) => {
+      e.target.disabled = true;
+      e.target.textContent = "Finalizing…";
+      try {
+        await api("POST", "/jobs/" + JOB + "/finalize");
+        box.innerHTML = "";
+        await load();      // settles the page: marking closes and the survey takes the floor
+        showSummary("This report is final.",
+                    "Your marks and answers are attached to it. Nothing was rerun.");
+      } catch (err) {
+        const blanks = (st.questions || []).filter((q) => !(q.a || "").trim()).length;
+        box.innerHTML = '<div class="rf-confirm">' + esc(err.message) +
+          (blanks ? '<div class="rf-pop-row"><span class="grow"></span>' +
+                    '<button class="rf-btn" data-jump>Go to the questions</button></div>' : "") +
+          "</div>";
+        const jump = box.querySelector("[data-jump]");
+        if (jump) jump.onclick = () =>
+          $("rfQaSec").scrollIntoView({behavior: "smooth", block: "start"});
+      }
+    };
+  };
+
   /* ---- the summary, shown after the reader commits --------------------------------
      What they are signing off on, in one place: the answers the report was built from,
      what they marked, and what they asked. Before this, finalize reloaded the page and
@@ -2943,7 +3359,9 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
     const edits = (st && st.input_edits) || {};
     const rows = (fields, fn) => fields.length
       ? fields.map(fn).join("") : '<div class="rf-empty">None.</div>';
-    $("rfSummary").hidden = false;
+    // The section, not the div: settled mode hides the actions block this summary used to
+    // live inside, so finalizing hid its own receipt.
+    $("rfSummarySec").hidden = false;
     $("rfSummary").innerHTML =
       '<div class="rf-confirm" style="background:#ecfdf5;border-color:#a7f3d0;color:#065f46">'
       + "<b>" + esc(headline) + "</b><br>" + esc(note) + "</div>"
@@ -2964,7 +3382,7 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
           '<div class="rf-note">' + (q.a ? esc(q.a) : "not answered") + "</div>" +
           '<div class="prov">' + (q.a_origin ? "answer: " + esc(q.a_origin) : "no answer")
           + "</div></div>");
-    $("rfSummary").scrollIntoView({behavior: "smooth", block: "start"});
+    $("rfSummarySec").scrollIntoView({behavior: "smooth", block: "start"});
   }
 
   /* The ONE included regeneration. Confirmed inline rather than through a browser dialog,
@@ -2989,6 +3407,7 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
   }
 
   $("rfRevise").onclick = () => {
+    if (notReady()) return;      // st is read two lines down; see the mouseup guard
     const box = $("rfConfirm");
     /* NO TOGGLE. This used to close the panel on a second press, so the commonest thing a
        reader does with a button that seems not to have worked, press it again, undid it.
@@ -3027,9 +3446,11 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
     };
   };
 
-  load();
+  // The checkout return reads the budgets the first load fetched, so it waits for it.
+  load().then(afterReturn);
 })();
 </script>
 {% endif %}
+<script src="/account.js" defer></script>
 </body>
 </html>

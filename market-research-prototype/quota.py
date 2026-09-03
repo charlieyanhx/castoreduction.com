@@ -122,8 +122,62 @@ def _sweep(c: sqlite3.Connection, owner_id: str) -> None:
             c.execute("DELETE FROM run_slots WHERE owner_id = ?", (owner_id,))
 
 
+def is_guest(owner_id: str) -> bool:
+    return bool(owner_id) and str(owner_id).startswith("guest-")
+
+
+def guest_ledger_key(client_ip: str) -> str:
+    """The key a guest's DAILY runs are counted against: their address, not their cookie.
+
+    A GUEST COOKIE IS A LIBRARY, NOT AN ALLOWANCE. It exists so two strangers do not share
+    a workspace, and it is under the visitor's control: clearing it is one keystroke. If
+    the daily cap were counted per cookie, the cap would be advisory — clear, reload, run
+    another six minutes of live research, repeat. Counting against the address makes the
+    limit mean what it says for someone who has not registered.
+
+    Registered accounts keep counting per account, which is the honest unit for someone
+    who told us who they are and may legitimately share an office address.
+    """
+    return "guest-ip:" + (client_ip or "unknown")
+
+
+#: Auxiliary research (/discover, /taste, /full, /research/crew) is counted in its OWN
+#: daily bucket rather than against report runs. Those endpoints had no cap at all, and
+#: the obvious fix — charge them the report allowance — would have made a competitor
+#: lookup eat one of the reports the visitor came for. They still cost real money, so they
+#: are still bounded; they just cannot cannibalise the product.
+AUX_BUCKET = "aux"
+
+#: How much cheaper an auxiliary run is than a report, as a multiple of the daily cap.
+#: A report is ~44 model calls plus metered tools; a discovery is a search and a handful.
+#: Sharing the report number would have made a competitor lookup as expensive as the
+#: thing it supports. Overridable, because the honest answer depends on the operator's
+#: own bill.
+_AUX_MULTIPLIER = 5
+
+
+def _aux_daily_limit(owner_id: str) -> int:
+    """The ceiling for /discover, /taste, /full and /research/crew.
+
+    Its own number, not the report cap: see _AUX_MULTIPLIER. CASTOR_DAILY_AUX_RUNS
+    overrides it outright, with the same "invalid values fall back rather than open the
+    gate" rule _daily_limit uses.
+    """
+    raw = os.environ.get("CASTOR_DAILY_AUX_RUNS")
+    if raw:
+        try:
+            n = int(raw)
+            if n > 0:
+                return n
+        except ValueError:
+            pass
+    return _daily_limit(owner_id) * _AUX_MULTIPLIER
+
+
 def claim_run_slot(owner_id: str, job_id: str | None = None,
-                   count_daily: bool = True) -> None:
+                   count_daily: bool = True,
+                   client_ip: str | None = None,
+                   bucket: str = "") -> None:
     """Reserve this account's single concurrent slot, or raise QuotaExceeded.
 
     Order matters: the daily count is checked first (cheap, and the more informative
@@ -136,13 +190,27 @@ def claim_run_slot(owner_id: str, job_id: str | None = None,
     still applies either way, because that limit is about what the machine can do at once
     rather than about what the account is entitled to.
     """
+    # A guest is counted by address; see guest_ledger_key. Concurrency stays keyed on the
+    # cookie, because that limit is about what the machine can do at once and two people
+    # behind one office NAT are two runs, not an abuse.
+    ledger_key = (guest_ledger_key(client_ip) if (is_guest(owner_id) and client_ip)
+                  else owner_id)
+    # A NAMED BUCKET IS A SEPARATE ALLOWANCE under the same identity. The concurrency slot
+    # below is deliberately NOT namespaced: that limit is about what the machine can do at
+    # once, so one visitor still gets one running job whichever door they came through.
+    if bucket:
+        ledger_key = f"{ledger_key}#{bucket}"
+
     if count_daily:
-        limit = _daily_limit(owner_id)
-        used = runs_today(owner_id)
+        limit = _aux_daily_limit(owner_id) if bucket == AUX_BUCKET else _daily_limit(owner_id)
+        used = runs_today(ledger_key)
         if used >= limit:
+            who = ("A report is about 6 minutes of live research. Create an account to "
+                   "keep your reports and raise this cap"
+                   if is_guest(owner_id) else
+                   "A report is about 6 minutes of live research, so the cap is per account")
             raise QuotaExceeded(
-                f"daily limit of {limit} runs reached ({used} used in the last 24h). "
-                f"A report is about 6 minutes of live research, so the cap is per account")
+                f"daily limit of {limit} runs reached ({used} used in the last 24h). {who}")
 
     c = _db()
     _sweep(c, owner_id)
@@ -150,13 +218,28 @@ def claim_run_slot(owner_id: str, job_id: str | None = None,
         c.execute("INSERT INTO run_slots (owner_id, job_id, claimed_at) VALUES (?, ?, ?)",
                   (owner_id, job_id, int(time.time())))
     except sqlite3.IntegrityError:
-        c.close()
-        raise QuotaExceeded(
-            f"a report is already running for this account (limit "
-            f"{MAX_CONCURRENT_RUNS}). Wait for it to finish, or open it from the library")
+        # RE-ENTRANT FOR THE SAME JOB. A slot naming THIS job is not a competing run, it
+        # is this run's own slot — held by a worker that died. _sweep deliberately keeps a
+        # slot while its job is `pending` or `running`, and requeue_orphans sets exactly
+        # `pending`, so without this branch an interrupted run could never be resumed: the
+        # resumer asked for the slot the dead worker still nominally held, was refused, and
+        # left the job stranded while the hour-long age sweep locked the owner out of
+        # starting anything else. Re-entrancy rather than releasing first, because a
+        # release opens a window for somebody else to take it.
+        held = c.execute("SELECT job_id FROM run_slots WHERE owner_id = ?",
+                         (owner_id,)).fetchone()
+        if job_id and held and held[0] == job_id:
+            c.execute("UPDATE run_slots SET claimed_at = ? WHERE owner_id = ?",
+                      (int(time.time()), owner_id))
+        else:
+            c.close()
+            raise QuotaExceeded(
+                f"a report is already running for this account (limit "
+                f"{MAX_CONCURRENT_RUNS}). Wait for it to finish, or open it from the "
+                f"library")
     if count_daily:
         c.execute("INSERT INTO run_ledger (owner_id, at) VALUES (?, ?)",
-                  (owner_id, int(time.time())))
+                  (ledger_key, int(time.time())))
     c.close()
 
 

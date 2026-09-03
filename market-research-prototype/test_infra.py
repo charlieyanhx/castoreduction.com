@@ -742,7 +742,7 @@ class TestIntake(unittest.TestCase):
         import intake
         # Pre-create with a session that has 3 user messages so the safety guard doesn't block ready
         sid = "test-sid-ready"
-        intake._sessions[sid] = {
+        _sess = {
             "id": sid,
             "created_at": 0,
             "messages": [
@@ -765,6 +765,7 @@ class TestIntake(unittest.TestCase):
             "ready": False,
             "final_description": None,
         }
+        intake.save_session(_sess)
         with patch("intake.call_json") as m:
             m.return_value = {
                 "extracted": {

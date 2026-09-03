@@ -68,3 +68,43 @@ services:
       # /healthz stays green and the deploy looks successful.
       - key: SESSION_SECRET
         sync: false
+
+      # ---- payments. All six, or nothing is buyable (billing.configured()). ----------
+      # Webhook endpoint: POST https://<your-host>/billing/webhook
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_REPORT
+        sync: false
+      - key: STRIPE_PRICE_MARKS
+        sync: false
+      - key: STRIPE_PRICE_QUESTIONS
+        sync: false
+      - key: STRIPE_PRICE_RERUN
+        sync: false
+
+      # ---- email. Needs CASTOR_PUBLIC_URL below, or the links are not links. ---------
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+
+      # ---- Google sign-in. All three, or the button hides itself. --------------------
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+
+      # THE ORIGIN EVERY EMAILED LINK IS BUILT FROM. Not inferable from a request: a
+      # Host header an attacker controls would point your reset links at their server.
+      # No trailing slash. mailer refuses to send at all without it.
+      - key: CASTOR_PUBLIC_URL
+        sync: false
+
+      # Run transcripts default to the image layer and vanish on redeploy. The progress
+      # page reads them, so put them on the disk mounted at /data.
+      - key: CASTOR_TRANSCRIPT_DIR
+        value: /data/transcripts

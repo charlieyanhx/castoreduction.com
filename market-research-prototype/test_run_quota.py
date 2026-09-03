@@ -28,10 +28,23 @@ import unittest
 
 
 class _QuotaBase(unittest.TestCase):
+    #: THIS FILE IS ABOUT THE FREE ALLOWANCE, so it has to say that this instance sells
+    #: nothing. POST /plan now refuses with 402 before the allowance is consulted whenever
+    #: billing is configured — a credit is the primary entitlement and the allowance is
+    #: what an instance with no processor runs on. Leaving these unset meant a Stripe key
+    #: leaked by any earlier test in the session silently changed what this file measures:
+    #: it passed alone and failed in the suite, which is the worst way to learn it.
+    _BILLING_ENV = ("STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_PRICE_REPORT",
+                    "STRIPE_PRICE_BUNDLE5", "STRIPE_PRICE_BUNDLE10",
+                    "CASTOR_PAYWALL_PREVIEW")
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self._prev = os.environ.get("JOBS_DB_PATH")
         os.environ["JOBS_DB_PATH"] = os.path.join(self._tmp.name, "jobs.sqlite")
+        self._prev_billing = {k: os.environ.get(k) for k in self._BILLING_ENV}
+        for k in self._BILLING_ENV:
+            os.environ.pop(k, None)
         import jobs
         if hasattr(jobs, "_reset_for_tests"):
             jobs._reset_for_tests()
@@ -41,6 +54,11 @@ class _QuotaBase(unittest.TestCase):
             os.environ.pop("JOBS_DB_PATH", None)
         else:
             os.environ["JOBS_DB_PATH"] = self._prev
+        for k, v in self._prev_billing.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
         self._tmp.cleanup()
 
 

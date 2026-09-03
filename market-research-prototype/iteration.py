@@ -115,6 +115,12 @@ def _empty() -> dict:
             "extra": {},                    # bought capacity: {questions|marks|rerun: n}
             "input_edits": {},              # Wave E: {field: corrected value}
             "revised_to": None,             # Wave E: job id of the one regeneration
+            #: How many regenerations this report has actually spent. `revised_to` names
+            #: only the LAST one, so it could not tell one revision from ten: posting your
+            #: own finished job id as previous_job_id skipped both the credit and the
+            #: daily cap, and nothing counted the replays. limits()["reruns"] is the
+            #: ceiling this is checked against, so a bought rerun pack still works.
+            "reruns_used": 0,
             "status": "draft", "revision": 1, "finalized_at": None, "next_id": 1}
 
 
@@ -167,7 +173,11 @@ def add_annotation(job_id: str, *, section: str, quote: str, comment: str,
         raise IterationError("an annotation needs a comment — a bare highlight says nothing")
     st = get_state(job_id)
     cap = limits(st)["marks"]
-    if len(st["annotations"]) >= cap:
+    # A carried mark is a record of what this reader already said on the previous
+    # revision, not a mark they are spending here. Counting it would hand someone who
+    # bought another regeneration a budget already full of their own history.
+    own = [a for a in st["annotations"] if not a.get("carried_from")]
+    if len(own) >= cap:
         raise IterationError(f"at most {cap} marks per report")
     st["annotations"].append({
         "id": _take_id(st), "section": (section or "").strip() or "General",
@@ -380,9 +390,28 @@ def build_revision_brief(job_id: str, description: str) -> str:
     if marks:
         lines = "; ".join(
             f"on '{(a.get('quote') or '')[:80]}': {(a.get('comment') or '')[:200]}"
-            for a in marks[:MAX_ANNOTATIONS])
+            for a in marks[:limits(st)["marks"]])
         parts.append(f"Reader feedback the next run must address: {lines}")
     return " ".join(p for p in parts if p.strip())
+
+
+def spend_rerun(job_id: str) -> bool:
+    """Claim one of this report's regenerations. False when they are all spent.
+
+    THE ENTITLEMENT OF RECORD for a revision run. A report includes one regeneration and
+    a rerun pack buys more, and until this existed nothing counted them: post_plan treated
+    ANY previous_job_id as "the included revision", waived the credit and the daily cap,
+    and never asked whether that revision had already been taken.
+
+    Read and write in one call so two requests racing for the last one cannot both win.
+    """
+    st = get_state(job_id)
+    used = int(st.get("reruns_used") or 0)
+    if used >= int(limits(st).get("reruns") or 1):
+        return False
+    st["reruns_used"] = used + 1
+    _save(job_id, st)
+    return True
 
 
 def mark_revised(job_id: str, new_job_id: str) -> dict:
@@ -393,25 +422,58 @@ def mark_revised(job_id: str, new_job_id: str) -> dict:
     return _save(job_id, st)
 
 
-def carry_questions(old_job_id: str, new_job_id: str) -> dict:
-    """The questions channel: typed against revision 1, answered against the regenerated
-    artifact. Carried unanswered so draft_answers grounds them in the NEW report."""
+def carry_forward(old_job_id: str, new_job_id: str) -> dict:
+    """Move both reader channels onto the regenerated report.
+
+    QUESTIONS carry unanswered, so draft_answers grounds them in the NEW artifact rather
+    than in the one the reader was complaining about.
+
+    MARKS carry as a record, and that is new. They had already steered the run through the
+    amended brief, but a brief is invisible: without this the regenerated report never
+    mentions what the reader flagged, and showing that it listened is the one thing a paid
+    revision most needs to do. Carried marks are stamped `carried_from`, which is what lets
+    draft_answers write a note back against each, and what keeps them out of a budget the
+    reader has not spent yet.
+
+    IDEMPOTENT, because two callers race for it. post_revise carries so the marks and
+    questions survive a run that dies, and the regeneration's own worker carries again
+    before drafting, because post_plan starts that worker BEFORE post_revise reaches its
+    carry: on a fast or failed run the worker got to the draft step first and found nothing
+    to answer. Whoever arrives first wins; the second is a no-op.
+
+    BOUGHT CAPACITY IS HONOURED HERE. The slices read limits(old), not the base constants.
+    A reader who paid $5 for five more questions and asked ten had the last five stranded
+    on a report they had already navigated away from, unanswered and unreachable.
+    """
     old = get_state(old_job_id)
     new = get_state(new_job_id)
-    # IDEMPOTENT, because two callers race for it. post_revise carries the questions so
-    # they survive a run that dies, and the regeneration's own worker carries them again
-    # before drafting answers, because post_plan starts that worker BEFORE post_revise
-    # gets to its carry: on a fast or failed run the worker reached the draft step first
-    # and found nothing to answer. Whoever gets there first wins; the second is a no-op.
-    already = {(q.get("q") or "").strip() for q in (new.get("questions") or [])}
-    for q in (old.get("questions") or [])[:MAX_QUESTIONS]:
+    caps = limits(old)
+
+    already_q = {(q.get("q") or "").strip() for q in (new.get("questions") or [])}
+    for q in (old.get("questions") or [])[:caps["questions"]]:
         text = (q.get("q") or "").strip()
-        if text in already:
+        if text in already_q:
             continue
-        already.add(text)
+        already_q.add(text)
         new["questions"].append({"id": _take_id(new), "q": text,
                                  "a": None, "a_origin": None, "based_on": [],
                                  "grounded": None, "created_at": int(time.time())})
+
+    already_a = {((a.get("quote") or "").strip(), (a.get("comment") or "").strip())
+                 for a in (new.get("annotations") or [])}
+    for a in (old.get("annotations") or [])[:caps["marks"]]:
+        key = ((a.get("quote") or "").strip(), (a.get("comment") or "").strip())
+        if key in already_a:
+            continue
+        already_a.add(key)
+        marker = a.get("marker")
+        new["annotations"].append({
+            "id": _take_id(new), "section": a.get("section") or "General",
+            "quote": key[0], "comment": key[1],
+            "marker": marker if marker in ("comment", "flag") else "comment",
+            "carried_from": old_job_id,
+            "created_at": int(time.time()),
+        })
     return _save(new_job_id, new)
 
 
@@ -425,8 +487,33 @@ def finalize(job_id: str) -> dict:
     unanswered = [q for q in st["questions"] if not (q.get("a") or "").strip()]
     if unanswered:
         raise IterationError(
-            f"{len(unanswered)} question(s) still unanswered — a final report with a blank "
-            "in its own Q&A is a broken promise on page one. Draft answers or remove them.")
+            f"{len(unanswered)} question(s) still unanswered. A final report with a blank "
+            "in its own Q&A is a broken promise on page one. Answer them or remove them.")
+    st["status"] = "final"
+    st["revision"] = 2
+    st["finalized_at"] = int(time.time())
+    return _save(job_id, st)
+
+
+def settle(job_id: str) -> dict:
+    """Stamp a regenerated report as the final version. No button, and it does not refuse.
+
+    finalize() is the strict, operator-driven path, and it refuses while any question is
+    still blank. This is the automatic one and it must NOT refuse, because the alternative
+    is worse than an imperfect record. A report left at "answered" is recognised as settled
+    by nothing: it renders as a live workspace whose every control is a dead end — "0 of 5
+    marks", "Add 5 more for $2", a Regenerate that answers 402 — and the feedback survey,
+    which is gated on the report being finished, never appears at all. An unanswered
+    question is visible on the page and says as much. An un-settled final report lies about
+    what it is.
+
+    Called by the regeneration's own worker, because the reader pressing Regenerate has
+    already said everything they are going to say.
+    """
+    st = get_state(job_id)
+    if st.get("status") == "revised":
+        # Already superseded by a later run. That stamp is the truer one; leave it.
+        return st
     st["status"] = "final"
     st["revision"] = 2
     st["finalized_at"] = int(time.time())
@@ -434,4 +521,13 @@ def finalize(job_id: str) -> dict:
 
 
 def has_content(st: dict) -> bool:
-    return bool(st.get("questions") or st.get("annotations"))
+    """Is there a refinement layer worth handing the renderer?
+
+    THE STAMP COUNTS, not just the marks. render_html drops the whole layer when this is
+    False, and a revision driven purely by input edits carries no questions and no
+    annotations — so a report that genuinely IS revision 2 lost the v2 badge off its own
+    cover for the crime of having been corrected rather than argued with.
+    """
+    return bool(st.get("questions") or st.get("annotations")
+                or st.get("input_edits")
+                or st.get("status") in ("final", "revised"))

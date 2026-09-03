@@ -33,7 +33,9 @@ a.back{color:#3b82f6;font-size:11pt;text-decoration:none}
 </head>
 <body>
 <header>
-  <a href="/web/" class="back">← Back to app</a>
+  {# B23: was /web/, a 404 since web/index.html was deleted and the /web mount carries no
+     html=True. The only way off this page went nowhere. /home is a real route. #}
+  <a href="/home" class="back">← Back to app</a>
   <h1>Side-by-Side Comparison</h1>
   <div class="subhead">{{ left.profile.name or 'Plan A' }} ({{ left_id[:8] }}) vs {{ right.profile.name or 'Plan B' }} ({{ right_id[:8] }})</div>
 </header>

@@ -18,7 +18,7 @@ Run:
 from __future__ import annotations
 import os
 import secrets
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
@@ -30,8 +30,8 @@ import auth
 # and `api.TEMPLATES_DIR` are addresses the tests and older call sites already use, and
 # moving a definition should not move its address.
 from routes.deps import (                                          # noqa: F401
-    APP_VERSION, DOCS_DIR, STATIC_DIR, TEMPLATES_DIR, WEB_DIR, SafeUndefined,
-    _ASSET_VERSIONS, _asset_version, _NO_CACHE, _stamped_html,
+    APP_VERSION, DOCS_DIR, TEMPLATES_DIR, WEB_DIR, SafeUndefined,
+    _NO_CACHE,
 )
 import jobs
 import quota
@@ -83,6 +83,9 @@ def halt_reason(job: dict | None) -> str | None:
 
 
 SESSION_COOKIE = "castor_session"
+#: The anonymous visitor's library. Signed, so a stranger cannot type someone else's
+#: guest id into their own cookie; carries no privilege beyond naming one workspace.
+GUEST_COOKIE = "castor_guest"
 
 # The request, stashed per-task so _current_owner() can reach it without every endpoint
 # having to declare `request: Request` and pass it down. Threading it through ~10
@@ -119,9 +122,45 @@ def _current_owner(request: Request = None) -> str:
     acct = _session_owner(request)
     if acct:
         return acct
-    if os.environ.get("CASTOR_ENV", "").lower() == "production":
+
+    # THE OPERATOR CAN STILL SHUT THE DOOR. Some installs are not a public product, and
+    # this restores the old fail-closed posture in one env var.
+    if os.environ.get("CASTOR_REQUIRE_LOGIN", "").strip().lower() in ("1", "true", "yes"):
         raise HTTPException(status_code=401, detail="sign in to use Castor")
-    return jobs.LEGACY_OWNER
+
+    # GUESTS GET THEIR OWN LIBRARY. The docstring above records why a per-visitor id was
+    # rejected once: a library that evaporates with the cookie, and an open /plan. Both
+    # objections stand and both are now answered rather than avoided — the work is claimed
+    # into the account on sign-up (jobs.reassign_owner), so it does not evaporate, and the
+    # daily run cap for guests is keyed on the ADDRESS as well as the cookie
+    # (quota.guest_key), so clearing cookies does not mint a fresh allowance. What is NOT
+    # answered by returning LEGACY_OWNER here is the thing it was doing instead: handing
+    # every stranger the same workspace, which is the cross-tenant leak #93 closed.
+    request = request or _REQUEST.get()
+    if request is None:
+        # No request context: a background worker, which is always passed its owner
+        # explicitly. Nothing to isolate and nowhere to set a cookie.
+        return jobs.LEGACY_OWNER
+
+    existing = auth.read_guest_token(request.cookies.get(GUEST_COOKIE))
+    if existing:
+        return existing
+    minted = getattr(request.state, "castor_new_guest", None)
+    if minted:
+        # Two calls in one request must agree, and only one cookie is set.
+        return minted
+    minted = "guest-" + secrets.token_hex(16)
+    request.state.castor_new_guest = minted
+    return minted
+
+
+def _report_count(owner_id: str) -> int:
+    """How much this visitor stands to lose. Read by the sign-up nudge, so a guest with
+    nothing yet is not badgered and a guest with three reports is told plainly."""
+    try:
+        return len(jobs.list_recent(limit=200, owner_id=owner_id))
+    except Exception:                                        # noqa: BLE001
+        return 0
 
 
 def _account_email(account_id: str) -> str | None:
@@ -223,7 +262,30 @@ async def _bind_request(request: Request, call_next):
     """
     token = _REQUEST.set(request)
     try:
-        return await call_next(request)
+        response = await call_next(request)
+        # A guest id minted during this request has to reach the browser, and a handler
+        # cannot set it: most of them return a dict or a FileResponse and never touch a
+        # Response object. Setting it here means every route that asked "who is this"
+        # gets a visitor who is still the same person on their next click.
+        minted = getattr(request.state, "castor_new_guest", None)
+        if minted:
+            try:
+                response.set_cookie(
+                    GUEST_COOKIE, auth.make_guest_token(minted),
+                    max_age=auth.SESSION_MAX_AGE_S, httponly=True, samesite="lax",
+                    secure=os.environ.get("CASTOR_ENV", "").lower() == "production",
+                    path="/")
+            except Exception as e:                           # noqa: BLE001
+                # IDENTITY PLUMBING MUST NOT BREAK THE PAGE. auth._session_secret()
+                # refuses to sign when CASTOR_ENV=production and SESSION_SECRET is unset,
+                # and raising HERE 500s every request from every anonymous visitor —
+                # including /auth/me, the one endpoint the login screen reads to offer a
+                # way out of exactly that state. The startup guard already refuses to boot
+                # into it; this is what keeps the failure legible if it is ever reached.
+                # Degraded: the visitor gets no persistent guest library, and the site
+                # still renders.
+                log.warning("[auth] could not issue a guest cookie: %s", e)
+        return response
     finally:
         _REQUEST.reset(token)
 
@@ -269,8 +331,30 @@ def _refuse_to_boot_misconfigured():
 
 
 @app.on_event("startup")
+def _resume_interrupted_runs():
+    """Pick up where a dead worker left off, rather than burying its work.
+
+    This used to be cleanup_orphaned_jobs, which marked an interrupted run `error`. That
+    was right when a zombie row was the only alternative, and wrong once run_plan learned
+    to resume: the partial result is already in the row, checkpointed after every step, so
+    a deploy in the middle of a six-minute run was destroying something nearly finished
+    that a user had paid for.
+    """
+    try:
+        requeued = jobs.requeue_orphans(grace_seconds=60)
+        from routes.research import resume_interrupted
+        started = resume_interrupted()
+        if requeued or started:
+            log.info("[startup] %d interrupted run(s) requeued, %d resumed",
+                     len(requeued), started)
+    except Exception as e:                                   # noqa: BLE001
+        # Recovery must never stop the server coming up: a failed resume leaves the rows
+        # pending, which is visible and fixable. A boot loop is neither.
+        log.warning("[startup] could not resume interrupted runs: %s", e)
+
+
 def _cleanup_orphaned_jobs():
-    """cycle31: mark stale 'running' jobs from a previous server crash as errored."""
+    """Retained for callers that want the old bury-it behaviour (tests, one-off tools)."""
     n = jobs.cleanup_orphaned_jobs(grace_seconds=60)
     if n:
         from logger import get
@@ -344,11 +428,91 @@ class AuthRequest(BaseModel):
 
 def _set_session(resp: Response, account_id: str) -> None:
     """httponly so script cannot read it; samesite=lax so a cross-site form post cannot
-    ride the session; secure whenever we are not on plain local http."""
+    ride the session; secure whenever we are not on plain local http.
+
+    AND IT CLAIMS THE GUEST'S WORK. Signing in is the moment the product asks a visitor to
+    commit, and it must not be the moment their reports disappear. Anything they made as a
+    guest moves to the account here, and the guest cookie is cleared so the empty library
+    behind it cannot be reached again by accident.
+    """
     resp.set_cookie(
         SESSION_COOKIE, auth.make_session_token(account_id),
         max_age=auth.SESSION_MAX_AGE_S, httponly=True, samesite="lax",
         secure=os.environ.get("CASTOR_ENV", "").lower() == "production", path="/")
+    try:
+        request = _REQUEST.get()
+        guest = auth.read_guest_token(
+            request.cookies.get(GUEST_COOKIE)) if request is not None else None
+        if guest:
+            jobs.reassign_owner(guest, account_id)
+            # AND THE CREDITS. Moving the jobs and leaving the entitlements behind means a
+            # guest who bought something loses it by doing the thing we spent a nudge
+            # asking them to do, and the balance is then stranded under a cookie id
+            # nobody can present again.
+            import billing
+            import intake as _intake
+            billing.reassign_owner(guest, account_id)
+            # And anything bought before this account existed, matched on the address
+            # Stripe collected. This is what makes "pay now, register later" hold.
+            # AND THE LIBRARY ENTRIES AND THE REWARD COUPONS. A guest who published a
+            # report and earned $10 for it must not lose either by registering, which is
+            # the very next thing the share card asks them to do.
+            import sharing as _sharing
+            _sharing.reassign_owner(guest, account_id)
+            # CLAIMING BY EMAIL NEEDS THE ADDRESS PROVED, and signing up does not prove
+            # it. This is the fallback for a buyer whose guest cookie is gone: it moves
+            # every unspent credit and coupon held against an address onto whoever
+            # registers with it. Ungated, knowing someone's email was enough to take what
+            # they had paid for, and their Stripe address is not a secret.
+            #
+            # The cookie handover above is untouched, because presenting the guest cookie
+            # IS the proof for the ordinary case: buy and register in the same browser.
+            # This path now waits for /auth/verify, which is where _claim_prepaid runs.
+            if auth.email_is_verified(account_id):
+                email = auth.account_email(account_id)
+                if email:
+                    billing.claim_by_email(email, account_id)
+                    _sharing.claim_by_email(email, account_id)
+            # AND THE UNFINISHED ONES. The notebook is the reason a guest is asked to
+            # register; leaving the drafts behind made signing up the thing that deleted
+            # them, while /home's own copy promised they would move.
+            _intake.reassign_owner(guest, account_id)
+            resp.delete_cookie(GUEST_COOKIE, path="/")
+            if request is not None:
+                # Do not re-issue the cookie we just deleted on the way out.
+                request.state.castor_new_guest = None
+    except Exception as e:                                   # noqa: BLE001
+        # A failed claim must never block the sign-in itself: the account is real, the
+        # session is valid, and the reports are still in the database under the guest id.
+        log.warning("[auth] could not claim guest work for %s: %s", account_id[:8], e)
+
+
+def _claim_prepaid(account_id: str) -> dict:
+    """Move anything held against this account's (now proved) address onto it.
+
+    THE OTHER HALF OF "BUY FIRST, REGISTER LATER". A purchase made from a guest cookie is
+    granted to that cookie, and the Stripe address is the durable handle when the cookie
+    is gone. Confirming the address is what earns it: this runs from the two endpoints
+    that prove possession of a mailbox, /auth/verify and /auth/reset.
+
+    Never raises. A claim that fails must not turn a working confirmation link into an
+    error page.
+    """
+    out = {"credits": 0, "coupons": 0}
+    try:
+        import billing
+        import sharing
+        email = auth.account_email(account_id)
+        if not email:
+            return out
+        out["credits"] = billing.claim_by_email(email, account_id)
+        out["coupons"] = sharing.claim_by_email(email, account_id)
+        if out["credits"] or out["coupons"]:
+            log.info("[auth] %s verified and claimed %d credit(s), %d coupon(s)",
+                     account_id[:8], out["credits"], out["coupons"])
+    except Exception as e:                                   # noqa: BLE001
+        log.warning("[auth] could not claim prepaid items for %s: %s", account_id[:8], e)
+    return out
 
 
 @app.post("/auth/signup")
@@ -364,7 +528,18 @@ def auth_signup(req: AuthRequest, response: Response):
     report each is an unbounded bill on someone else's key, and nothing else in the system
     bounds it.
     """
-    quota.check_login_allowed(f"signup:{_client_ip()}")
+    # THE LIMITER COUNTED ONLY FAILURES, WHICH IS THE ONE OUTCOME THAT DOES NOT COST
+    # ANYTHING. It checked signup:<ip> and recorded only in the ValueError branch, so a
+    # stranger whose signups all SUCCEEDED was never counted and could mint accounts
+    # forever — each with its own daily run allowance, which is the exact bill the
+    # docstring above says nothing else bounds. A success is the attempt worth counting.
+    key = f"signup:{_client_ip()}"
+    try:
+        quota.check_login_allowed(key)
+    except quota.QuotaExceeded as e:
+        # Unwrapped, this escaped as a 500: the limiter tripping looked like a server
+        # fault instead of a refusal. Login already gets this right; signup did not.
+        raise HTTPException(status_code=429, detail=str(e))
     try:
         acct = auth.create_account(req.email, req.password)
     except auth.PasswordTooWeak as e:
@@ -372,9 +547,18 @@ def auth_signup(req: AuthRequest, response: Response):
     except ValueError:
         # Deliberately the same 400 as any other invalid signup: "account already exists"
         # tells a stranger which addresses are registered.
-        quota.record_login_failure(f"signup:{_client_ip()}")
+        quota.record_login_failure(key)
         raise HTTPException(status_code=400, detail="could not create that account")
+    quota.record_login_failure(key)      # counts the attempt, not a failure
     _set_session(response, acct)
+    # Confirm the address now, while they are here. It is the only thing that makes the
+    # account recoverable later, and mailer.send is a no-op on an instance with no key.
+    try:
+        import mailer
+        mailer.send_verify_email(req.email,
+                                 auth.issue_token(acct, "verify", auth.VERIFY_TTL_S))
+    except Exception as e:                                   # noqa: BLE001
+        log.warning("[auth] could not send the confirmation for %s: %s", acct[:8], e)
     return {"ok": True}
 
 
@@ -445,6 +629,14 @@ def auth_google(request: Request):
     # CSRF: a random state echoed back by Google and compared against a cookie only this
     # browser holds. Without it, an attacker can complete a login in someone else's browser.
     state = secrets.token_urlsafe(24)
+    # CARRY WHERE THEY WERE GOING. The email path honours ?next= (login.html nextUrl), and
+    # this one dropped it, so a signed-out reader who clicked Sign in on a report and chose
+    # Google landed on a blank survey instead of the report. Ride it in the state cookie
+    # rather than in the redirect_uri, which Google matches exactly against the registered
+    # value and would reject with a query string appended.
+    nxt = (request.query_params.get("next") or "").strip()
+    if not (nxt.startswith("/") and not nxt.startswith("//") and "\\" not in nxt):
+        nxt = ""                       # same-origin paths only; see login.html nextUrl()
     params = urlencode({
         "client_id": os.environ["GOOGLE_CLIENT_ID"],
         "redirect_uri": _google_redirect_uri(request),
@@ -454,7 +646,8 @@ def auth_google(request: Request):
         "prompt": "select_account",
     })
     resp = RedirectResponse(f"{_GOOGLE_AUTH}?{params}", status_code=302)
-    resp.set_cookie(_OAUTH_STATE_COOKIE, state, max_age=600, httponly=True, samesite="lax",
+    resp.set_cookie(_OAUTH_STATE_COOKIE, f"{state}|{nxt}", max_age=600, httponly=True,
+                    samesite="lax",
                     secure=os.environ.get("CASTOR_ENV", "").lower() == "production")
     return resp
 
@@ -467,9 +660,14 @@ def auth_google_callback(request: Request, code: str = "", state: str = "",
         raise HTTPException(status_code=404, detail="google sign-in is not configured")
     if error:
         return RedirectResponse("/login?error=google_denied", status_code=302)
-    expected = request.cookies.get(_OAUTH_STATE_COOKIE) or ""
+    raw = request.cookies.get(_OAUTH_STATE_COOKIE) or ""
+    expected, _, nxt = raw.partition("|")
     if not code or not state or not expected or not secrets.compare_digest(state, expected):
         return RedirectResponse("/login?error=google_state", status_code=302)
+    # Re-check the path on the way back: the cookie is ours, but a stale one from an older
+    # build could carry anything, and this value becomes a Location header.
+    if not (nxt.startswith("/") and not nxt.startswith("//") and "\\" not in nxt):
+        nxt = ""
 
     try:
         import requests as _rq
@@ -500,7 +698,9 @@ def auth_google_callback(request: Request, code: str = "", state: str = "",
         log.info("[auth] google sign-in refused: %s", e)
         return RedirectResponse("/login?error=google_refused", status_code=302)
 
-    resp = RedirectResponse("/survey", status_code=302)
+    # Where they were going, else the account page: someone signing in with Google is
+    # by definition a returning visitor, and the survey is the screen for a stranger.
+    resp = RedirectResponse(nxt or "/home", status_code=302)
     _set_session(resp, acct)
     resp.delete_cookie(_OAUTH_STATE_COOKIE)
     return resp
@@ -513,6 +713,172 @@ def auth_logout(response: Response):
     return {"ok": True}
 
 
+class ForgotRequest(BaseModel):
+    email: str
+
+
+class ResetRequest(BaseModel):
+    token: str
+    password: str
+
+
+@app.post("/auth/forgot")
+def auth_forgot(req: ForgotRequest):
+    """Start a password reset.
+
+    THE ANSWER IS THE SAME EITHER WAY. A distinct "no such account" turns this endpoint
+    into a membership oracle: anyone could test an address list against it. So it always
+    returns ok, whether the address exists, whether it is an OAuth-only account with no
+    password to reset, and whether the mail provider is configured at all.
+
+    Rate limited on the address as well as the caller, because the cost here lands on
+    someone else's mailbox.
+    """
+    import mailer
+    email = (req.email or "").strip().lower()
+    keys = (f"forgot:{_client_ip()}", f"forgot-addr:{email}")
+    try:
+        quota.check_login_allowed(*keys)
+    except quota.QuotaExceeded as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    quota.record_login_failure(*keys)          # counts the attempt; there is no "success"
+
+    acct = auth.account_by_email(email)
+    if acct:
+        # An OAuth-only row stores a sentinel hash that verify_password always refuses,
+        # so a reset link would produce a password that cannot log in. Sending nothing is
+        # the honest outcome, and it is indistinguishable from outside.
+        if not str(acct.get("password_hash", "")).startswith("oauth-only"):
+            token = auth.issue_token(acct["id"], "reset", auth.RESET_TTL_S)
+            mailer.send_password_reset(email, token)
+    return {"ok": True}
+
+
+@app.post("/auth/reset")
+def auth_reset(req: ResetRequest, response: Response):
+    """Finish a reset. The token is the proof, so no current password is asked for."""
+    acct = auth.spend_token(req.token, "reset")
+    if not acct:
+        raise HTTPException(status_code=400,
+                            detail="that link has expired or was already used")
+    try:
+        auth.set_password(acct, req.password)
+    except auth.PasswordTooWeak as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    # Controlling the address proved the account, so confirm it in the same breath.
+    auth.mark_email_verified(acct)
+    _claim_prepaid(acct)
+    _set_session(response, acct)
+    return {"ok": True}
+
+
+@app.post("/auth/verify/send")
+def auth_verify_send(request: Request):
+    """Send (or resend) the confirmation link for the signed-in account."""
+    import mailer
+    acct = _session_owner(request)
+    if not acct:
+        raise HTTPException(status_code=401, detail="sign in first")
+    key = f"verify:{acct}"
+    try:
+        quota.check_login_allowed(key)
+    except quota.QuotaExceeded as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    quota.record_login_failure(key)
+    email = auth.account_email(acct)
+    if email and not auth.email_is_verified(acct):
+        mailer.send_verify_email(email, auth.issue_token(acct, "verify", auth.VERIFY_TTL_S))
+    return {"ok": True}
+
+
+@app.get("/auth/verify")
+def auth_verify(token: str = ""):
+    """Confirm an address. A GET because it is reached by clicking a link in a mailbox."""
+    acct = auth.spend_token(token, "verify")
+    if not acct:
+        raise HTTPException(status_code=400,
+                            detail="that link has expired or was already used")
+    auth.mark_email_verified(acct)
+    _claim_prepaid(acct)
+    return RedirectResponse("/home?verified=1", status_code=303)
+
+
+class PasswordChange(BaseModel):
+    current: str
+    new: str
+
+
+@app.post("/auth/password")
+def auth_change_password(req: PasswordChange, request: Request,
+                         response: Response):
+    """Change the password, proving the current one.
+
+    Rate limited like login: this endpoint verifies a password, and scrypt is ~100ms and
+    ~16MB a go, so an unthrottled one is both an oracle and a memory tap.
+    """
+    acct = _session_owner(request)
+    if not acct:
+        raise HTTPException(status_code=401, detail="sign in first")
+    key = f"pw:{_client_ip()}"
+    try:
+        quota.check_login_allowed(key)
+    except quota.QuotaExceeded as e:
+        raise HTTPException(status_code=429, detail=str(e))
+    try:
+        auth.change_password(acct, req.current, req.new)
+    except auth.PasswordTooWeak as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as e:
+        quota.record_login_failure(key)
+        raise HTTPException(status_code=400, detail=str(e))
+    quota.clear_login_failures(key)
+    # Their own cookie was just invalidated along with everyone else's, so hand them a
+    # fresh one. Changing your password should evict the intruder, not you.
+    _set_session(response, acct)
+    return {"ok": True}
+
+
+class AccountDelete(BaseModel):
+    #: A password account proves itself with the password. An OAUTH-ONLY account has no
+    #: password to prove — auth stores a sentinel hash that verify_password always
+    #: refuses — so it types its own email address instead. Both are "something only the
+    #: owner can supply, entered deliberately", which is what this gate is for.
+    password: str = ""
+    confirm_email: str = ""
+
+
+@app.delete("/auth/account")
+def auth_delete_account(req: AccountDelete, request: Request, response: Response):
+    """Erase this account and everything it owns. Irreversible, and it says so.
+
+    The PASSWORD is required, not just the session: this destroys reports someone spent
+    money on, and a borrowed 30-day cookie must not be enough to do it.
+    """
+    acct = _session_owner(request)
+    if not acct:
+        raise HTTPException(status_code=401, detail="sign in first")
+
+    # A GOOGLE ACCOUNT COULD NEVER BE DELETED, AND HAD NO WAY TO ACQUIRE A PASSWORD.
+    # OAuth rows store auth.OAUTH_ONLY as password_hash, which verify_password refuses by
+    # design, so every password typed here answered "password is wrong". Both escape
+    # hatches were shut too: /auth/forgot skips oauth-only rows, and change_password
+    # proves the current password first. The owner could not erase their own data, which
+    # is also an obligation under GDPR and CCPA rather than a nicety.
+    if auth.has_password(acct):
+        if not auth.verify_password(req.password, auth.password_hash_of(acct)):
+            raise HTTPException(status_code=400, detail="password is wrong")
+    else:
+        typed = (req.confirm_email or "").strip().lower()
+        mine = (auth.account_email(acct) or "").strip().lower()
+        if not mine or typed != mine:
+            raise HTTPException(
+                status_code=400,
+                detail="type your email address exactly to confirm")
+    gone = auth.delete_account(acct)
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"ok": True, "deleted": gone}
+
+
 @app.get("/auth/me")
 def auth_me():
     """Deliberately does NOT go through _current_owner: this endpoint has to answer while
@@ -520,12 +886,28 @@ def auth_me():
     acct = _session_owner()
     if acct:
         return {"owner": acct, "authenticated": True, "email": _account_email(acct),
+                "guest": False, "reports": _report_count(acct),
+                # The UI needs both: a Change-password card is meaningless on an
+                # OAuth-only account, and an unverified address needs a way to resend.
+                "has_password": auth.has_password(acct),
+                "verified": auth.email_is_verified(acct),
                 "google": google_configured()}
+
     local = os.environ.get("CASTOR_ENV", "").lower() != "production"
+    # Ask through _current_owner so the visitor LEAVES this call with a guest id: every
+    # page loads account.js, which calls here first, so this is where an anonymous
+    # workspace begins. It can refuse when the operator has required login, and this
+    # endpoint has to answer either way — it is what the login screen reads to decide
+    # whether to show itself.
+    try:
+        owner = _current_owner()
+    except HTTPException:
+        owner = None
+    reports = _report_count(owner) if owner else 0
     # The login page asks before drawing the Google button: a button that 404s is worse
     # than no button.
-    return {"owner": jobs.LEGACY_OWNER if local else None,
-            "authenticated": False, "local": local,
+    return {"owner": owner, "authenticated": False, "local": local,
+            "guest": bool(owner), "reports": reports,
             "google": google_configured()}
 
 
@@ -534,6 +916,10 @@ class CheckoutRequest(BaseModel):
     """What is being bought. Prices live in Stripe; this names the product only."""
     kind: str = Field(..., min_length=1, max_length=32)
     job_id: str | None = None
+    #: The intake session to come back to. The survey keeps its state ONLY in the URL
+    #: (?s=...), so a return URL without it drops the founder on a blank prose box with
+    #: every answer gone — after they have paid. Not the job; the interview.
+    session_id: str | None = Field(default=None, max_length=64)
 
 
 @app.get("/billing/status")
@@ -549,8 +935,65 @@ def billing_status():
         "configured": billing.configured(),
         "buyable": {k: billing.buyable(k) for k in billing.PRICE_ENV},
         "report_credits": billing.balance(owner, "report"),
-        "free_runs_left": max(0, quota._daily_limit(owner) - quota.runs_today(owner)),
+        # COUNT AGAINST THE KEY claim_run_slot ACTUALLY WRITES. A guest's runs are
+        # ledgered under quota.guest_ledger_key(ip), not under the cookie id, so counting
+        # the cookie returned "3 free runs left" forever and the founder met a hard 429 at
+        # the CTA with the meter still reading three.
+        "free_runs_left": max(0, quota._daily_limit(owner) - quota.runs_today(
+            quota.guest_ledger_key(_client_ip()) if quota.is_guest(owner) else owner)),
+        # B15: the price, so a Buy button can say what it costs. Amounts live in Stripe;
+        # these are the pack sizes and the operator's own list prices for the refine packs.
+        "prices_usd": dict(getattr(__import__("iteration"), "PACK_PRICES_USD", {})),
+        # WHAT THE GATE DRAWS. The survey asks before it launches a run, and it must not
+        # invent prices or guess which packs this instance can sell. Only kinds with a
+        # price id configured appear, so a half-configured instance offers only what it
+        # can actually take money for.
+        "offers": [
+            dict(kind=k, price_usd=billing.LIST_PRICES_USD.get(k), **billing.OFFERS[k])
+            for k in ("report", "bundle5", "bundle10")
+            if billing.buyable(k) or _paywall_preview()
+        ],
+        # THE ONE PLACE THE PAYWALL RULE LIVES. A run costs a credit once the instance can
+        # sell; the free daily allowance is what keeps an instance that CANNOT sell usable.
+        # Deciding this in the browser meant the rule existed twice and could disagree.
+        "needs_purchase": _needs_purchase(owner),
+        # WHAT TO PREFILL THE REGISTRATION FORM WITH, once they have paid. Their own
+        # address, off their own receipt, and only ever theirs.
+        "prepaid_email": billing.email_on_credits(owner),
+        # Set CASTOR_PAYWALL_PREVIEW=1 to draw the gate on an instance with no Stripe keys,
+        # for looking at the flow. It is labelled in the UI and offers a way past, because
+        # a wall that cannot take money is a bug, not a paywall.
+        "preview": _paywall_preview(),
     }
+
+
+def _paywall_preview() -> bool:
+    return os.environ.get("CASTOR_PAYWALL_PREVIEW", "") == "1"
+
+
+def _needs_purchase(owner: str) -> bool:
+    """Does the next report have to be paid for?
+
+    True when this instance can sell and the founder holds no credit. False when there is
+    no processor wired: an instance that cannot take money must not put up a wall, or the
+    survey ends at a button that does nothing.
+    """
+    import billing
+    if billing.balance(owner, "report") > 0:
+        return False
+    return billing.configured() or _paywall_preview()
+
+
+@app.get("/billing/coupons")
+def billing_coupons():
+    """Reward codes sitting on this account, newest first.
+
+    Guests see theirs too: the coupon is granted to whatever id shared the report, and it
+    moves onto the account at registration. Showing it only to signed-in people would hide
+    it from exactly the person who was told to register in order to keep it."""
+    import sharing
+    return {"coupons": sharing.held_by(_current_owner()),
+            "reward_usd": sharing.REWARD_USD}
 
 
 @app.post("/billing/checkout")
@@ -562,15 +1005,54 @@ def billing_checkout(req: CheckoutRequest, request: Request):
     signed webhook does."""
     import billing
     owner = _current_owner(request)
+    # THE PACK IS BOUGHT FOR ONE REPORT, SO PROVE IT IS YOURS. job_id rode straight into
+    # Stripe metadata, and billing.fulfill grants against whatever it finds there, so a
+    # stranger's id in this field bought capacity on their report. _owned_job raises 404
+    # for anything not yours, which is also the right answer for a job that is not real.
+    if req.job_id:
+        _owned_job(req.job_id, request)
     base = str(request.base_url).rstrip("/")
     if os.environ.get("CASTOR_ENV", "").lower() == "production":
         base = base.replace("http://", "https://", 1)
-    back = (f"{base}/jobs/{req.job_id}/report.html" if req.job_id else f"{base}/survey")
+
+    # ---- TEST MODE ---------------------------------------------------------------
+    # WITH NO PROCESSOR WIRED THERE IS NOTHING TO CALL, so a Buy button on a
+    # not-yet-configured instance could only ever refuse. That put the whole second half
+    # of the funnel out of reach: the claim-your-credits card, the registration ask, and
+    # the credit actually being spent on the run all live AFTER a completed purchase.
+    #
+    # Under CASTOR_PAYWALL_PREVIEW the purchase is granted here instead and the browser is
+    # sent to the SAME return URL Stripe would have sent it to, so every step downstream
+    # runs its real code against a real entitlement. Nothing is simulated except the money.
+    #
+    # Two locks, and both must be open: the operator has set the preview switch, and
+    # billing.grant_test_purchase refuses outright when real keys are present. An instance
+    # that can charge a card can never reach this branch.
+    if _paywall_preview() and not billing.configured():
+        granted = billing.grant_test_purchase(req.kind, owner)
+        log.warning("[billing] TEST PURCHASE of %s (%d credit(s)) for %s: no money moved",
+                    req.kind, granted, owner[:12])
+        if req.job_id:
+            return {"url": f"{base}/jobs/{req.job_id}/report.html?paid={req.kind}"}
+        sid = (req.session_id or "").strip()
+        back = f"{base}/survey?paid={quote(req.kind, safe='')}"
+        return {"url": back + (f"&s={quote(sid, safe='')}" if sid else "")}
+    # ------------------------------------------------------------------------------
+
+    if req.job_id:
+        back = f"{base}/jobs/{req.job_id}/report.html"
+        tail = ""
+    else:
+        back = f"{base}/survey"
+        # Carry the interview back. survey.js resumeAfterPurchase() bails without it, so
+        # the run they just paid for would never start and their answers would be gone.
+        sid = (req.session_id or "").strip()
+        tail = f"&s={quote(sid, safe='')}" if sid else ""
     try:
         url = billing.create_checkout(
             req.kind, owner,
-            success_url=f"{back}?paid={req.kind}",
-            cancel_url=f"{back}?paid=cancelled",
+            success_url=f"{back}?paid={req.kind}{tail}",
+            cancel_url=f"{back}?paid=cancelled{tail}",
             job_id=req.job_id)
     except billing.BillingError as e:
         raise HTTPException(status_code=402, detail=str(e))
@@ -795,6 +1277,3 @@ def describe_agent_api(name: str):
 # Serve the web app
 if WEB_DIR.exists():
     app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
-# Legacy static dir (old UI)
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

@@ -39,7 +39,20 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from logger import get
-from tools import Evidence, TOOL_REGISTRY, ToolMeta
+from core import Evidence, Registry
+
+
+def _default_registry() -> Registry:
+    """The domain's tool set, resolved at CALL time rather than import time.
+
+    The agent loop is frame code: it knows how to choose a tool, run it and read the
+    Evidence back, and nothing about what the tools do. Importing `tools` at module scope
+    would make that untrue -- loading the loop would load 43 market-research tool modules
+    and the frame could not be used for anything else. Every entry point below takes
+    `registry=` so a caller can supply its own; this is only the default.
+    """
+    from tools import TOOL_REGISTRY
+    return TOOL_REGISTRY
 
 log = get("harness.agent")
 
@@ -123,14 +136,19 @@ class AgentResult:
 def select_tools(
     allowed_tools: Optional[list[str]] = None,
     allowed_categories: Optional[list[str]] = None,
-) -> list[ToolMeta]:
+    registry: Optional[Registry] = None,
+) -> list:
     """Return the masked tool surface for a run.
 
     Masking, not mutation: we always look at the full registry and *filter*.
     With no filters, the full registry is exposed. Results are sorted so the
     prompt prefix is deterministic (KV-cache friendly).
+
+    `registry` defaults to the domain's tool set. Passing one is how a different report
+    type -- or a test -- runs this loop over its own tools.
     """
-    metas = list(TOOL_REGISTRY.values())
+    registry = registry if registry is not None else _default_registry()
+    metas = list(registry.values())
     if allowed_tools is not None:
         allow = set(allowed_tools)
         metas = [m for m in metas if m.name in allow]
@@ -140,7 +158,7 @@ def select_tools(
     return sorted(metas, key=lambda m: (m.category, m.name))
 
 
-def _tool_catalog(metas: list[ToolMeta]) -> str:
+def _tool_catalog(metas: list) -> str:
     """Stable, compact catalog string for the system prompt."""
     lines = []
     for m in metas:
@@ -202,6 +220,7 @@ def run_agent(
     allowed_categories: Optional[list[str]] = None,
     max_steps: int = 8,
     context: str = "",
+    registry: Optional[Registry] = None,
 ) -> AgentResult:
     """Run the agent loop to accomplish `goal`, return an AgentResult.
 
@@ -209,10 +228,13 @@ def run_agent(
       goal: what to accomplish (natural language).
       allowed_tools / allowed_categories: mask the tool surface. None = all.
       max_steps: per-run budget (clamped to MAX_STEPS_CEILING).
+      registry: the tool set to run over. Defaults to the domain's; supply one to run
+        this loop for a different report type, or a fixture set in a test.
       context: optional extra grounding injected once at the start.
 
     The result is also obtainable as a single Evidence via .to_evidence().
     """
+    registry = registry if registry is not None else _default_registry()
     budget = max(1, min(max_steps, MAX_STEPS_CEILING))
     metas = select_tools(allowed_tools, allowed_categories)
     result = AgentResult(goal=goal, answer="")
@@ -280,7 +302,7 @@ def run_agent(
 
         # Execute via the registry. The @tool wrapper already catches internal
         # exceptions and returns error Evidence, so this won't raise.
-        meta = TOOL_REGISTRY[tool_name]
+        meta = registry[tool_name]
         evidence = meta.fn(**args)
         if not isinstance(evidence, Evidence):  # defensive — should not happen
             evidence = Evidence(source=tool_name, category=meta.category,

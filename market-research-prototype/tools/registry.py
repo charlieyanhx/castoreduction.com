@@ -37,6 +37,7 @@ import traceback
 from dataclasses import dataclass, field, asdict
 from typing import Any, Callable, Optional
 
+from core import Evidence, Registry  # noqa: F401 — Evidence re-exported: `from tools import Evidence`
 from logger import get
 
 log = get("tools")
@@ -109,48 +110,6 @@ def _infer_concurrency(fn: Callable) -> str:
     return "parallel_safe"
 
 
-# ---------------------------------------------------------------------------
-# Evidence envelope — every tool returns this shape
-# ---------------------------------------------------------------------------
-@dataclass
-class Evidence:
-    """Uniform return shape for all registered tools.
-
-    Required:
-      source:   the tool name that produced this (e.g. "hackernews_mentions")
-      category: what kind of data this is (e.g. "customer_voice", "firmographic")
-      count:    how many items / rows / records the payload contains
-      payload:  the actual data (list, dict, scalar — depends on tool)
-
-    Metadata (filled automatically by the decorator):
-      fetched_at: epoch seconds when the fetch started
-      duration_s: how long the call took
-      cost_meta:  optional API/LLM cost tracking (calls, tokens, $)
-      error:      None on success; an error string on caught failure
-      skeleton:   True if this is a heuristic/fallback rather than real data
-    """
-    source: str
-    category: str
-    count: int
-    payload: Any = None
-    fetched_at: float = 0.0
-    duration_s: float = 0.0
-    cost_meta: dict = field(default_factory=dict)
-    error: Optional[str] = None
-    skeleton: bool = False
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-    def __bool__(self) -> bool:
-        """Evidence is 'truthy' only if it has data and no error."""
-        return self.count > 0 and self.error is None
-
-    @classmethod
-    def empty(cls, source: str, category: str, error: Optional[str] = None) -> "Evidence":
-        """Build an empty envelope (useful for explicit no-data results)."""
-        return cls(source=source, category=category, count=0, payload=None,
-                   fetched_at=time.time(), error=error)
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +138,7 @@ class ToolMeta:
 
 
 # Global registry. Populated as tool modules are imported.
-TOOL_REGISTRY: dict[str, ToolMeta] = {}
+TOOL_REGISTRY: Registry[ToolMeta] = Registry("tool")
 
 
 def tool(
@@ -358,10 +317,8 @@ def tool(
 # ---------------------------------------------------------------------------
 def list_tools(category: Optional[str] = None) -> list[ToolMeta]:
     """Return all registered tools, optionally filtered by category."""
-    items = list(TOOL_REGISTRY.values())
-    if category is not None:
-        items = [t for t in items if t.category == category]
-    return sorted(items, key=lambda t: (t.category, t.name))
+    match = {"category": category} if category is not None else {}
+    return TOOL_REGISTRY.entries(sort_key=lambda t: (t.category, t.name), **match)
 
 
 def categories() -> list[str]:
@@ -376,21 +333,9 @@ def get_tool(name: str) -> Optional[ToolMeta]:
 
 def describe_tool(name: str) -> dict:
     """Return a JSON-friendly description of one tool — for UI/agent consumption."""
-    meta = TOOL_REGISTRY.get(name)
-    if not meta:
-        return {"error": f"tool '{name}' not registered"}
-    return {
-        "name": meta.name,
-        "category": meta.category,
-        "signature": meta.signature,
-        "returns": meta.returns,
-        "docstring": meta.docstring,
-        "concurrency": meta.concurrency,
-        "concurrency_inferred": meta.concurrency_inferred,
-        "tier": meta.tier,
-        "tier_inferred": meta.tier_inferred,
-        "cost_usd": meta.cost_usd,
-    }
+    return TOOL_REGISTRY.describe(name, (
+        "name", "category", "signature", "returns", "docstring", "concurrency",
+        "concurrency_inferred", "tier", "tier_inferred", "cost_usd"))
 
 
 def describe_all() -> dict:

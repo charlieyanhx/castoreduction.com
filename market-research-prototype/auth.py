@@ -211,6 +211,256 @@ _DUMMY_HASH = hash_password(secrets.token_urlsafe(24))
 
 
 # ----------------------------------------------------------------------------- sessions
+#: One-shot tokens for the two flows that must reach an address we have not yet proven we
+#: can reach. 1h for a reset, 24h for a confirmation.
+RESET_TTL_S = 3600
+VERIFY_TTL_S = 24 * 3600
+
+
+def _tokens_db() -> sqlite3.Connection:
+    conn = _db()
+    conn.execute("""CREATE TABLE IF NOT EXISTS auth_tokens (
+            token_hash TEXT PRIMARY KEY,
+            account_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            used_at INTEGER)""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_tokens_acct "
+                 "ON auth_tokens(account_id, kind)")
+    return conn
+
+
+def issue_token(account_id: str, kind: str, ttl_s: int) -> str:
+    """Mint a single-use token and return the SECRET half.
+
+    STORED HASHED, like a password. The row is what an attacker reaches if they get the
+    database, and a reset table full of usable links is a full account takeover of every
+    pending request. Only the caller ever holds the plaintext, and only long enough to put
+    it in an email.
+
+    Issuing invalidates this account's earlier tokens of the same kind: two live reset
+    links means an old email, forwarded or leaked, still works after the person asked
+    again.
+    """
+    import secrets as _secrets
+    token = _secrets.token_urlsafe(32)
+    now = int(time.time())
+    c = _tokens_db()
+    try:
+        c.execute("DELETE FROM auth_tokens WHERE account_id = ? AND kind = ?",
+                  (account_id, kind))
+        c.execute("INSERT INTO auth_tokens (token_hash, account_id, kind, expires_at) "
+                  "VALUES (?, ?, ?, ?)",
+                  (_hash_token(token), account_id, kind, now + int(ttl_s)))
+        c.execute("DELETE FROM auth_tokens WHERE expires_at < ?", (now - 86400,))
+    finally:
+        c.close()
+    return token
+
+
+def spend_token(token: str, kind: str) -> str | None:
+    """The account a valid unused token names, marking it used. None otherwise.
+
+    Single use is enforced by the UPDATE's own WHERE clause, not by a read followed by a
+    write: two tabs submitting the same reset link must not both succeed.
+    """
+    if not token:
+        return None
+    now = int(time.time())
+    th = _hash_token(token)
+    c = _tokens_db()
+    try:
+        row = c.execute("SELECT account_id FROM auth_tokens WHERE token_hash = ? "
+                        "AND kind = ? AND used_at IS NULL AND expires_at > ?",
+                        (th, kind, now)).fetchone()
+        if not row:
+            return None
+        spent = c.execute("UPDATE auth_tokens SET used_at = ? WHERE token_hash = ? "
+                          "AND used_at IS NULL", (now, th)).rowcount
+        return row[0] if spent == 1 else None
+    finally:
+        c.close()
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def set_password(account_id: str, new: str) -> None:
+    """Set a password WITHOUT the old one. Reached only after spend_token has proved the
+    holder controls the address, which is the other way of proving the account."""
+    hashed = hash_password(new)
+    c = _db()
+    try:
+        c.execute("UPDATE accounts SET password_hash = ? WHERE id = ?",
+                  (hashed, account_id))
+    finally:
+        c.close()
+    invalidate_sessions(account_id)
+
+
+def account_by_email(email: str) -> dict | None:
+    return _find_account(email)
+
+
+def account_email(account_id: str) -> str | None:
+    c = _db()
+    try:
+        row = c.execute("SELECT email FROM accounts WHERE id = ?", (account_id,)).fetchone()
+    finally:
+        c.close()
+    return row[0] if row else None
+
+
+def mark_email_verified(account_id: str) -> None:
+    c = _db()
+    try:
+        cols = {r[1] for r in c.execute("PRAGMA table_info(accounts)")}
+        if "email_verified_at" not in cols:
+            c.execute("ALTER TABLE accounts ADD COLUMN email_verified_at INTEGER")
+        c.execute("UPDATE accounts SET email_verified_at = ? WHERE id = ?",
+                  (int(time.time()), account_id))
+    finally:
+        c.close()
+
+
+def email_is_verified(account_id: str) -> bool:
+    c = _db()
+    try:
+        cols = {r[1] for r in c.execute("PRAGMA table_info(accounts)")}
+        if "email_verified_at" not in cols:
+            return False
+        row = c.execute("SELECT email_verified_at FROM accounts WHERE id = ?",
+                        (account_id,)).fetchone()
+    finally:
+        c.close()
+    return bool(row and row[0])
+
+
+def invalidate_sessions(account_id: str) -> None:
+    """Cut every session this account has already issued.
+
+    THE REASON PEOPLE RESET A PASSWORD IS THAT SOMEBODY ELSE HAS ACCESS. Without this the
+    intruder's cookie kept working for up to thirty days after the reset — including
+    DELETE /auth/account — so the recovery flow completed without recovering anything.
+
+    Implemented as a floor on issue time rather than a session table: these tokens are
+    stateless by design, and one indexed lookup per request is a smaller price than a
+    server-side session store. Anything minted before the floor is refused.
+    """
+    c = _db()
+    try:
+        cols = {r[1] for r in c.execute("PRAGMA table_info(accounts)")}
+        if "sessions_valid_from" not in cols:
+            c.execute("ALTER TABLE accounts ADD COLUMN sessions_valid_from INTEGER")
+        c.execute("UPDATE accounts SET sessions_valid_from = ? WHERE id = ?",
+                  (int(time.time()), account_id))
+    finally:
+        c.close()
+
+
+def _sessions_valid_from(account_id: str) -> int:
+    c = _db()
+    try:
+        cols = {r[1] for r in c.execute("PRAGMA table_info(accounts)")}
+        if "sessions_valid_from" not in cols:
+            return 0
+        row = c.execute("SELECT sessions_valid_from FROM accounts WHERE id = ?",
+                        (account_id,)).fetchone()
+    except sqlite3.Error:
+        return 0
+    finally:
+        c.close()
+    return int(row[0]) if row and row[0] else 0
+
+
+def has_password(account_id: str) -> bool:
+    """False for an account created through Google.
+
+    create_account is the only path that sets a real hash; find_or_create_google_account
+    stores OAUTH_ONLY, a deliberately invalid scrypt string. Callers that ask a user to
+    prove themselves WITH a password must ask this first, or they present a form that can
+    only ever answer "wrong".
+    """
+    h = password_hash_of(account_id)
+    return bool(h) and not str(h).startswith("oauth-only")
+
+
+def password_hash_of(account_id: str) -> str | None:
+    """The stored hash, for a caller that must re-prove a password before something
+    destructive. Returns None for an unknown account, which verify_password refuses."""
+    c = _db()
+    try:
+        row = c.execute("SELECT password_hash FROM accounts WHERE id = ?",
+                        (account_id,)).fetchone()
+    finally:
+        c.close()
+    return row[0] if row else None
+
+
+def change_password(account_id: str, current: str, new: str) -> None:
+    """Set a new password, proving the old one first.
+
+    THE CURRENT PASSWORD IS THE PROOF, not the session. A 30-day cookie on a shared or
+    borrowed machine is exactly the case where "change my password" must not be a
+    one-click account takeover, and this system has no second factor to fall back on.
+
+    An OAuth-only account has no current password to prove (create_account was never the
+    path that made it), so it cannot use this at all: `password_hash` is the deliberate
+    sentinel and verify_password refuses it.
+    """
+    c = _db()
+    try:
+        row = c.execute("SELECT password_hash FROM accounts WHERE id = ?",
+                        (account_id,)).fetchone()
+    finally:
+        c.close()
+    if not row:
+        raise ValueError("no such account")
+    if not verify_password(current, row[0]):
+        raise ValueError("current password is wrong")
+    hashed = hash_password(new)          # raises PasswordTooWeak, same rule as signup
+    c = _db()
+    try:
+        c.execute("UPDATE accounts SET password_hash = ? WHERE id = ?",
+                  (hashed, account_id))
+    finally:
+        c.close()
+    # Changing a password is the other half of "somebody else has access". Same floor.
+    invalidate_sessions(account_id)
+
+
+def delete_account(account_id: str) -> dict:
+    """Erase an account and everything attached to it. Returns what went.
+
+    EVERYTHING MEANS EVERYTHING, and the order matters: the account row goes LAST, so a
+    failure part-way leaves an account that still owns its data rather than orphaned rows
+    nobody can reach or delete. Reports, the refinement layer on each, unspent credits,
+    quota history and unfinished drafts all name the owner, and a deletion that left any
+    of them behind would be a deletion in the copy only.
+
+    The caller proves identity. This function does not: it is reached from one route that
+    has already re-checked the password.
+    """
+    gone = {}
+    conn = _db()                     # same path resolution as every other reader here
+    try:
+        for table, col in (("jobs", "owner_id"), ("entitlements", "account_id"),
+                           ("run_slots", "owner_id"), ("run_ledger", "owner_id"),
+                           ("intake_sessions", "owner_id")):
+            try:
+                cur = conn.execute(f"DELETE FROM {table} WHERE {col} = ?", (account_id,))
+                gone[table] = cur.rowcount or 0
+            except sqlite3.OperationalError:
+                gone[table] = 0                  # table not created on this instance yet
+        cur = conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+        gone["accounts"] = cur.rowcount or 0
+    finally:
+        conn.close()
+    log.info("[auth] deleted account %s: %s", account_id[:8], gone)
+    return gone
+
+
 def _session_secret() -> str:
     """The signing key.
 
@@ -259,7 +509,53 @@ def make_session_token(account_id: str) -> str:
 
 
 def read_session_token(token: str | None) -> str | None:
-    """The account id a valid, unexpired, correctly-signed token names — else None."""
+    """The account id a valid, unexpired, correctly-signed token names — else None.
+
+    A GUEST TOKEN IS NOT A SESSION. Both are signed with the same key, so without the
+    `typ` check below a guest cookie pasted into the session cookie's slot would verify
+    and name its guest id as an account. Guest ids are uuid4 and account ids are uuid4,
+    so nothing real would be reached — but "nothing real would be reached" is an argument
+    about today's id format, not a guarantee, and this is the function that decides who
+    someone is. It checks the type.
+    """
+    data = _read_token(token, want="session")
+    if not data:
+        return None
+    sub = str(data["sub"]) or None
+    if not sub:
+        return None
+    # THE FLOOR. A token minted before the account's last password change is refused,
+    # which is what makes a reset actually evict whoever else was signed in.
+    try:
+        if float(data.get("iat") or 0) < _sessions_valid_from(sub):
+            return None
+    except Exception:                                        # noqa: BLE001
+        return None
+    return sub
+
+
+def make_guest_token(guest_id: str) -> str:
+    """A signed token for a visitor who has not registered.
+
+    THE POINT IS ISOLATION, NOT SECURITY. It carries no privilege: it names one anonymous
+    library so two strangers on the same instance do not share a workspace, which is what
+    the shared LEGACY_OWNER fallback did. Signed rather than a bare uuid so a visitor
+    cannot type someone else's guest id into their own cookie and read their reports.
+    """
+    payload = base64.urlsafe_b64encode(
+        json.dumps({"sub": guest_id, "iat": int(time.time()), "typ": "guest"}).encode()
+    ).decode().rstrip("=")
+    return f"{payload}.{_sign(payload)}"
+
+
+def read_guest_token(token: str | None) -> str | None:
+    """The guest id a valid, unexpired, correctly-signed guest token names — else None."""
+    data = _read_token(token, want="guest")
+    return (str(data["sub"]) or None) if data else None
+
+
+def _read_token(token: str | None, *, want: str) -> dict | None:
+    """Verify signature, expiry and type. The one place tokens are opened."""
     if not token or not isinstance(token, str) or token.count(".") != 1:
         return None
     payload_b64, sig = token.split(".")
@@ -268,8 +564,11 @@ def read_session_token(token: str | None) -> str | None:
     try:
         pad = "=" * (-len(payload_b64) % 4)
         data = json.loads(base64.urlsafe_b64decode(payload_b64 + pad))
+        # Session tokens predate `typ` and carry none; absent means session.
+        if (data.get("typ") or "session") != want:
+            return None
         if time.time() - float(data["iat"]) > SESSION_MAX_AGE_S:
             return None
-        return str(data["sub"]) or None
+        return data if data.get("sub") else None
     except Exception:
         return None

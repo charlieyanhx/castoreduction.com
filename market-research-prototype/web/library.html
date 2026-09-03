@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Report library · Castor Research</title>
+<meta name="description" content="Real market research reports, published by the founders who commissioned them."/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap">
+<link rel="stylesheet" href="/brand.css">
+<style>
+  /* [hidden] is a UA rule and ANY author `display:` beats it. See login.html. */
+  [hidden] { display: none !important; }
+
+  /* The warm paper of the survey, the progress screen and the report. The library used to
+     be the old dark console, so following "your library" out of a finished report handed
+     the reader a different product mid-flow. */
+  :root {
+    --bg: var(--brand-paper);
+    --surface: var(--brand-surface);
+    --surface-2: var(--brand-surface-2);
+    --line: var(--brand-line);
+    --text: var(--brand-ink);
+    --text-dim: var(--brand-ink-dim);
+    --text-faint: var(--brand-ink-faint);
+    --shadow-1: var(--brand-shadow);
+    --accent: var(--brand-accent-ink);
+    --accent-soft: var(--brand-accent-bg);
+    --warn-ink: var(--brand-warn);
+    --warn-bg: var(--brand-warn-bg);
+    --warn-line: var(--brand-warn-line);
+    --danger: var(--brand-danger);
+    --danger-bg: var(--brand-danger-bg);
+    --radius: var(--brand-r);
+    --serif: var(--brand-sans);
+    --sans: var(--brand-sans);
+    --mono: var(--brand-mono);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  body { font-family: var(--sans); font-size: 14px; line-height: 1.5; color: var(--text);
+         background: var(--bg); -webkit-font-smoothing: antialiased; }
+
+  .rail { position: sticky; top: 0; z-index: 20; display: flex; align-items: center;
+          gap: 14px; padding: 13px 24px; background: oklch(97.3% 0.006 85 / .88);
+          backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+  .brand { font-family: var(--serif); font-size: 16px; font-weight: var(--brand-display-weight);
+           letter-spacing: -.01em; text-decoration: none; color: var(--text); }
+  .brand span { color: var(--accent); }
+  .rail-acts { margin-left: auto; display: flex; gap: 9px; align-items: center; }
+  .btn { font: inherit; font-size: 13px; font-weight: 600; text-decoration: none;
+         cursor: pointer; padding: 8px 15px; border-radius: 9px;
+         border: 1px solid var(--line); background: var(--surface); color: var(--text-dim); }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.go { background: var(--brand-action); border-color: var(--brand-action); color: #fff; }
+  .btn.go:hover { opacity: .92; color: #fff; }
+
+  main { max-width: 1000px; margin: 0 auto; padding: 40px 24px 90px; }
+  h1 { font-family: var(--serif); font-size: clamp(26px, 1.4rem + 1.6vw, 34px);
+       font-weight: var(--brand-display-weight); letter-spacing: -.02em; }
+  .lede { margin-top: 10px; font-size: 15px; color: var(--text-dim); max-width: 58ch; }
+
+  .filters { display: flex; gap: 9px; margin: 26px 0 18px; flex-wrap: wrap; }
+  .filters input, .filters select {
+    font: inherit; font-size: 13.5px; color: inherit; padding: 9px 12px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 9px; }
+  .filters input { flex: 1; min-width: 190px; }
+  .filters input:focus, .filters select:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); }
+
+  .row { display: grid; grid-template-columns: 26px minmax(0, 1fr) 128px 118px;
+         gap: 16px; align-items: center; padding: 15px 16px; background: var(--surface);
+         border: 1px solid var(--line); border-radius: var(--radius);
+         margin-bottom: 9px; box-shadow: var(--shadow-1); }
+  .row a.name { font-size: 15.5px; font-weight: 600; color: var(--text);
+                text-decoration: none; letter-spacing: -.006em; }
+  .row a.name:hover { color: var(--accent); }
+  .row .sum { margin-top: 3px; font-size: 12.5px; color: var(--text-faint);
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .when { font-size: 11.5px; color: var(--text-faint); margin-top: 4px;
+               font-variant-numeric: tabular-nums; }
+  .score { font-family: var(--serif); font-size: 22px; font-weight: var(--brand-display-weight);
+           text-align: right; font-variant-numeric: tabular-nums; }
+  .score small { display: block; font-family: var(--sans); font-size: 10px;
+                 font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+                 color: var(--text-faint); margin-top: 2px; }
+  .pill { font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+          padding: 4px 10px; border-radius: 999px; text-align: center; white-space: nowrap; }
+  .pill.ready { background: var(--accent-soft); color: var(--accent); }
+  .pill.withheld { background: var(--warn-bg); color: var(--warn-ink); }
+  .pill.running { background: oklch(95% 0.03 250); color: oklch(45% 0.13 250); }
+  /* A grey pill among coloured ones reads as "inactive", not as "this run failed". The
+     danger tokens are what the rest of the product uses to say something went wrong. */
+  .pill.failed { background: var(--danger-bg); color: var(--danger); }
+
+  .empty { padding: 50px 0; color: var(--text-faint); font-size: 14.5px; }
+  .empty a { color: var(--accent); }
+  .empty .btn { margin-left: 4px; }
+  .bar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px;
+         font-size: 13px; color: var(--text-dim); }
+
+  /* THE LOADING STATE HAD THE SAME TREATMENT AS THE EMPTY ONE: one faint line of type in
+     the .empty style. /jobs opens every stored run's result blob to build its rows, so on
+     a full library it is slow enough that "Loading…" sat there long enough to be read as
+     "you have no reports" by somebody who has several. Rows in the shape of the real ones
+     cannot be misread that way. */
+  .skel-row { pointer-events: none; }
+  .skel { background: var(--surface-2); border-radius: 6px; height: 11px;
+          animation: skel-pulse 1.3s ease-in-out infinite; }
+  .skel.nm    { height: 15px; width: 44%; }
+  .skel.sm    { margin-top: 8px; width: 66%; }
+  .skel.wh    { margin-top: 8px; width: 20%; height: 9px; }
+  .skel.sc    { height: 24px; width: 46px; margin-left: auto; }
+  /* max-width because at the narrow breakpoint .pillcell spans the full row, and a
+     block-level placeholder there stretches into a bar nothing on the real list matches. */
+  .skel.pl    { height: 22px; border-radius: 999px; max-width: 112px; }
+  @keyframes skel-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .42; } }
+  @media (prefers-reduced-motion: reduce) { .skel { animation: none; opacity: .7; } }
+  @media (max-width: 680px) {
+    .row { grid-template-columns: 24px minmax(0, 1fr) 84px; }
+    .row .pillcell { grid-column: 2 / -1; }
+  }
+</style>
+<style>
+  /* The library is a reading list, not a control panel: no filters, no status chips, no
+     owner column. A stranger deciding whether $29 is worth it wants titles and a way in. */
+  main { max-width: 860px; margin: 0 auto; padding: 40px 24px 96px; }
+  h1 { font-family: var(--serif, var(--brand-sans)); font-size: 30px; letter-spacing: -.02em;
+       font-weight: var(--brand-display-weight); margin: 0 0 10px; }
+  .lede { color: var(--text-dim); font-size: 14.5px; line-height: 1.65; max-width: 62ch;
+          margin-bottom: 34px; }
+  .shelf { display: grid; gap: 12px; }
+  .vol { display: flex; align-items: baseline; gap: 16px; padding: 17px 20px;
+         border: 1px solid var(--line); border-radius: var(--brand-r);
+         background: var(--surface); text-decoration: none; color: inherit;
+         transition: border-color .18s ease, transform .18s ease; }
+  .vol:hover { border-color: var(--brand-action); transform: translateY(-1px); }
+  .vol-name { font-size: 15.5px; font-weight: 600; flex: 1; }
+  .vol-when { font-size: 12px; color: var(--text-faint); white-space: nowrap;
+              font-variant-numeric: tabular-nums; }
+  .empty { padding: 40px 22px; border: 1px dashed var(--line); border-radius: var(--brand-r);
+           color: var(--text-faint); font-size: 14px; line-height: 1.6; }
+  .empty a, .lede a { color: var(--accent); }
+  .cta { margin-top: 40px; padding: 24px; border-radius: var(--brand-r);
+         background: var(--surface); border: 1px solid var(--line); }
+  .cta h2 { font-size: 17px; margin: 0 0 8px; letter-spacing: -.012em; }
+  .cta p { margin: 0 0 16px; font-size: 13.5px; color: var(--text-dim); line-height: 1.6; }
+  .cta .btn { display: inline-block; padding: 10px 18px; border-radius: 9px;
+              background: var(--brand-action); color: #fff; text-decoration: none;
+              font-weight: 600; font-size: 13.5px; }
+  .cta .btn:hover { background: var(--brand-action-hi); }
+</style>
+</head>
+<body>
+<header class="rail">
+  <a class="brand-mark" href="/home"><svg viewBox="0 0 100 100" width="32" height="32"><g transform="translate(10,8)"><ellipse cx="40" cy="38" rx="38" ry="35" fill="#B07840"/><ellipse cx="40" cy="46" rx="28" ry="24" fill="#D4A870"/><circle cx="28" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="29.5" cy="28.5" r="2" fill="white"/><circle cx="52" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="53.5" cy="28.5" r="2" fill="white"/><ellipse cx="40" cy="42" rx="6" ry="4.5" fill="#2B3C2B"/><path d="M35 48 Q40 54 45 48" stroke="#2B3C2B" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="4" y1="38" x2="22" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="2" y1="46" x2="20" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="4" y1="54" x2="22" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="38" x2="58" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="78" y1="46" x2="60" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="54" x2="58" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><ellipse cx="12" cy="12" rx="9" ry="8" fill="#B07840"/><ellipse cx="68" cy="12" rx="9" ry="8" fill="#B07840"/></g></svg><div><span class="word">Castor</span><span class="sub">Research</span></div></a>
+  <span class="rail-acts">
+    <a class="btn go" href="/survey">Generate your report</a>
+  </span>
+</header>
+
+<main>
+  <h1>The library</h1>
+  <p class="lede">Finished reports, published by the founders who commissioned them. Each
+    one is a real run: real sources, real numbers, and the report's own checks on itself.
+    Share one of yours and we take <b>$10</b> off your next.</p>
+
+  <div id="shelf" class="shelf"></div>
+
+  <section class="cta">
+    <h2>Run one on your own idea</h2>
+    <p>Answer a short survey about what you are building. You get the same report these
+      founders got.</p>
+    <a class="btn" href="/survey">Generate your report</a>
+  </section>
+</main>
+
+<script>
+/* Deliberately unauthenticated. This page is the sales asset, so it must render for a
+   stranger with no cookie, and it asks for nothing but the index. */
+(async function () {
+  const shelf = document.getElementById("shelf");
+  const when = (s) => {
+    const d = new Date(s * 1000);
+    return isFinite(d) ? d.toLocaleDateString(undefined,
+      { year: "numeric", month: "short", day: "numeric" }) : "";
+  };
+  let reports = [];
+  try {
+    reports = (await (await fetch("/library.json")).json()).reports || [];
+  } catch (e) {
+    shelf.innerHTML = "";
+    const n = document.createElement("div");
+    n.className = "empty";
+    n.textContent = "The library could not be loaded just now. Reload to try again.";
+    shelf.appendChild(n);
+    return;
+  }
+  if (!reports.length) {
+    const n = document.createElement("div");
+    n.className = "empty";
+    n.textContent = "Nothing has been published yet. Run a report and you can be the "
+      + "first. It is worth $10 off your next one.";
+    shelf.appendChild(n);
+    return;
+  }
+  reports.forEach(function (r) {
+    const a = document.createElement("a");
+    a.className = "vol";
+    a.href = "/library/" + encodeURIComponent(r.job_id) + "/report.html";
+    const name = document.createElement("span");
+    name.className = "vol-name";
+    name.textContent = r.title;            // textContent: titles are founder-written
+    const date = document.createElement("span");
+    date.className = "vol-when";
+    date.textContent = when(r.shared_at);
+    a.appendChild(name);
+    a.appendChild(date);
+    shelf.appendChild(a);
+  });
+})();
+</script>
+</body>
+</html>

@@ -45,7 +45,11 @@ footer{text-align:center;font-size:8pt;color:#94a3b8;margin-top:18px;padding-top
 </style>
 </head>
 <body>
-<div class="print-nag">📄 One-pager view. <strong>Cmd+P</strong> → Save as PDF for sharing. <a href="/jobs/{{ job_id }}/report.html">Full report</a> · <a href="/web/">App</a></div>
+{# B23: this said /web/, which is a 404. The StaticFiles mount at /web has no html=True
+   and web/index.html is gone, so the directory index it relied on never existed. Of every
+   place to leave a dead link, the one-pager is the worst: it is the file a founder hands
+   to an investor. /home is the account page and a real route. #}
+<div class="print-nag">📄 One-pager view. <strong>Cmd+P</strong> → Save as PDF for sharing. <a href="/jobs/{{ job_id }}/report.html">Full report</a> · <a href="/home">App</a></div>
 
 <div class="page">
 

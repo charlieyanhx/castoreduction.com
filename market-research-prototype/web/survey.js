@@ -107,6 +107,23 @@
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  /* A standing line ABOVE the fold, for the things the footer error slot cannot say.
+     `err` is warn ink at 12.5px in the fixed bar, and paint() wipes it on every stage, so
+     anything put there reads as a failure and only survives until the next screen. Two
+     messages need neither: a payment clearing, and a draft link that did not open. */
+  function notice(text, tone) {
+    var n = el("div", "note", text);
+    var ok = tone === "ok";
+    n.setAttribute("role", ok ? "status" : "alert");
+    n.style.cssText = "margin:0 0 22px;padding:13px 16px;max-width:760px;" +
+      "border-radius:var(--radius);font-size:13.5px;line-height:1.55;border:1px solid " +
+      (ok ? "color-mix(in srgb, var(--accent) 25%, transparent)" : "var(--warn-line)") +
+      ";background:" + (ok ? "var(--accent-soft)" : "var(--warn-bg)") +
+      ";color:" + (ok ? "var(--accent)" : "var(--warn-ink)");
+    form.insertBefore(n, form.firstChild);
+    return n;
+  }
+
   /* ================================================================= stage 0: prose == */
   var EXAMPLES = [
     { t: "a walk-in place", s: "A specialty coffee shop on NW 23rd in Portland. Espresso " +
@@ -266,6 +283,9 @@
     var pre = (current && typeof current === "object")
       ? (current.value != null && typeof current.value !== "object" ? String(current.value) : "")
       : (current || "");
+    // The period rides in a sibling key of the typed slot, and the pre-fill read only
+    // `value`, so a resumed draft came back with the number and none of its period.
+    var prePeriod = (current && typeof current === "object") ? current.period : null;
 
     if (kind === "choice" && spec.options) {
       box.appendChild(radios(spec, pre, box));
@@ -286,7 +306,8 @@
         ps.setAttribute("aria-label", "period for " + (spec.unit_hint || "this number"));
         ps.style.marginTop = "10px";
         spec.period_choices.forEach(function (p) {
-          ps.appendChild(pill(spec.field + "__period", p, "opt opt--period", false));
+          ps.appendChild(pill(spec.field + "__period", p, "opt opt--period",
+                              samePeriod(p, prePeriod)));
         });
         box.appendChild(ps);
         box.appendChild(el("div", "hint",
@@ -319,6 +340,20 @@
     box.appendChild(f);
     box.dataset.kind = "text";
     return box;
+  }
+
+  /* Does this pill carry the period the founder already picked? The two spellings differ
+     on purpose: the pill says "per day" and slots.py stores the normalised "day". Nothing
+     compared them, `checked` went in hardcoded false, and so resuming a draft dropped the
+     period off every number. readAnswers then refused the submit with "Pick a period for
+     that number" on a number that had one, with no way to clear it but retyping. */
+  function samePeriod(choice, stored) {
+    var key = function (s) {
+      return String(s == null ? "" : s).toLowerCase()
+        .replace(/^(?:per\s+|an?\s+|\/\s*)/, "").trim();
+    };
+    var want = key(stored);
+    return !!want && key(choice) === want;
   }
 
   function pill(name, value, cls, checked) {
@@ -676,27 +711,456 @@
   }
 
   async function launch() {
-    var res = await api("POST", "/intake/" + session + "/confirm", { corrections: {} });
+    // CONFIRM READS, IT DOES NOT COMMIT. The endpoint returns the assembled description
+    // and the intake record, and it also flags the session confirmed — which is what
+    // drafts() uses to decide a session became a report. Calling it before /plan meant a
+    // refusal at the paywall left the founder with no run AND no draft: the notebook
+    // dropped it, while the refusal card told them their answers were saved.
+    var res = await api("POST", "/intake/" + session + "/confirm",
+                        { corrections: {}, commit: false });
     var description = (res && res.final_description) || prose;
     if (!description || description.length < 30) {
       err.textContent = "The description is too short to research. Go back and say a " +
                         "little more about what the venture does.";
       return;
     }
-    // ===== THE PAYWALL SEAM =====================================================
+    // ===== THE PAYWALL ==========================================================
     // Everything up to here is free: one extraction call, then code. The report is the
     // expensive step (metered tools, the LLM chain, about six minutes), so this is where
-    // a charge belongs. No processor is wired yet and no price is set, so for now this
-    // launches the run directly. Insert the checkout between these two lines.
+    // the charge belongs, BEFORE the run rather than after a refusal. The old seam sold on
+    // a 429, which meant the only people ever asked to pay were the ones who had already
+    // had free reports. gate() returns false when it has drawn the offer, and the founder
+    // comes back through resumeAfterPurchase() with the description still in the session.
+    if (!(await gate(description, res && res.intake_record))) return;
+    await launchPaid(description, res && res.intake_record);
+  }
+
+  /* The run itself, once it is entitled to happen. Separate from launch() because the
+     gate has two exits into it (paid, and the preview switch) and neither should have
+     to repeat the confirm/spend/redirect sequence. */
+  async function launchPaid(description, intake) {
     var body = { description: description, operator_weights: {} };
-    if (res && res.intake_record) body.intake = res.intake_record;
+    if (intake) body.intake = intake;
     try {
       var job = await api("POST", "/plan", body);
+      // Accepted. NOW the interview is spent, so it leaves the notebook.
+      try { await api("POST", "/intake/" + session + "/confirm", { corrections: {} }); }
+      catch (e) { /* the run is what matters; a stale draft is cosmetic */ }
       location.href = "/progress.html?job=" + encodeURIComponent(job.job_id);
     } catch (e) {
       if (e.status === 429) { await blocked(e.detail); return; }
       throw e;
     }
+  }
+
+  /* ======================================================================== the gate ==
+     Asked once, at the moment of commitment, and it is the only thing standing between
+     the interview and a six-minute metered run.
+
+     WHO SEES IT is decided by the server (/billing/status needs_purchase), so the rule
+     lives in one place: a run costs a credit once the instance can sell, and an instance
+     with no processor wired never walls anyone off. Returns true to proceed. */
+  async function gate(description, intake) {
+    var st;
+    try { st = await api("GET", "/billing/status"); }
+    catch (e) {
+      // A BILLING OUTAGE MUST NOT EAT THE RUN. If we cannot ask whether to charge, the
+      // founder has done ten minutes of work and the honest failure is to let it through,
+      // not to invent a wall we cannot take money at.
+      return true;
+    }
+    if (!st.needs_purchase) return true;
+
+    var me = {};
+    try { me = await api("GET", "/auth/me"); } catch (e) { /* treat as signed out */ }
+    drawGate(st, me, description, intake);
+    return false;
+  }
+
+  function drawGate(st, me, description, gateIntake) {
+    var signedIn = !!me.authenticated;
+    var box = el("div", "gate");
+    box.appendChild(el("div", "gate-lab", signedIn
+      ? "You are out of report credits"
+      : "One step left"));
+    box.appendChild(el("h3", "gate-head", "Your report is ready to run"));
+    box.appendChild(el("p", "gate-sub", signedIn
+      ? "Every report is a fresh run of live research, so each one is bought separately. "
+        + "Credits never expire and the packs are the cheaper way in."
+      : "We start the research the moment this is paid. You do not need an account: we "
+        + "will email the report, and you can claim it into an account any time after."));
+
+    /* WHERE A FAILURE GOES. It used to go to `err`, the shared slot in the fixed footer
+       bar: 12.5px warn ink, measured at y = -180 while the founder was looking at a card
+       in the middle of the page. So clicking a price did nothing at all, as far as anyone
+       could tell, and the screen read as broken. A refusal belongs beside the button that
+       caused it. */
+    var msg = el("p", "gate-msg");
+    msg.hidden = true;
+    msg.setAttribute("role", "alert");
+
+    /* PREVIEW SAYS SO BEFORE THE CLICK, not after. These buttons cannot reach a processor,
+       so letting someone click one and discover that is wasting the only action on screen
+       that looks primary. */
+    if (st.preview) {
+      box.appendChild(el("p", "gate-preview",
+        "Test mode. No card is ever charged here. Picking a price completes a simulated "
+        + "purchase and carries you through the real flow that follows it: the credits "
+        + "land, you are asked to make an account, and then the report runs."));
+    }
+
+    // PURCHASE FIRST. The buy buttons come before any mention of registering, because a
+    // founder who is ready to pay should not have to make a second decision to do it.
+    var offers = st.offers || [];
+    if (!offers.length) {
+      box.appendChild(el("p", "gate-sub",
+        "This instance cannot take payment yet, so there is nothing to buy here."));
+    }
+    /* PICK, THEN PAY. Each price was its own submit button, so choosing was the same
+       keystroke as committing: no way to compare, no way to change your mind, and the
+       most expensive option one misclick away. They are a radio group now, and a single
+       action at the bottom carries the choice, which is also what makes the button able
+       to say what it is about to charge.
+
+       A real <input type=radio> rather than divs with click handlers, so the group is
+       arrow-key navigable and announces itself to a screen reader for free. */
+    var chosen = offers.length ? offers[0].kind : null;
+    var group = el("div", "gate-opts");
+    group.setAttribute("role", "radiogroup");
+    group.setAttribute("aria-label", "What to buy");
+    var buttons = [];
+
+    function priceOf(kind) {
+      for (var i = 0; i < offers.length; i++) {
+        if (offers[i].kind === kind) return offers[i].price_usd;
+      }
+      return null;
+    }
+
+    function repaint() {
+      buttons.forEach(function (b) {
+        var on = b.dataset.kind === chosen;
+        b.classList.toggle("on", on);
+        b.querySelector("input").checked = on;
+      });
+      var p = priceOf(chosen);
+      goLabel.textContent = p != null
+        ? "Continue to payment \u2014 $" + p.toFixed(0)
+        : "Continue to payment";
+    }
+
+    offers.forEach(function (o) {
+      var lab = el("label", "gate-opt");
+      lab.dataset.kind = o.kind;
+
+      var radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = "castor_offer";
+      radio.value = o.kind;
+      radio.className = "gate-opt-radio";
+      radio.onchange = function () { chosen = o.kind; repaint(); };
+      lab.appendChild(radio);
+
+      var tick = el("span", "gate-tick");
+      tick.setAttribute("aria-hidden", "true");
+      lab.appendChild(tick);
+
+      var body = el("span", "gate-opt-body");
+      body.appendChild(el("span", "gate-opt-name", o.label));
+      if (o.credits > 1 && o.price_usd) {
+        body.appendChild(el("span", "gate-opt-note",
+          "$" + (o.price_usd / o.credits).toFixed(0) + " each \u00b7 credits never expire"));
+      } else {
+        body.appendChild(el("span", "gate-opt-note", "One full report"));
+      }
+      lab.appendChild(body);
+
+      lab.appendChild(el("span", "gate-opt-price",
+        o.price_usd != null ? "$" + o.price_usd.toFixed(0) : ""));
+
+      if (o.credits >= 10) {
+        lab.appendChild(el("span", "gate-flag", "Best value"));
+      }
+      group.appendChild(lab);
+      buttons.push(lab);
+    });
+    box.appendChild(group);
+    box.appendChild(msg);
+
+    /* ONE ACTION, and it names the amount. A button reading "Continue to payment" with no
+       number is a button somebody presses to find out what it costs. */
+    var goBtn = el("button", "gate-buy primary");
+    goBtn.type = "button";
+    var goLabel = el("span", "gate-buy-name", "Continue to payment");
+    goBtn.appendChild(goLabel);
+    goBtn.onclick = function () {
+      if (!chosen) return;
+      buy(chosen, goBtn, msg, offers, box);
+    };
+    if (offers.length) box.appendChild(goBtn);
+    repaint();
+
+    // NOTHING ABOUT REGISTERING ON THIS SCREEN. It used to offer "create an account first
+    // so the extra credits are waiting for you", which is the wrong order twice over: it
+    // puts a second decision in front of somebody who has already decided to pay, and it
+    // asks for the commitment at the one moment they have nothing invested yet, so the
+    // rational move is to skip it. The ask moves to claimStep(), after the money, when
+    // they are holding credits they would have to abandon. One screen, one action.
+
+    // The second button they asked for: somewhere to go that is not a card form.
+    // POINTED AT THE LIBRARY, NOT /sample. /sample is one report the operator named by
+    // hand, and it 404s when they have not named one, which is the state every fresh
+    // instance is in. The library is always there, always current, and a shelf of real
+    // reports argues better than a single specimen.
+    var alt = el("p", "gate-alt");
+    alt.appendChild(document.createTextNode("Not sure yet? "));
+    var sa = document.createElement("a");
+    sa.href = "/library";
+    sa.target = "_blank";
+    sa.rel = "noopener";
+    sa.textContent = "Read finished reports first";
+    alt.appendChild(sa);
+    alt.appendChild(document.createTextNode(
+      ". Real ones, start to finish, published by the founders who ran them. Your " +
+      "answers stay saved on this page."));
+    box.appendChild(alt);
+
+    if (st.preview) {
+      /* A REAL BUTTON, because in test mode it is the ONLY thing on this card that works.
+         It was faint dashed 12.5px text under three dead-looking price buttons, which is
+         how a screen with a working way forward reads as a dead end. */
+      var skipBtn = el("button", "gate-skip");
+      skipBtn.type = "button";
+      skipBtn.appendChild(el("span", "gate-buy-name",
+        "Skip the purchase and just run the report"));
+      skipBtn.onclick = async function () {
+        skipBtn.disabled = true;
+        skipBtn.querySelector(".gate-buy-name").textContent = "Starting your report\u2026";
+        box.remove();
+        try { await launchPaid(description, gateIntake); }
+        catch (e) { err.textContent = "Could not start the report: " + e.message; }
+      };
+      box.appendChild(skipBtn);
+    }
+
+    var host = form.querySelector(".reveal") || form;
+    host.appendChild(box);
+    box.scrollIntoView({ block: "center", behavior: "smooth" });
+    go.textContent = "Run the full report";
+  }
+
+  async function buy(kind, btn, msg, offers, box) {
+    /* THE CLICK HAS TO LAND SOMEWHERE VISIBLE. Every exit from here either navigates to
+       Stripe or says why it did not, inside the card, in text the founder can actually
+       read. The old version reset the label and wrote 12.5px into the fixed footer, so a
+       failed click was indistinguishable from a click that did nothing. */
+    var label = btn.querySelector(".gate-buy-name");
+    var was = label ? label.textContent : btn.textContent;
+    var setLabel = function (t) {
+      if (label) { label.textContent = t; } else { btn.textContent = t; }
+    };
+    // Only one purchase can be in flight, so nothing else invites a second click: the
+    // action itself and every radio in the group.
+    var all = box
+      ? [].slice.call(box.querySelectorAll(".gate-buy, .gate-opt-radio"))
+      : [btn];
+    all.forEach(function (b) { b.disabled = true; });
+    if (box) {
+      [].slice.call(box.querySelectorAll(".gate-opt")).forEach(function (o) {
+        o.classList.add("busy");
+      });
+    }
+    msg.hidden = true;
+    setLabel("Opening checkout\u2026");
+    try {
+      var out = await api("POST", "/billing/checkout",
+                          { kind: kind, session_id: session });
+      location.href = out.url;
+    } catch (e) {
+      all.forEach(function (b) { b.disabled = false; });
+      if (box) {
+        [].slice.call(box.querySelectorAll(".gate-opt")).forEach(function (o) {
+          o.classList.remove("busy");
+        });
+      }
+      setLabel(was);
+      msg.hidden = false;
+      msg.textContent = "We could not open checkout: " + e.message
+        + ". Nothing was charged, and your answers are still here.";
+      msg.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      err.textContent = "";      // the footer copy of this is now redundant and off-screen
+    }
+  }
+
+  /* ================================================================= claim the credits ==
+     THE REGISTRATION ASK, AND IT COMES AFTER THE MONEY.
+
+     It used to sit on the gate as "create an account first so the extra credits are
+     waiting for you". That is the wrong order: it puts a second decision in front of
+     somebody who has already decided to buy, at the one moment they have nothing invested
+     and skipping costs them nothing. Here, they have paid. A pack buyer is holding four
+     or nine credits they would be walking away from, and the address is already known
+     because Stripe collected it, so the form is one field.
+
+     IT NEVER BLOCKS THE REPORT. They paid for a run and the run is the thing they came
+     for, so both buttons start it. The account is what the credits attach to, not a toll.
+  */
+  async function claimStep(kind, status, signedIn) {
+    var packs = { bundle5: 5, bundle10: 10 };
+    var extra = (packs[kind] || 1) - 1;          // one is about to be spent on this run
+    var email = (status && status.prepaid_email) || "";
+
+    var bought = packs[kind] || 1;
+    var box = el("div", "gate celebrate");
+
+    /* THE MOMENT THEY PAID, AND IT SHOULD READ LIKE ONE. This was a grey label saying
+       "Payment received" over a password form, which is a receipt: the founder has just
+       committed money to a stranger's website and the screen answered like a card
+       terminal. The mark draws itself in, the count of what they bought is the largest
+       thing on the card, and only then does it ask for anything.
+
+       The animation is CSS and respects prefers-reduced-motion, so it is a flourish for
+       people who want one and simply the finished state for everyone else. */
+    var seal = el("div", "gate-seal");
+    seal.setAttribute("aria-hidden", "true");
+    seal.innerHTML = '<svg viewBox="0 0 52 52" width="52" height="52">'
+      + '<circle class="seal-ring" cx="26" cy="26" r="23" fill="none" stroke-width="2.5"/>'
+      + '<path class="seal-tick" fill="none" stroke-width="3.2" stroke-linecap="round"'
+      + ' stroke-linejoin="round" d="M15 27 l8 8 l15 -16"/></svg>';
+    box.appendChild(seal);
+
+    box.appendChild(el("div", "gate-lab", "Payment received"));
+    box.appendChild(el("h3", "gate-head gate-head-big", bought > 1
+      ? bought + " reports are yours"
+      : "Your report is paid for"));
+    box.appendChild(el("p", "gate-sub", extra > 0
+      ? "One starts running the moment you continue. The other " + extra + " keep, with "
+        + "no expiry, for whenever the next idea turns up."
+      : "It starts running the moment you continue."));
+
+    /* A BUYER WITH AN ACCOUNT HAS NOTHING TO ANSWER. The card began life as the
+       registration ask, so it ran only for guests and a signed-in buyer went straight from
+       Stripe to a progress bar: they paid and the product said nothing. The moment belongs
+       to everyone who just paid; the form below belongs to people with nowhere to put the
+       credits. */
+    if (signedIn) {
+      var goNow = el("button", "gate-buy primary");
+      goNow.type = "button";
+      var goNowLab = el("span", "gate-buy-name",
+        extra > 0 ? "Start my report" : "Start my report");
+      goNow.appendChild(goNowLab);
+      box.appendChild(goNow);
+      var hostS = form.querySelector(".reveal") || form;
+      hostS.appendChild(box);
+      box.scrollIntoView({ block: "center", behavior: "smooth" });
+      go.textContent = "Run the full report";
+      return await new Promise(function (resolve) {
+        goNow.onclick = function () {
+          goNow.disabled = true;
+          goNowLab.textContent = "Starting\u2026";
+          box.remove();
+          notice("Starting your report now.", "ok");
+          resolve(launch());
+        };
+      });
+    }
+
+    box.appendChild(el("div", "gate-rule"));
+    box.appendChild(el("div", "gate-lab", extra > 0
+      ? "Where should the other " + extra + " live?"
+      : "Where should this report live?"));
+    box.appendChild(el("p", "gate-sub", extra > 0
+      ? "Set a password and they sit on an account you can come back to. Without one they "
+        + "are held against " + (email || "your email address") + " and you would have to "
+        + "ask us for them."
+      : "Set a password and it lands in a library you can come back to. Without an account "
+        + "it lives in this browser, and clearing your cookies loses the link."));
+
+    var ef = el("div", "gate-field");
+    var el1 = el("label", "gate-lab-sm", "Your email");
+    var ei = document.createElement("input");
+    ei.type = "email";
+    ei.value = email;
+    ei.placeholder = "you@example.com";
+    ei.className = "gate-input";
+    ei.autocomplete = "email";
+    ef.appendChild(el1);
+    ef.appendChild(ei);
+    box.appendChild(ef);
+
+    var pf = el("div", "gate-field");
+    var pl = el("label", "gate-lab-sm", "Choose a password");
+    var pi = document.createElement("input");
+    pi.type = "password";
+    pi.placeholder = "at least 12 characters";
+    pi.className = "gate-input";
+    pi.autocomplete = "new-password";
+    pf.appendChild(pl);
+    pf.appendChild(pi);
+    box.appendChild(pf);
+
+    var msg = el("p", "gate-fine");
+    msg.style.color = "var(--warn-ink)";
+    box.appendChild(msg);
+
+    var go2 = el("button", "gate-buy primary");
+    go2.type = "button";
+    go2.appendChild(el("span", "gate-buy-name", "Create account and start my report"));
+    box.appendChild(go2);
+
+    var skipReg = el("button", "gate-skip", extra > 0
+      ? "Just start my report (the credits stay against your email)"
+      : "Just start my report");
+    skipReg.type = "button";
+    box.appendChild(skipReg);
+
+    var host = form.querySelector(".reveal") || form;
+    host.appendChild(box);
+    box.scrollIntoView({ block: "center", behavior: "smooth" });
+    go.textContent = "Run the full report";
+
+    /* Both exits run the report. Wrapped so a failure anywhere in here still ends with
+       the founder's paid run started rather than on a card with a dead button. */
+    function start() {
+      box.remove();
+      notice("Starting your report now.", "ok");
+      return launch();
+    }
+
+    return await new Promise(function (resolve) {
+      skipReg.onclick = function () {
+        skipReg.disabled = true;
+        go2.disabled = true;
+        resolve(start());
+      };
+      go2.onclick = async function () {
+        msg.textContent = "";
+        var e2 = ei.value.trim(), p2 = pi.value;
+        if (!e2 || e2.indexOf("@") < 0) { msg.textContent = "That email does not look right."; return; }
+        if (p2.length < 12) { msg.textContent = "Use at least 12 characters."; return; }
+        go2.disabled = true;
+        skipReg.disabled = true;
+        var lab = go2.querySelector(".gate-buy-name");
+        lab.textContent = "Creating your account…";
+        try {
+          await api("POST", "/auth/signup", { email: e2, password: p2 });
+        } catch (err2) {
+          // THEIR MONEY IS NOT AT RISK HERE and the copy has to say so, because a red
+          // error under a payment reads as a failed payment. The credits are on the guest
+          // id and matched to the address either way, and the run still starts.
+          go2.disabled = false;
+          skipReg.disabled = false;
+          lab.textContent = "Create account and start my report";
+          msg.textContent = "Could not create the account: " + err2.message
+            + ". Your payment is safe and your credits are held against " + e2
+            + ". You can start the report and register later.";
+          return;
+        }
+        // The signup moved the guest's jobs, drafts, credits and coupons onto the account,
+        // so the interview in the URL is still readable and launch() finds it.
+        resolve(start());
+      };
+    });
   }
 
   /* A refusal at the CTA is the most expensive error in the product: the founder has done
@@ -718,7 +1182,11 @@
     try {
       var status = await api("GET", "/billing/status");
       if (status.configured && status.buyable && status.buyable.report
-          && /limit/i.test(detail || "")) {
+          // DAILY limit only. The concurrency refusal also contains the word "limit"
+          // ("a report is already running for this account (limit 1)"), and
+          // routes/research.py explicitly declines to spend a credit on that case, so
+          // offering checkout there took money for a run that still would not start.
+          && /daily limit/i.test(detail || "")) {
         var buy = el("li");
         buy.appendChild(document.createTextNode("You have used your free runs for today. "));
         var a = document.createElement("a");
@@ -729,7 +1197,8 @@
           ev.preventDefault();
           a.textContent = "Opening checkout…";
           try {
-            var out = await api("POST", "/billing/checkout", { kind: "report" });
+            var out = await api("POST", "/billing/checkout",
+                                { kind: "report", session_id: session });
             location.href = out.url;
           } catch (e) {
             a.textContent = "Checkout unavailable: " + e.message;
@@ -778,15 +1247,72 @@
   });
 
   /* Back from Stripe with a report credit: the founder pressed the button before paying,
-     so pressing it for them on return is what they already asked for. */
+     so pressing it for them on return is what they already asked for.
+
+     IT HAS TO SAY SO. Stripe drops them back on the same reveal screen they left, and the
+     only acknowledgement was one line in the footer error slot, warn-inked, set while the
+     page was smooth-scrolling back to the top. A cleared payment is not a failure and did
+     not read as one down there: the return read as a page reloading itself. The banner
+     goes above the fold instead, and `paid` comes out of the URL so a reload is a plain
+     resume rather than a second launch. */
   async function resumeAfterPurchase() {
-    var paid = new URL(location.href).searchParams.get("paid");
-    if (!paid || paid === "cancelled" || !session) return false;
-    await loadCard();
-    stage = 3;
-    showStage();
-    err.textContent = "Payment received. Starting your report…";
-    await launch();
+    var url = new URL(location.href);
+    var paid = url.searchParams.get("paid");
+    if (!paid || !session) return false;
+    url.searchParams.delete("paid");
+    history.replaceState(null, "", url.toString());
+
+    if (paid === "cancelled") {
+      // SAME GUARD AS THE SUCCESS BRANCH BELOW. Without it a 404 on the session throws
+      // out to boot(), which renders "that saved draft is gone" at somebody who merely
+      // backed out of checkout. Nothing was charged, and telling them they lost their
+      // work is still the wrong answer.
+      try { await loadCard(); } catch (e) { /* fall through to the stage below */ }
+      stage = forkQ ? 1 : 2;
+      showStage();
+      notice("Checkout cancelled. Nothing was charged, and every answer you gave is "
+             + "still here.");
+      return true;
+    }
+
+    try {
+      await loadCard();
+      stage = 3;
+      showStage();
+    } catch (e) {
+      // They have already paid. Falling through to the stale-draft notice here would read
+      // as losing the money and the interview at once, so name what is actually true: the
+      // credit sits on the account and the next run spends it.
+      renderProse();
+      notice("Payment received. We could not reopen this draft to start the run: "
+             + e.message + ". The credit is on your account, so your next report uses it "
+             + "and costs nothing.", "ok");
+      return true;
+    }
+
+    /* EVERY BUYER SEES THE MOMENT. What differs is what the card asks for afterwards:
+       somewhere to keep the credits, or just the button that starts the run. */
+    var whoami = {};
+    try { whoami = await api("GET", "/auth/me"); } catch (e) { /* treat as a guest */ }
+    var bought = null;
+    try { bought = await api("GET", "/billing/status"); } catch (e) { /* prefill is optional */ }
+    try {
+      await claimStep(paid, bought, !!whoami.authenticated);
+      return true;
+    } catch (e) {
+      // Never leave a paid founder on a broken card. Fall through to the plain launch.
+      err.textContent = "";
+    }
+
+    notice("Payment received. Starting your report now.", "ok");
+    try {
+      await launch();
+    } catch (e) {
+      // launch() throwing used to escape into boot's catch, which dropped the session and
+      // painted an empty stage 0 over a run the founder had just paid for.
+      err.textContent = "Could not start the report: " + e.message;
+      go.textContent = "Run the full report";
+    }
     return true;
   }
 
@@ -806,7 +1332,28 @@
         await loadCard();
         stage = forkQ ? 1 : 2;
         return showStage();
-      } catch (e) { session = null; }
+      } catch (e) {
+        // A DEAD DRAFT LINK USED TO BE A BLANK SURVEY. The session went null and the page
+        // fell through to stage 0, so a link that had expired, or that was mailed between
+        // two accounts, opened an empty box with nothing said: indistinguishable from the
+        // product having thrown the founder's answers away. Say which it was, drop the
+        // dead id so a reload is a clean start, and leave them on the box that starts one.
+        session = null;
+        var dead = new URL(location.href);
+        dead.searchParams.delete("s");
+        dead.searchParams.delete("paid");
+        history.replaceState(null, "", dead.toString());
+        renderProse();
+        notice(e && (e.status === 404 || e.status === 403)
+          ? "That saved draft is gone. It has either expired or it was started on a "
+            + "different account. Describe your venture below to start a new one, and "
+            + "anything you already ran is in your library."
+          : "We could not load that saved draft: "
+            + ((e && e.message) || "the server did not answer")
+            + ". Reload the page to try it again, or describe your venture below to "
+            + "start a new one.");
+        return;
+      }
     }
     renderProse();
   })();

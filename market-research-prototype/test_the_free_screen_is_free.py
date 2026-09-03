@@ -258,8 +258,17 @@ class TestTheExtrasReachTheRun(unittest.TestCase):
 
     def test_the_preview_splits_the_pack_into_now_and_after(self):
         c = self._client()
-        sid = intake.start_session()["session_id"]
-        intake.get_session(sid)["extracted"].update(CAFE)
+        # SEED IT UNDER THE CLIENT'S OWN IDENTITY. Intake routes are owner-scoped now, so
+        # a session started out-of-band belongs to nobody and answers 404 to the very
+        # client the test then drives.
+        sid = intake.start_session(
+            owner_id=c.get("/auth/me").json()["owner"])["session_id"]
+        # get_session hands back a fresh dict from storage now, so seeding has to be
+        # saved. It used to be a shallow copy over a live module dict, where a nested
+        # update happened to stick and a top-level one silently did not.
+        _s = intake.get_session(sid)
+        _s["extracted"].update(CAFE)
+        intake.save_session(_s)
         card = c.get("/intake/%s/preview" % sid).json()
         first = {q["field"] for q in card["questions"]}
         later = {q["field"] for q in card["deferred"]}
@@ -270,8 +279,17 @@ class TestTheExtrasReachTheRun(unittest.TestCase):
 
     def test_an_extra_answered_before_launch_rides_the_record(self):
         c = self._client()
-        sid = intake.start_session()["session_id"]
-        intake.get_session(sid)["extracted"].update(CAFE)
+        # SEED IT UNDER THE CLIENT'S OWN IDENTITY. Intake routes are owner-scoped now, so
+        # a session started out-of-band belongs to nobody and answers 404 to the very
+        # client the test then drives.
+        sid = intake.start_session(
+            owner_id=c.get("/auth/me").json()["owner"])["session_id"]
+        # get_session hands back a fresh dict from storage now, so seeding has to be
+        # saved. It used to be a shallow copy over a live module dict, where a nested
+        # update happened to stick and a top-level one silently did not.
+        _s = intake.get_session(sid)
+        _s["extracted"].update(CAFE)
+        intake.save_session(_s)
         c.post("/intake/%s/form" % sid,
                json={"answers": {"avg_ticket": "6.50", "monthly_cost_estimate": "11000",
                                  "capacity": "15", "site": "NW 23rd and Irving"}})
@@ -289,8 +307,17 @@ class TestTheExtrasReachTheRun(unittest.TestCase):
 
     def test_skipping_the_extras_still_produces_a_runnable_brief(self):
         c = self._client()
-        sid = intake.start_session()["session_id"]
-        intake.get_session(sid)["extracted"].update(CAFE)
+        # SEED IT UNDER THE CLIENT'S OWN IDENTITY. Intake routes are owner-scoped now, so
+        # a session started out-of-band belongs to nobody and answers 404 to the very
+        # client the test then drives.
+        sid = intake.start_session(
+            owner_id=c.get("/auth/me").json()["owner"])["session_id"]
+        # get_session hands back a fresh dict from storage now, so seeding has to be
+        # saved. It used to be a shallow copy over a live module dict, where a nested
+        # update happened to stick and a top-level one silently did not.
+        _s = intake.get_session(sid)
+        _s["extracted"].update(CAFE)
+        intake.save_session(_s)
         c.post("/intake/%s/form" % sid,
                json={"answers": {"avg_ticket": "6.50", "monthly_cost_estimate": "11000",
                                  "capacity": "15", "site": "NW 23rd and Irving"}})

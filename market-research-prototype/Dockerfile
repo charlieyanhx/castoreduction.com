@@ -41,6 +41,7 @@ RUN mkdir -p /data && chmod 777 /data
 ENV JOBS_DB_PATH=/data/jobs.sqlite \
     LLM_CACHE_PATH=/data/llm_cache.sqlite \
     HTTP_CACHE_PATH=/data/http_cache.sqlite \
+    CASTOR_TRANSCRIPT_DIR=/data/transcripts \
     PYTHONUNBUFFERED=1 \
     HOST=0.0.0.0 \
     PORT=8765

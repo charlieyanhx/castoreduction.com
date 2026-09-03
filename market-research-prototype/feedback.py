@@ -12,6 +12,8 @@ Schema:
     section: 'overall' | 'product' | 'price' | 'place' | 'promotion' | 'viability' | 'audience' | 'competitors'
 """
 from __future__ import annotations
+
+import os
 import sqlite3
 import time
 import threading
@@ -21,12 +23,26 @@ from logger import get
 
 log = get("feedback")
 
-DB = Path(__file__).parent / ".jobs.sqlite"  # share with jobs DB
+DB = Path(__file__).parent / ".jobs.sqlite"  # back-compat default; use _db_path()
+
+def _db_path() -> Path:
+    """Resolved PER CALL, like jobs._db_path, and that is the whole point.
+
+    This module used to bind `DB = Path(__file__).parent / ".jobs.sqlite"` at IMPORT time.
+    Every other consumer of that database reads JOBS_DB_PATH per connection, so in the
+    container — where the Dockerfile sets JOBS_DB_PATH=/data/jobs.sqlite onto the mounted
+    volume — this one module opened /app/.jobs.sqlite instead: a different file, on the
+    image layer, discarded on every deploy. Binding at import also meant a test that set
+    the env var after import could not redirect it, which is the reverse of the isolation
+    conftest believes it has.
+    """
+    return Path(os.environ.get("JOBS_DB_PATH")
+                or (Path(__file__).parent / ".jobs.sqlite"))
 _lock = threading.Lock()
 
 
 def _conn():
-    conn = sqlite3.connect(DB, timeout=10, isolation_level=None)
+    conn = sqlite3.connect(_db_path(), timeout=10, isolation_level=None)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS feedback (

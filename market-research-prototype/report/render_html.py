@@ -46,8 +46,20 @@ def _ladder_period(r: dict) -> str:
 
 
 def render_report_html(result: dict, job_id: str = "", debug: int = 0,
-                       annotate: int = 0) -> str:
-    """Render one report to HTML from its result dict. Pure: no DB, no request."""
+                       annotate: int = 0, public: int = 0) -> str:
+    """Render one report to HTML from its result dict. Pure: no DB, no request.
+
+    `public` suppresses the reader's own layer: the marks they wrote in the margin and the
+    questions they asked. It is NOT the same switch as `annotate`.
+
+    THE DIFFERENCE COST A REAL LEAK. `annotate` controls the refine CONTROLS, and the two
+    public routes already passed annotate=0 — but the marks and Q&A render in the page
+    BODY, from a block gated on `{% if iteration %}` alone, whose own comment notes that
+    the PDF carries it too. That is right for the owner's export and wrong for a stranger:
+    publishing a report to the library put the founder's private notes on the open web,
+    verbatim, under a card promising the exact opposite. So it needs its own flag rather
+    than a wider `annotate`, because the owner's PDF must keep carrying their notes.
+    """
     from api import SafeUndefined, display_title   # local: api imports plan, plan imports us
     j = {"result": result or {}}
     from jinja2 import Environment, FileSystemLoader
@@ -148,6 +160,7 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
         degraded_steps=_degraded,
         iteration=_iter_state,
         annotate=bool(annotate),
+        public=bool(public),
         job_id=job_id,
         # The founder's own survey answers, for refine mode's "fix an input" form. They
         # already rode the run on result["intake"], so the report can show the survey back

@@ -120,11 +120,15 @@ class TestAnswersLandWhereTheQuestionPointed(unittest.TestCase):
         import intake
         s = intake.start_session()
         sid = s["session_id"]
-        sess = intake._sessions[sid]
+        # Sessions live in SQLite now, not a module dict: read, mutate, save. Reaching
+        # into the private store was reaching into the storage layer, which is exactly
+        # what stopped this app running a second worker.
+        sess = intake.get_session(sid)
         sess["extracted"].update(extracted or {})
         sess["pending_field"] = pending
         if founder_fields:
             sess["founder_fields"] = list(founder_fields)
+        intake.save_session(sess)
         return sid
 
     def _turn(self, sid, text, llm_extracted=None):
@@ -142,7 +146,7 @@ class TestAnswersLandWhereTheQuestionPointed(unittest.TestCase):
                        "business_model": "they just pay for tacos"},
             pending="rent_estimate", founder_fields=["business_model"])
         self._turn(sid, "500 per month")
-        ex = intake._sessions[sid]["extracted"]
+        ex = intake.get_session(sid)["extracted"]
         self.assertEqual(ex["business_model"], "they just pay for tacos")
         self.assertEqual(ex["rent_estimate"], "500 per month")
 
@@ -153,7 +157,7 @@ class TestAnswersLandWhereTheQuestionPointed(unittest.TestCase):
                        "business_model": "they just pay for tacos"},
             pending="avg_ticket", founder_fields=["business_model"])
         self._turn(sid, "8 dollars per taco")
-        ex = intake._sessions[sid]["extracted"]
+        ex = intake.get_session(sid)["extracted"]
         self.assertEqual(ex["business_model"], "they just pay for tacos")
         self.assertEqual(ex["avg_ticket"], "8 dollars per taco")
 
@@ -162,7 +166,7 @@ class TestAnswersLandWhereTheQuestionPointed(unittest.TestCase):
         sid = self._session(extracted={"product": "a taco stand"},
                             pending="expected_volume")
         r = self._turn(sid, "1000 per day", llm_extracted={})
-        ex = intake._sessions[sid]["extracted"]
+        ex = intake.get_session(sid)["extracted"]
         self.assertEqual(ex["expected_volume"], "1000 per day")
         self.assertNotEqual(r.get("asked_field"), "expected_volume",
                             "the answered question must not repeat")
@@ -175,7 +179,7 @@ class TestAnswersLandWhereTheQuestionPointed(unittest.TestCase):
             pending=None, founder_fields=["business_model"])
         self._turn(sid, "the tortillas are made fresh daily",
                    llm_extracted={"business_model": "DTC quick-service retail"})
-        self.assertEqual(intake._sessions[sid]["extracted"]["business_model"],
+        self.assertEqual(intake.get_session(sid)["extracted"]["business_model"],
                          "they just pay for tacos")
 
     def test_a_standalone_model_statement_still_lands(self):
@@ -186,14 +190,14 @@ class TestAnswersLandWhereTheQuestionPointed(unittest.TestCase):
             pending=None)
         self._turn(sid, "actually customers subscribe monthly for a taco pass")
         self.assertIn("subscribe",
-                      intake._sessions[sid]["extracted"]["business_model"])
+                      intake.get_session(sid)["extracted"]["business_model"])
 
     def test_a_non_number_reply_to_a_number_question_does_not_file(self):
         import intake
         sid = self._session(extracted={"product": "a taco stand"},
                             pending="expected_volume")
         self._turn(sid, "what does volume mean here?")
-        self.assertFalse(intake._sessions[sid]["extracted"].get("expected_volume"))
+        self.assertFalse(intake.get_session(sid)["extracted"].get("expected_volume"))
 
 
 if __name__ == "__main__":

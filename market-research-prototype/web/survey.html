@@ -4,29 +4,39 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Intake survey · Castor Research</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap">
+<link rel="stylesheet" href="/brand.css">
 <style>
+  /* [hidden] is a UA rule and ANY author `display:` beats it. .google set
+     display:flex, so "Continue with Google" rendered on every install and 404'd
+     wherever OAuth was unconfigured — the exact failure its own comment claims to
+     prevent. One rule, so the next element to carry `hidden` is safe by default. */
+  [hidden] { display: none !important; }
+
   /* The workspace's palette, verbatim: warm paper, emerald verdict accent. The survey is
      the front door of the same document the report becomes, so it speaks the same
      language. See web/workspace.html for the provenance of these values. */
   :root {
-    --bg: oklch(97.3% 0.006 85);
-    --surface: oklch(99.4% 0.002 85);
-    --surface-2: oklch(95.8% 0.006 85);
-    --line: oklch(90% 0.008 85);
-    --text: oklch(23% 0.015 250);
-    --text-dim: oklch(48% 0.015 250);
-    --text-faint: oklch(62% 0.012 250);
-    --shadow-1: 0 1px 2px oklch(30% 0.02 85 / .05), 0 4px 16px -6px oklch(30% 0.02 85 / .09);
+    --bg: var(--brand-paper);
+    --surface: var(--brand-surface);
+    --surface-2: var(--brand-surface-2);
+    --line: var(--brand-line);
+    --text: var(--brand-ink);
+    --text-dim: var(--brand-ink-dim);
+    --text-faint: var(--brand-ink-faint);
+    --shadow-1: var(--brand-shadow);
     --shadow-2: 0 2px 4px oklch(30% 0.02 85 / .06), 0 14px 36px -12px oklch(30% 0.02 85 / .16);
-    --accent: oklch(48.5% 0.105 163.5);
-    --accent-soft: oklch(95.5% 0.028 163.5);
+    --accent: var(--brand-accent-ink);
+    --accent-soft: var(--brand-accent-bg);
     --ok: oklch(60% 0.16 155);
-    --warn-ink: oklch(45% 0.13 62);
-    --warn-bg: oklch(97.5% 0.022 75);
-    --warn-line: oklch(88% 0.05 75);
-    --radius: 12px;
-    --serif: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
-    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+    --warn-ink: var(--brand-warn);
+    --warn-bg: var(--brand-warn-bg);
+    --warn-line: var(--brand-warn-line);
+    --radius: var(--brand-r);
+    --serif: var(--brand-sans);
+    --sans: var(--brand-sans);
     --ease: cubic-bezier(0.16, 1, 0.3, 1);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -46,10 +56,16 @@
     padding: 13px 24px; background: oklch(97.3% 0.006 85 / .88);
     backdrop-filter: blur(10px); border-bottom: 1px solid var(--line);
   }
-  .brand { font-family: var(--serif); font-size: 16px; font-weight: 600;
+  .brand { font-family: var(--serif); font-size: 16px; font-weight: var(--brand-display-weight);
            letter-spacing: -.01em; text-decoration: none; color: var(--text); }
   .brand span { color: var(--accent); }
   .steps { display: flex; gap: 4px; margin-left: auto; align-items: center; }
+  /* The dashboard links here as "New report"; without the reciprocal link the front
+     door was a one-way street and a returning reader could not reach their library. */
+  .rail-lib { font-size: 13px; font-weight: 600; text-decoration: none; padding: 7px 13px;
+              border-radius: 9px; border: 1px solid var(--line); color: var(--text-dim);
+              background: var(--surface); white-space: nowrap; }
+  .rail-lib:hover { border-color: var(--accent); color: var(--accent); }
   .step-dot {
     font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
     color: var(--text-faint); padding: 4px 10px; border-radius: 999px;
@@ -63,7 +79,7 @@
   main { max-width: 1080px; margin: 0 auto; padding: 44px 24px 140px; }
   .lede { max-width: 660px; margin-bottom: 34px; }
   .lede h1 { font-family: var(--serif); font-size: clamp(26px, 1.4rem + 1.6vw, 38px);
-             font-weight: 600; letter-spacing: -.02em; line-height: 1.15; }
+             font-weight: var(--brand-display-weight); letter-spacing: -.02em; line-height: 1.15; }
   .lede p { margin-top: 12px; font-size: 15px; color: var(--text-dim); max-width: 56ch; }
 
   /* The editorial gutter: the question number sits in the left margin and the "what this
@@ -225,7 +241,7 @@
               text-transform: uppercase; color: var(--text-faint); }
   .stat-big {
     margin-top: 9px; font-family: var(--serif); font-size: clamp(28px, 1.4rem + 2.2vw, 44px);
-    font-weight: 600; letter-spacing: -.022em; line-height: 1.1;
+    font-weight: var(--brand-display-weight); letter-spacing: -.022em; line-height: 1.1;
   }
   .stat-sub { margin-top: 9px; font-size: 15px; line-height: 1.5; color: var(--text-dim);
               max-width: 52ch; }
@@ -248,11 +264,167 @@
   .limits li { font-size: 13px; line-height: 1.55; color: var(--warn-ink);
                margin-bottom: 6px; }
   .limits li:last-child { margin-bottom: 0; }
+  /* ---- the gate ------------------------------------------------------------------
+     It is not a warning, so it does not borrow the warn palette. It is the moment of
+     sale: a plain card that leads with the price and gets out of the way. */
+  .gate {
+    margin-top: 22px; padding: 24px 24px 20px; border-radius: var(--radius);
+    border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow-2);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .gate-lab { font-size: 10.5px; font-weight: 700; letter-spacing: .09em;
+              text-transform: uppercase; color: var(--accent); }
+  .gate-head { font-family: var(--serif); font-size: 20px; letter-spacing: -.014em;
+               font-weight: var(--brand-display-weight); margin: 0; }
+  .gate-sub { margin: 0 0 6px; font-size: 13.5px; line-height: 1.6; color: var(--text-dim);
+              max-width: 56ch; }
+  /* ---- picking, before paying ------------------------------------------------------
+     A radio group that looks like cards. The native input is visually hidden rather than
+     removed (see .opt above for why): arrow-key navigation and the screen-reader group
+     semantics come free, and :checked still drives the paint. */
+  .gate-opts { display: flex; flex-direction: column; gap: 8px; margin-top: 2px; }
+  .gate-opt {
+    position: relative; display: grid; cursor: pointer;
+    grid-template-columns: 22px 1fr auto; align-items: center; gap: 0 14px;
+    padding: 14px 16px; border-radius: var(--radius);
+    border: 1px solid var(--line); background: var(--surface);
+    transition: border-color .16s var(--ease), background .16s var(--ease),
+                transform .16s var(--ease);
+  }
+  .gate-opt:hover { border-color: color-mix(in srgb, var(--brand-action) 45%, var(--line)); }
+  .gate-opt.on {
+    border-color: var(--brand-action); transform: translateY(-1px);
+    background: color-mix(in srgb, var(--brand-action) 5%, var(--surface));
+    box-shadow: 0 1px 0 var(--brand-action) inset, 0 0 0 1px var(--brand-action);
+  }
+  .gate-opt.busy { opacity: .55; cursor: default; }
+  .gate-opt-radio {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); border: 0;
+  }
+  .gate-tick {
+    width: 20px; height: 20px; border-radius: 999px; display: inline-block;
+    border: 1.5px solid var(--line); background: var(--surface);
+    transition: border-color .16s var(--ease), background .16s var(--ease);
+  }
+  .gate-opt.on .gate-tick {
+    border-color: var(--brand-action); background: var(--brand-action);
+    box-shadow: inset 0 0 0 3.5px var(--surface);
+  }
+  .gate-opt-radio:focus-visible ~ .gate-tick { outline: 2px solid var(--accent);
+                                               outline-offset: 2px; }
+  .gate-opt-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .gate-opt-name { font-size: 14.5px; font-weight: 600; }
+  .gate-opt-note { font-size: 11.5px; color: var(--text-faint); }
+  .gate-opt-price { font-size: 17px; font-weight: 700; letter-spacing: -.015em;
+                    font-variant-numeric: tabular-nums; }
+  .gate-flag {
+    position: absolute; top: -8px; right: 14px; padding: 2px 8px; border-radius: 999px;
+    font-size: 9.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+    background: var(--brand-action); color: #fff;
+  }
+
+  /* ---- the moment they paid --------------------------------------------------------
+     A receipt says a transaction happened. This says something good happened, which is
+     the truthful reading: they have just committed money to a stranger's website. */
+  .gate.celebrate { align-items: flex-start; }
+  .gate-seal { color: var(--brand-action); margin-bottom: 2px; transform-origin: 26px 26px; }
+  .gate-seal .seal-ring { stroke: currentColor; opacity: .28; }
+  .gate-seal .seal-tick { stroke: currentColor; }
+  .gate-head-big { font-size: 24px; letter-spacing: -.02em; }
+  .gate-rule { height: 1px; background: var(--line); margin: 14px 0 4px; align-self: stretch; }
+
+  /* THE FINISHED STATE IS THE DEFAULT, and the animation only plays it in.
+     Written the other way round first: the undrawn dash offsets lived on the ELEMENT and
+     the keyframes drew them to zero. That renders a checkmark nobody can see anywhere the
+     animation does not run — a paused background tab, a print, a screenshot pipeline, an
+     engine that skipped it. The mark is the whole point of the card, so it must not depend
+     on a flourish completing. The dash values live in the keyframes now: animation plays,
+     it draws itself; animation never plays, it was already drawn.
+
+     Same reasoning kills the staggered fade that was here. `animation-fill-mode: both`
+     with a delay holds opacity 0 BEFORE the animation starts, so a card that never
+     animates stays invisible. One transform on the whole card, no delay, nothing to be
+     stuck behind. */
+  /* MOTION HERE IS PURELY ADDITIVE: it may only move things, never reveal them.
+     Two earlier versions of this hid their own content. The first put the undrawn dash
+     offsets on the element, so the checkmark existed only once the animation finished.
+     The second animated the card from opacity 0. Both are fine while animations run, and
+     both render a blank or markless card anywhere they do not — MEASURED in this very
+     browser pane, where animations start and then never advance: every element froze on
+     frame one and the whole card computed opacity 0.
+
+     A background tab, a print stylesheet, a screenshot service, a throttled renderer and
+     a paused compositor all do this. So the resting state is now the finished state, and
+     the only animated property is `transform`. Frozen on frame one, the card is a few
+     pixels low and the seal is slightly small. Both are legible, which is the bar. */
+  @media (prefers-reduced-motion: no-preference) {
+    .gate.celebrate { animation: seal-rise .4s var(--ease); }
+    .gate-seal { animation: seal-pop .45s var(--ease); }
+  }
+  @keyframes seal-rise { from { transform: translateY(10px); } }
+  @keyframes seal-pop  { from { transform: scale(.72) rotate(-8deg); } }
+
+  .gate-buy {
+    display: grid; grid-template-columns: 1fr auto; align-items: baseline;
+    gap: 2px 14px; width: 100%; text-align: left; cursor: pointer;
+    padding: 13px 16px; border-radius: var(--radius);
+    border: 1px solid var(--line); background: var(--surface);
+    color: var(--text); font: inherit;
+    transition: border-color .18s var(--ease), background .18s var(--ease),
+                transform .18s var(--ease);
+  }
+  .gate-buy:hover:not(:disabled) { border-color: var(--brand-action); transform: translateY(-1px); }
+  .gate-buy:disabled { opacity: .6; cursor: default; }
+  .gate-buy.primary { background: var(--brand-action); border-color: var(--brand-action);
+                      color: #fff; }
+  .gate-buy.primary:hover:not(:disabled) { background: var(--brand-action-hi);
+                                           border-color: var(--brand-action-hi); }
+  .gate-buy-name { font-size: 14.5px; font-weight: 600; }
+  .gate-buy-price { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .gate-buy-note { grid-column: 1 / -1; font-size: 11.5px; opacity: .72; margin-top: 2px; }
+  .gate-field { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+  .gate-lab-sm { font-size: 11.5px; font-weight: 600; color: var(--text-dim); }
+  .gate-input {
+    width: 100%; max-width: 420px; padding: 10px 12px; font: inherit; font-size: 14px;
+    color: var(--text); background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .gate-input:focus { border-color: var(--brand-action); outline: none; }
+  .gate-fine, .gate-alt { margin: 4px 0 0; font-size: 12.5px; line-height: 1.6;
+                          color: var(--text-faint); }
+  .gate-fine a, .gate-alt a { color: var(--accent); }
+  /* In test mode this is the only working action on the card, so it is a button, not a
+     footnote. It stays visually distinct from the priced buttons above it: an outline
+     rather than a fill, because it is a way past the paywall and should never be mistaken
+     for one of the things being sold. */
+  .gate-skip {
+    display: block; width: 100%; margin-top: 6px; padding: 12px 16px; text-align: left;
+    border-radius: var(--radius); border: 1px solid var(--brand-action); cursor: pointer;
+    background: var(--surface); color: var(--brand-action); font: inherit;
+    transition: background .18s var(--ease), transform .18s var(--ease);
+  }
+  .gate-skip:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--brand-action) 7%, transparent);
+    transform: translateY(-1px);
+  }
+  .gate-skip:disabled { opacity: .6; cursor: default; }
+  /* A refusal, where the founder is actually looking: beside the button that caused it. */
+  .gate-msg {
+    margin: 2px 0 0; padding: 11px 14px; border-radius: var(--radius);
+    background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-ink);
+    font-size: 13px; line-height: 1.55;
+  }
+  .gate-preview {
+    margin: 0 0 4px; padding: 10px 13px; border-radius: var(--radius);
+    background: var(--surface-2); border: 1px dashed var(--line);
+    color: var(--text-dim); font-size: 12.5px; line-height: 1.55;
+  }
   .next {
     margin-top: 22px; padding: 20px 22px; border-radius: var(--radius);
     border: 1px solid var(--line); background: var(--surface);
   }
-  .next h3 { font-family: var(--serif); font-size: 18px; font-weight: 600;
+  .next h3 { font-family: var(--serif); font-size: 18px; font-weight: var(--brand-display-weight);
              letter-spacing: -.012em; }
   .next p { margin-top: 8px; font-size: 14px; line-height: 1.55; color: var(--text-dim);
             max-width: 56ch; }
@@ -275,7 +447,7 @@
   .tally { font-size: 12.5px; color: var(--text-dim); }
   .go {
     margin-left: auto; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
-    color: #fff; background: var(--accent); border: none;
+    color: #fff; background: var(--brand-action); border: none;
     border-radius: 9px; padding: 11px 22px;
     transition: opacity .15s ease, transform .12s ease;
   }
@@ -306,8 +478,9 @@
 <body>
 
 <header class="rail">
-  <a class="brand" href="/">Castor <span>Research</span></a>
+  <a class="brand-mark" href="/"><svg viewBox="0 0 100 100" width="32" height="32"><g transform="translate(10,8)"><ellipse cx="40" cy="38" rx="38" ry="35" fill="#B07840"/><ellipse cx="40" cy="46" rx="28" ry="24" fill="#D4A870"/><circle cx="28" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="29.5" cy="28.5" r="2" fill="white"/><circle cx="52" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="53.5" cy="28.5" r="2" fill="white"/><ellipse cx="40" cy="42" rx="6" ry="4.5" fill="#2B3C2B"/><path d="M35 48 Q40 54 45 48" stroke="#2B3C2B" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="4" y1="38" x2="22" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="2" y1="46" x2="20" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="4" y1="54" x2="22" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="38" x2="58" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="78" y1="46" x2="60" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="54" x2="58" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><ellipse cx="12" cy="12" rx="9" ry="8" fill="#B07840"/><ellipse cx="68" cy="12" rx="9" ry="8" fill="#B07840"/></g></svg><div><span class="word">Castor</span><span class="sub">Research</span></div></a>
   <nav class="steps" id="steps" aria-label="Survey progress"></nav>
+  <a class="rail-lib" href="/dashboard.html">Your reports</a>
 </header>
 
 <main>
@@ -329,6 +502,7 @@
   </div>
 </div>
 
-<script src="/survey.js?v=1"></script>
+<script src="/survey.js"></script>
+<script src="/account.js" defer></script>
 </body>
 </html>

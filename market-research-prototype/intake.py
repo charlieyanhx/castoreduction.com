@@ -24,9 +24,12 @@ Sessions are stored in-memory (these are 1-3 minute conversations); SQLite
 persistence is a follow-up if needed.
 """
 from __future__ import annotations
+import os
+import sqlite3
 import json
 import re
 import time
+from pathlib import Path
 import uuid
 from threading import Lock
 from typing import Any
@@ -129,8 +132,105 @@ Return JSON:
 }}"""
 
 
-_sessions: dict[str, dict] = {}
+#: Intake state lives in SQLite, in the same database as everything else.
+#:
+#: IT USED TO BE A MODULE DICT, and that cost three separate things.
+#:
+#:   ONE PROCESS ONLY. A second uvicorn worker cannot see another worker's dict, so a
+#:   visitor whose next request landed on the other process lost their interview. That one
+#:   dict was the only thing standing between this app and running more than one instance;
+#:   every other cross-request fact (jobs, quota slots, sessions, guest ids) is already
+#:   either in SQLite or in a signed cookie.
+#:
+#:   A RESTART LOST EVERY IN-FLIGHT SURVEY. Deploys included.
+#:
+#:   AND get_session RETURNED A SHALLOW COPY, so a caller mutating the session it was
+#:   handed persisted NESTED writes (session["extracted"][f] = ...) and silently dropped
+#:   TOP-LEVEL ones. Measured: `form_submitted`, `final_description`, `confirmed` — so
+#:   POST /intake/{id}/confirm answered correctly and GET .../confirmation then reported
+#:   the session unconfirmed — and `founder_fields`, whose whole job is to stop the
+#:   extractor overwriting a founder's correction. setdefault on a copy makes a new list
+#:   nobody keeps, so that protection had never once survived the request that set it.
+#:
+#: Writes are explicit now: mutate, then save_session(). A dict that silently persisted
+#: some keys and not others is the bug, so nothing here pretends to auto-save.
+_SESSION_TTL_S = 7 * 24 * 3600
 _lock = Lock()
+
+
+def _sdb() -> sqlite3.Connection:
+    conn = sqlite3.connect(
+        os.environ.get("JOBS_DB_PATH") or str(Path(__file__).parent / ".jobs.sqlite"),
+        timeout=10, isolation_level=None)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("""CREATE TABLE IF NOT EXISTS intake_sessions (
+            id TEXT PRIMARY KEY,
+            data_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL)""")
+    # AN UNFINISHED INTERVIEW IS THE FOUNDER'S OWN WRITING, so the drafts list has to be
+    # scoped like every other read. The table shipped this morning without an owner
+    # because a session id was the only key anyone held; a notebook that lists drafts
+    # needs to answer "whose", and answering it wrong is the leak this codebase has spent
+    # the day closing. Added by ALTER so sessions started before this keep working —
+    # they get NULL and belong to nobody, which is the safe direction.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(intake_sessions)")}
+    if "owner_id" not in cols:
+        conn.execute("ALTER TABLE intake_sessions ADD COLUMN owner_id TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_intake_owner "
+                     "ON intake_sessions(owner_id, updated_at)")
+    return conn
+
+
+def _load(session_id: str) -> dict | None:
+    if not session_id:
+        return None
+    c = _sdb()
+    try:
+        row = c.execute("SELECT data_json, owner_id FROM intake_sessions WHERE id = ?",
+                        (session_id,)).fetchone()
+    finally:
+        c.close()
+    if not row:
+        return None
+    try:
+        d = json.loads(row[0])
+    except Exception:                                # noqa: BLE001
+        return None
+    # THE COLUMN IS THE OWNER, NOT THE BLOB. owner_id lives in both, and reassign_owner
+    # only moves the column, so after a guest signs up the two disagreed: drafts() read
+    # the column and listed the session, while every ownership check read the blob and
+    # answered 404 on the reader's own interview. Worse in the other direction, because
+    # save_session COALESCEs the blob's value back over the column, so the next write
+    # would have handed the session back to a guest id nobody can present again.
+    # One fact, one home. The blob's copy is refreshed from the column on every read.
+    d["owner_id"] = row[1]
+    return d
+
+
+def save_session(session: dict) -> dict:
+    """Persist a session. Call it after mutating one; nothing else writes."""
+    sid = (session or {}).get("id")
+    if not sid:
+        return session
+    now = int(time.time())
+    c = _sdb()
+    try:
+        c.execute(
+            "INSERT INTO intake_sessions (id, data_json, created_at, updated_at, owner_id) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+            "data_json = excluded.data_json, updated_at = excluded.updated_at, "
+            "owner_id = COALESCE(excluded.owner_id, intake_sessions.owner_id)",
+            (sid, json.dumps(session), int(session.get("created_at") or now), now,
+             session.get("owner_id")))
+        # Swept on write, because nothing in this process runs on a timer. An abandoned
+        # interview is worth nothing after a week and the table would otherwise only grow.
+        c.execute("DELETE FROM intake_sessions WHERE updated_at < ?",
+                  (now - _SESSION_TTL_S,))
+    finally:
+        c.close()
+    return session
 
 
 def _format_transcript(messages: list[dict]) -> str:
@@ -177,7 +277,8 @@ def _file_pending_answer(session: dict, pending: str | None, utterance: str) -> 
         _mark_founder_owned(session, pending)
 
 
-def start_session(initial_message: str | None = None) -> dict:
+def start_session(initial_message: str | None = None,
+                  owner_id: str | None = None) -> dict:
     """
     Start a new intake conversation. Returns the opening assistant question.
     `initial_message` lets the caller pre-seed the first user message
@@ -196,9 +297,11 @@ def start_session(initial_message: str | None = None) -> dict:
         # where the operator describes what the report is FOR — before this, the only
         # way to ask for a deep run was to know to pass `effort` to POST /plan by hand.
         "effort": STANDARD,
+        # Who this notebook page belongs to. Bound at creation because the worker that
+        # later reads it has no request context.
+        "owner_id": owner_id,
     }
-    with _lock:
-        _sessions[sid] = session
+    save_session(session)
 
     if initial_message:
         return process_message(sid, initial_message)
@@ -209,6 +312,7 @@ def start_session(initial_message: str | None = None) -> dict:
         "To start: in a sentence or two, what does your product do and who is it for?"
     )
     session["messages"].append({"role": "assistant", "content": opener})
+    save_session(session)
     return {
         "session_id": sid,
         "assistant_message": opener,
@@ -226,11 +330,11 @@ def set_effort(session_id: str, effort: str) -> dict:
     STANDARD and never on QUICK — the same rule the rest of the pipeline holds. A
     typo must not quietly thin a report the operator meant to pay more for.
     """
-    with _lock:
-        session = _sessions.get(session_id)
+    session = _load(session_id)
     if not session:
         return {"error": "session not found"}
     session["effort"] = resolve_effort(effort)
+    save_session(session)
     return {"session_id": session_id, "effort": session["effort"]}
 
 
@@ -240,8 +344,7 @@ def process_message(session_id: str, user_message: str) -> dict:
     Returns the new state. When ready=True, frontend can fire POST /plan
     with `final_description`.
     """
-    with _lock:
-        session = _sessions.get(session_id)
+    session = _load(session_id)
     if not session:
         return {"error": "session not found"}
 
@@ -284,6 +387,7 @@ def process_message(session_id: str, user_message: str) -> dict:
             "and how you plan to charge for the product?"
         )
         session["messages"].append({"role": "assistant", "content": assistant_text})
+        save_session(session)
         return {
             "session_id": session_id,
             "assistant_message": assistant_text,
@@ -407,6 +511,7 @@ def process_message(session_id: str, user_message: str) -> dict:
                  session_id[:8], user_msg_count,
                  sum(1 for f in REQUIRED_FIELDS if session["extracted"].get(f)),
                  len(REQUIRED_FIELDS))
+        save_session(session)
         return {
             "session_id": session_id,
             "assistant_message": assistant_text,
@@ -437,6 +542,7 @@ def process_message(session_id: str, user_message: str) -> dict:
         next_q = (resp.get("next_question") or "").strip() or             _fallback_question(session["extracted"])
     session["pending_field"] = asked_field
     session["messages"].append({"role": "assistant", "content": next_q})
+    save_session(session)
     return {
         "session_id": session_id,
         "assistant_message": next_q,
@@ -451,10 +557,101 @@ def process_message(session_id: str, user_message: str) -> dict:
     }
 
 
+def drafts(owner_id: str, limit: int = 50) -> list[dict]:
+    """This owner's unfinished interviews, newest first — the idea notebook.
+
+    A draft is a venture someone described and did not run. It is worth showing back to
+    them: the survey is long enough that abandoning halfway is normal, and the work is
+    already done. Confirmed sessions are excluded — those became reports and live in the
+    library instead.
+
+    SCOPED, and it returns [] rather than raising for an owner with nothing, so a caller
+    never has to branch on "no notebook yet".
+    """
+    if not owner_id:
+        return []
+    c = _sdb()
+    try:
+        rows = c.execute(
+            "SELECT id, data_json, created_at, updated_at FROM intake_sessions "
+            "WHERE owner_id = ? ORDER BY updated_at DESC LIMIT ?",
+            (owner_id, int(limit))).fetchall()
+    finally:
+        c.close()
+    out = []
+    for sid, blob, created, updated in rows:
+        try:
+            d = json.loads(blob)
+        except Exception:                            # noqa: BLE001
+            continue
+        if d.get("confirmed"):
+            continue                                 # it became a report
+        ex = d.get("extracted") or {}
+        answered = sum(1 for v in ex.values() if v not in (None, "", []))
+        out.append({
+            "session_id": sid,
+            "title": _draft_title(d),
+            "answered": answered,
+            "total": len(ALL_FIELDS),
+            "created_at": created,
+            "updated_at": updated,
+        })
+    return out
+
+
+def _draft_title(session: dict) -> str:
+    """What to call a half-finished idea. The founder's own words if they wrote any."""
+    import slots as _slots
+    ex = session.get("extracted") or {}
+    for field in ("product", "business_model", "target_customer"):
+        text = _slots.text(ex.get(field)).strip()
+        if text:
+            return text[:80]
+    for m in session.get("messages") or []:
+        if m.get("role") == "user" and (m.get("content") or "").strip():
+            return m["content"].strip()[:80]
+    return "Untitled idea"
+
+
+def reassign_owner(old_owner: str, new_owner: str) -> int:
+    """Move a guest's unfinished interviews onto the account they just created.
+
+    THE THIRD SIBLING, and it was missing. _set_session moved the guest's jobs and their
+    credits and stopped there, so signing up emptied the idea notebook: drafts() filters
+    strictly on owner_id, and nothing ever rewrote it. The notebook is the reason a guest
+    is invited to register, and registering was what deleted it.
+    """
+    if not old_owner or not new_owner or old_owner == new_owner:
+        return 0
+    c = _sdb()
+    try:
+        n = c.execute("UPDATE intake_sessions SET owner_id = ? WHERE owner_id = ?",
+                      (new_owner, old_owner)).rowcount or 0
+    finally:
+        c.close()
+    if n:
+        log.info("[intake] moved %d draft(s) from %s to %s",
+                 n, old_owner[:12], new_owner[:8])
+    return n
+
+
+def discard(session_id: str, owner_id: str) -> bool:
+    """Throw away one draft. False when it is not this owner's, which is also the
+    answer for a session that does not exist: a delete must not confirm existence."""
+    if not session_id or not owner_id:
+        return False
+    c = _sdb()
+    try:
+        n = c.execute("DELETE FROM intake_sessions WHERE id = ? AND owner_id = ?",
+                      (session_id, owner_id)).rowcount or 0
+    finally:
+        c.close()
+    return n > 0
+
+
 def get_session(session_id: str) -> dict | None:
-    with _lock:
-        s = _sessions.get(session_id)
-    return dict(s) if s else None
+    """A fresh dict, loaded from storage. Mutate it and call save_session()."""
+    return _load(session_id)
 
 
 def venture_memory(ex: dict):
@@ -883,6 +1080,7 @@ def mark_confirmed(session: dict) -> dict:
     # BEFORE the operator sees the card — so a correction made on the card would never
     # reach the run, and the card would be theatre for the one field it exists to fix.
     session["final_description"] = _synthesize_from_extracted(ex)
+    save_session(session)
     return session
 
 
@@ -999,4 +1197,5 @@ def apply_form_answers(session: dict, answers: dict) -> dict:
     session["extracted"] = ex
     session["final_description"] = _synthesize_from_extracted(ex)
     session["form_submitted"] = True
+    save_session(session)
     return session

@@ -1,3 +1,9 @@
+/* [hidden] is a UA rule and ANY author `display:` beats it, so an element that
+   carries the attribute stays visible the moment some class sets display. That
+   shipped a dead "Continue with Google" button to every install without OAuth
+   credentials. Declared once, at the top, so it loses to nothing later. */
+[hidden] { display: none !important; }
+
 /* Castor Research — iter 37 UI revamp.
    Design language: light-on-dark, sans-serif, generous whitespace.
    Inspired by Linear/Vercel/Stripe — product chrome, not dev console. */

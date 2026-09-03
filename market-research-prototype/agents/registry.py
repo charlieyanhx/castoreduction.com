@@ -29,8 +29,9 @@ import traceback
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from core import Registry
 from logger import get
-from tools import Evidence
+from core import Evidence
 
 log = get("agents")
 
@@ -53,7 +54,7 @@ class AgentSpec:
     docstring: str
 
 
-AGENT_REGISTRY: dict[str, AgentSpec] = {}
+AGENT_REGISTRY: Registry[AgentSpec] = Registry("agent")
 
 
 def agent(role: str, produces: str, categories: Optional[list[str]] = None,
@@ -121,10 +122,8 @@ def agent(role: str, produces: str, categories: Optional[list[str]] = None,
 
 def list_agents(produces: Optional[str] = None) -> list[AgentSpec]:
     """Registered agents, optionally only those producing one output category."""
-    items = list(AGENT_REGISTRY.values())
-    if produces is not None:
-        items = [a for a in items if a.produces == produces]
-    return sorted(items, key=lambda a: a.name)
+    match = {"produces": produces} if produces is not None else {}
+    return AGENT_REGISTRY.entries(**match)
 
 
 def get_agent(name: str) -> Optional[AgentSpec]:
@@ -134,12 +133,8 @@ def get_agent(name: str) -> Optional[AgentSpec]:
 def describe_agent(name: str) -> dict:
     """One agent as a JSON-able dict. An unknown name returns {"error": ...} rather than
     raising, because the callers are description surfaces where a miss is data."""
-    a = AGENT_REGISTRY.get(name)
-    if not a:
-        return {"error": f"agent '{name}' not registered"}
-    return {"name": a.name, "role": a.role, "produces": a.produces,
-            "categories": a.categories, "max_steps": a.max_steps,
-            "signature": a.signature, "docstring": a.docstring}
+    return AGENT_REGISTRY.describe(name, (
+        "name", "role", "produces", "categories", "max_steps", "signature", "docstring"))
 
 
 def describe_all_agents() -> dict:

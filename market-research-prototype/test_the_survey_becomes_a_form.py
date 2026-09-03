@@ -135,7 +135,12 @@ class TestTheLocateEcho(unittest.TestCase):
         import api as api_mod
         import intake
 
-        s = {"id": intake.start_session()["session_id"]}
+        # ONE CLIENT, seeding and driving. Intake routes are owner-scoped now, and every
+        # TestClient is its own guest, so a session started out-of-band (or under a
+        # different client's identity) answers 404 to the one making the request.
+        client = TestClient(api_mod.app)
+        s = {"id": intake.start_session(
+            owner_id=client.get("/auth/me").json()["owner"])["session_id"]}
         payload = {"lat": 34.05, "lng": -118.24, "matched_address": "Los Angeles, CA",
                    "state_fips": "06", "county_fips": "037", "level": "city"}
 
@@ -148,7 +153,6 @@ class TestTheLocateEcho(unittest.TestCase):
                 self.fn = lambda address: _Ev(p)
 
         with patch("tools.get_tool", return_value=_T(payload)):
-            client = TestClient(api_mod.app)
             r = client.post(f"/intake/{s['id']}/locate", json={"q": "Los Angeles, CA"})
         self.assertEqual(r.status_code, 200, r.text)
         body = r.json()

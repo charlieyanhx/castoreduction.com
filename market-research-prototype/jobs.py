@@ -110,6 +110,30 @@ def _conn():
     return conn
 
 
+def reassign_owner(old_owner: str, new_owner: str) -> int:
+    """Move every job from one owner to another. Returns how many moved.
+
+    THIS IS WHAT MAKES "SIGN UP" SAFE TO ASK FOR. A guest who has just watched six minutes
+    of research finish is the best moment to invite registration and the worst possible
+    moment to lose their report. Without this, creating an account silently swaps their
+    library for an empty one, and the invitation becomes a trap.
+    """
+    if not old_owner or not new_owner or old_owner == new_owner:
+        return 0
+    with _lock:
+        conn = _conn()
+        try:
+            cur = conn.execute("UPDATE jobs SET owner_id = ? WHERE owner_id = ?",
+                               (new_owner, old_owner))
+            n = cur.rowcount or 0
+        finally:
+            conn.close()
+    if n:
+        log.info("claimed %d job(s) from guest %s into account %s",
+                 n, old_owner[:8], new_owner[:8])
+    return n
+
+
 def create(kind: str, params: dict, owner_id: str = LEGACY_OWNER) -> str:
     """Insert a pending job and return its id. Every job has an owner from birth."""
     job_id = str(uuid.uuid4())
@@ -226,6 +250,97 @@ def list_recent(limit: int = 50, owner_id: str | None = None) -> list[dict]:
         {"id": r[0], "kind": r[1], "state": r[2], "created_at": r[3], "updated_at": r[4]}
         for r in rows
     ]
+
+
+#: How many times a job may be picked back up after a worker died on it. A run that
+#: kills the process would otherwise be resumed on every boot forever, and each attempt
+#: costs six minutes of somebody's machine.
+MAX_RESUMES = 2
+
+#: Nothing older than this comes back. A "running" row from last week is not an
+#: interrupted run, it is archaeology.
+RESUMABLE_WINDOW_S = 24 * 3600
+
+
+def discard(job_id: str) -> bool:
+    """Remove a job row that never ran. For the quota refusal only.
+
+    NOT A GENERAL DELETE. post_plan creates the row before claiming the slot, so the slot
+    can name its job; when the claim is refused nothing was attempted and the row is
+    bookkeeping the founder should never see. Anything that actually ran keeps its row,
+    errors included, because that is history.
+    """
+    with _lock:
+        c = _conn()
+        try:
+            n = c.execute("DELETE FROM jobs WHERE id = ? AND state IN ('pending','error')",
+                          (job_id,)).rowcount or 0
+        finally:
+            c.close()
+    return n > 0
+
+
+def requeue_orphans(grace_seconds: int = 60,
+                    max_age_s: int = RESUMABLE_WINDOW_S) -> list[str]:
+    """Put interrupted runs back in the queue instead of burying them. Returns their ids.
+
+    THE OLD BEHAVIOUR THREW AWAY A REPORT SOMEONE PAID FOR. cleanup_orphaned_jobs marks a
+    stale `running` row as `error` — correct when the only alternative was a zombie that
+    polls forever, and wrong now, because everything needed to finish the job is already
+    on disk. run_plan takes `resume_from`, orchestrator.steps.skip_step skips any step
+    recorded complete whose outputs are intact, and plan.py checkpoints the partial result
+    into this row after EVERY step. A deploy in the middle of a six-minute run was
+    destroying work that was 90% done and fully recoverable.
+
+    Only `plan` jobs come back: the others take seconds, so restarting one is cheaper than
+    reasoning about whether it half-finished.
+    """
+    now = int(time.time())
+    out: list[str] = []
+    with _lock:
+        c = _conn()
+        try:
+            rows = c.execute(
+                "SELECT id, kind, params_json FROM jobs WHERE state = 'running' "
+                "AND updated_at < ? AND updated_at > ?",
+                (now - grace_seconds, now - max_age_s)).fetchall()
+            for jid, kind, pj in rows:
+                try:
+                    params = json.loads(pj or "{}")
+                except Exception:                            # noqa: BLE001
+                    params = {}
+                tries = int(params.get("_resumes") or 0)
+                if kind != "plan" or tries >= MAX_RESUMES:
+                    c.execute("UPDATE jobs SET state = 'error', error = ?, updated_at = ? "
+                              "WHERE id = ?",
+                              ("interrupted by a server restart and not resumable"
+                               if kind != "plan" else
+                               f"interrupted {tries + 1} times; not retried again",
+                               now, jid))
+                    continue
+                params["_resumes"] = tries + 1
+                c.execute("UPDATE jobs SET state = 'pending', params_json = ?, "
+                          "updated_at = ? WHERE id = ?",
+                          (json.dumps(params), now, jid))
+                out.append(jid)
+        finally:
+            c.close()
+    if out:
+        log.warning("[startup] requeued %d interrupted run(s) to resume: %s",
+                    len(out), [j[:8] for j in out])
+    return out
+
+
+def pending_ids(kind: str = "plan", max_age_s: int = RESUMABLE_WINDOW_S) -> list[str]:
+    """Jobs waiting to be run. Nothing polls this; the startup resumer reads it once."""
+    now = int(time.time())
+    c = _conn()
+    try:
+        return [r[0] for r in c.execute(
+            "SELECT id FROM jobs WHERE state = 'pending' AND kind = ? AND updated_at > ? "
+            "ORDER BY created_at", (kind, now - max_age_s)).fetchall()]
+    finally:
+        c.close()
 
 
 def cleanup_orphaned_jobs(grace_seconds: int = 60) -> int:
@@ -348,7 +463,21 @@ def run_async(job_id: str, fn: Callable[[], dict], progress_fn: Callable | None 
             outcome = _run_one(job_id, fn, progress_callback)
         finally:
             _RUN_GATE.release()
-        update(job_id, **outcome)
+        # THE PUBLISH IS THE LAST THING THAT CAN FAIL, and it was the one step outside a
+        # guard. _run_one catches everything and returns an outcome, so the docstring
+        # above says no path leaves a job stuck `running` — but this write can raise on
+        # its own (a full disk, a lock held past the timeout, the file gone) and then the
+        # thread dies with the outcome in its hand. The job stays `running` until the
+        # orphan sweep an hour later, and the exception surfaces nowhere.
+        try:
+            update(job_id, **outcome)
+        except Exception as e:                               # noqa: BLE001
+            log.error("[jobs] could not publish the terminal state of %s: %s", job_id, e)
+            try:
+                update(job_id, **outcome)                    # one retry; locks are brief
+            except Exception as e2:                          # noqa: BLE001
+                log.error("[jobs] %s is stranded in its last state: %s", job_id, e2)
+                return
         if outcome.get("state") == "complete":
             log.info("job %s complete", job_id)
 

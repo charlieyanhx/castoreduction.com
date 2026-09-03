@@ -39,17 +39,30 @@ _HALTED_RESULT = {
 }
 
 
-def _job(result: dict, *, state: str = "complete", kind: str = "plan") -> str:
-    jid = jobs.create(kind, {"business": "test venture"})
+def _job(result: dict, *, owner: str, state: str = "complete", kind: str = "plan") -> str:
+    """Seed a stored job under an EXPLICIT owner.
+
+    `owner` is required rather than defaulted because anonymous visitors are no longer one
+    shared tenant: each TestClient is minted its own signed guest identity on its first
+    request, so a job left on the jobs.create default is another tenant's row and every
+    route correctly answers 404. Callers pass the id the client itself reports.
+    """
+    jid = jobs.create(kind, {"business": "test venture"}, owner_id=owner)
     jobs.update(jid, state=state, result=result)
     return jid
+
+
+def _owner_of(client: TestClient) -> str:
+    """Who this client browses as. Stable for the life of the client's cookie jar, so two
+    TestClient instances are two different guests — ask the same client that will read."""
+    return client.get("/auth/me").json()["owner"]
 
 
 class TestAHaltedRunIsNotServedAsAReport(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = TestClient(api.app)
-        cls.halted = _job(_HALTED_RESULT)
+        cls.halted = _job(_HALTED_RESULT, owner=_owner_of(cls.client))
 
     def test_the_html_report_does_not_render_a_report_for_a_halted_run(self):
         r = self.client.get(f"/jobs/{self.halted}/report.html")
@@ -130,9 +143,11 @@ class TestTheHappyPathIsUnaffected(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = TestClient(api.app)
+        # This client is its own guest tenant; seed everything it reads under that id.
+        cls.owner = _owner_of(cls.client)
 
     def test_a_complete_run_with_a_failed_subsection_still_renders(self):
-        jid = _job({
+        jid = _job(owner=self.owner, result={
             "profile": {"name": "Real Venture", "summary": "s"},
             "viability": {"viability_score": 64, "verdict": "conditional"},
             "market_sizing": {"tam": {"mid": 1.0e8}},
@@ -147,13 +162,13 @@ class TestTheHappyPathIsUnaffected(unittest.TestCase):
         """Caught by the existing suite, not by mine: reusing halt_reason verbatim in
         /jobs/{id} reported every in-progress run as state=error with error="state=running",
         because "no report available yet" and "this run failed" are different questions."""
-        jid = _job({"_steps_completed": ["profile"]}, state="running")
+        jid = _job({"_steps_completed": ["profile"]}, owner=self.owner, state="running")
         body = self.client.get(f"/jobs/{jid}").json()
         self.assertEqual(body["state"], "running")
         self.assertFalse(body.get("error"), f"a running job reports error={body.get('error')!r}")
 
     def test_a_still_running_job_keeps_its_202(self):
-        jid = _job({"_steps_completed": ["profile"]}, state="running")
+        jid = _job({"_steps_completed": ["profile"]}, owner=self.owner, state="running")
         r = self.client.get(f"/jobs/{jid}/report.html")
         self.assertEqual(r.status_code, 202)
         self.assertIn("still generating", r.content.decode(errors="replace"))

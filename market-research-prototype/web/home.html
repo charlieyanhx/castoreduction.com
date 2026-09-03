@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Your account · Castor Research</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap">
+<link rel="stylesheet" href="/brand.css">
+<style>
+  /* The survey's palette, verbatim. This page is where a returning founder lands, so it
+     must read as the same product they left, not a second one bolted on. */
+  [hidden] { display: none !important; }
+  :root {
+    --bg: var(--brand-paper);
+    --surface: var(--brand-surface);
+    --surface-2: var(--brand-surface-2);
+    --line: var(--brand-line);
+    --line-soft: var(--brand-line-soft);
+    --text: var(--brand-ink);
+    --text-dim: var(--brand-ink-dim);
+    --text-faint: var(--brand-ink-faint);
+    --accent: var(--brand-accent-ink);
+    --accent-soft: var(--brand-accent-bg);
+    --warn-ink: var(--brand-warn);
+    --warn-bg: var(--brand-warn-bg);
+    --warn-line: var(--brand-warn-line);
+    --danger: var(--brand-danger);
+    --danger-bg: var(--brand-danger-bg);
+    --ok-ink: var(--brand-ok);
+    --ok-bg: var(--brand-ok-bg);
+    --shadow: var(--brand-shadow);
+    --radius: var(--brand-r);
+    --serif: var(--brand-sans);
+    --sans: var(--brand-sans);
+    --mono: var(--brand-mono);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  body { font-family: var(--sans); font-size: 14.5px; line-height: 1.55; color: var(--text);
+         background: var(--bg); -webkit-font-smoothing: antialiased; }
+
+  .rail { position: sticky; top: 0; z-index: 20; display: flex; align-items: center;
+          gap: 14px; padding: 13px 24px; background: oklch(97.3% 0.006 85 / .88);
+          backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+  .brand { font-family: var(--serif); font-size: 16px; font-weight: var(--brand-display-weight);
+           letter-spacing: -.01em; text-decoration: none; color: var(--text); }
+  .brand span { color: var(--accent); }
+  .rail-acts { margin-left: auto; display: flex; gap: 9px; align-items: center; }
+  .btn { font: inherit; font-size: 13px; font-weight: 600; text-decoration: none;
+         cursor: pointer; padding: 8px 15px; border-radius: 9px;
+         border: 1px solid var(--line); background: var(--surface); color: var(--text-dim); }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.go { background: var(--brand-action); border-color: var(--brand-action); color: #fff; }
+  .btn.go:hover { opacity: .92; color: #fff; }
+  .btn.sm { padding: 6px 11px; font-size: 12.5px; }
+  .btn.danger { border-color: var(--warn-line); color: var(--danger); }
+  .btn.danger:hover { background: var(--danger-bg); border-color: var(--danger); }
+  .btn:disabled { opacity: .5; cursor: default; }
+
+  main { max-width: 980px; margin: 0 auto; padding: 38px 24px 100px; }
+  h1 { font-family: var(--serif); font-size: clamp(27px, 1.5rem + 1.5vw, 36px);
+       font-weight: var(--brand-display-weight); letter-spacing: -.022em; }
+  .lede { margin-top: 8px; color: var(--text-dim); max-width: 58ch; }
+
+  h2 { font-family: var(--serif); font-size: 19px; font-weight: var(--brand-display-weight);
+       letter-spacing: -.012em; margin-bottom: 3px; }
+  section { margin-top: 40px; }
+  .shead { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+  .shead p { font-size: 13.5px; color: var(--text-faint); }
+  .shead .more { margin-left: auto; font-size: 13px; font-weight: 600;
+                 color: var(--accent); text-decoration: none; white-space: nowrap; }
+
+  /* ---- credits strip ---- */
+  .meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft);
+            border-radius: var(--radius); overflow: hidden; }
+  .meter { background: var(--surface); padding: 15px 17px 14px; }
+  .meter b { display: block; font-family: var(--serif); font-size: 26px; font-weight: var(--brand-display-weight);
+             letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .meter span { display: block; margin-top: 2px; font-family: var(--mono); font-size: 10px;
+                letter-spacing: .07em; text-transform: uppercase; color: var(--text-faint); }
+  .meter .buy { margin-top: 10px; }
+
+  /* ---- cards ---- */
+  .card { background: var(--surface); border: 1px solid var(--line);
+          border-radius: var(--radius); box-shadow: var(--shadow); padding: 15px 17px;
+          margin-bottom: 9px; }
+  .row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 14px;
+         align-items: center; }
+  .row .name { font-size: 15px; font-weight: 600; letter-spacing: -.005em;
+               color: var(--text); text-decoration: none; }
+  .row a.name:hover { color: var(--accent); }
+  .row .meta { margin-top: 3px; font-size: 12.5px; color: var(--text-faint);
+               font-variant-numeric: tabular-nums; }
+  .acts { display: flex; gap: 7px; align-items: center; }
+
+  .pill { font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+          padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+  .pill.ready { background: var(--accent-soft); color: var(--accent); }
+  .pill.withheld { background: var(--warn-bg); color: var(--warn-ink); }
+  .pill.running { background: oklch(95% 0.03 250); color: oklch(45% 0.13 250); }
+  .pill.failed { background: var(--surface-2); color: var(--text-faint); }
+
+  .bar { height: 4px; border-radius: 999px; background: var(--surface-2);
+         margin-top: 8px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+
+  .empty { padding: 22px 0 6px; color: var(--text-faint); font-size: 14px; }
+  .empty a { color: var(--accent); }
+
+  /* ---- banners ---- */
+  /* Two account states used to render as nothing at all on this page: a spent
+     confirmation link redirected here and the page came back byte-identical, and an
+     unverified address had no control anywhere that reached the resend endpoint. Both
+     are banners now, and both can be waved away. */
+  .notice { position: relative; display: flex; flex-wrap: wrap; align-items: center;
+            gap: 9px 16px; margin-bottom: 14px; padding: 13px 42px 13px 16px;
+            border: 1px solid var(--line); border-radius: var(--radius);
+            background: var(--surface); box-shadow: var(--shadow); font-size: 13.5px; }
+  .notice .notice-body { min-width: 0; color: var(--text-dim); }
+  .notice b { display: block; font-size: 14.5px; font-weight: 700; color: var(--text); }
+  .notice.good { background: var(--ok-bg);
+                 border-color: color-mix(in srgb, var(--ok-ink) 30%, transparent); }
+  .notice.good b, .notice.good .notice-body { color: var(--ok-ink); }
+  .notice .acts { margin-left: auto; }
+  .notice .x { position: absolute; top: 8px; right: 10px; padding: 2px 5px; border: 0;
+               background: none; cursor: pointer; color: inherit; font: inherit;
+               font-size: 15px; line-height: 1; opacity: .55; }
+  .notice .x:hover { opacity: 1; }
+
+  /* ---- settings ---- */
+  .settings { display: grid; gap: 9px; }
+  .field { display: grid; gap: 5px; margin-bottom: 10px; max-width: 340px; }
+  label { font-size: 12.5px; font-weight: 600; color: var(--text-dim); }
+  input[type=password], input[type=text] {
+    font: inherit; font-size: 14px; padding: 9px 11px; border-radius: 9px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  input:focus { outline: none; border-color: var(--accent);
+                box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); }
+  .hint { font-size: 12.5px; color: var(--text-faint); }
+  .msg { font-size: 13px; margin-top: 8px; }
+  .msg.ok { color: var(--accent); }
+  .msg.err { color: var(--danger); }
+  .danger-zone { border-color: var(--warn-line); background: var(--warn-bg); }
+  .danger-zone h3 { font-family: var(--serif); font-size: 16px; font-weight: var(--brand-display-weight);
+                    margin-bottom: 3px; }
+  .danger-zone p { font-size: 13.5px; color: var(--text-dim); max-width: 56ch; }
+
+  @media (max-width: 600px) {
+    .row { grid-template-columns: 1fr; }
+    .acts { justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<header class="rail">
+  <a class="brand-mark" href="/home"><svg viewBox="0 0 100 100" width="32" height="32"><g transform="translate(10,8)"><ellipse cx="40" cy="38" rx="38" ry="35" fill="#B07840"/><ellipse cx="40" cy="46" rx="28" ry="24" fill="#D4A870"/><circle cx="28" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="29.5" cy="28.5" r="2" fill="white"/><circle cx="52" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="53.5" cy="28.5" r="2" fill="white"/><ellipse cx="40" cy="42" rx="6" ry="4.5" fill="#2B3C2B"/><path d="M35 48 Q40 54 45 48" stroke="#2B3C2B" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="4" y1="38" x2="22" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="2" y1="46" x2="20" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="4" y1="54" x2="22" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="38" x2="58" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="78" y1="46" x2="60" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="54" x2="58" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><ellipse cx="12" cy="12" rx="9" ry="8" fill="#B07840"/><ellipse cx="68" cy="12" rx="9" ry="8" fill="#B07840"/></g></svg><div><span class="word">Castor</span><span class="sub">Research</span></div></a>
+  <span class="rail-acts">
+    <a class="btn go" href="/survey">New report</a>
+  </span>
+</header>
+
+<main>
+  <div id="notices"></div>
+
+  <h1 id="hello">Your account</h1>
+  <p class="lede" id="lede">Everything you have started, everything you have run, and what
+    it costs.</p>
+
+  <!-- ------------------------------------------------------------ credits -->
+  <section>
+    <div class="shead"><h2>Credits</h2></div>
+    <div class="meters" id="meters"></div>
+    <p class="hint" id="buyNote" style="margin-top:10px" hidden></p>
+    <p class="msg err" id="buyErr" style="margin-top:8px" hidden></p>
+  </section>
+
+  <!-- ------------------------------------------------------------ running -->
+  <section id="runningSec" hidden>
+    <div class="shead"><h2>Running now</h2>
+      <p>A report takes about six minutes.</p></div>
+    <div id="running"></div>
+  </section>
+
+  <!-- ------------------------------------------------------------ notebook -->
+  <section>
+    <div class="shead"><h2>Idea notebook</h2>
+      <p>Started, not run. Pick one up where you left it.</p></div>
+    <div id="drafts"><div class="empty">Loading…</div></div>
+  </section>
+
+  <!-- ------------------------------------------------------------ reports -->
+  <section>
+    <div class="shead"><h2>Recent reports</h2>
+      <a class="more" href="/dashboard.html">Your whole library →</a></div>
+    <div id="reports"><div class="empty">Loading…</div></div>
+  </section>
+
+  <!-- ------------------------------------------------------------ settings -->
+  <section id="settingsSec" hidden>
+    <div class="shead"><h2>Settings</h2></div>
+
+    <!-- A Google account's stored hash is a sentinel that verify_password always
+         refuses, so this card could only ever answer "password is wrong". It is hidden
+         for those accounts and this line says why, rather than leaving a gap. -->
+    <p class="hint" id="pwNone" style="margin-bottom:9px" hidden></p>
+
+    <div class="card" id="pwCard">
+      <h3 style="font-family:var(--serif);font-size:16px;font-weight:var(--brand-display-weight);margin-bottom:9px">
+        Change password</h3>
+      <div class="field">
+        <label for="pwCur">Current password</label>
+        <input id="pwCur" type="password" autocomplete="current-password">
+      </div>
+      <div class="field">
+        <label for="pwNew">New password</label>
+        <input id="pwNew" type="password" autocomplete="new-password">
+        <span class="hint">At least 12 characters.</span>
+      </div>
+      <button class="btn" id="pwSave">Update password</button>
+      <div class="msg" id="pwMsg"></div>
+    </div>
+
+    <div class="card danger-zone">
+      <h3>Delete this account</h3>
+      <p>Erases your reports, your drafts, your notes and any unspent credits. There is no
+        undo and no backup we can restore for you.</p>
+      <div class="field" style="margin-top:11px" id="delPwField">
+        <label for="delPw">Confirm with your password</label>
+        <input id="delPw" type="password" autocomplete="current-password">
+      </div>
+      <!-- Same sentinel hash, same consequence: an account with no password proves
+           itself by typing its own address, which is what /auth/account asks of it. -->
+      <div class="field" style="margin-top:11px" id="delEmailField" hidden>
+        <label for="delEmail">Confirm by typing your email address</label>
+        <input id="delEmail" type="text" autocomplete="off" spellcheck="false">
+      </div>
+      <button class="btn danger" id="delBtn">Delete everything</button>
+      <div class="msg" id="delMsg"></div>
+    </div>
+  </section>
+</main>
+
+<script src="/account.js" defer></script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { var d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; };
+
+  function when(ts) {
+    if (!ts) return "";
+    var d = new Date(ts * 1000);
+    return d.toLocaleDateString(undefined, {month: "short", day: "numeric"}) + " " +
+           d.toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
+  }
+  function statusOf(j) {
+    if (j.state === "running" || j.state === "pending") return "running";
+    if (j.state === "error") return "failed";
+    if (j.state === "complete") return j.publishable === false ? "withheld" : "ready";
+    return "failed";
+  }
+  var LABEL = {ready: "Ready", withheld: "Withheld", running: "Running", failed: "Did not finish"};
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function get(url) { return fetch(url).then(function (r) { return r.ok ? r.json() : null; }); }
+
+  /* THE BODY OF A FAILED CALL IS THE ONLY PLACE THE REASON LIVES. Every write on this
+     page used to read r.json() and never r.ok, so a refusal that arrived with a perfectly
+     good explanation (checkout's 402, a DELETE's 404) was thrown away and the control
+     just went quiet. This keeps the status and the parsed detail together. */
+  function post(url, body) {
+    return fetch(url, {method: "POST", headers: {"content-type": "application/json"},
+                       body: JSON.stringify(body || {})})
+      .then(function (r) {
+        return r.json().catch(function () { return null; })
+                .then(function (d) { return {ok: r.ok, status: r.status, d: d || {}}; });
+      });
+  }
+  function detailOf(x, fallback) {
+    var d = x && x.d && x.d.detail;
+    return (typeof d === "string" && d) ? d : fallback;
+  }
+  function usd(n) {
+    if (typeof n !== "number" || !isFinite(n) || n <= 0) return "";
+    return "$" + (n % 1 === 0 ? String(n) : n.toFixed(2));
+  }
+
+  /* ---------------------------------------------------------------- banners */
+  function banner(cls, head, text) {
+    var box = el("div", "notice" + (cls ? " " + cls : ""));
+    box.setAttribute("role", "status");
+    var body = el("div", "notice-body");
+    body.appendChild(el("b", null, head));
+    body.appendChild(document.createTextNode(text));
+    box.appendChild(body);
+    var x = el("button", "x", "\u00d7");
+    x.type = "button";
+    x.setAttribute("aria-label", "Dismiss");
+    x.addEventListener("click", function () { box.remove(); });
+    box.appendChild(x);
+    $("notices").appendChild(box);
+    return {box: box, body: body};
+  }
+
+  /* A spent confirmation link redirects to /home?verified=1 and nothing on this page read
+     the parameter, so someone confirming from their phone landed on a page identical to
+     the one they left and had no way to tell the link had worked. Drawn before any fetch,
+     because the confirmation is true whether or not /auth/me answers, and the parameter is
+     stripped afterwards so a reload does not re-announce it. */
+  function confirmedBanner() {
+    if (!/[?&]verified=1(&|$)/.test(location.search)) return;
+    banner("good", "Email confirmed",
+           "Your address is verified. If you opened the link on your phone, you can close "
+           + "that tab.");
+    try {
+      var q = location.search.replace(/([?&])verified=1(&|$)/, "$1").replace(/[?&]$/, "");
+      history.replaceState(null, "", location.pathname + q + location.hash);
+    } catch (e) { /* replaceState is unavailable inside some embedded browsers */ }
+  }
+
+  /* POST /auth/verify/send has always existed and no control on the site reached it, so an
+     account whose address was never confirmed could not ask for another link. Quiet, and
+     it reports what the server answered rather than assuming the mail went out. */
+  function verifyBanner(me) {
+    if (!me || !me.authenticated || me.verified !== false) return;
+    var n = banner("", "Confirm your email address",
+                   "Nothing has confirmed that " + (me.email || "your address")
+                   + " reaches you.");
+    var acts = el("div", "acts");
+    var b = el("button", "btn sm", "Resend the link");
+    var msg = el("div", "msg");
+    msg.hidden = true;
+    b.addEventListener("click", function () {
+      b.disabled = true; msg.hidden = false; msg.className = "msg"; msg.textContent = "";
+      post("/auth/verify/send", {})
+        .then(function (x) {
+          if (x.ok) {
+            b.remove();
+            msg.className = "msg ok";
+            msg.textContent = "Sent. The link is good for 24 hours.";
+            return;
+          }
+          b.disabled = false;
+          msg.className = "msg err";
+          // The limiter here is the sign-in limiter, and its wording says so; on this
+          // control that sentence would be about the wrong thing.
+          msg.textContent = x.status === 429
+            ? "That has been asked for a few times already. Try again in 15 minutes."
+            : detailOf(x, "The link could not be sent. Try again in a minute.");
+        })
+        .catch(function () {
+          b.disabled = false;
+          msg.className = "msg err";
+          msg.textContent = "The server could not be reached. Try again in a minute.";
+        });
+    });
+    acts.appendChild(b);
+    n.box.appendChild(acts);
+    n.body.appendChild(msg);
+  }
+
+  /* ---------------------------------------------------------------- credits */
+  function meters(me, bill) {
+    var host = $("meters"); host.textContent = "";
+    var free = bill ? bill.free_runs_left : 0;
+    var credits = bill ? bill.report_credits : 0;
+    [["Free runs left today", free], ["Report credits", credits]].forEach(function (p) {
+      var m = el("div", "meter");
+      m.appendChild(el("b", null, String(p[1])));
+      m.appendChild(el("span", null, p[0]));
+      host.appendChild(m);
+    });
+    // A Buy button on an instance with no Stripe keys is a button that fails, so ask first.
+    var can = bill && bill.buyable && bill.buyable.report;
+    var m = el("div", "meter");
+    if (can) {
+      m.appendChild(el("b", null, "+1"));
+      m.appendChild(el("span", null, "Buy a report"));
+      // A credit was offered for sale with no price anywhere on the control. The amount
+      // of record is Stripe's, so the label carries a figure only when /billing/status
+      // reports one and stays silent rather than guessing.
+      var price = usd((bill && bill.prices_usd) ? bill.prices_usd.report : null);
+      var b = el("button", "btn go sm buy", price ? "Buy a credit · " + price : "Buy a credit");
+      b.addEventListener("click", function () {
+        b.disabled = true;
+        var err = $("buyErr"); err.hidden = true; err.textContent = "";
+        post("/billing/checkout", {kind: "report"})
+          .then(function (x) {
+            if (x.ok && x.d && x.d.url) { location.href = x.d.url; return; }
+            // Checkout refuses with a 402 that names the reason. Re-enabling the button
+            // and saying nothing left the founder clicking a control that did nothing.
+            b.disabled = false;
+            err.hidden = false;
+            err.textContent = detailOf(x, "Checkout did not open. Try again in a moment.");
+          })
+          .catch(function () {
+            b.disabled = false;
+            err.hidden = false;
+            err.textContent = "The payment service could not be reached. Try again in a moment.";
+          });
+      });
+      m.appendChild(b);
+    } else {
+      m.appendChild(el("b", null, "—"));
+      m.appendChild(el("span", null, "Buying not enabled"));
+      $("buyNote").hidden = false;
+      $("buyNote").textContent = "Card payments are not connected on this instance yet.";
+    }
+    host.appendChild(m);
+  }
+
+  /* --------------------------------------------------------------- notebook */
+  function drafts(list) {
+    var host = $("drafts"); host.textContent = "";
+    if (!list || !list.length) {
+      var e = el("div", "empty");
+      e.appendChild(document.createTextNode("Nothing in progress. "));
+      var a = document.createElement("a"); a.href = "/survey"; a.textContent = "Describe a venture";
+      e.appendChild(a);
+      host.appendChild(e); return;
+    }
+    list.forEach(function (d) {
+      var card = el("div", "card"), row = el("div", "row"), body = el("div");
+      var a = el("a", "name", d.title || "Untitled idea");
+      a.href = "/survey?s=" + encodeURIComponent(d.session_id);
+      body.appendChild(a);
+      // THE DENOMINATOR THE NOTEBOOK SHIPPED WAS THE WHOLE FIELD DICTIONARY. /intake/drafts
+      // counts against every field the extractor knows (36); the survey plans about ten
+      // questions for any one venture, so a founder three answers from done read as 8%
+      // and the bar could never approach full. /form is the endpoint that knows which
+      // questions THIS venture is actually asked, and it is the only thing here that can
+      // name a denominator, so the row carries no fraction and no bar until it answers.
+      // The two counts are also not the same measure. /intake/drafts counts filled
+      // fields and /form counts planned questions, so showing one and then the other
+      // would put two different numbers on the same line.
+      var meta = el("div", "meta", "last touched " + when(d.updated_at));
+      body.appendChild(meta);
+      row.appendChild(body);
+      get("/intake/" + encodeURIComponent(d.session_id) + "/form")
+        .then(function (f) {
+          if (!f || typeof f.total !== "number" || f.total <= 0) return;
+          var done = typeof f.answered === "number" ? f.answered : 0;
+          meta.textContent = done + " of " + f.total + " answered · last touched "
+                           + when(d.updated_at);
+          var bar = el("div", "bar"), fill = el("i");
+          fill.style.width = Math.max(3, Math.min(100, Math.round(100 * done / f.total))) + "%";
+          bar.appendChild(fill); body.appendChild(bar);
+        })
+        .catch(function () { /* no denominator, no fraction; the date still identifies it */ });
+
+      var acts = el("div", "acts");
+      var go = el("a", "btn go sm", "Continue");
+      go.href = a.href; acts.appendChild(go);
+      var del = el("button", "btn sm", "Discard");
+      var dmsg = el("div", "msg");
+      dmsg.hidden = true;
+      del.addEventListener("click", function () {
+        del.disabled = true; dmsg.hidden = true; dmsg.className = "msg"; dmsg.textContent = "";
+        fetch("/intake/" + encodeURIComponent(d.session_id), {method: "DELETE"})
+          .then(function (r) {
+            // The card came off on ANY answer. DELETE 404s for a draft that is not yours,
+            // so the row disappeared, nothing was deleted, and the draft was back on the
+            // next load.
+            if (r.ok) { card.remove(); if (!host.children.length) drafts([]); return; }
+            del.disabled = false;
+            dmsg.hidden = false;
+            dmsg.className = "msg err";
+            dmsg.textContent = "This draft was not discarded. Reload the page and try again.";
+          })
+          .catch(function () {
+            del.disabled = false;
+            dmsg.hidden = false;
+            dmsg.className = "msg err";
+            dmsg.textContent = "The server could not be reached. Try again in a moment.";
+          });
+      });
+      acts.appendChild(del);
+      row.appendChild(acts);
+      card.appendChild(row); card.appendChild(dmsg); host.appendChild(card);
+    });
+  }
+
+  /* ---------------------------------------------------------------- reports */
+  function reportRow(j) {
+    var st = statusOf(j);
+    var card = el("div", "card"), row = el("div", "row"), body = el("div");
+    var a = el("a", "name", j.idea_name || j.params_title || "(unnamed)");
+    a.href = st === "running" ? "/progress.html?job=" + encodeURIComponent(j.id)
+                              : "/jobs/" + encodeURIComponent(j.id) + "/report.html";
+    body.appendChild(a);
+    body.appendChild(el("div", "meta",
+      when(j.created_at) + (j.viability_score != null ? " · viability " + j.viability_score : "")));
+    row.appendChild(body);
+    var acts = el("div", "acts");
+    acts.appendChild(el("span", "pill " + st, LABEL[st]));
+    row.appendChild(acts);
+    card.appendChild(row);
+    return card;
+  }
+
+  function reports(all) {
+    var plans = (all || []).filter(function (j) { return j.kind === "plan"; });
+    var live = plans.filter(function (j) { return statusOf(j) === "running"; });
+    var done = plans.filter(function (j) { return statusOf(j) !== "running"; });
+
+    if (live.length) {
+      $("runningSec").hidden = false;
+      var rh = $("running"); rh.textContent = "";
+      live.forEach(function (j) { rh.appendChild(reportRow(j)); });
+    }
+    var host = $("reports"); host.textContent = "";
+    if (!done.length) {
+      var e = el("div", "empty");
+      e.appendChild(document.createTextNode("No finished reports yet. "));
+      var a = document.createElement("a"); a.href = "/survey"; a.textContent = "Start one";
+      e.appendChild(a); host.appendChild(e); return;
+    }
+    done.slice(0, 5).forEach(function (j) { host.appendChild(reportRow(j)); });
+  }
+
+  /* --------------------------------------------------------------- settings */
+  function settings(me) {
+    if (!me || !me.authenticated) return;      // a guest has no password to change
+    $("settingsSec").hidden = false;
+    $("hello").textContent = me.email || "Your account";
+    $("lede").textContent = "Everything you have started, everything you have run, and what it costs.";
+
+    // A GOOGLE ACCOUNT HAS NO PASSWORD TO PROVE. Its stored hash is a sentinel that
+    // verify_password always refuses, so both password gates below could only ever answer
+    // "password is wrong": the change form was shown to everyone, and the delete gate
+    // asked for the one thing that account cannot supply. /auth/account takes the typed
+    // address instead, which is what it asks of these accounts anyway.
+    var hasPw = !me || me.has_password !== false;
+    $("pwCard").hidden = !hasPw;
+    $("pwNone").hidden = hasPw;
+    if (!hasPw) {
+      $("pwNone").textContent = "You sign in with Google, so this account has no password "
+                              + "to change.";
+      $("delPwField").hidden = true;
+      $("delEmailField").hidden = false;
+    }
+
+    $("pwSave").addEventListener("click", function () {
+      var m = $("pwMsg"); m.className = "msg"; m.textContent = "";
+      fetch("/auth/password", {method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({current: $("pwCur").value, new: $("pwNew").value})})
+        // A non-JSON error body (a proxy 502, a gateway timeout) rejects with nothing
+        // downstream to catch it: unhandled rejection, the button stays dead, nothing said.
+        .then(function (r) { return r.json().catch(function () { return {}; })
+                              .then(function (d) { return {ok: r.ok, d: d}; }); })
+        .then(function (x) {
+          m.className = "msg " + (x.ok ? "ok" : "err");
+          m.textContent = x.ok ? "Password updated." : (x.d.detail || "Could not update that.");
+          if (x.ok) { $("pwCur").value = ""; $("pwNew").value = ""; }
+        });
+    });
+
+    $("delBtn").addEventListener("click", function () {
+      var m = $("delMsg"); m.className = "msg"; m.textContent = "";
+      if (!window.confirm("Delete your account and every report in it? This cannot be undone.")) return;
+      fetch("/auth/account", {method: "DELETE",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({password: $("delPw").value,
+                              confirm_email: $("delEmail").value})})
+        // A non-JSON error body (a proxy 502, a gateway timeout) rejects with nothing
+        // downstream to catch it: unhandled rejection, the button stays dead, nothing said.
+        .then(function (r) { return r.json().catch(function () { return {}; })
+                              .then(function (d) { return {ok: r.ok, d: d}; }); })
+        .then(function (x) {
+          if (x.ok) { location.href = "/"; return; }
+          m.className = "msg err";
+          m.textContent = x.d.detail || "Could not delete the account.";
+        });
+    });
+  }
+
+  confirmedBanner();
+  Promise.all([get("/auth/me"), get("/billing/status"),
+               get("/jobs?limit=100"), get("/intake/drafts")])
+    .then(function (r) {
+      var me = r[0], bill = r[1], jobs = r[2], nb = r[3];
+      if (me && !me.authenticated) {
+        $("hello").textContent = "Your workspace";
+        $("lede").textContent = "You are browsing as a guest. Sign in to keep this.";
+      }
+      meters(me, bill);
+      reports(jobs);
+      drafts(nb && nb.drafts);
+      settings(me);
+      verifyBanner(me);
+    })
+    .catch(function () {
+      $("drafts").textContent = ""; $("reports").textContent = "";
+      $("reports").appendChild(el("div", "empty", "Could not load your account."));
+    });
+})();
+</script>
+</body>
+</html>

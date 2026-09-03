@@ -4,7 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in · Castor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap">
+<link rel="stylesheet" href="/brand.css">
 <style>
+  /* [hidden] is a UA rule and ANY author `display:` beats it. .google set
+     display:flex, so "Continue with Google" rendered on every install and 404'd
+     wherever OAuth was unconfigured — the exact failure its own comment claims to
+     prevent. One rule, so the next element to carry `hidden` is safe by default. */
+  [hidden] { display: none !important; }
+
   /* One screen, two modes. A separate /signup page would double the surface for a form
      that differs by one endpoint and one line of copy; a toggle keeps the shared parts
      shared and makes "I do not have an account yet" a click rather than a navigation.
@@ -12,14 +22,14 @@
      Deliberately NOT the workspace shell: this page must render before any authenticated
      fetch, so it carries its own styles and depends on nothing that could 401. */
   :root {
-    --ink: #12100e;
-    --paper: #f7f5f2;
-    --line: #e2ddd6;
-    --muted: #6b645c;
-    --accent: #1b4d3e;          /* the same deep green the reports use for verdicts */
-    --accent-ink: #f7f5f2;
-    --bad: #9b2226;
-    --radius: 12px;
+    --ink: var(--brand-ink);
+    --paper: var(--brand-paper);
+    --line: var(--brand-line);
+    --muted: var(--brand-ink-dim);
+    --accent: var(--brand-accent-ink);          /* the same deep green the reports use for verdicts */
+    --accent-ink: var(--brand-paper);
+    --bad: var(--brand-danger);
+    --radius: var(--brand-r);
   }
   * { box-sizing: border-box; }
   body {
@@ -65,7 +75,7 @@
   .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 18px; min-height: 1.2em; }
   button[type=submit] {
     width: 100%; padding: 12px; font: 600 15px/1 inherit; cursor: pointer;
-    color: var(--accent-ink); background: var(--accent);
+    color: var(--accent-ink); background: var(--brand-action);
     border: 1px solid var(--accent); border-radius: 9px;
     transition: transform .12s ease, opacity .15s ease;
   }
@@ -115,7 +125,7 @@
          refuses to publish when its own checks fail.</p>
       <ul class="facts">
         <li>Census, BLS and OpenStreetMap data, not a model's recollection</li>
-        <li>59 automated invariants run against every report before you see it</li>
+        <li>61 automated invariants run against every report before you see it</li>
         <li>Three free reports a day while the product is in preview</li>
       </ul>
     </div>
@@ -154,6 +164,7 @@
 
       <button type="submit" id="submitBtn">Sign in</button>
 
+      <div style="text-align:center;margin-top:10px;font-size:13.5px"><a href="/forgot" style="color:var(--accent)">Forgot your password?</a></div>
       <p class="swap" id="swapLine">
         No account yet? <button type="button" id="swapBtn">Sign up</button>
       </p>
@@ -161,6 +172,17 @@
   </main>
 
 <script>
+  /* The account button carries ?next= so signing in returns the visitor to the page they
+     were reading. Same-origin PATHS only: an open redirect on a login form hands an
+     attacker a castor-advisory.com link that lands on their site with our name on it. */
+  function nextUrl() {
+    try {
+      var n = new URLSearchParams(location.search).get("next") || "";
+      if (n.charAt(0) === "/" && n.charAt(1) !== "/" && n.indexOf("\\") === -1) return n;
+    } catch (e) { /* fall through */ }
+    return "/";
+  }
+
 (function () {
   var MIN_PASSWORD = 12;
   var mode = new URLSearchParams(location.search).get("mode") === "signup"
@@ -217,7 +239,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email, password: password })
       });
-      if (r.ok) { location.href = "/"; return; }
+      if (r.ok) { location.href = nextUrl(); return; }
       var detail = "";
       try { detail = (await r.json()).detail || ""; } catch (_) {}
       // The server deliberately does not say WHICH half was wrong — repeating its exact
@@ -235,10 +257,15 @@
 
   // Already signed in? Do not make someone log in twice.
   fetch("/auth/me").then(function (r) { return r.json(); }).then(function (me) {
-    if (me && me.authenticated) { location.href = "/"; return; }
+    if (me && me.authenticated) { location.href = nextUrl(); return; }
     // Reveal Google only when the server can actually complete the flow.
     if (me && me.google) {
-      document.getElementById("googleBtn").hidden = false;
+      // The form honours ?next=; the Google button has to as well, or choosing Google
+      // silently discards where the visitor was headed.
+      var g = document.getElementById("googleBtn");
+      var n = nextUrl();
+      if (n && n !== "/") g.href = "/auth/google?next=" + encodeURIComponent(n);
+      g.hidden = false;
       document.getElementById("orLine").hidden = false;
     }
   }).catch(function () {});

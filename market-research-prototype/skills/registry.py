@@ -38,8 +38,9 @@ import traceback
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from core import Registry
 from logger import get
-from tools import Evidence  # reuse the same envelope shape
+from core import Evidence  # the frame's envelope, not the tool package's
 
 log = get("skills")
 
@@ -66,7 +67,7 @@ class SkillMeta:
     line: int = 0
 
 
-SKILL_REGISTRY: dict[str, SkillMeta] = {}
+SKILL_REGISTRY: Registry[SkillMeta] = Registry("skill")
 
 
 def _where(fn: Callable) -> dict:
@@ -196,10 +197,8 @@ def list_skills(produces: Optional[str] = None) -> list[SkillMeta]:
     Sorted by (produces, name) so callers and docs get a stable order rather than
     dictionary insertion order.
     """
-    items = list(SKILL_REGISTRY.values())
-    if produces is not None:
-        items = [s for s in items if s.produces == produces]
-    return sorted(items, key=lambda s: (s.produces, s.name))
+    match = {"produces": produces} if produces is not None else {}
+    return SKILL_REGISTRY.entries(sort_key=lambda s: (s.produces, s.name), **match)
 
 
 def produces_set() -> list[str]:

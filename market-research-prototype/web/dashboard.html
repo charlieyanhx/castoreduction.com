@@ -4,28 +4,37 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Your reports · Castor Research</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap">
+<link rel="stylesheet" href="/brand.css">
 <style>
+  /* [hidden] is a UA rule and ANY author `display:` beats it. See login.html. */
+  [hidden] { display: none !important; }
+
   /* The warm paper of the survey, the progress screen and the report. The library used to
      be the old dark console, so following "your library" out of a finished report handed
      the reader a different product mid-flow. */
   :root {
-    --bg: oklch(97.3% 0.006 85);
-    --surface: oklch(99.4% 0.002 85);
-    --surface-2: oklch(95.8% 0.006 85);
-    --line: oklch(90% 0.008 85);
-    --text: oklch(23% 0.015 250);
-    --text-dim: oklch(48% 0.015 250);
-    --text-faint: oklch(62% 0.012 250);
-    --shadow-1: 0 1px 2px oklch(30% 0.02 85 / .05), 0 4px 16px -6px oklch(30% 0.02 85 / .09);
-    --accent: oklch(48.5% 0.105 163.5);
-    --accent-soft: oklch(95.5% 0.028 163.5);
-    --warn-ink: oklch(45% 0.13 62);
-    --warn-bg: oklch(97.5% 0.022 75);
-    --warn-line: oklch(88% 0.05 75);
-    --radius: 12px;
-    --serif: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
-    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
-    --mono: "SF Mono", ui-monospace, "Cascadia Code", monospace;
+    --bg: var(--brand-paper);
+    --surface: var(--brand-surface);
+    --surface-2: var(--brand-surface-2);
+    --line: var(--brand-line);
+    --text: var(--brand-ink);
+    --text-dim: var(--brand-ink-dim);
+    --text-faint: var(--brand-ink-faint);
+    --shadow-1: var(--brand-shadow);
+    --accent: var(--brand-accent-ink);
+    --accent-soft: var(--brand-accent-bg);
+    --warn-ink: var(--brand-warn);
+    --warn-bg: var(--brand-warn-bg);
+    --warn-line: var(--brand-warn-line);
+    --danger: var(--brand-danger);
+    --danger-bg: var(--brand-danger-bg);
+    --radius: var(--brand-r);
+    --serif: var(--brand-sans);
+    --sans: var(--brand-sans);
+    --mono: var(--brand-mono);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
@@ -35,7 +44,7 @@
   .rail { position: sticky; top: 0; z-index: 20; display: flex; align-items: center;
           gap: 14px; padding: 13px 24px; background: oklch(97.3% 0.006 85 / .88);
           backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
-  .brand { font-family: var(--serif); font-size: 16px; font-weight: 600;
+  .brand { font-family: var(--serif); font-size: 16px; font-weight: var(--brand-display-weight);
            letter-spacing: -.01em; text-decoration: none; color: var(--text); }
   .brand span { color: var(--accent); }
   .rail-acts { margin-left: auto; display: flex; gap: 9px; align-items: center; }
@@ -43,12 +52,12 @@
          cursor: pointer; padding: 8px 15px; border-radius: 9px;
          border: 1px solid var(--line); background: var(--surface); color: var(--text-dim); }
   .btn:hover { border-color: var(--accent); color: var(--accent); }
-  .btn.go { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.go { background: var(--brand-action); border-color: var(--brand-action); color: #fff; }
   .btn.go:hover { opacity: .92; color: #fff; }
 
   main { max-width: 1000px; margin: 0 auto; padding: 40px 24px 90px; }
   h1 { font-family: var(--serif); font-size: clamp(26px, 1.4rem + 1.6vw, 34px);
-       font-weight: 600; letter-spacing: -.02em; }
+       font-weight: var(--brand-display-weight); letter-spacing: -.02em; }
   .lede { margin-top: 10px; font-size: 15px; color: var(--text-dim); max-width: 58ch; }
 
   .filters { display: flex; gap: 9px; margin: 26px 0 18px; flex-wrap: wrap; }
@@ -71,7 +80,7 @@
               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row .when { font-size: 11.5px; color: var(--text-faint); margin-top: 4px;
                font-variant-numeric: tabular-nums; }
-  .score { font-family: var(--serif); font-size: 22px; font-weight: 600;
+  .score { font-family: var(--serif); font-size: 22px; font-weight: var(--brand-display-weight);
            text-align: right; font-variant-numeric: tabular-nums; }
   .score small { display: block; font-family: var(--sans); font-size: 10px;
                  font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
@@ -81,23 +90,49 @@
   .pill.ready { background: var(--accent-soft); color: var(--accent); }
   .pill.withheld { background: var(--warn-bg); color: var(--warn-ink); }
   .pill.running { background: oklch(95% 0.03 250); color: oklch(45% 0.13 250); }
-  .pill.failed { background: var(--surface-2); color: var(--text-faint); }
+  /* A grey pill among coloured ones reads as "inactive", not as "this run failed". The
+     danger tokens are what the rest of the product uses to say something went wrong. */
+  .pill.failed { background: var(--danger-bg); color: var(--danger); }
 
   .empty { padding: 50px 0; color: var(--text-faint); font-size: 14.5px; }
   .empty a { color: var(--accent); }
+  .empty .btn { margin-left: 4px; }
   .bar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px;
          font-size: 13px; color: var(--text-dim); }
+
+  /* THE LOADING STATE HAD THE SAME TREATMENT AS THE EMPTY ONE: one faint line of type in
+     the .empty style. /jobs opens every stored run's result blob to build its rows, so on
+     a full library it is slow enough that "Loading…" sat there long enough to be read as
+     "you have no reports" by somebody who has several. Rows in the shape of the real ones
+     cannot be misread that way. */
+  .skel-row { pointer-events: none; }
+  .skel { background: var(--surface-2); border-radius: 6px; height: 11px;
+          animation: skel-pulse 1.3s ease-in-out infinite; }
+  .skel.nm    { height: 15px; width: 44%; }
+  .skel.sm    { margin-top: 8px; width: 66%; }
+  .skel.wh    { margin-top: 8px; width: 20%; height: 9px; }
+  .skel.sc    { height: 24px; width: 46px; margin-left: auto; }
+  /* max-width because at the narrow breakpoint .pillcell spans the full row, and a
+     block-level placeholder there stretches into a bar nothing on the real list matches. */
+  .skel.pl    { height: 22px; border-radius: 999px; max-width: 112px; }
+  @keyframes skel-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .42; } }
+  @media (prefers-reduced-motion: reduce) { .skel { animation: none; opacity: .7; } }
   @media (max-width: 680px) {
     .row { grid-template-columns: 24px minmax(0, 1fr) 84px; }
     .row .pillcell { grid-column: 2 / -1; }
   }
+  .rail-lib { font-size: 13px; font-weight: 600; text-decoration: none; padding: 7px 13px;
+              border-radius: 9px; border: 1px solid var(--line); color: var(--text-dim);
+              background: var(--surface); white-space: nowrap; }
+  .rail-lib:hover { border-color: var(--accent); color: var(--accent); }
 </style>
 </head>
 <body>
 
 <header class="rail">
-  <a class="brand" href="/">Castor <span>Research</span></a>
+  <a class="brand-mark" href="/home"><svg viewBox="0 0 100 100" width="32" height="32"><g transform="translate(10,8)"><ellipse cx="40" cy="38" rx="38" ry="35" fill="#B07840"/><ellipse cx="40" cy="46" rx="28" ry="24" fill="#D4A870"/><circle cx="28" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="29.5" cy="28.5" r="2" fill="white"/><circle cx="52" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="53.5" cy="28.5" r="2" fill="white"/><ellipse cx="40" cy="42" rx="6" ry="4.5" fill="#2B3C2B"/><path d="M35 48 Q40 54 45 48" stroke="#2B3C2B" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="4" y1="38" x2="22" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="2" y1="46" x2="20" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="4" y1="54" x2="22" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="38" x2="58" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="78" y1="46" x2="60" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="54" x2="58" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><ellipse cx="12" cy="12" rx="9" ry="8" fill="#B07840"/><ellipse cx="68" cy="12" rx="9" ry="8" fill="#B07840"/></g></svg><div><span class="word">Castor</span><span class="sub">Research</span></div></a>
   <span class="rail-acts">
+    <a class="rail-lib" href="/library">The library</a>
     <a class="btn go" href="/survey">New report</a>
   </span>
 </header>
@@ -114,11 +149,14 @@
       <option value="ready">Ready to read</option>
       <option value="withheld">Withheld</option>
       <option value="running">Still running</option>
+      <option value="failed">Did not finish</option>
     </select>
   </div>
 
   <div class="bar" id="bar"></div>
-  <div id="list"><div class="empty">Loading…</div></div>
+  <!-- Painted by showLoading() the moment the script below runs; see .skel for why the
+       library must not open on a line of type that reads like an empty library. -->
+  <div id="list" aria-busy="true"></div>
 </main>
 
 <script>
@@ -126,6 +164,11 @@
   "use strict";
   const $ = (s) => document.querySelector(s);
   let rows = [];
+  // Whether `rows` is the answer from the server or just its initial value. Without it,
+  // typing in the filter box while the list is still loading (or after it failed) runs
+  // render() over an empty array and replaces the skeleton, or the error, with
+  // "No reports yet", which is the page asserting something it does not know.
+  let loaded = false;
 
   function when(ts) {
     if (!ts) return "";
@@ -150,7 +193,50 @@
     return n;
   }
 
+  /* Three rows in the shape of the real ones, not a word. See .skel in the stylesheet:
+     the old "Loading…" wore the empty state's styling and was read as one. Three is a
+     deliberate number, not a guess at how many reports you have. */
+  function showLoading() {
+    const host = $("#list");
+    host.innerHTML = "";
+    host.setAttribute("aria-busy", "true");
+    for (let i = 0; i < 3; i++) {
+      const row = el("div", "row skel-row");
+      row.appendChild(el("div", "dot"));
+      const body = el("div");
+      body.appendChild(el("div", "skel nm"));
+      body.appendChild(el("div", "skel sm"));
+      body.appendChild(el("div", "skel wh"));
+      row.appendChild(body);
+      row.appendChild(el("div", "skel sc"));
+      const cell = el("div", "pillcell");
+      cell.appendChild(el("div", "skel pl"));
+      row.appendChild(cell);
+      host.appendChild(row);
+    }
+    $("#bar").textContent = "Loading your reports…";
+  }
+
+  /* What the reader gets when the list does not arrive. It used to be the exception's
+     own message, which for the commonest failure was a TypeError off the response body
+     (see load()). Say what happened, and give them the one button that might fix it. */
+  function trouble(message) {
+    loaded = false;               // so the filters cannot paint over the explanation
+    const host = $("#list");
+    host.innerHTML = "";
+    host.removeAttribute("aria-busy");
+    $("#bar").textContent = "";
+    const box = el("div", "empty");
+    box.appendChild(document.createTextNode(message + " "));
+    const again = el("button", "btn", "Try again");
+    again.type = "button";
+    again.addEventListener("click", load);
+    box.appendChild(again);
+    host.appendChild(box);
+  }
+
   function render() {
+    if (!loaded) return;
     const q = ($("#search").value || "").toLowerCase();
     const want = $("#tier").value;
     const shown = rows.filter((j) => {
@@ -167,6 +253,7 @@
 
     const host = $("#list");
     host.innerHTML = "";
+    host.removeAttribute("aria-busy");
     if (!shown.length) {
       const e = el("div", "empty");
       e.appendChild(document.createTextNode(rows.length ? "Nothing matches that filter. "
@@ -185,13 +272,20 @@
 
       const body = el("div");
       const a = el("a", "name", j.idea_name || j.params_title || "(unnamed)");
-      // A run still going belongs on its progress screen; anything finished opens the
-      // report, and refine mode is the default there now.
-      a.href = (st === "running")
+      // A run still going belongs on its progress screen, and so does one that stopped:
+      // /report.html answers 409 for a run that produced no report, so a failed row
+      // pointed the reader at a dead end. The progress screen names the failure and
+      // offers a new run. Anything finished opens the report, withheld included (the
+      // withhold page lists what blocked it), and refine mode is the default there now.
+      a.href = (st === "running" || st === "failed")
         ? "/progress.html?job=" + encodeURIComponent(j.id)
         : "/jobs/" + encodeURIComponent(j.id) + "/report.html";
       body.appendChild(a);
-      if (j.idea_summary) body.appendChild(el("div", "sum", j.idea_summary));
+      // A failed row that shows the idea's summary looks like a report. Say why it
+      // stopped instead; the list carries the reason now, so the reader does not have to
+      // click through to learn it.
+      const sub = (st === "failed") ? (j.error || "") : (j.idea_summary || "");
+      if (sub) body.appendChild(el("div", "sum", sub));
       body.appendChild(el("div", "when", when(j.created_at)));
       row.appendChild(body);
 
@@ -210,15 +304,54 @@
   }
 
   async function load() {
+    showLoading();
+    let res;
     try {
       // ONE request. This used to fetch every job's full result blob to read four fields.
-      const all = await (await fetch("/jobs?limit=200")).json();
-      rows = (all || []).filter((j) => j.kind === "plan");
-      render();
+      res = await fetch("/jobs?limit=200");
     } catch (e) {
-      $("#list").innerHTML = "";
-      $("#list").appendChild(el("div", "empty", "Could not load your reports: " + e.message));
+      trouble("We could not reach the server, so your library did not load.");
+      return;
     }
+
+    // CHECK THE STATUS BEFORE TOUCHING THE BODY. There was no unauthorised state here at
+    // all: an install running CASTOR_REQUIRE_LOGIN=1 answers 401 with {"detail": ...},
+    // which has no .filter, so the page caught its own TypeError and printed
+    // "Could not load your reports: all.filter is not a function" at somebody whose only
+    // problem was being signed out.
+    if (res.status === 401 || res.status === 403) {
+      const host = $("#list");
+      host.innerHTML = "";
+      host.removeAttribute("aria-busy");
+      $("#bar").textContent = "";
+      host.appendChild(el("div", "empty", "Sign in to see your reports. Taking you there now."));
+      // ?next= so signing in lands back on the library rather than the front door, and
+      // replace() rather than href so the back button does not bounce between the two.
+      // Same-origin path only, which is what login.html's nextUrl() will accept.
+      location.replace("/login?next=" +
+                       encodeURIComponent(location.pathname + location.search));
+      return;
+    }
+    if (!res.ok) {
+      trouble("Your library did not load. The server answered " + res.status + ".");
+      return;
+    }
+
+    let all;
+    try {
+      all = await res.json();
+    } catch (e) {
+      all = null;
+    }
+    // /jobs returns an array. Anything else is a body this page cannot read, and calling
+    // .filter on it is the same TypeError by another route.
+    if (!Array.isArray(all)) {
+      trouble("Your library came back in a form this page could not read.");
+      return;
+    }
+    rows = all.filter((j) => j.kind === "plan");
+    loaded = true;
+    render();
   }
 
   $("#search").addEventListener("input", render);
@@ -226,5 +359,6 @@
   load();
 })();
 </script>
+<script src="/account.js" defer></script>
 </body>
 </html>

@@ -39,9 +39,8 @@ APP_VERSION = "0.1.0"
 WEB_DIR = PROJECT_ROOT / "web"
 
 # Legacy compat
-STATIC_DIR = PROJECT_ROOT / "static"
 
-# Templates resolve from the MODULE, like WEB_DIR/STATIC_DIR above — never from the
+# Templates resolve from the MODULE, like WEB_DIR above — never from the
 # process cwd. FOUND IN THE BROWSER: uvicorn started outside the project directory made
 # every HTML report 500 with TemplateNotFound, while the JSON API, the workspace UI and
 # the entire test suite kept working — pytest runs with the project as cwd, so the
@@ -80,48 +79,3 @@ class SafeUndefined(jinja2.ChainableUndefined):
     __rmul__ = __mul__
     def __truediv__(self, other): return 0
     def __round__(self, n=0): return 0
-
-_ASSET_VERSIONS: dict[tuple, str] = {}
-
-def _asset_version(path: Path) -> str:
-    """A cache-buster derived from the file itself.
-
-    web/workspace.html used to load `workspace.js?v=7` — a number typed by hand, in a
-    different file from the one being edited. MEASURED: I changed workspace.js, reloaded,
-    and the browser kept the old script; `typeof renderFields` was `function` while
-    `typeof showConfirmation` was `undefined`. The page was running a half-old bundle, so
-    the new confirmation card never rendered and the Generate button never learned to wait
-    for it. The app looked correct and behaved like an older version, which is far worse
-    than looking stale.
-
-    CONTENT hash, not mtime. mtime was the first attempt and its own test caught it:
-    rewriting a file with identical bytes changes the timestamp, so a checkout, a rebuild or
-    a `touch` would bust every returning browser's cache for a file that did not change.
-    Busting too eagerly is a milder failure than not busting at all, but it is still a
-    failure — the point is that the version tracks the CONTENT.
-
-    Memoised on (mtime, size) so the bytes are re-read only when the file plausibly moved,
-    which keeps this to a dict lookup on the common path.
-    """
-    try:
-        st = path.stat()
-    except OSError:
-        return "0"          # a missing asset is the route's problem, not the page's
-    key = (str(path), int(st.st_mtime_ns), st.st_size)
-    cached = _ASSET_VERSIONS.get(key)
-    if cached:
-        return cached
-    try:
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
-    except OSError:
-        return "0"
-    _ASSET_VERSIONS.clear()          # one asset, one entry — this is not a growing cache
-    _ASSET_VERSIONS[key] = digest
-    return digest
-
-def _stamped_html(path: Path) -> HTMLResponse:
-    """Serve an HTML page with its asset references version-stamped."""
-    html = path.read_text(encoding="utf-8")
-    js = WEB_DIR / "workspace.js"
-    html = re.sub(r"(workspace\.js)\?v=[\w.]+", rf"\1?v={_asset_version(js)}", html)
-    return HTMLResponse(html, headers=_NO_CACHE)
