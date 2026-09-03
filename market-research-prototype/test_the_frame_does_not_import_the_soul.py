@@ -1,4 +1,4 @@
-"""The frame may not depend on the soul, and the list of exceptions may only shrink.
+"""The frame may not depend on the soul. At module scope, with no exceptions.
 
 THE SPLIT. Roughly 15k lines here are a report harness that knows nothing about market
 research -- the LLM chain, the job store, ownership and quotas, the tool/skill/agent
@@ -21,9 +21,15 @@ accepted pattern for the places where frame code must eventually reach a domain 
 (harness.agent._default_registry is the worked example, and it takes `registry=` so a
 caller never has to). So this file fails hard on the first and merely records the second.
 
-THE RATCHET. _KNOWN is an allowlist of what was leaking when the boundary was drawn. Its
-job is to go down. Adding to it is how a boundary stops being one, so the count is
-asserted too: a new leak fails even if someone lists it.
+WHERE THIS STANDS. The hard rule holds outright: zero frame modules import the soul at
+module scope, so `import core`, `import harness.agent`, `import gates.runner` all work
+with no market-research module loaded. Eleven deferred (call-time) dependencies remain,
+capped here so they cannot grow. Most are the HTTP and CLI surfaces naming domain entry
+points; the honest fix is a report-type registry for them to dispatch through, which is
+design work rather than a move.
+
+_KNOWN is what those eleven are. Adding to it is how a boundary stops being one, so the
+count is asserted separately: a new leak fails even if someone lists it.
 """
 from __future__ import annotations
 
@@ -51,12 +57,13 @@ _KNOWN = {
     # The HTTP and CLI surfaces call domain entry points by name. Fixing this means a
     # report-type registry that routes dispatch through, which is real design work.
     "api", "cli", "routes.jobs", "routes.research", "routes.intake", "routes.pages",
-    # The gate runner imports its six detector modules directly, so the generic sweep
-    # engine is welded to 61 market-research checks. Fix: registration, not imports.
+    # The sweep engine now takes its table (invariants=/gate_map=) and only falls back to
+    # the market-research one at call time. Deferred, not welded.
     "gates.runner",
-    # The verification pass hard-wires the market-research detector set.
+    # The verification pass still reaches for the market-research detector set as its
+    # default. Same shape as the runner; same fix available.
     "report.verifier",
-    # The renderer computes domain values instead of receiving them.
+    # The renderer draws a market-research figure (segment radar) via `charts`.
     "report.render_html",
     # Deferred only (call-time): these resolve the domain's default tool set inside a
     # function and accept an injected registry instead. Listed for honesty, not debt.
@@ -125,20 +132,33 @@ class TestTheBoundaryHolds(unittest.TestCase):
                 late[m] = sorted(l)
         return top, late
 
-    def test_no_unlisted_frame_module_imports_the_soul(self):
-        """A frame module reaching into the domain must be on the allowlist, with a reason."""
-        top, late = self._leaks()
-        offenders = sorted((set(top) | set(late)) - _KNOWN)
-        self.assertEqual(offenders, [], "new frame -> soul dependency")
+    def test_no_frame_module_imports_the_soul_at_module_scope(self):
+        """THE HARD RULE, and it now holds with no exceptions.
 
-    def test_the_allowlist_only_shrinks(self):
-        """Listing a new leak must not be a way to add one.
+        A module-scope import means importing the frame imports the domain. When the
+        boundary was drawn there were four such imports, all of one cause: Evidence lived
+        inside the tool package. The last one (report.render_html importing `charts`) went
+        when the renderer started taking its figures at call time.
 
-        Pinned at the count measured when the boundary was drawn. Removing a leak means
-        removing its entry AND lowering this number, which is the ratchet.
+        There is deliberately NO allowlist here. An exception list on the hard rule is how
+        the rule stops being one; deferred imports are tracked separately below.
         """
-        self.assertLessEqual(len(_KNOWN), 11,
-                             "the frame/soul allowlist grew — it is only allowed to shrink")
+        top, _ = self._leaks()
+        self.assertEqual(top, {}, "frame module imports the soul at module scope")
+
+    def test_deferred_dependencies_only_shrink(self):
+        """Call-time imports are permitted, and capped.
+
+        A deferred import keeps the frame importable -- the domain is resolved only if
+        that path runs -- so it is a design smell rather than a boundary break. The cap is
+        the ratchet: the honest fix for most of these is a report-type registry the routes
+        dispatch through, and until that exists the count must not grow.
+        """
+        _, late = self._leaks()
+        self.assertLessEqual(len(late), 11,
+                             f"deferred frame -> soul dependencies grew: {sorted(late)}")
+        self.assertEqual(sorted(set(late) - _KNOWN), [],
+                         "a frame module started reaching into the domain")
 
     def test_core_imports_nothing_from_this_repo(self):
         """core/ is the floor: standard library only.
@@ -164,6 +184,38 @@ class TestTheBoundaryHolds(unittest.TestCase):
 
 
 class TestTheFrameIsImportableAlone(unittest.TestCase):
+    # Representative frame modules across every layer. Importing any of them must not
+    # load a single market-research module.
+    _PROBES = ("core", "gates.runner", "harness.agent", "capabilities.gateway",
+               "capabilities.scheduler", "persistence.ledger", "report.render_html",
+               "report.verifier")
+
+    def test_no_frame_module_loads_a_domain_module_at_import(self):
+        """The RUNTIME rule, because the static one has a blind spot.
+
+        The AST check treats tools/registry.py as frame -- it is -- and so said
+        capabilities/scheduler.py was clean when it did `from tools.registry import
+        Evidence`. But tools/registry.py lives INSIDE the tools package, so that import
+        executes tools/__init__.py and loads all 43 domain tool modules. Three frame
+        modules were doing it. Static analysis cannot see a package __init__ side effect;
+        importing in a subprocess and counting sys.modules can.
+        """
+        import subprocess
+        import sys
+
+        domain_roots = ("tools", "skills", "agents", "plan", "four_ps", "discover",
+                        "market_sizing", "charts", "gates.invariants")
+        failures = []
+        for mod in self._PROBES:
+            code = (f"import sys, {mod};"
+                    f"print(sorted(m for m in sys.modules if m.split('.')[0] in {domain_roots!r}))")
+            out = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                                 text=True, cwd=str(pathlib.Path(__file__).parent))
+            got = out.stdout.strip()
+            if got not in ("[]", ""):
+                failures.append(f"import {mod} loaded {got}")
+        self.assertEqual(failures, [], "frame module pulled the domain in at import time")
+
     def test_importing_core_pulls_in_no_domain_module(self):
         """The measurement that started this: `from tools import Evidence` loaded 12 tool
         modules because the envelope lived inside the tool package. `import core` must

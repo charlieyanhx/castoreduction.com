@@ -53,7 +53,9 @@ import inspect
 import time
 from typing import Callable, Optional
 
-from tools.registry import Evidence
+# core, not tools.registry: the latter lives inside the `tools` package, so importing
+# it executes tools/__init__.py and loads all 43 domain tool modules.
+from core import Evidence
 
 # One implementation, shared by both doors into tool execution.
 from .safe_call import safe_call as _safe_call

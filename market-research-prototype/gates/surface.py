@@ -310,10 +310,10 @@ def d55_report_is_complete_enough_to_have_been_checked(r: dict, html: str | None
     run4 45% -> 50%, all still withheld; c98_subscription 55% -> 70%, becc8783 58% -> 74%,
     3219f4db 60% -> 77%, all delivering. A hyperlocal report barely moves (c98_nonus 73% ->
     75%) because almost nothing is out of scope for it, which is the point."""
-    # Taken at call time: runner imports this module to BUILD the table, so importing
+    # Taken at call time: gates/invariants.py imports this module to BUILD the table, so
     # it back at module scope would be a cycle. This detector is the one that asks how
     # much of the table could answer, so it needs the table itself.
-    from gates.runner import INVARIANTS
+    from gates.invariants import INVARIANTS
     answered = na = out_of_scope = 0
     excluded: list[str] = []
     for inv in INVARIANTS:

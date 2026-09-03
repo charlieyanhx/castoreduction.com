@@ -45,7 +45,10 @@ from gates.provenance import (  # noqa: F401
 from gates.surface import (  # noqa: F401
     _LEDGER_KEY_ALIASES, _MIN_COVERAGE_PCT, _fig_patterns, _path_present, _withheld_figures_asserted_in_prose, d01_complete, d02_renders, d09_publishable_gated, d14_no_failed_sections, d29_withhold_propagates, d36_validation_warns_surfaced, d43_no_dead_in_page_anchors, d45_cannot_decode_notice_not_self_refuting, d54_produced_output_reaches_the_report, d55_report_is_complete_enough_to_have_been_checked,
 )
-from gates.runner import GATES, INVARIANTS, load_corpus, main, run_gate  # noqa: F401
+# The TABLE (domain data) and the ENGINE (frame) are separate modules now; both are
+# re-exported here so `gates.INVARIANTS` and `gates.run_gate` stay the addresses they were.
+from gates.invariants import GATES, INVARIANTS  # noqa: F401
+from gates.runner import load_corpus, main, run_gate  # noqa: F401
 
 if __name__ == "__main__":
     import sys

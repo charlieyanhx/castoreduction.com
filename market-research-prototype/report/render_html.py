@@ -24,7 +24,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-import charts
 from report.section_provenance import SECTION_SOURCES  # noqa: F401  (template may read it)
 
 log = logging.getLogger("mrp.report.render")
@@ -60,6 +59,10 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
     verbatim, under a card promising the exact opposite. So it needs its own flag rather
     than a wider `annotate`, because the owner's PDF must keep carrying their notes.
     """
+    # `charts` draws MARKET-RESEARCH figures (a segment radar), so it is domain, not frame.
+    # Taken at call time: the renderer must stay importable without the market-research
+    # modules, or the frame cannot be reused for another kind of report.
+    import charts
     from api import SafeUndefined, display_title   # local: api imports plan, plan imports us
     j = {"result": result or {}}
     from jinja2 import Environment, FileSystemLoader

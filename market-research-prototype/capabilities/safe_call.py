@@ -21,7 +21,9 @@ import time
 import traceback
 from typing import Callable
 
-from tools.registry import Evidence
+# core, not tools.registry: the latter lives inside the `tools` package, so importing
+# it executes tools/__init__.py and loads all 43 domain tool modules.
+from core import Evidence
 
 
 def safe_call(fn: Callable, kwargs: dict) -> Evidence:
