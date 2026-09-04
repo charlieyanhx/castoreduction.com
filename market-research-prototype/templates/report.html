@@ -2235,6 +2235,21 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
   {% endif %}
   <!-- END RESEARCH CREW BRIEF -->
 
+  {# A report the pass could not check must SAY so. Rendering nothing made an unchecked
+     report look identical to one that passed every invariant -- 16 of 19 corpus reports
+     were in that state. See report/verifier.unverified. #}
+  {% if verification and verification.status == 'not_run' %}
+  <p style="border-left:3px solid #f59e0b;padding-left:.7rem"><strong>Not verified.</strong>
+  The pre-publication check could not run on this report, so none of its figures have been
+  checked against the deterministic invariants.
+  {% if verification.reason %}<span style="color:#6b7280"> ({{ verification.reason }})</span>{% endif %}
+  Treat the numbers below as unverified.</p>
+  {% elif not verification %}
+  <p style="border-left:3px solid #f59e0b;padding-left:.7rem"><strong>Not verified.</strong>
+  This report carries no verification record, so nothing here has been checked against the
+  deterministic invariants.</p>
+  {% endif %}
+
   {% if verification and verification.summary %}
   <p><strong>Pre-publication verification.</strong> This report was checked against
   {{ verification.summary.block + verification.summary.advisory + verification.summary.info }}
@@ -2312,102 +2327,22 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
    Finalize control the foot copy promised did not exist, so this survey never appeared on
    a first report in its life. The fix is the missing button, not an ungated survey: see
    #rfFinal below. #}
-{# ANNOTATE=0 IS A STRANGER READING A PUBLISHED COPY. The share offer is for the
-   report's OWNER, so it must not even be in the markup of a library page: hidden
-   or not, a stranger should not be shipped a card offering them $10 for someone
-   else's work. Same gate the refine controls use, for the same reason. #}
-{% if annotate %}
-<!-- THE SHARE OFFER. It sits above the feedback block and below the report itself,
-     because it is the first thing worth doing with a finished report and the last thing
-     worth doing before leaving the page. Hidden until the report has settled — the same
-     `done` flag the feedback survey waits on — so it never appears beside a revision that
-     is still running. -->
-<div id="shareBlock" class="no-print" hidden style="margin-top:40px;padding:22px;background:#fff;border-radius:10px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,.05)">
-  <div style="font-size:9pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#2B3C2B;margin-bottom:7px">Earn $10</div>
-  <h3 style="margin:0 0 8px;font-size:13pt;color:#111827">Put this report in our library</h3>
-  <p id="shareCopy" style="font-size:10pt;color:#4b5563;margin:0 0 14px;line-height:1.6;max-width:62ch">
-    Founders deciding whether this is worth buying want to read real work. Publish yours
-    and we will send you a <b>$10 code</b> off your next report. Your survey answers, your
-    private notes and your marks are never published. Only the report itself, under
-    a name you choose. You can take it down whenever you like.
-  </p>
-  <div id="shareForm">
-    <label style="display:block;font-size:9.5pt;color:#6b7280;margin-bottom:4px">Call it something a stranger would recognise</label>
-    <input id="shareTitle" type="text" maxlength="120" placeholder="e.g. Specialty coffee shop, Portland OR"
-           style="width:100%;max-width:460px;padding:9px 11px;border:1px solid #d1d5db;border-radius:6px;font-size:10pt;font-family:inherit">
-    <div id="shareEmailRow" hidden style="margin-top:10px">
-      <label style="display:block;font-size:9.5pt;color:#6b7280;margin-bottom:4px">Where should we send the code?</label>
-      <input id="shareEmail" type="email" maxlength="254" placeholder="you@example.com"
-             style="width:100%;max-width:460px;padding:9px 11px;border:1px solid #d1d5db;border-radius:6px;font-size:10pt;font-family:inherit">
-      <p style="font-size:9pt;color:#9ca3af;margin:6px 0 0">Or <a id="shareRegister" style="color:#2B3C2B;cursor:pointer">create an account</a> and it is stored there instead, with your reports.</p>
-    </div>
-    <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <button id="shareGo" type="button" style="padding:9px 18px;background:#2B3C2B;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:10pt">Share it and claim $10</button>
-      <span id="shareErr" style="font-size:9.5pt;color:#b91c1c"></span>
-    </div>
-  </div>
-  <div id="shareDone" hidden>
-    <p style="font-size:10pt;color:#111827;margin:0 0 10px">Published. <span id="shareDoneWhere"></span></p>
-    <div style="display:inline-block;padding:11px 16px;border:1px dashed #2B3C2B;border-radius:8px;background:#f6f7f5">
-      <div style="font-size:8.5pt;letter-spacing:.09em;text-transform:uppercase;color:#6b7280">Your code</div>
-      <div id="shareCode" style="font-size:15pt;font-weight:700;letter-spacing:.06em;color:#2B3C2B;font-variant-numeric:tabular-nums"></div>
-    </div>
-    <p style="font-size:9.5pt;color:#6b7280;margin:12px 0 0">
-      Enter it in the discount box at checkout. <a id="shareView" href="#" style="color:#2B3C2B">See your listing</a>
-      &middot; <a id="shareUndo" href="#" style="color:#6b7280">take it back down</a>
-    </p>
-  </div>
-</div>
-{% endif %}
-<div id="feedbackBlock" class="no-print" style="margin-top:40px;padding:20px;background:#f9fafb;border-radius:8px;border:1px dashed #e5e7eb">
-  <h3 style="margin:0 0 8px;font-size:11pt;color:#1f2937">Was this report useful?</h3>
-  <p style="font-size:10pt;color:#6b7280;margin:0 0 10px">Your feedback helps tune the pipeline. Anonymous, stored locally.</p>
-  <div id="feedback-buttons">
-    <button onclick="submitFeedback(1)" style="padding:8px 16px;background:#10b981;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-right:8px;font-weight:600">👍 Useful</button>
-    <button onclick="submitFeedback(-1)" style="padding:8px 16px;background:#ef4444;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-right:8px;font-weight:600">👎 Not useful</button>
-    <button onclick="submitFeedback(0)" style="padding:8px 16px;background:#9ca3af;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600">😐 Mixed</button>
-  </div>
-  <textarea id="feedback-comment" placeholder="What worked? What didn't? (optional)" style="width:100%;margin-top:10px;padding:8px;border:1px solid #d1d5db;border-radius:4px;font-size:10pt;font-family:inherit" rows="2"></textarea>
-  <div id="feedback-thanks" style="display:none;color:#10b981;font-weight:600;margin-top:10px">✓ Thanks for the feedback!</div>
-</div>
-<script>
-// A REFUSED POST USED TO READ AS A THANK YOU. Nothing checked r.ok, so a 404 on someone
-// else's job, or a 500, still swapped the buttons for "Thanks for the feedback!" and the
-// rating was never stored. The status is checked, and a failure says so in the block
-// itself rather than in an alert the reader has to dismiss.
-async function submitFeedback(rating) {
-  const comment = document.getElementById('feedback-comment').value;
-  const note = document.getElementById('feedback-thanks');
-  try {
-    const r = await fetch('/jobs/{{ job_id }}/feedback', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({rating, section: 'overall', comment}),
-    });
-    if (!r.ok) {
-      const detail = (await r.json().catch(() => ({}))).detail || r.statusText;
-      throw new Error(detail);
-    }
-    document.getElementById('feedback-buttons').style.display = 'none';
-    document.getElementById('feedback-comment').style.display = 'none';
-    note.textContent = '✓ Thanks for the feedback!';   // a retry after a failure lands here
-    note.style.color = 'var(--accent)';
-    note.style.display = 'block';
-  } catch(e) {
-    note.textContent = 'Not recorded: ' + e.message + '. Your note is still in the box; '
-      + 'press the same button again to retry.';
-    note.style.color = 'var(--qualify)';
-    note.style.display = 'block';
-  }
-}
-</script>
+
 
 <footer>
 {# `public` AND NOT `annotate`. annotate=0 already hid the refine controls, and this block
    is the CONTENT: the reader's margin notes and their questions, which render into the
    page body and into the PDF. A published library page is read by strangers, and a
    founder's mark is where the real rent goes. The owner's own export keeps carrying it. #}
-{% if iteration and not public %}
+{# DUPLICATED THE LIVE SECTIONS AND WAS NUMBERED TWICE. In the reader's own view this
+   printed "Reader Notes & Clarifications" and "Questions & Answers" (17 and 18) directly
+   above "Your marks" and "Questions and answers" (19 and 20) — the same content, once as
+   a record and once as the editor, one after the other.
+
+   It is the PRINT copy: with annotate=0 the refine sections are not rendered at all, so
+   the PDF and the trace view would otherwise carry no marks and no Q&A. So it is kept for
+   exactly that case and dropped where the live sections already say it. #}
+{% if iteration and not public and not annotate %}
 {# ------------------------------------------------------------------ the refinement layer.
    Reader marks and Q&A are DATA layered on the artifact (iteration.py) — the original
    result is untouched and this block derives from the layer, so the PDF carries it too.
@@ -2748,16 +2683,30 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
     const hide = (id, yes) => { const n = $(id); if (n) n.hidden = !!yes; };
     hide("rfTop", done);
     hide("rfDoneSec", done);
-    hide("rfBuyMarks", done);
-    hide("rfBuyQs", done);
+    // BUYING MORE IS NEVER PUT AWAY. These were hidden once the report settled, which is
+    // exactly backwards: iteration.add_annotation and add_question have no settled guard,
+    // so more marks and more questions are still usable on a finished report — and buying
+    // a rerun is the only way to regenerate it again. Hiding the packs hid the way
+    // forward at the one moment the reader had decided they wanted more.
+    hide("rfBuyMarks", false);
+    hide("rfBuyQs", false);
     const fb = $("feedbackBlock");
     if (fb) fb.hidden = !done;          // the survey belongs to the finished thing
-    // THE SHARE OFFER DOES NOT WAIT FOR FINALIZE, unlike the survey above it. Finalize is
-    // a deliberate act most founders never perform, so gating the reward on it would hide
-    // it from nearly everyone it is meant for — and the objection it would answer (that a
-    // shared report goes stale when it is revised) is not real: the library renders the
-    // job's CURRENT result, so a revision updates the published copy too.
-    initShare();
+    // THE SHARE OFFER WAITS FOR THE FINISHED REPORT, exactly as the survey above it does.
+    //
+    // This deliberately did NOT wait, on the reasoning that finalize is an act most
+    // founders never perform and gating the reward on it would hide it from nearly
+    // everyone. That optimised for the reward being claimed and ignored what is being
+    // claimed FOR: publishing to a public library is not a draft operation. A report still
+    // carrying unanswered questions and unaddressed marks is one the founder is in the
+    // middle of arguing with, and inviting them to publish it mid-argument is inviting
+    // them to publish something they have already told us is wrong.
+    //
+    // Hidden again if the report leaves the settled state, so the offer can never outlive
+    // the thing it is offering.
+    if (done) initShare();
+    const sb = $("shareBlock");
+    if (sb && !done) sb.hidden = true;
     // empty sections say nothing worth saying once nothing can be added to them
     if (done) {
       hide("rfMarksSec", !(st.annotations || []).length);
@@ -3450,6 +3399,110 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
   load().then(afterReturn);
 })();
 </script>
+{% endif %}
+
+{# LAST ON THE PAGE, AND THAT IS THE POINT. These sat above the whole refine layer, so a
+   reader met "publish this and earn $10" before they had finished reading, let alone
+   finished revising. They belong after the work: share it, rate it, then start the next
+   one. #}
+{# ANNOTATE=0 IS A STRANGER READING A PUBLISHED COPY. The share offer is for the
+   report's OWNER, so it must not even be in the markup of a library page: hidden
+   or not, a stranger should not be shipped a card offering them $10 for someone
+   else's work. Same gate the refine controls use, for the same reason. #}
+{% if annotate %}
+<!-- THE SHARE OFFER. It sits above the feedback block and below the report itself,
+     because it is the first thing worth doing with a finished report and the last thing
+     worth doing before leaving the page. Hidden until the report has settled — the same
+     `done` flag the feedback survey waits on — so it never appears beside a revision that
+     is still running. -->
+<div id="shareBlock" class="no-print" hidden style="margin-top:40px;padding:22px;background:#fff;border-radius:10px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,.05)">
+  <div style="font-size:9pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#2B3C2B;margin-bottom:7px">Earn $10</div>
+  <h3 style="margin:0 0 8px;font-size:13pt;color:#111827">Put this report in our library</h3>
+  <p id="shareCopy" style="font-size:10pt;color:#4b5563;margin:0 0 14px;line-height:1.6;max-width:62ch">
+    Founders deciding whether this is worth buying want to read real work. Publish yours
+    and we will send you a <b>$10 code</b> off your next report. Your survey answers, your
+    private notes and your marks are never published. Only the report itself, under
+    a name you choose. You can take it down whenever you like.
+  </p>
+  <div id="shareForm">
+    <label style="display:block;font-size:9.5pt;color:#6b7280;margin-bottom:4px">Call it something a stranger would recognise</label>
+    <input id="shareTitle" type="text" maxlength="120" placeholder="e.g. Specialty coffee shop, Portland OR"
+           style="width:100%;max-width:460px;padding:9px 11px;border:1px solid #d1d5db;border-radius:6px;font-size:10pt;font-family:inherit">
+    <div id="shareEmailRow" hidden style="margin-top:10px">
+      <label style="display:block;font-size:9.5pt;color:#6b7280;margin-bottom:4px">Where should we send the code?</label>
+      <input id="shareEmail" type="email" maxlength="254" placeholder="you@example.com"
+             style="width:100%;max-width:460px;padding:9px 11px;border:1px solid #d1d5db;border-radius:6px;font-size:10pt;font-family:inherit">
+      <p style="font-size:9pt;color:#9ca3af;margin:6px 0 0">Or <a id="shareRegister" style="color:#2B3C2B;cursor:pointer">create an account</a> and it is stored there instead, with your reports.</p>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button id="shareGo" type="button" style="padding:9px 18px;background:#2B3C2B;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:10pt">Share it and claim $10</button>
+      <span id="shareErr" style="font-size:9.5pt;color:#b91c1c"></span>
+    </div>
+  </div>
+  <div id="shareDone" hidden>
+    <p style="font-size:10pt;color:#111827;margin:0 0 10px">Published. <span id="shareDoneWhere"></span></p>
+    <div style="display:inline-block;padding:11px 16px;border:1px dashed #2B3C2B;border-radius:8px;background:#f6f7f5">
+      <div style="font-size:8.5pt;letter-spacing:.09em;text-transform:uppercase;color:#6b7280">Your code</div>
+      <div id="shareCode" style="font-size:15pt;font-weight:700;letter-spacing:.06em;color:#2B3C2B;font-variant-numeric:tabular-nums"></div>
+    </div>
+    <p style="font-size:9.5pt;color:#6b7280;margin:12px 0 0">
+      Enter it in the discount box at checkout. <a id="shareView" href="#" style="color:#2B3C2B">See your listing</a>
+      &middot; <a id="shareUndo" href="#" style="color:#6b7280">take it back down</a>
+    </p>
+  </div>
+</div>
+{% endif %}
+<div id="feedbackBlock" class="no-print" style="margin-top:40px;padding:20px;background:#f9fafb;border-radius:8px;border:1px dashed #e5e7eb">
+  <h3 style="margin:0 0 8px;font-size:11pt;color:#1f2937">Was this report useful?</h3>
+  <p style="font-size:10pt;color:#6b7280;margin:0 0 10px">Your feedback helps tune the pipeline. Anonymous, stored locally.</p>
+  <div id="feedback-buttons">
+    <button onclick="submitFeedback(1)" style="padding:8px 16px;background:#10b981;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-right:8px;font-weight:600">👍 Useful</button>
+    <button onclick="submitFeedback(-1)" style="padding:8px 16px;background:#ef4444;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-right:8px;font-weight:600">👎 Not useful</button>
+    <button onclick="submitFeedback(0)" style="padding:8px 16px;background:#9ca3af;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600">😐 Mixed</button>
+  </div>
+  <textarea id="feedback-comment" placeholder="What worked? What didn't? (optional)" style="width:100%;margin-top:10px;padding:8px;border:1px solid #d1d5db;border-radius:4px;font-size:10pt;font-family:inherit" rows="2"></textarea>
+  <div id="feedback-thanks" style="display:none;color:#10b981;font-weight:600;margin-top:10px">✓ Thanks for the feedback!</div>
+</div>
+<script>
+// A REFUSED POST USED TO READ AS A THANK YOU. Nothing checked r.ok, so a 404 on someone
+// else's job, or a 500, still swapped the buttons for "Thanks for the feedback!" and the
+// rating was never stored. The status is checked, and a failure says so in the block
+// itself rather than in an alert the reader has to dismiss.
+async function submitFeedback(rating) {
+  const comment = document.getElementById('feedback-comment').value;
+  const note = document.getElementById('feedback-thanks');
+  try {
+    const r = await fetch('/jobs/{{ job_id }}/feedback', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({rating, section: 'overall', comment}),
+    });
+    if (!r.ok) {
+      const detail = (await r.json().catch(() => ({}))).detail || r.statusText;
+      throw new Error(detail);
+    }
+    document.getElementById('feedback-buttons').style.display = 'none';
+    document.getElementById('feedback-comment').style.display = 'none';
+    note.textContent = '✓ Thanks for the feedback!';   // a retry after a failure lands here
+    note.style.color = 'var(--accent)';
+    note.style.display = 'block';
+  } catch(e) {
+    note.textContent = 'Not recorded: ' + e.message + '. Your note is still in the box; '
+      + 'press the same button again to retry.';
+    note.style.color = 'var(--qualify)';
+    note.style.display = 'block';
+  }
+}
+</script>
+
+{% if annotate %}
+{# THE END OF THE ROAD SHOULD LEAD SOMEWHERE. A finished report is the most likely moment
+   a founder has their next question, and the page ended in a feedback box. #}
+<div class="no-print" style="margin:34px 0 8px;padding:22px;border-radius:10px;border:1px solid #e5e7eb;background:#fff;text-align:center">
+  <h3 style="margin:0 0 6px;font-size:13pt;color:#111827">Another idea?</h3>
+  <p style="margin:0 0 14px;font-size:10pt;color:#6b7280">Every report is its own run of live research.</p>
+  <a href="/survey" style="display:inline-block;padding:11px 22px;border-radius:8px;background:#2B3C2B;color:#fff;text-decoration:none;font-weight:600;font-size:10.5pt">Generate another report</a>
+</div>
 {% endif %}
 <script src="/account.js" defer></script>
 </body>

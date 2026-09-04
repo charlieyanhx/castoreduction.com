@@ -1091,6 +1091,19 @@ def share_report(job_id: str, req: ShareRequest):
             status_code=409,
             detail="this report is being withheld, so it cannot go in the library")
 
+    # ONLY A FINISHED REPORT GOES PUBLIC, and the button is not the only way here: the
+    # endpoint has to hold the same line or the rule is decoration. A report still carrying
+    # unanswered questions and unaddressed marks is one its author is mid-argument with.
+    # "Settled" is the same state the page calls done: finalized, or superseded by the
+    # revision it spent.
+    import iteration as _it
+    _st = _it.get_state(job_id)
+    if not (_st.get("status") in ("final", "revised") or _st.get("revised_to")):
+        raise HTTPException(
+            status_code=409,
+            detail=("Finish this report first. Answer or clear what you have open, then "
+                    "finalize it or spend its revision, and it can go in the library."))
+
     owner = _current_owner()
     title = (req.title or "").strip()
     if not title:

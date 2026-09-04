@@ -296,7 +296,12 @@ class TestTheMarksReachTheRegeneration(_TempDB):
             job, section="Market sizing", quote="TAM of $12.7M across the trade area",
             comment="this is far too small, 63 competitors already operate here")
         brief = self.iteration.build_revision_brief(job, "A cafe in Portland.")
-        self.assertIn("Reader feedback the next run must address", brief)
+        # The wording changed when the brief stopped truncating: a mark used to arrive as
+        # `on '<80 chars>': <200 chars>` in a semicolon-joined list, and now rides whole as
+        # a numbered instruction. What this test is about is that the mark REACHES the
+        # regeneration as something to act on, which is asserted on the substance below.
+        self.assertIn("marked these passages", brief)
+        self.assertIn("Address every one", brief)
         self.assertIn("TAM of $12.7M", brief)
         self.assertIn("far too small", brief)
 

@@ -420,16 +420,37 @@ def post_plan(req: PlanRequest):
 
     # Look for previous run of same description (for delta tracking). A revision run
     # passes the link explicitly — its amended text would never match the lookup.
-    # SCOPED. Unscoped, this returned any owner's job with the same description and its
-    # answer flows into carry_forward, which copies that reader's private marks over.
-    previous_job_id = req.previous_job_id or find_previous_plan(req.description,
-                                                                owner_id=_owner)
+    # TWO DIFFERENT QUESTIONS, AND THEY WERE ONE VARIABLE.
+    #
+    # `revision_of` is a REVISION LINK: post_revise sets it, the reader has spent their
+    # regeneration, and it means carry the marks and questions over, answer them, and
+    # settle the result as the final version.
+    #
+    # `delta_from` is a DELTA LOOKUP: "have you run this exact description before, so we
+    # can show what moved". It is a convenience for the numbers and nothing more.
+    #
+    # Collapsing them meant running the same description twice made the SECOND report a
+    # revision of the first, without anyone asking: it arrived already `final`, carrying
+    # marks and questions from a report the founder had not said it superseded, with its
+    # refine controls put away and its own regeneration already counted as spent. A fresh
+    # run is a fresh report.
+    #
+    # SCOPED, separately: unscoped, find_previous_plan returned ANY owner's job with the
+    # same description, and that answer reached carry_forward.
+    revision_of = req.previous_job_id or None
+    delta_from = revision_of or find_previous_plan(req.description, owner_id=_owner)
+    previous_job_id = delta_from
 
     # Add previous_job_id to params so the worker can include it in result
     params = req.model_dump()
-    if previous_job_id:
-        params["previous_job_id"] = previous_job_id
-        log.info("plan job linked to previous %s for delta tracking", previous_job_id[:8])
+    if revision_of:
+        # ONLY AN EXPLICIT REVISION IS STAMPED. post_revise reads this field back to decide
+        # whether a report has already spent its regeneration, so writing it for an
+        # incidental description match made a plain re-run count as a revision and refused
+        # that report the regeneration it was owed.
+        params["previous_job_id"] = revision_of
+    if delta_from:
+        log.info("plan job compares against %s for delta tracking", delta_from[:8])
 
     job_id = jobs.create("plan", params, owner_id=_owner)
 
@@ -612,14 +633,14 @@ def post_plan(req: PlanRequest):
         # The answer belongs to the run that can answer it, not to a button someone has
         # to remember to press. carry_forward also brings the MARKS over, so the new
         # report can show what the reader flagged and what came back on it.
-        if previous_job_id and not result.get("error"):
+        if revision_of and not result.get("error"):
             import iteration as _iter
             try:
                 # Carry first, and only then draft. post_revise also carries, but it does
                 # so AFTER post_plan has already started this thread, so on a fast run we
                 # arrive here before the questions exist. carry_forward is idempotent,
                 # so whichever side gets there first wins and the other is a no-op.
-                _iter.carry_forward(previous_job_id, job_id)
+                _iter.carry_forward(revision_of, job_id)
                 if (_iter.get_state(job_id).get("questions") or []):
                     _iter.draft_answers(job_id, result)
             except Exception as e:                       # noqa: BLE001

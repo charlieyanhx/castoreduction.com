@@ -158,6 +158,10 @@ class ARefundedReportIsNotAlsoDelivered(_Env):
         billing._record(who, "report", 1, None, None)
         billing.consume(who, "report")
         billing.record_spend(jid, who)          # the ledger row post_plan writes
+        import iteration as _it
+        _st = _it.get_state(jid)
+        _st["status"] = "final"
+        _it._save(jid, _st)
         return who, jid
 
     def test_forcing_a_refunded_report_is_refused(self):

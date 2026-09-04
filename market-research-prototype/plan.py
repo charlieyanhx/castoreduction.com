@@ -2109,9 +2109,27 @@ def run_path_source() -> str:
     For wiring tests only. Use this rather than inspect.getsource(run_plan): the latter
     silently narrows as the pipeline is decomposed, so an assertion can pass, then fail
     for a refactor, then pass again for the wrong reason.
+
+    READ FROM THE FILE, NOT FROM THE LIVE OBJECT, and that is the whole point of this
+    rewrite. It used to do inspect.getsource(globals()[name]), which asks the CURRENT
+    binding where its source is. A test that monkeypatches run_plan therefore changed what
+    the wiring tests inspected: MEASURED, this returned _finalize_run's body twice and
+    run_plan's not at all, so `assertIn("run_labeled", src)` failed against a function that
+    had never stopped containing it. Under a Mock it raises OSError instead.
+
+    A helper whose job is "what does the source say" must answer from the source. Parsing
+    the module file means the answer cannot be changed by anything a test does at runtime,
+    which is exactly the guarantee a wiring assertion needs.
     """
-    import inspect
-    return "\n".join(inspect.getsource(globals()[n]) for n in _RUN_PATH if n in globals())
+    import ast
+    import pathlib
+    text = pathlib.Path(__file__).read_text(encoding="utf-8")
+    tree = ast.parse(text)
+    wanted = {n: None for n in _RUN_PATH}
+    for node in tree.body:                      # top level only: these are module functions
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in wanted:
+            wanted[node.name] = ast.get_source_segment(text, node) or ""
+    return "\n".join(src for src in wanted.values() if src)
 
 
 def _finalize_run(result: dict, *, description: str, geo: str, _levers: dict,
@@ -2159,6 +2177,7 @@ def _finalize_run(result: dict, *, description: str, geo: str, _levers: dict,
     # never allowed to fail the run, because a verifier that can crash a paid report
     # is a worse trade than one that occasionally misses.
     try:
+        from report import verifier as verifier_mod
         from report.verifier import verify_report
         # Render the page BEFORE verifying it. Measured: 10 invariants — every one
         # fail-severity — can only return a verdict when they can read the rendered report
@@ -2176,6 +2195,9 @@ def _finalize_run(result: dict, *, description: str, geo: str, _levers: dict,
                         10, e)
         vr = verify_report(result, _html, use_llm=_levers["verify_with_llm"])
         result["verification"] = {
+            # STATUS, always. A reader must be able to tell a clean verdict from an
+            # absent one, and the absent case is the common one -- see verifier.unverified.
+            "status": verifier_mod.BLOCKED if not vr.publishable else verifier_mod.VERIFIED,
             "summary": vr.summary(),
             "findings": [{"invariant": f.invariant, "severity": f.severity,
                           "detail": f.detail, "audit_class": f.audit_class}
@@ -2185,7 +2207,17 @@ def _finalize_run(result: dict, *, description: str, geo: str, _levers: dict,
             log.warning("[plan] verification found %d blocking issue(s)",
                         vr.summary().get("block", 0))
     except Exception as e:
+        # RECORD THE FAILURE ON THE REPORT, do not just log it. Before this, a crash here
+        # left `verification` absent, the template rendered nothing, and an unchecked
+        # report was indistinguishable from one that passed every invariant. 16 of 19
+        # corpus reports were in exactly that state.
         log.warning("[plan] verification pass failed: %s", e)
+        try:
+            from report.verifier import unverified
+            result["verification"] = unverified(f"{type(e).__name__}: {e}")
+        except Exception:                                    # noqa: BLE001
+            result["verification"] = {"status": "not_run", "reason": "verification failed",
+                                      "summary": {"publishable": True}, "findings": []}
 
     # Item 6: release the ledger on the normal path. An early return leaves it behind, which
     # persistence.transcript.attach reclaims on the next direct run rather than going silent.

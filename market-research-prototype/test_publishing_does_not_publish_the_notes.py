@@ -72,6 +72,12 @@ class _App(unittest.TestCase):
                     result={"profile": {"name": "A coffee shop", "summary": "s"}})
         iteration.add_annotation(jid, section="Economics", quote=SECRET_QUOTE,
                                  comment=SECRET_MARK)
+        # Settled, because only a finished report can be published now. The mark stays on
+        # it, which is the whole point of these tests: a finished report still carries its
+        # author's private notes, and a stranger must still never see them.
+        st = iteration.get_state(jid)
+        st["status"] = "final"
+        iteration._save(jid, st)
         return jid
 
 
@@ -120,18 +126,52 @@ class TheOwnerKeepsTheirOwnNotes(_App):
     """The reason this is `public` and not a wider `annotate`: the owner's own copies must
     keep carrying what they wrote."""
 
-    def test_the_owners_report_page_still_shows_the_mark(self):
+    def test_the_owner_still_reaches_their_own_mark(self):
+        """WHERE it lives moved, and the test moved with it rather than being relaxed.
+
+        The owner's interactive page used to embed the marks twice: once server-side as a
+        printed record in the footer, and once in the live refine section. That record was
+        numbered as its own section, so the reader saw the same content under two headings
+        in a row ("Reader Notes & Clarifications" at 17, "Your marks" at 19). It is now
+        rendered only where the live section is absent.
+
+        So the owner's page no longer carries the mark in its HTML; it fetches it. Both
+        halves are asserted, because "not in the HTML" would otherwise be indistinguishable
+        from the mark having been lost."""
+        owner = self._client()
+        jid = self._marked_up_report(owner)
+        self.assertEqual(owner.get(f"/jobs/{jid}/report.html").status_code, 200)
+        state = owner.get(f"/jobs/{jid}/iteration").json()
+        comments = [a.get("comment") for a in (state.get("annotations") or [])]
+        self.assertIn(SECRET_MARK, comments,
+                      "the owner must still be able to reach what they wrote")
+
+    def test_the_print_copy_still_carries_it(self):
+        """The PDF is the one view with no live section, so the record IS the only copy
+        there and must survive."""
+        owner = self._client()
+        jid = self._marked_up_report(owner)
+        from report.render_html import render_report_html
+        import jobs
+        j = jobs.get_unscoped(jid)
+        printed = render_report_html(j["result"], job_id=jid, annotate=0)
+        self.assertIn(SECRET_MARK, printed)
+
+    def test_the_owner_does_not_see_it_twice(self):
+        """The duplication itself, stated as a rule."""
         owner = self._client()
         jid = self._marked_up_report(owner)
         page = owner.get(f"/jobs/{jid}/report.html").text
-        self.assertIn(SECRET_MARK, page)
+        self.assertEqual(page.count("Reader Notes"), 0,
+                         "the printed record duplicates the live section here")
 
-    def test_publishing_does_not_take_the_notes_off_the_owners_page(self):
+    def test_publishing_does_not_take_the_notes_off_the_owner(self):
         owner = self._client()
         jid = self._marked_up_report(owner)
         owner.post(f"/jobs/{jid}/share", json={"title": "Coffee shop, Portland"})
-        page = owner.get(f"/jobs/{jid}/report.html").text
-        self.assertIn(SECRET_MARK, page,
+        state = owner.get(f"/jobs/{jid}/iteration").json()
+        comments = [a.get("comment") for a in (state.get("annotations") or [])]
+        self.assertIn(SECRET_MARK, comments,
                       "sharing a report must not edit the owner's own copy")
 
 
@@ -146,12 +186,14 @@ class TheFlagIsSeparateFromTheControls(unittest.TestCase):
             body = src[start:src.index("\n@router", start)]
             self.assertIn("public=1", body, fn)
 
-    def test_the_reader_layer_is_gated_on_public(self):
+    def test_the_reader_layer_answers_to_both_flags(self):
+        """`public` keeps it from strangers. `annotate` keeps it from duplicating the live
+        section on the owner's own page. Losing either brings back a different bug: the
+        library leak, or the same content under two headings in a row."""
         from pathlib import Path
         tpl = Path(__file__).parent.joinpath("templates/report.html").read_text(
             encoding="utf-8")
-        self.assertIn("{% if iteration and not public %}", tpl,
-                      "the marks and Q&A block must answer to the public flag")
+        self.assertIn("{% if iteration and not public and not annotate %}", tpl)
 
 
 if __name__ == "__main__":

@@ -257,19 +257,59 @@ Return JSON:
 "grounded": true|false}}, ...]}}"""
 
 
-def _digest(result: dict, cap: int = 14000) -> str:
-    """The artifact, compact. Whole-JSON but trimmed: internal keys dropped, long lists
-    truncated — the answers must come from what the READER could also see."""
-    def _trim(v: Any, depth: int = 0) -> Any:
+#: Bookkeeping the reader never sees, and the only keys worth dropping outright. The old
+#: rule dropped EVERY underscore key, which was close enough, but the real waste was never
+#: here: it was the flat character cap below.
+_INTERNAL_KEYS = frozenset((
+    "_trace", "_plan", "_cogs", "_steps_completed", "_elapsed_seconds",
+    "_duration_seconds", "_effort", "_stub", "_stub_source",
+))
+
+
+def _digest(result: dict, cap: int = 60000) -> str:
+    """The whole artifact, shrunk to fit — never the first 5% of it.
+
+    THE BUG THIS REPLACES, and it made the product look evasive about its own arithmetic.
+    A reader marked "TAM sits at ~$986M with an obtainable SOM of $2.3M", asked "show me
+    the method", and was told the report "does not contain the specific mathematical
+    modeling or source formulas". It does. `market_sizing` holds exactly that.
+
+    The old digest was `json.dumps(everything)[:14000]`. MEASURED on a real report: 280,162
+    characters of result, 14,000 handed over — five per cent — sliced mid-structure so it
+    was not even parseable JSON. Four of thirty-eight sections survived, because `discover`
+    is a long list of competitors and it sat near the front and ate the budget. market_sizing,
+    economics, financials, pricing, validation, viability: all gone. The model was being
+    honest about a context nobody had given it, and its honesty read as the report having
+    no method.
+
+    So the shape is what shrinks, not the tail. Every section stays present and the lists
+    and strings inside them get shorter until the whole thing fits, which keeps the answer
+    grounded in the section the question is actually about. It stays valid JSON at every
+    step: a model handed a truncated object has to guess where it was cut.
+    """
+    def _trim(v: Any, list_n: int, str_n: int) -> Any:
         if isinstance(v, dict):
-            return {k: _trim(x, depth + 1) for k, x in v.items()
-                    if not str(k).startswith("_")}
+            return {k: _trim(x, list_n, str_n) for k, x in v.items()
+                    if k not in _INTERNAL_KEYS}
         if isinstance(v, list):
-            return [_trim(x, depth + 1) for x in v[:8]]
-        if isinstance(v, str) and len(v) > 400:
-            return v[:400] + "…"
+            out = [_trim(x, list_n, str_n) for x in v[:list_n]]
+            if len(v) > list_n:
+                # Say what was left out. A silently shortened list reads as a complete one,
+                # and "we found 3 competitors" is a different claim from "here are 3 of 40".
+                out.append(f"…and {len(v) - list_n} more not shown")
+            return out
+        if isinstance(v, str) and len(v) > str_n:
+            return v[:str_n] + "…"
         return v
-    return json.dumps(_trim(result or {}), default=str)[:cap]
+
+    # Progressively tighter, stopping at the first shape that fits. The loosest setting is
+    # tried first so a small report is handed over almost whole.
+    for list_n, str_n in ((40, 1500), (24, 900), (14, 600), (8, 400),
+                          (5, 260), (3, 160), (2, 90), (1, 60)):
+        out = json.dumps(_trim(result or {}, list_n, str_n), default=str)
+        if len(out) <= cap:
+            return out
+    return out[:cap]        # a report this large is pathological; still the smallest shape
 
 
 def draft_answers(job_id: str, result: dict) -> dict:
@@ -388,10 +428,28 @@ def build_revision_brief(job_id: str, description: str) -> str:
                      + " ".join(f"{f}: {v}." for f, v in sorted(edits.items())))
     marks = st.get("annotations") or []
     if marks:
-        lines = "; ".join(
-            f"on '{(a.get('quote') or '')[:80]}': {(a.get('comment') or '')[:200]}"
-            for a in marks[:limits(st)["marks"]])
-        parts.append(f"Reader feedback the next run must address: {lines}")
+        # THE WHOLE MARK RIDES, NOT A FIFTH OF IT. add_annotation stores quote[:400] and
+        # comment[:1000]; this used to forward quote[:80] and comment[:200], so four
+        # fifths of what the founder wrote was discarded on the way to the run that exists
+        # to act on it. A correction cut at 200 characters loses the number, the reason, or
+        # both — and a quote cut at 80 often does not even identify the sentence.
+        #
+        # Numbered and separated, because a semicolon-joined blob of five corrections reads
+        # as one vague complaint. Each is a discrete instruction with the passage it is
+        # about attached to it.
+        lines = []
+        for i, a in enumerate(marks[:limits(st)["marks"]], 1):
+            quote = (a.get("quote") or "").strip()
+            comment = (a.get("comment") or "").strip()
+            where = f" (in {a['section']})" if a.get("section") else ""
+            lines.append(f"({i}){where} The report said: \"{quote}\". "
+                         f"The founder's correction: {comment}")
+        parts.append(
+            "The founder reviewed the previous version and marked these passages. Each is "
+            "a correction from someone who knows this business first-hand, so treat it as "
+            "better evidence than anything inferred. Address every one: use the corrected "
+            "figure where they gave one, and where you cannot, say plainly in the report "
+            "why the original still stands. " + " ".join(lines))
     return " ".join(p for p in parts if p.strip())
 
 

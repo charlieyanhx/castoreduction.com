@@ -100,6 +100,36 @@ class VerificationResult:
         return out
 
 
+#: The three states a report's verification can be in. "not_run" exists because the
+#: alternative is a MISSING key, and a missing key renders as nothing — which is how a
+#: report nobody checked came to look exactly like one that passed 58 invariants.
+#: MEASURED: 16 of 19 corpus reports carry no verification block at all.
+#:
+#: This is the same distinction Evidence draws between `skeleton` and `error`: "I could
+#: not look" is a different fact from "I looked and found nothing", and collapsing the two
+#: is the defect this whole layer exists to prevent. The frame was making it about itself.
+VERIFIED = "verified"          # the pass ran and reached a verdict
+NOT_RUN = "not_run"            # the pass could not run; NOTHING about this report is checked
+BLOCKED = "blocked"            # the pass ran and found a blocking issue
+
+
+def unverified(reason: str) -> dict:
+    """The verification block for a report the pass could not check.
+
+    Written by the caller's except-branch so `result["verification"]` is ALWAYS present.
+    A reader can then be told "not checked" instead of being shown silence, and any
+    consumer can branch on `status` rather than on the absence of a key.
+
+    publishable is True on purpose: an unverified report is not a refused one. Treating
+    "unknown" as "blocked" would let an unrelated crash in the verifier take delivery down,
+    which is the trade this module has always refused. The honesty is in SAYING so.
+    """
+    return {"status": NOT_RUN, "reason": str(reason)[:300],
+            "summary": {Severity.BLOCK: 0, Severity.ADVISORY: 0, Severity.INFO: 0,
+                        "publishable": True, "coverage": {}},
+            "findings": []}
+
+
 # --------------------------------------------------------------------------
 # Layer 2 — checks that live closer to the prose than gates.py reaches.
 # --------------------------------------------------------------------------

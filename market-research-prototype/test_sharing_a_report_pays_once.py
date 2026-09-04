@@ -192,6 +192,12 @@ class _App(unittest.TestCase):
         jid = jobs.create("plan", {"description": "x" * 60}, owner_id=owner)
         jobs.update(jid, state="complete",
                     result=result or {"profile": {"name": "A coffee shop"}})
+        # SETTLED FIRST, because publishing is now an operation on a FINISHED report:
+        # a draft its author is still arguing with does not belong in a public library.
+        import iteration as _it
+        _st = _it.get_state(jid)
+        _st["status"] = "final"
+        _it._save(jid, _st)
         return jid
 
 
