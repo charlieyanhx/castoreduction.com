@@ -20,13 +20,22 @@ from . import run_with_timeout, step_done, step_scope
 log = get("plan.steps.viability")
 
 
-def run_viability_step(result: dict, profile: dict, *, four_ps: dict, top_audience: dict,
-                       biz_kind: str,
-                       checkpoint: Callable[[], None] | None = None) -> dict:
-    """Score viability across 5 dimensions. Returns the viability payload."""
+def score_viability(inputs: dict, profile: dict, *, biz_kind: str) -> dict:
+    """Score viability across 5 dimensions from a BOUNDED set of inputs.
+
+    Split out of run_viability_step for the first real migration onto core/section.py.
+    Behaviour is unchanged: this is the same body, reading `inputs` where it read the whole
+    `result`. The point of the split is that the reads are now enumerable -- five required
+    (four_ps, discover, differentiators, economics, market_sizing) and two the function
+    deliberately narrates the absence of (customer_universe, audience). That distinction
+    was invisible while everything came off one dict.
+
+    Named `score_viability` like the four_ps function it calls, because it is the step's
+    half of the same job; the import inside keeps them unambiguous.
+    """
     with step_scope("viability"):
         from four_ps import score_viability
-        disc = result.get("discover") or {}
+        disc = inputs.get("discover") or {}
         log.info("[plan] Step 14: scoring viability")
         # C-class (report_audit): "17 signals gathered" described neither the pool
         # (33 scanned) nor the roster the report stands behind (22) — and 4 of the 17
@@ -44,7 +53,7 @@ def run_viability_step(result: dict, profile: dict, *, four_ps: dict, top_audien
         # API key found"} and viability scored "0 candidate entities harvested" as
         # thin execution data — the same absence-read-as-answer the report's own
         # validation philosophy refuses. None reaches the prompt as "not measured".
-        _cu = result.get("customer_universe") or {}
+        _cu = inputs.get("customer_universe") or {}
         _cu_skeleton = bool(_cu.get("_skeleton")
                             or (_cu.get("icp_details") or {}).get("_skeleton")
                             or _cu.get("_skeleton_reason"))
@@ -54,7 +63,7 @@ def run_viability_step(result: dict, profile: dict, *, four_ps: dict, top_audien
                      str(_cu.get("_skeleton_reason"))[:80])
         viability_kwargs = dict(
             profile=profile,
-            four_ps=four_ps,
+            four_ps=inputs.get("four_ps") or {},
             density=disc.get("competitor_density") or 0,
             # NOT `or 0`: an unmeasured momentum count coerced to zero reads as "no rival has
             # any web presence", which is a finding, not a gap — and it is the finding the
@@ -66,17 +75,17 @@ def run_viability_step(result: dict, profile: dict, *, four_ps: dict, top_audien
             # customer_universe_count and left its sibling coerced — so a Reddit
             # outage became "zero target audience confidence" and docked the score.
             # None reaches the prompt as "not measured", like active_density.
-            audience_confidence=(top_audience.get("confidence")
-                                 if top_audience else None),
+            audience_confidence=((inputs.get("audience") or {}).get("confidence")
+                                 if inputs.get("audience") else None),
             signal_count=signal_count,
-            differentiators_strength=(result.get("differentiators") or {}).get("differentiation_strength"),
-            differentiators_count=len((result.get("differentiators") or {}).get("differentiators", [])),
+            differentiators_strength=(inputs.get("differentiators") or {}).get("differentiation_strength"),
+            differentiators_count=len((inputs.get("differentiators") or {}).get("differentiators", [])),
             customer_universe_count=(None if _cu_skeleton else _cu.get("count")),
-            economics_evc=(result.get("economics") or {}).get("evc", {}).get("verdict"),
-            economics_clv=(result.get("economics") or {}).get("clv", {}).get("clv_usd"),
-            market_sizing=result.get("market_sizing"),  # cycle36: score opportunity on the real TAM/scale
+            economics_evc=(inputs.get("economics") or {}).get("evc", {}).get("verdict"),
+            economics_clv=(inputs.get("economics") or {}).get("clv", {}).get("clv_usd"),
+            market_sizing=inputs.get("market_sizing"),  # cycle36: score opportunity on the real TAM/scale
             business_model_kind=biz_kind,  # M4: forbid subscription/MRR bleed in viability narrative
-            economics=result.get("economics"),
+            economics=inputs.get("economics"),
         )
         viability = run_with_timeout(score_viability, timeout_s=90, label="viability",
                                      **viability_kwargs)
@@ -85,11 +94,25 @@ def run_viability_step(result: dict, profile: dict, *, four_ps: dict, top_audien
                         viability.get("error"))
             viability = run_with_timeout(score_viability, timeout_s=180,
                                          label="viability(retry)", **viability_kwargs)
-        result["viability"] = viability
-        if not viability.get("error"):
-            step_done(result, "viability")
-            if checkpoint:
-                checkpoint()
-        else:
-            log.warning("[plan] viability FAILED twice — surfacing as validation flag")
+        return viability
+
+
+def run_viability_step(result: dict, profile: dict, *, four_ps: dict, top_audience: dict,
+                       biz_kind: str,
+                       checkpoint: Callable[[], None] | None = None) -> dict:
+    """Score viability and record it. Unchanged signature and unchanged behaviour.
+
+    Kept as-is because three test modules and plan.py call it directly. The section
+    declaration in orchestrator/sections.py calls score_viability instead, so both routes
+    run the same body.
+    """
+    inputs = dict(result, four_ps=four_ps, audience=top_audience)
+    viability = score_viability(inputs, profile, biz_kind=biz_kind)
+    result["viability"] = viability
+    if not viability.get("error"):
+        step_done(result, "viability")
+        if checkpoint:
+            checkpoint()
+    else:
+        log.warning("[plan] viability FAILED twice, surfacing as validation flag")
     return viability

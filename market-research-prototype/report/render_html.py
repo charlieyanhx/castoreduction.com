@@ -169,12 +169,27 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
     # to exist. Labelled from SECTION_SOURCES so the notice names "Price Intelligence"
     # rather than a result key.
     _labels = {s.result_key: s.section for s in SECTION_SOURCES}
-    _dropped = [{"label": _labels.get(k, k.replace("_", " ").title()), "reason": v}
+
+    def _sec_label(key: str) -> str:
+        return _labels.get(key) or key.replace("_", " ").title()
+
+    # A SECTION THAT LANDED BUT FAILED ITS OWN CHECK. core/section.py verifies each
+    # section the moment it is produced, which is the whole reason for assembling one at a
+    # time -- and the verdict was going into result["_section_results"] and no further.
+    # Recorded and shown to nobody is the same defect as the drop reasons below it, so it
+    # gets the same treatment. SKIPPED and FAILED already arrive via _dropped_outputs;
+    # FLAGGED is the case only this line can carry.
+    _flagged = [{"label": _sec_label(sr.get("key", "")), "findings": sr.get("findings") or []}
+                for sr in (r.get("_section_results") or [])
+                if sr.get("status") == "flagged" and sr.get("findings")]
+
+    _dropped = [{"label": _sec_label(k), "reason": v}
                 for k, v in sorted((r.get("_dropped_outputs") or {}).items())]
 
     html = tpl.render(
         degraded_steps=_degraded,
         dropped_sections=_dropped,
+        flagged_sections=_flagged,
         iteration=_iter_state,
         annotate=bool(annotate),
         public=bool(public),

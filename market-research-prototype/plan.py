@@ -75,7 +75,7 @@ from orchestrator.steps.personas import run_personas_step
 from orchestrator.steps.pricing_sim import run_pricing_sim_step
 from orchestrator.steps.profile import run_profile_step
 from orchestrator.steps.segments import run_segment_ranking_step
-from orchestrator.steps.viability import run_viability_step
+from orchestrator.sections import apply as apply_sections, viability_section
 
 
 def _validation_gate(result: dict) -> dict:
@@ -2618,9 +2618,18 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     run_financials_step(result, profile, psm_result=psm_result, biz_kind=biz_kind,
                         checkpoint=checkpoint)
 
-    # --- Step 14: Viability score --- (→ orchestrator/steps/viability.py)
-    run_viability_step(result, profile, four_ps=four_ps, top_audience=top_audience,
-                       biz_kind=biz_kind, checkpoint=checkpoint)
+    # --- Step 14: Viability score --- (→ orchestrator/sections.py, declared not called)
+    # THE FIRST SECTION ON THE ASSEMBLER. Everything above is still a literal call in a
+    # hand-maintained order; this one declares what it needs and lets core/section.py
+    # derive the rest. It buys four things no literal call can: the reads are bounded to
+    # what was declared (a stale read raises instead of returning {}), the context is a
+    # deep copy (a producer cannot rewrite a section that already passed), the section is
+    # verified the moment it lands rather than at the end of the report, and an absence
+    # arrives with a reason attached instead of as a gap.
+    # Verified byte-identical: the scorer receives the same kwargs on all 19 corpus
+    # reports before and after the move.
+    apply_sections([viability_section(profile, biz_kind=biz_kind)], result,
+                   checkpoint=checkpoint)
 
     # cycle30: re-run validation gate at end so viability/segment/source flags
     # surface — the early gate ran before downstream signals existed.

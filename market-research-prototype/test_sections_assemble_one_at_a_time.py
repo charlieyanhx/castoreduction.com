@@ -25,8 +25,9 @@ from core.section import (FAILED, FLAGGED, OK, SKIPPED, Section, assemble, plan,
                           summarise)
 
 
-def _s(key, produce=None, consumes=(), invariants=()):
-    return Section(key=key, consumes=tuple(consumes), invariants=tuple(invariants),
+def _s(key, produce=None, consumes=(), optional=(), invariants=()):
+    return Section(key=key, consumes=tuple(consumes), optional=tuple(optional),
+                   invariants=tuple(invariants),
                    produce=produce or (lambda ctx: {"v": 1}))
 
 
@@ -120,6 +121,50 @@ class TestAProducerCannotWriteUpstream(unittest.TestCase):
                         _s("four_ps", consumes=("sizing",),
                            produce=lambda ctx: {"n": ctx["sizing"]["som"]})], {})
         self.assertTrue(all(r.status == OK for r in res), [r.as_dict() for r in res])
+
+
+class TestAnOptionalInputDoesNotGateTheSection(unittest.TestCase):
+    """The tier the first real migration forced into existence.
+
+    viability reads seven result keys and deliberately treats two as absences it can
+    narrate: "None reaches the prompt as 'not measured'", written after a Reddit outage
+    became "zero target audience confidence" and docked the score. With only `consumes`,
+    an honest declaration of those seven would have SKIPPED viability on 16 of the 19
+    corpus reports that ship it -- so the choice was a declaration that destroyed the
+    section or one that lied about what it reads. Neither is a frame.
+    """
+
+    def test_a_missing_optional_input_still_produces_the_section(self):
+        [r] = assemble([_s("viability", consumes=("four_ps",), optional=("audience",))],
+                       {"four_ps": {"p": 1}})
+        self.assertEqual(r.status, OK, "an enrichment going missing skipped the section")
+
+    def test_a_missing_required_input_still_skips(self):
+        """The gate must keep working, or the tier is just a hole in it."""
+        [r] = assemble([_s("viability", consumes=("four_ps",), optional=("audience",))],
+                       {"audience": {"a": 1}})
+        self.assertEqual(r.status, SKIPPED)
+        self.assertIn("four_ps", r.reason)
+
+    def test_an_optional_input_reaches_the_producer_when_present(self):
+        """Optional means "may be absent", not "withheld"."""
+        seen = {}
+        sec = _s("v", consumes=("four_ps",), optional=("audience",),
+                 produce=lambda ctx: seen.update(ctx) or {"ok": 1})
+        assemble([sec], {"four_ps": 1, "audience": 2, "secret": 3})
+        self.assertEqual(sorted(seen), ["audience", "four_ps"])
+
+    def test_an_optional_input_still_orders_the_assembly(self):
+        """Optional does not mean unordered. If the enrichment IS going to be produced,
+        the consumer must run after it -- otherwise it reports "not measured" about a
+        section that was about to exist, which is run14's bug wearing an honest label."""
+        # `audience` must be BEHIND something, or it lands early on its own and the test
+        # passes whether or not the optional edge exists. The first version of this test
+        # did exactly that: deleting the edge from plan() left it green.
+        secs = [_s("viability", consumes=("four_ps",), optional=("audience",)),
+                _s("four_ps"), _s("audience", consumes=("evidence",)), _s("evidence")]
+        order = [x.key for x in plan(secs)]
+        self.assertLess(order.index("audience"), order.index("viability"))
 
 
 class TestASectionIsVerifiedAsItLands(unittest.TestCase):

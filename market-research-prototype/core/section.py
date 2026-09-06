@@ -66,12 +66,23 @@ class Section:
     `consumes` is the whole design. It is the producer's context, the edge list the order
     is derived from, and the guarantee that a stale read fails loudly.
 
+    `optional` IS THE OTHER HALF, and the first real migration is what proved it was
+    missing. viability reads seven result keys. Five are required. Two -- customer_universe
+    and audience -- it deliberately handles as absences: "None reaches the prompt as 'not
+    measured'", written after a Reddit outage became "zero target audience confidence" and
+    docked the score. MEASURED: declaring all seven as `consumes` would have SKIPPED
+    viability on 16 of the 19 corpus reports that currently ship it. One tier could only
+    express "required", so an honest declaration destroyed the section and a shipping
+    declaration was a lie about what it reads. Optional inputs order the assembly and reach
+    the context exactly like required ones; they simply do not gate it.
+
     `invariants` are section-local only -- detectors that can answer from this section
     alone. Cross-section coherence stays in the whole-report pass, which runs after.
     """
     key: str                                     # result key this writes
     produce: Callable[[dict], Any]               # (bounded context) -> payload
-    consumes: tuple[str, ...] = ()
+    consumes: tuple[str, ...] = ()               # REQUIRED: absent means skip
+    optional: tuple[str, ...] = ()               # enrichment: absent means absent
     label: str = ""                              # human name, for the trust panel
     origin: str = ""                             # computed / llm / fetched / simulated
     invariants: tuple = ()                       # (name, fn(payload) -> str|None)
@@ -91,11 +102,27 @@ class Section:
         132 KB result: deep-copying the declared subset costs 0.08-0.35 ms, and the whole
         result under 1 ms, against a run that takes minutes. The isolation is free.
         """
-        return {k: copy.deepcopy(result[k]) for k in sorted(self.consumes) if k in result}
+        return {k: copy.deepcopy(result[k])
+                for k in sorted(set(self.consumes) | set(self.optional)) if k in result}
+
+    @property
+    def needs(self) -> tuple[str, ...]:
+        """Every input, required or not, as ordering edges.
+
+        Optional does not mean unordered. If customer_universe is going to be produced at
+        all, viability must run after it -- otherwise viability reads an empty dict and
+        reports "not measured" about a section that was about to exist, which is run14's
+        bug wearing an honest-looking label."""
+        return tuple(sorted(set(self.consumes) | set(self.optional)))
 
     def missing(self, result: dict) -> list[str]:
-        """Declared inputs that are absent or empty. Empty counts: a section cannot
-        narrate from a key that exists and holds nothing."""
+        """REQUIRED inputs that are absent or empty. Empty counts: a section cannot
+        narrate from a key that exists and holds nothing.
+
+        `optional` is deliberately not consulted. A section that knows how to say "not
+        measured" about an input is not blocked by that input going missing -- that is the
+        difference between an enrichment and a dependency, and collapsing the two skips
+        sections that are perfectly able to run."""
         return [k for k in sorted(self.consumes) if not result.get(k)]
 
 
@@ -128,7 +155,7 @@ def plan(sections: Iterable[Section]) -> list[Section]:
     while remaining:
         ready = [s for s in remaining
                  if all(c in produced or c not in {x.key for x in remaining}
-                        for c in s.consumes)]
+                        for c in s.needs)]
         if not ready:
             stuck = ", ".join(sorted(s.key for s in remaining))
             raise ValueError(f"circular section dependency among: {stuck}")
