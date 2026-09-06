@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
+<!-- The report is the thing being paid for and the thing most likely to be opened
+     from a phone, off a link someone was sent. Without this it renders at desktop
+     width and is pinch-zoomed, which every other page in the product avoids. -->
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Market Research Report — {{ profile.name or 'Untitled' }}</title>
 <style>
 /* ============================================================================

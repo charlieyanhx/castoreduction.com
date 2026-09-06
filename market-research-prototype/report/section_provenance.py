@@ -38,6 +38,17 @@ class SectionSource:
     kind: str                       # "skill" | "module"
     origin: str                     # default data character (see vocabulary above)
     consumes: tuple[str, ...] = ()  # upstream result-keys it depends on
+    #: WHERE THE DATA ACTUALLY LIVES, when that is not `result[result_key]`.
+    #: MEASURED across 19 corpus reports: "pricing_benchmark" was present 0/19 times,
+    #: because the benchmark table lives at result["pricing"]["benchmark"] and the
+    #: renderer reads it from there. The section shipped on every page while its
+    #: provenance entry silently matched nothing, so the one section a buyer is most
+    #: likely to question carried no attribution at all. Defaults to (result_key,).
+    path: tuple[str, ...] = ()
+    #: True when the section is COMPUTED AT RENDER TIME rather than stored on the result.
+    #: "integrity" is build_integrity_summary(result), called by render_html; it is never
+    #: a result key, so checking for one could only ever fail. Same 0/19, same cause.
+    derived: bool = False
 
 
 # The authoritative section → producer table. Ordered roughly as the report reads.
@@ -72,7 +83,8 @@ SECTION_SOURCES: tuple[SectionSource, ...] = (
     SectionSource("Pricing (PSM)", "pricing", "simulate_van_westendorp", "pricing",
                   "module", SIMULATED),
     SectionSource("Pricing benchmark", "pricing_benchmark", "build_benchmark_table",
-                  "pricing", "module", FETCHED, ("competitor_pricing",)),
+                  "pricing", "module", FETCHED, ("competitor_pricing",),
+                  path=("pricing", "benchmark")),
     SectionSource("Unit economics", "economics", "retail_unit_economics",
                   "business_model", "module", COMPUTED, ("pricing", "market_sizing")),
     SectionSource("Market size", "market_sizing", "estimate_market_size",
@@ -94,15 +106,29 @@ SECTION_SOURCES: tuple[SectionSource, ...] = (
     SectionSource("Research brief", "research_brief", "run_crew_step",
                   "orchestrator.steps.crew", "module", LLM),
     SectionSource("Integrity summary", "integrity", "build_integrity_summary",
-                  "plan", "module", COMPUTED),
+                  "plan", "module", COMPUTED, derived=True),
 )
 
 _BY_KEY: dict[str, SectionSource] = {s.result_key: s for s in SECTION_SOURCES}
 
 
 def _present(result: dict, key: str) -> bool:
-    """A section renders when its result-key holds non-empty, non-errored data."""
-    v = result.get(key)
+    """A section renders when its data holds non-empty, non-errored content.
+
+    Follows `path` when the data is nested, because a top-level key that never exists is
+    indistinguishable from a section that never ran -- and two sections were in exactly
+    that state, attributed to nothing on every report they appeared on.
+    """
+    src = _BY_KEY.get(key)
+    if src is not None and src.derived:
+        # Computed at render time from the whole result. It is present whenever there is
+        # a result to compute it from; there is no key to look for.
+        return bool(result)
+    v: object = result
+    for part in (src.path if src is not None and src.path else (key,)):
+        if not isinstance(v, dict):
+            return False
+        v = v.get(part)
     if not v:
         return False
     if isinstance(v, dict) and v.get("error"):

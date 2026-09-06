@@ -16,10 +16,25 @@ import unittest
 from pathlib import Path
 
 # Every document a customer can land on. /login is excluded: the page IS the button.
+#
+# THIS LIST USED TO EXCLUDE TWO OF THE FIVE PAGES THE DOCSTRING ABOVE NAMES AS BROKEN.
+# It said "the survey, the progress screen, the library, the landing page and the report
+# had no sign-in control" and then checked four of them, omitting the library and the
+# landing page. So when web/library.html shipped with no way to sign in, this test passed:
+# the one page written for logged-out strangers, and the invariant that exists to catch
+# exactly that, looked straight past it.
+#
+# web/landing.html is still absent and that is now a KNOWN GAP rather than an oversight:
+# it is the imported marketing page, it hand-rolls its own href="/login", and account.js
+# has no host selector for its .nav-cta header. Wiring it needs a decision about the
+# marketing nav, not a line in this list. Until then a signed-in visitor is still shown
+# "Sign in" on the front door.
 PAGES = [
     "web/survey.html",
     "web/dashboard.html",
     "web/progress.html",
+    "web/home.html",
+    "web/library.html",
     "templates/report.html",
 ]
 

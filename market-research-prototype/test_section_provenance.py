@@ -69,9 +69,19 @@ class TestBuilder(unittest.TestCase):
         self.assertNotIn("differentiators", keys)   # None → absent
         self.assertNotIn("financials", keys)         # errored → absent
 
+    def _entry(self, result, key):
+        """The entry for one section.
+
+        Selected by key rather than unpacked as the only one: these tests assert on a
+        SPECIFIC section, and unpacking coupled them to the total count -- so making an
+        unrelated section attributable (integrity, which the renderer derives from the
+        whole result) broke three tests that were not about integrity at all.
+        """
+        return next(p for p in build_section_provenance(result) if p["result_key"] == key)
+
     def test_each_entry_carries_producer_and_module(self):
         result = {"viability": {"viability_score": 60}}
-        (entry,) = build_section_provenance(result)
+        entry = self._entry(result, "viability")
         self.assertEqual(entry["produced_by"], "score_viability")
         self.assertEqual(entry["module"], "four_ps")
         self.assertEqual(entry["origin"], "llm")
@@ -79,13 +89,13 @@ class TestBuilder(unittest.TestCase):
     def test_market_sizing_origin_refines_to_llm_when_all_methods_are_llm(self):
         result = {"market_sizing": {"tam": {
             "method_top_down": {"origin": "llm"}, "method_bottom_up": {"origin": "llm"}}}}
-        (entry,) = build_section_provenance(result)
+        entry = self._entry(result, "market_sizing")
         self.assertEqual(entry["origin"], "llm")
 
     def test_market_sizing_origin_is_mixed_with_a_fetched_method(self):
         result = {"market_sizing": {"tam": {
             "method_top_down": {"origin": "census"}, "method_bottom_up": {"origin": "llm"}}}}
-        (entry,) = build_section_provenance(result)
+        entry = self._entry(result, "market_sizing")
         self.assertEqual(entry["origin"], "mixed")
 
     def test_producer_for_unknown_key(self):
