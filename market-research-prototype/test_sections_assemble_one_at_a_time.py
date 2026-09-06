@@ -183,6 +183,39 @@ class TestTheSummaryIsWhatAReaderSees(unittest.TestCase):
         self.assertEqual(len(s["sections"]), 3)
 
 
+class TestTheRegistryRefusesToShadow(unittest.TestCase):
+    """`register` raises on a duplicate name, and nothing tested that until now.
+
+    The three decorators used to do `REGISTRY[name] = Meta(...)`, so two capabilities
+    sharing a name silently shadowed each other and the winner depended on import order.
+    register() closes that -- but a guard with no test is a guard that can regress in
+    silence, which is the same failure it exists to prevent one level up.
+    """
+
+    def test_a_duplicate_name_is_refused(self):
+        from core import DuplicateRegistration, Registry
+
+        reg = Registry("widget")
+        reg.register("a", object())
+        with self.assertRaises(DuplicateRegistration) as cm:
+            reg.register("a", object())
+        self.assertIn("widget", str(cm.exception), "the message names the kind")
+        self.assertIn("import order", str(cm.exception), "and why it matters")
+
+    def test_assignment_stays_permissive_for_fixtures(self):
+        """__setitem__ is the seam tests use to install and remove a fixture. Locking it
+        down would make the registry untestable, which is why register() is the strict
+        door and assignment is not."""
+        from core import Registry
+
+        reg = Registry("widget")
+        reg.register("a", 1)
+        reg["a"] = 2                      # deliberate override
+        self.assertEqual(reg["a"], 2)
+        del reg["a"]
+        self.assertEqual(len(reg), 0)
+
+
 class TestTheAssemblerIsFrameCode(unittest.TestCase):
     def test_it_carries_no_knowledge_of_any_domain(self):
         """core/ is the floor: standard library only. If this module knew what a TAM was

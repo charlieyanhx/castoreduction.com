@@ -59,15 +59,6 @@ FAILED = "failed"         # the producer raised; there is no section
 SKIPPED = "skipped"       # an input it declared never arrived
 
 
-class MissingInput(KeyError):
-    """A producer asked for a key it did not declare in `consumes`.
-
-    Raised rather than returning None, because the silent version of this is the exact
-    defect the module exists to prevent: reading a key that is empty *at this moment* and
-    narrating from it anyway.
-    """
-
-
 @dataclass(frozen=True)
 class Section:
     """One declared piece of a report: what it needs, what it writes, how it is checked.
