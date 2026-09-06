@@ -74,8 +74,8 @@ from orchestrator.steps.max_diff import run_max_diff_step
 from orchestrator.steps.personas import run_personas_step
 from orchestrator.steps.pricing_sim import run_pricing_sim_step
 from orchestrator.steps.profile import run_profile_step
-from orchestrator.steps.segments import run_segment_ranking_step
-from orchestrator.sections import apply as apply_sections, viability_section
+from orchestrator.sections import (apply as apply_sections,
+                                   segment_ranking_section, viability_section)
 
 
 def _validation_gate(result: dict) -> dict:
@@ -2611,8 +2611,12 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         _step_done(result, "four_ps")
         checkpoint()
 
-    # --- Steps 7-8: Segment scoring --- (→ orchestrator/steps/segments.py)
-    run_segment_ranking_step(result, profile, opps, checkpoint=checkpoint)
+    # --- Steps 7-8: Segment scoring --- (→ orchestrator/sections.py, declared not called)
+    # Second on the assembler. This one is here for the absence, not the ordering: the step
+    # opened with a bare `return` when customer_universe had no segments, which is 14 of
+    # the 19 corpus reports, and not one recorded why. Declaring the input makes the
+    # assembler produce the reason and `apply` route it to where the page reads it.
+    apply_sections([segment_ranking_section(profile, opps)], result, checkpoint=checkpoint)
 
     # --- Step 10b: Financial projections --- (→ orchestrator/steps/financials_step.py)
     run_financials_step(result, profile, psm_result=psm_result, biz_kind=biz_kind,

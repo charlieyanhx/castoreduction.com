@@ -24,7 +24,8 @@ from unittest.mock import patch
 
 from core.section import FAILED, OK, SKIPPED
 from orchestrator.sections import (apply, each_dimension_states_one_score,
-                                   score_reconciles_with_its_parts, viability_section)
+                                   score_reconciles_with_its_parts,
+                                   segment_ranking_section, viability_section)
 
 _CORPUS = pathlib.Path("out/wave4_corpus")
 
@@ -252,3 +253,192 @@ class TestTheSectionVerdictReachesTheReader(unittest.TestCase):
         """Every stored report predates _section_results. Absence of the field is not a
         verdict and must not print one."""
         self.assertNotIn("Checked and flagged:", self._render({"profile": {"summary": "x"}}))
+
+
+#: Applicability is now part of the section, so every segment_ranking test that means to
+#: exercise producing, skipping or failing has to declare a venture the section applies to.
+#: An empty profile reads as "not B2B", which is correct and was silently turning four of
+#: these into not_applicable.
+_B2B = {"summary": "s", "business_model": "B2B SaaS"}
+
+
+def _seg_stub(ret=None):
+    return patch("segment_scoring.rank_segments",
+                 return_value=dict(ret or {"ranked": [1], "confidence": "low"}))
+
+
+class TestTheSecondSectionMovedNoReportEither(unittest.TestCase):
+    """segment_ranking, migrated for a different reason than viability.
+
+    viability went first because it was the cheapest place to be wrong. This one went
+    second because it had a BARE RETURN: no segments meant the step vanished with nothing
+    written and nothing logged. MEASURED: segment_ranking is absent on 14 of 19 corpus
+    reports with no reason recorded on one of them, and customer_universe present,
+    .segments present and segment_ranking present agree on all 19 -- so one declared input
+    reproduces the gate exactly.
+    """
+
+    def setUp(self):
+        self.reports = _reports()
+        if not self.reports:
+            self.skipTest("no corpus available")
+
+    def _both(self, r, cp_old, cp_new):
+        from orchestrator.steps.segments import run_segment_ranking_step
+        prof = dict(r.get("profile") or {}, business_model="B2B SaaS")
+        a = json.loads(json.dumps(r)); a.pop("segment_ranking", None)
+        with _seg_stub():
+            run_segment_ranking_step(a, prof, [], checkpoint=lambda: cp_old.append(1))
+        b = json.loads(json.dumps(r)); b.pop("segment_ranking", None)
+        with _seg_stub():
+            apply([segment_ranking_section(prof, [])], b, checkpoint=lambda: cp_new.append(1))
+        return a, b
+
+    def test_payload_steps_and_checkpoints_all_match(self):
+        """Checkpoints are counted too. This step called checkpoint() even when the
+        ranking carried an error, and `apply` had to be corrected to match -- withholding
+        it would have been the behaviour change, not preserving it."""
+        for r in self.reports:
+            old_cp, new_cp = [], []
+            a, b = self._both(r, old_cp, new_cp)
+            self.assertEqual(json.dumps(a.get("segment_ranking"), sort_keys=True),
+                             json.dumps(b.get("segment_ranking"), sort_keys=True))
+            self.assertEqual(a.get("_steps_completed"), b.get("_steps_completed"))
+            self.assertEqual(len(old_cp), len(new_cp), "checkpoint count changed")
+
+    def test_the_fourteen_silent_absences_now_state_their_cause(self):
+        """The reason this section was migrated. Before: 14 reports where the step hit a
+        bare `return` and the reader met a gap. After: the same 14 absences, each naming
+        the input that never arrived."""
+        silent = disclosed = 0
+        for r in self.reports:
+            if r.get("segment_ranking"):
+                continue
+            a, b = self._both(r, [], [])
+            if not (a.get("_dropped_outputs") or {}).get("segment_ranking"):
+                silent += 1
+            if "customer_universe" in (b.get("_dropped_outputs") or {}).get(
+                    "segment_ranking", ""):
+                disclosed += 1
+        self.assertGreater(silent, 0, "the corpus no longer exercises the silent path")
+        self.assertEqual(silent, disclosed,
+                         "an absence that was silent before is still silent now")
+
+    def test_a_missing_optional_input_does_not_skip_the_ranking(self):
+        """operator_weights is absent on 3 of 19 and falls back to DEFAULT_WEIGHTS;
+        consumer_research only feeds a cross-check that guards itself."""
+        res = {"customer_universe": {"segments": ["mid-market"]}, "_steps_completed": []}
+        with _seg_stub():
+            [sr] = apply([segment_ranking_section(_B2B, [])], res)
+        self.assertEqual(sr.status, OK)
+        self.assertIn("segment_ranking", res)
+
+    def test_a_raising_producer_names_its_cause_instead_of_shrugging(self):
+        """The step wrapper still swallows, because its callers expect that. On the
+        assembly path the exception becomes a FAILED section with the reason attached --
+        a log nobody reads, promoted to a line on the page."""
+        res = {"customer_universe": {"segments": ["mid-market"]}, "_steps_completed": []}
+        with patch("segment_scoring.rank_segments", side_effect=RuntimeError("scorer down")):
+            [sr] = apply([segment_ranking_section(_B2B, [])], res)
+        self.assertEqual(sr.status, FAILED)
+        self.assertIn("scorer down", res["_dropped_outputs"]["segment_ranking"])
+        self.assertNotIn("segment_ranking", res["_steps_completed"])
+
+
+class TestThePathsTheCorpusNeverTakes(unittest.TestCase):
+    """Two behaviours the corpus cannot exercise, so nothing else pins them.
+
+    Both were found by mutation rather than by reading: breaking them left the whole file
+    green. The corpus stub always returns a clean ranking, so the errored-payload branch
+    never runs; and customer_universe present-with-no-segments occurs zero times in 19
+    reports, so the guard against it is unreachable there. Unreachable in the corpus is
+    not unreachable in production.
+    """
+
+    def test_an_errored_payload_still_checkpoints(self):
+        """segment_ranking called checkpoint() on this path before the migration. The
+        checkpoint only persists partial state for the progress UI, so withholding it
+        would have been the silent behaviour change, not preserving it."""
+        cps = []
+        res = {"customer_universe": {"segments": ["a"]}, "_steps_completed": []}
+        with patch("segment_scoring.rank_segments", return_value={"error": "llm down"}):
+            apply([segment_ranking_section(_B2B, [])], res, checkpoint=lambda: cps.append(1))
+        self.assertEqual(len(cps), 1, "the progress UI stopped being told about this run")
+        self.assertEqual(res["segment_ranking"], {"error": "llm down"})
+        self.assertNotIn("segment_ranking", res["_steps_completed"],
+                         "an errored ranking must not be credited as a completed step")
+
+    def test_a_universe_with_no_segments_fails_loudly_rather_than_returning_nothing(self):
+        """The bare `return` this migration removed, at its second entrance. The declared
+        input is present, so the assembler does not skip -- and a producer that quietly
+        returned {} here would put an empty section on the page with no explanation, which
+        is the exact defect the migration exists to close."""
+        res = {"customer_universe": {"count": 12, "segments": []}, "_steps_completed": []}
+        [sr] = apply([segment_ranking_section(_B2B, [])], res)
+        self.assertEqual(sr.status, FAILED)
+        self.assertIn("no segments", res["_dropped_outputs"]["segment_ranking"])
+        self.assertNotIn("segment_ranking", res, "no empty payload was written")
+
+
+class TestAByDesignAbsenceDoesNotLookLikeABreakage(unittest.TestCase):
+    """The mistake this class exists to prevent is one I shipped and then measured.
+
+    Declaring customer_universe as segment_ranking's required input correctly turned 14
+    silent absences into 14 disclosed ones -- and ALL 14 of those reports are
+    direct-to-consumer ventures, where a B2B customer universe was never going to exist.
+    "Declared input(s) absent or empty" is true for them and reads as a malfunction.
+    """
+
+    def _render(self, res):
+        from report.render_html import render_report_html
+        return render_report_html(res)
+
+    def _run(self, business_model, **extra):
+        res = {"profile": {"summary": "x", "business_model": business_model},
+               "_steps_completed": [], **extra}
+        with _seg_stub():
+            [sr] = apply([segment_ranking_section(res["profile"], [])], res)
+        return sr, res
+
+    def test_a_dtc_venture_is_told_the_section_does_not_apply(self):
+        sr, res = self._run("direct-to-consumer marketplace")
+        self.assertEqual(sr.status, "not_applicable")
+        html = self._render(res)
+        self.assertIn("Not applicable:", html)
+        self.assertIn("no customer companies to rank", html)
+        self.assertNotIn("Not produced:", html,
+                         "a by-design absence was filed with the genuine failures")
+
+    def test_the_reason_names_the_venture_s_own_business_model(self):
+        """Generic text ("not applicable") tells a founder nothing. The line has to say
+        which fact about THEIR venture made the section irrelevant."""
+        _, res = self._run("direct-to-consumer marketplace")
+        self.assertIn("direct-to-consumer marketplace", self._render(res))
+
+    def test_a_b2b_venture_missing_the_universe_is_still_a_real_absence(self):
+        """The other half. When the section DOES apply and its input never arrived, that
+        is a failure and must keep reading like one."""
+        sr, res = self._run("B2B SaaS")
+        self.assertEqual(sr.status, SKIPPED)
+        html = self._render(res)
+        self.assertIn("Not produced:", html)
+        self.assertNotIn("Not applicable:", html)
+
+    def test_a_b2b_venture_with_a_universe_still_produces_the_section(self):
+        sr, res = self._run("B2B SaaS",
+                            customer_universe={"count": 3, "segments": ["mid-market"]})
+        self.assertEqual(sr.status, OK)
+        self.assertIn("segment_ranking", res)
+
+    def test_the_whole_corpus_lands_on_the_right_side_of_the_line(self):
+        """14 non-B2B reports must read "not applicable"; the 5 B2B ones must produce."""
+        na = produced = 0
+        for r in _reports():
+            sr, _ = self._run((r.get("profile") or {}).get("business_model") or "",
+                              **({"customer_universe": r["customer_universe"]}
+                                 if r.get("customer_universe") else {}))
+            if sr.status == "not_applicable":
+                na += 1
+            elif sr.status == OK:
+                produced += 1
+        self.assertEqual((na, produced), (14, 5))

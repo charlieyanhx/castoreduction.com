@@ -183,12 +183,20 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
                 for sr in (r.get("_section_results") or [])
                 if sr.get("status") == "flagged" and sr.get("findings")]
 
+    # "DOES NOT APPLY" IS NOT "COULD NOT BE PRODUCED". MEASURED: 14 of 19 corpus reports
+    # have no customer universe and all 14 are direct-to-consumer, so their missing segment
+    # prioritization is by design. Listing it beside genuine failures hands a founder a
+    # list of things that look broken. Separate line, separate colour, no alarm.
+    _na = [{"label": _sec_label(k), "reason": v}
+           for k, v in sorted((r.get("_inapplicable_sections") or {}).items())]
+
     _dropped = [{"label": _sec_label(k), "reason": v}
                 for k, v in sorted((r.get("_dropped_outputs") or {}).items())]
 
     html = tpl.render(
         degraded_steps=_degraded,
         dropped_sections=_dropped,
+        inapplicable_sections=_na,
         flagged_sections=_flagged,
         iteration=_iter_state,
         annotate=bool(annotate),

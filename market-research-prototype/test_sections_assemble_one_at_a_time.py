@@ -21,13 +21,13 @@ from __future__ import annotations
 
 import unittest
 
-from core.section import (FAILED, FLAGGED, OK, SKIPPED, Section, assemble, plan,
-                          summarise)
+from core.section import (FAILED, FLAGGED, NOT_APPLICABLE, OK, SKIPPED, Section,
+                          assemble, plan, summarise)
 
 
-def _s(key, produce=None, consumes=(), optional=(), invariants=()):
+def _s(key, produce=None, consumes=(), optional=(), invariants=(), inapplicable=None):
     return Section(key=key, consumes=tuple(consumes), optional=tuple(optional),
-                   invariants=tuple(invariants),
+                   invariants=tuple(invariants), inapplicable=inapplicable,
                    produce=produce or (lambda ctx: {"v": 1}))
 
 
@@ -216,6 +216,57 @@ class TestOneBadSectionDoesNotKillTheReport(unittest.TestCase):
         the same distinction Evidence draws between skeleton and error."""
         [r] = assemble([_s("v", consumes=("economics",))], {"economics": {}})
         self.assertEqual(r.status, SKIPPED)
+
+
+class TestASectionThatNeverAppliedIsNotAFailure(unittest.TestCase):
+    """The distinction the second migration surfaced, one report before it shipped wrong.
+
+    Step 5 builds a B2B customer universe and returns immediately for a direct-to-consumer
+    venture -- correctly. MEASURED: 14 of 19 corpus reports have no customer_universe and
+    ALL 14 are non-B2B. Declaring the dependency turned 14 silent absences into 14 that
+    said "declared input absent or empty: customer_universe" -- true, and read by a DTC
+    founder as fourteen things that broke. That is the same conflation the gate layer
+    already refuses, where wrong-shape and data-missing were summed and withheld a good
+    report.
+    """
+
+    def test_an_inapplicable_section_is_not_skipped_and_not_produced(self):
+        [r] = assemble([_s("segments", inapplicable=lambda: "this venture is not B2B")], {})
+        self.assertEqual(r.status, NOT_APPLICABLE)
+        self.assertIn("not B2B", r.reason)
+
+    def test_applicability_is_asked_before_missing_inputs(self):
+        """A section that was never going to exist has no missing input worth naming.
+        Reporting one answers a question nobody asked, in words that read like a fault."""
+        [r] = assemble([_s("segments", consumes=("customer_universe",),
+                           inapplicable=lambda: "not a B2B venture")], {})
+        self.assertEqual(r.status, NOT_APPLICABLE)
+        self.assertNotIn("customer_universe", r.reason)
+
+    def test_an_applicable_section_is_untouched_by_the_check(self):
+        [r] = assemble([_s("segments", inapplicable=lambda: None)], {})
+        self.assertEqual(r.status, OK)
+
+    def test_a_broken_applicability_rule_lets_the_section_run(self):
+        """A predicate that raises must not decide the report. The safe reading of a broken
+        rule is that the section DOES apply, so the producer runs and any real problem
+        surfaces as itself instead of as a section quietly declared irrelevant."""
+        def boom():
+            raise RuntimeError("rule bug")
+
+        [r] = assemble([_s("segments", inapplicable=boom)], {})
+        self.assertEqual(r.status, OK)
+
+    def test_the_producer_never_runs_for_an_inapplicable_section(self):
+        ran = []
+        assemble([_s("segments", produce=lambda ctx: ran.append(1) or {},
+                     inapplicable=lambda: "not B2B")], {})
+        self.assertEqual(ran, [], "an inapplicable section still paid for its producer")
+
+    def test_the_summary_counts_it_separately_from_everything_else(self):
+        s = summarise(assemble([_s("a"), _s("b", inapplicable=lambda: "not B2B"),
+                                _s("c", consumes=("nope",))], {}))
+        self.assertEqual((s[OK], s[NOT_APPLICABLE], s[SKIPPED]), (1, 1, 1))
 
 
 class TestTheSummaryIsWhatAReaderSees(unittest.TestCase):

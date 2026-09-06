@@ -334,6 +334,12 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
     <p style="color:#b45309"><strong>Checked and flagged:</strong>
       {% for s in flagged_sections %}{{ s.label }} ({{ s.findings|join('; ') }}){% if not loop.last %}; {% endif %}{% endfor %}</p>
     {% endif %}
+    {# By design, not by failure. Rendered in the muted body colour rather than the
+       amber used for problems, because nothing here went wrong. #}
+    {% if inapplicable_sections %}
+    <p style="color:#6b7280"><strong>Not applicable:</strong>
+      {% for s in inapplicable_sections %}{{ s.label }} ({{ s.reason }}){% if not loop.last %}; {% endif %}{% endfor %}</p>
+    {% endif %}
     {% if dropped_sections %}
     <p style="color:#b45309"><strong>Not produced:</strong>
       {% for d in dropped_sections %}{{ d.label }} ({{ d.reason }}){% if not loop.last %}; {% endif %}{% endfor %}</p>

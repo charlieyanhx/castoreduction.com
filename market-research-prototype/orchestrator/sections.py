@@ -25,7 +25,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from core.section import FAILED, FLAGGED, OK, SKIPPED, Section, SectionResult, assemble
+from core.section import (FAILED, FLAGGED, NOT_APPLICABLE, OK, SKIPPED, Section,
+                          SectionResult, assemble)
 from logger import get
 
 from .steps import record_dropped_output, step_done
@@ -140,6 +141,14 @@ def apply(sections, result: dict, *, checkpoint: Optional[Callable[[], None]] = 
     results = assemble(sections, result)
     for sr in results:
         payload = result.get(sr.key)
+        if sr.status == NOT_APPLICABLE:
+            # A SEPARATE CHANNEL ON PURPOSE. "We could not produce this" and "this report
+            # was never going to have this" are different facts, and the corpus is 14 of 19
+            # on the second one. Filing both under _dropped_outputs would hand a DTC
+            # founder a list of things that look broken.
+            result.setdefault("_inapplicable_sections", {})[sr.key] = sr.reason
+            log.info("[plan] section %s does not apply: %s", sr.key, sr.reason[:160])
+            continue
         if sr.status in (SKIPPED, FAILED):
             record_dropped_output(result, sr.key, sr.reason)
             log.warning("[plan] section %s %s: %s", sr.key, sr.status, sr.reason[:160])
@@ -149,13 +158,64 @@ def apply(sections, result: dict, *, checkpoint: Optional[Callable[[], None]] = 
                         sr.key, "; ".join(sr.findings)[:300])
         if isinstance(payload, dict) and payload.get("error"):
             # Produced, but the producer reported its own failure. Recorded, not promoted:
-            # the pre-migration step wrote the errored payload and withheld step_done, and
+            # both pre-migration steps wrote the errored payload and withheld step_done, and
             # a migration that quietly started crediting it would be a behaviour change.
+            # The checkpoint still fires -- it only persists the partial result for the
+            # progress UI, and segment_ranking already called it on this path, so
+            # withholding it here would be the behaviour change instead.
             log.warning("[plan] section %s returned an error: %s",
                         sr.key, str(payload.get("error"))[:160])
-            continue
-        step_done(result, sr.key)
+        else:
+            step_done(result, sr.key)
         if checkpoint:
             checkpoint()
     result.setdefault("_section_results", []).extend(r.as_dict() for r in results)
     return results
+
+
+def _needs_a_company_universe(profile: dict) -> Optional[str]:
+    """Why a customer universe does not apply to this venture, or None when it does.
+
+    Step 5 returns immediately unless the business model mentions b2b or saas, because a
+    direct-to-consumer venture has no companies to enumerate. MEASURED: 14 of 19 corpus
+    reports have no customer_universe and ALL 14 are non-B2B. Every downstream
+    segment_ranking absence on those reports is by design, and reporting it as "declared
+    input absent" is true but reads to a founder as something that broke.
+    """
+    model = (profile.get("business_model") or "").lower()
+    if "b2b" in model or "saas" in model:
+        return None
+    shown = (profile.get("business_model") or "not stated").strip()
+    return (f"segment prioritization ranks the B2B customer universe, and this venture's "
+            f"business model is {shown}; there are no customer companies to rank")
+
+
+def segment_ranking_section(profile: dict, opps: list) -> Section:
+    """Steps 7-8, declared rather than called. The second section on the assembler.
+
+    THE SILENT EXIT THIS REPLACES. The step opened with a bare `return` when
+    customer_universe carried no segments, and MEASURED across the corpus that is 14 of 19
+    reports: segment_ranking absent, with no reason recorded on a single one. The mapping
+    is exact -- customer_universe present, .segments present and segment_ranking present
+    agree on all 19 -- so declaring it as the one required input reproduces the gate
+    precisely and turns 14 silent absences into 14 that state their cause. That disclosure
+    is not new code here; it falls out of `apply` routing the assembler's own skip reason.
+
+    `consumer_research` and `operator_weights` are optional for reasons the body already
+    encodes: the objection cross-check is wrapped in its own try/except, and weights fall
+    back to DEFAULT_WEIGHTS. Declaring them as required would skip the section whenever an
+    enrichment was missing, which is exactly the regression the `optional` tier exists for.
+    """
+    def produce(ctx: dict) -> dict:
+        from .steps.segments import rank_customer_segments
+        return rank_customer_segments(ctx, profile, opps)
+
+    return Section(
+        key="segment_ranking",
+        produce=produce,
+        consumes=("customer_universe",),
+        optional=("consumer_research", "operator_weights"),
+        label="Segment ranking",
+        origin="llm",
+        inapplicable=lambda: _needs_a_company_universe(profile),
+    )

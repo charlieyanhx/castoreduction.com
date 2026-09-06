@@ -57,6 +57,7 @@ OK = "ok"                 # produced, and its own invariants passed
 FLAGGED = "flagged"       # produced, but at least one of its invariants failed
 FAILED = "failed"         # the producer raised; there is no section
 SKIPPED = "skipped"       # an input it declared never arrived
+NOT_APPLICABLE = "not_applicable"   # this report was never going to have this section
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,14 @@ class Section:
 
     `invariants` are section-local only -- detectors that can answer from this section
     alone. Cross-section coherence stays in the whole-report pass, which runs after.
+
+    NOT EVERY ABSENCE IS A FAILURE, and conflating the two is its own defect. Step 5 builds
+    a B2B customer universe and returns immediately for a direct-to-consumer venture --
+    correctly. MEASURED: 14 of 19 corpus reports have no customer_universe and all 14 are
+    non-B2B, so all 14 of the downstream segment_ranking absences are by design. Reporting
+    those as "declared input absent" is true and misleading: a founder reads it as
+    something that broke. `inapplicable` is the third answer, alongside "produced" and
+    "could not produce".
     """
     key: str                                     # result key this writes
     produce: Callable[[dict], Any]               # (bounded context) -> payload
@@ -86,6 +95,10 @@ class Section:
     label: str = ""                              # human name, for the trust panel
     origin: str = ""                             # computed / llm / fetched / simulated
     invariants: tuple = ()                       # (name, fn(payload) -> str|None)
+    #: Why this section does not apply to THIS report, or None when it does.
+    #: Bound at declaration time, so it closes over the run-scoped facts (business model,
+    #: effort level) that decide applicability and are not themselves sections.
+    inapplicable: Optional[Callable[[], Optional[str]]] = None
 
     def context(self, result: dict) -> dict:
         """Exactly the declared inputs, in sorted key order, as a DEEP COPY.
@@ -182,8 +195,14 @@ def assemble(sections: Iterable[Section], result: dict,
     """
     out: list[SectionResult] = []
     for section in plan(sections):
-        missing = section.missing(result)
-        if missing:
+        # APPLICABILITY IS ASKED FIRST. A section that was never going to exist for this
+        # report has no missing inputs to report and no producer to run; checking `missing`
+        # ahead of this would answer a question nobody asked, in words that read like a
+        # malfunction.
+        why_not = _inapplicable(section)
+        if why_not:
+            sr = SectionResult(section.key, NOT_APPLICABLE, why_not)
+        elif (missing := section.missing(result)):
             sr = SectionResult(section.key, SKIPPED,
                                f"declared input(s) absent or empty: {', '.join(missing)}")
         else:
@@ -219,6 +238,21 @@ def assemble(sections: Iterable[Section], result: dict,
     return out
 
 
+def _inapplicable(section: Section) -> str:
+    """The section's own reason for not applying here, or "".
+
+    A predicate that raises must not decide the report: an exception here means the
+    applicability rule is broken, and the safe reading of a broken rule is that the
+    section DOES apply, so the producer runs and any real problem surfaces as itself.
+    """
+    if section.inapplicable is None:
+        return ""
+    try:
+        return section.inapplicable() or ""
+    except Exception:                                        # noqa: BLE001
+        return ""
+
+
 def _run_check(name: str, check: Callable[[Any], Optional[str]], payload: Any) -> str:
     """One invariant against one payload. A detector that raises is reported as a finding
     rather than taking the section down -- the same per-detector isolation the corpus
@@ -238,7 +272,7 @@ def summarise(results: Iterable[SectionResult]) -> dict:
     2 could not be checked" tells a reader something a boolean cannot.
     """
     rs = list(results)
-    counts = {OK: 0, FLAGGED: 0, FAILED: 0, SKIPPED: 0}
+    counts = {OK: 0, FLAGGED: 0, FAILED: 0, SKIPPED: 0, NOT_APPLICABLE: 0}
     for r in rs:
         counts[r.status] = counts.get(r.status, 0) + 1
     return {**counts, "total": len(rs), "sections": [r.as_dict() for r in rs]}
