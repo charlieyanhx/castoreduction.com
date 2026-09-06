@@ -181,21 +181,25 @@ class TestPipelineSequencing(unittest.TestCase):
         """Pre-evidence fabricated diffs were its search hints — garbage hints. It
         now runs without them rather than moving the whole universe later.
 
-        Anchor updated for the extraction: run_plan now calls
-        run_customer_universe_step (orchestrator/steps/customer_universe.py), and the
-        step's signature is the stronger guarantee — it does not even accept
-        differentiators, so it cannot consume them. Both are pinned: the call still
-        precedes the differentiators block, and the signature stays diff-free."""
-        import inspect
+        Anchor updated again: the universe is now a DECLARED section, assembled through
+        orchestrator/sections.py rather than called by name, so the old
+        "run_customer_universe_step" substring is gone from run_plan.
 
+        The declaration is a stronger guarantee than the signature check it replaces. A
+        parameter list only proves differentiators are not passed in; `consumes` is the
+        complete list of what the producer can see, and the assembler hands it nothing
+        else. customer_universe declares NO inputs at all, so it cannot read
+        differentiators even by reaching into the result."""
         import plan
-        from orchestrator.steps.customer_universe import run_customer_universe_step
+        from orchestrator.sections import customer_universe_section
         src = plan.run_path_source()
-        self.assertLess(src.index("run_customer_universe_step"),
+        self.assertLess(src.index("customer_universe_section"),
                         src.index("run_differentiators_step"),
                         "the universe moved after differentiators again")
-        params = inspect.signature(run_customer_universe_step).parameters
-        self.assertNotIn("differentiators", params)
+        sec = customer_universe_section({}, [])
+        self.assertNotIn("differentiators", sec.consumes + sec.optional)
+        self.assertEqual(sec.consumes + sec.optional, (),
+                         "the universe started declaring inputs; it reads none by design")
 
 
 class TestGateD30(unittest.TestCase):

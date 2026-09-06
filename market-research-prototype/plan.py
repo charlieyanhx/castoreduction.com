@@ -61,7 +61,6 @@ from orchestrator.steps import (record_dropped_output, run_with_timeout as _run_
 from orchestrator.steps.clustering import run_clustering_step
 from orchestrator.steps.competitors import run_discover_step
 from orchestrator.steps.competitor_refinement import run_competitor_refinement_step
-from orchestrator.steps.customer_universe import run_customer_universe_step
 from orchestrator.steps.differentiators import run_differentiators_step
 from orchestrator.steps.economics_step import ensure_nonpriced_economics, run_economics_step
 from orchestrator.steps.evidence import run_evidence_step
@@ -74,7 +73,7 @@ from orchestrator.steps.max_diff import run_max_diff_step
 from orchestrator.steps.personas import run_personas_step
 from orchestrator.steps.pricing_sim import run_pricing_sim_step
 from orchestrator.steps.profile import run_profile_step
-from orchestrator.sections import (apply as apply_sections,
+from orchestrator.sections import (apply as apply_sections, customer_universe_section,
                                    segment_ranking_section, viability_section)
 
 
@@ -2380,7 +2379,10 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     run_clustering_step(result, profile, opps, checkpoint=checkpoint)
 
     # --- Step 5: Customer universe (B2B only) --- (→ orchestrator/steps/customer_universe.py)
-    run_customer_universe_step(result, profile, opps, checkpoint=checkpoint)
+    # (→ orchestrator/sections.py, declared not called) Third on the assembler, and the
+    # root of the chain: segment_ranking's skip reason points here, so this section had to
+    # stop being silent for that pointer to lead anywhere.
+    apply_sections([customer_universe_section(profile, opps)], result, checkpoint=checkpoint)
 
     # --- PARALLEL EVIDENCE PHASE --- (→ orchestrator/steps/evidence.py)
     # Taste decodes, channels, prices, Reddit/HN/multi-source voice: one fan-out,

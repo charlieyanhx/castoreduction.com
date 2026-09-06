@@ -23,7 +23,8 @@ import unittest
 from unittest.mock import patch
 
 from core.section import FAILED, OK, SKIPPED
-from orchestrator.sections import (apply, each_dimension_states_one_score,
+from orchestrator.sections import (apply, customer_universe_section,
+                                   each_dimension_states_one_score,
                                    score_reconciles_with_its_parts,
                                    segment_ranking_section, viability_section)
 
@@ -405,7 +406,7 @@ class TestAByDesignAbsenceDoesNotLookLikeABreakage(unittest.TestCase):
         self.assertEqual(sr.status, "not_applicable")
         html = self._render(res)
         self.assertIn("Not applicable:", html)
-        self.assertIn("no customer companies to rank", html)
+        self.assertIn("ranks the B2B customer universe", html)
         self.assertNotIn("Not produced:", html,
                          "a by-design absence was filed with the genuine failures")
 
@@ -442,3 +443,174 @@ class TestAByDesignAbsenceDoesNotLookLikeABreakage(unittest.TestCase):
             elif sr.status == OK:
                 produced += 1
         self.assertEqual((na, produced), (14, 5))
+
+
+def _cu_stub(ret):
+    return patch("customer_universe.build_customer_universe", return_value=dict(ret))
+
+
+class TestTheThirdSectionAndTheChainItCloses(unittest.TestCase):
+    """customer_universe: the section with no inputs, and the end of a pointer.
+
+    It reads NOTHING from the result -- profile and the competitor roster are run-scoped
+    arguments -- so `consumes` is empty and applicability is the only gate. There is no
+    missing input here to mistake for a failure, which makes it the clearest statement of
+    what `inapplicable` is for.
+
+    It also terminates a chain. segment_ranking's skip reason says "declared input absent:
+    customer_universe", which pointed a reader at a section that explained nothing about
+    itself. Both now answer with the same fact about the venture, so the explanation stops
+    forwarding.
+    """
+
+    def _render(self, res):
+        from report.render_html import render_report_html
+        return render_report_html(res)
+
+    def test_the_literal_and_declared_paths_agree_on_every_universe_shape(self):
+        """Including count == 0, which the corpus never produces and which carries the
+        step's most load-bearing behaviour."""
+        from orchestrator.steps.customer_universe import run_customer_universe_step
+
+        prof = {"business_model": "B2B SaaS"}
+        for shape in ({"count": 12, "companies": [1]},
+                      {"count": 0, "companies": []},
+                      {"error": "builder timed out"}):
+            outs = []
+            for declared in (False, True):
+                res, cps = {"_steps_completed": []}, []
+                with _cu_stub(shape):
+                    if declared:
+                        apply([customer_universe_section(prof, [])], res,
+                              checkpoint=lambda: cps.append(1))
+                    else:
+                        run_customer_universe_step(res, prof, [],
+                                                   checkpoint=lambda: cps.append(1))
+                outs.append((json.dumps(res.get("customer_universe"), sort_keys=True),
+                             tuple(res["_steps_completed"]), len(cps)))
+            self.assertEqual(outs[0], outs[1], f"paths diverged on {list(shape)[0]}")
+
+    def test_an_empty_universe_lands_but_is_not_credited(self):
+        """The rule a resume depends on: an empty universe is an honest finding and belongs
+        in the result, but an unrecorded step gets recomputed rather than skipped past."""
+        res = {"_steps_completed": []}
+        with _cu_stub({"count": 0, "companies": []}):
+            [sr] = apply([customer_universe_section({"business_model": "B2B SaaS"}, [])], res)
+        self.assertEqual(sr.status, OK)
+        self.assertEqual(res["customer_universe"]["count"], 0, "the finding was discarded")
+        self.assertNotIn("customer_universe", res["_steps_completed"])
+
+    def test_a_populated_universe_is_credited(self):
+        res = {"_steps_completed": []}
+        with _cu_stub({"count": 12, "companies": [1]}):
+            apply([customer_universe_section({"business_model": "B2B SaaS"}, [])], res)
+        self.assertIn("customer_universe", res["_steps_completed"])
+
+    def test_the_count_rule_does_not_reach_sections_without_a_count(self):
+        """viability and segment_ranking payloads carry no `count` (checked across all 19
+        corpus reports), so generalising the credit rule must leave them exactly as they
+        were rather than silently withholding their step."""
+        res = {"customer_universe": {"segments": ["a"]}, "_steps_completed": []}
+        with _seg_stub({"ranked": [1]}):
+            apply([segment_ranking_section(_B2B, [])], res)
+        self.assertIn("segment_ranking", res["_steps_completed"])
+
+    def test_a_dtc_venture_gets_both_sections_explained_in_their_own_words(self):
+        """A shared sentence would have been shorter and wrong. The first version of this
+        reason shipped segment prioritization's explanation under "Customer universe"."""
+        prof = {"summary": "x", "business_model": "direct-to-consumer coffee"}
+        res = {"profile": prof, "_steps_completed": []}
+        for sec in (customer_universe_section(prof, []), segment_ranking_section(prof, [])):
+            [sr] = apply([sec], res)
+            self.assertEqual(sr.status, "not_applicable")
+        html = self._render(res)
+        self.assertIn("enumerates the real companies", html)
+        self.assertIn("ranks the B2B customer universe", html)
+        self.assertNotIn("Not produced:", html)
+
+    def test_the_chain_terminates_rather_than_forwarding(self):
+        """segment_ranking must not point at customer_universe for a DTC venture: both
+        answer with the same fact about the business model."""
+        prof = {"business_model": "direct-to-consumer coffee"}
+        res = {"profile": prof, "_steps_completed": []}
+        for sec in (customer_universe_section(prof, []), segment_ranking_section(prof, [])):
+            apply([sec], res)
+        self.assertEqual(res.get("_dropped_outputs"), None,
+                         "a by-design absence was filed as a failure")
+        for reason in (res["_inapplicable_sections"]).values():
+            self.assertIn("business model is direct-to-consumer coffee", reason)
+
+
+class TestTheReaderIsNotShownAStackTraceWord(unittest.TestCase):
+    def test_the_page_drops_the_exception_class_but_the_record_keeps_it(self):
+        """assemble records "{ExceptionName}: {message}", which is right for the log and
+        for the gates that read _dropped_outputs, and wrong for a page a buyer reads."""
+        from report.render_html import render_report_html
+
+        res = {"customer_universe": {"count": 1, "segments": []}, "_steps_completed": []}
+        [sr] = apply([segment_ranking_section(_B2B, [])], res)
+        self.assertEqual(sr.status, FAILED)
+        self.assertTrue(res["_dropped_outputs"]["segment_ranking"].startswith("ValueError:"),
+                        "the stored reason must keep the class name for the gates")
+        html = render_report_html(dict(res, profile={"summary": "x"}))
+        self.assertIn("carries no segments to rank", html)
+        self.assertNotIn("ValueError", html, "a founder was shown an exception class")
+
+
+class TestRun14CannotHappenToAMigratedSection(unittest.TestCase):
+    """The bug the assembler was built for, demonstrated on a section that actually uses it.
+
+    run14: sizing and the 4Ps ran concurrently as "the pipeline's most expensive pair",
+    _four_ps_task read result["market_sizing"] mid-join and got {}, and the volume ladder's
+    SOM rung never once reached a prompt. The report narrated numbers that did not exist.
+    It was fixed by hand-sequencing two calls and writing a paragraph about why -- which
+    holds until someone reorders the pipeline for a good reason and has not read the
+    paragraph.
+
+    This is that scenario replayed against viability, down both paths.
+    """
+
+    def setUp(self):
+        self.reports = _reports()
+        if not self.reports:
+            self.skipTest("no corpus available")
+        self.r = self.reports[0]
+
+    def _without_sizing(self):
+        r = json.loads(json.dumps(self.r))
+        r.pop("viability", None)
+        r.pop("market_sizing", None)
+        return r
+
+    def test_the_literal_call_still_scores_a_report_with_no_market_size(self):
+        """Kept as the baseline, not as an accusation: this is what every unmigrated step
+        in the pipeline still does. A missing input arrives at the prompt as None and the
+        section narrates around it."""
+        from orchestrator.steps.viability import run_viability_step
+
+        res, cap = self._without_sizing(), {}
+        with _stub(cap):
+            run_viability_step(res, self.r.get("profile") or {},
+                               four_ps=self.r.get("four_ps") or {},
+                               top_audience=self.r.get("audience") or {}, biz_kind="saas")
+        self.assertIn("viability", res, "baseline changed")
+        self.assertIsNone(cap.get("market_sizing"),
+                          "the absent input reached the scorer as None")
+
+    def test_the_declared_section_refuses_and_names_the_missing_input(self):
+        res = self._without_sizing()
+        with _stub({}):
+            [sr] = apply([viability_section(res.get("profile") or {}, biz_kind="saas")], res)
+        self.assertEqual(sr.status, SKIPPED)
+        self.assertIn("market_sizing", sr.reason)
+        self.assertNotIn("viability", res, "a section was narrated from a missing input")
+
+    def test_the_refusal_reaches_the_page_rather_than_a_log(self):
+        """A reorder is now a visible line on the report instead of a plausible score. That
+        is the whole trade: the failure mode moved from silent-and-wrong to loud-and-named."""
+        from report.render_html import render_report_html
+
+        res = self._without_sizing()
+        with _stub({}):
+            apply([viability_section(res.get("profile") or {}, biz_kind="saas")], res)
+        self.assertIn("market_sizing", render_report_html(res))

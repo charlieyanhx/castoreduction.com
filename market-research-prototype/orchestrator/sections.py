@@ -38,6 +38,30 @@ log = get("plan.sections")
 _ROUNDING_SLACK = 1.0
 
 
+def _has_data(payload: Any) -> bool:
+    """Is this payload a real section, or an honest empty?
+
+    THIS IS Evidence.__bool__, APPLIED ONE LAYER UP. The frame already defines when a
+    result has data: `count > 0 and error is None`, with `skeleton` and `error` kept apart
+    so "we could not look" never reads as "we looked and found nothing". Section payloads
+    want the same rule.
+
+    Most sections have no `count`, so for them this is exactly the "no error key" test that
+    viability and segment_ranking already used. customer_universe DOES carry one, and its
+    step deliberately let an empty universe land in the result while leaving the step
+    unrecorded -- so a resume recomputes it instead of skipping past a hole. Reading the
+    count is how that survives the migration without a per-section exception, which is what
+    a lookup table of special cases would have been.
+    """
+    if not isinstance(payload, dict):
+        return payload is not None
+    if payload.get("error"):
+        return False
+    if "count" in payload:
+        return (payload.get("count") or 0) > 0
+    return True
+
+
 def _composition(payload: Any) -> Optional[list]:
     """The per-dimension breakdown, or None when there is nothing to check.
 
@@ -156,15 +180,17 @@ def apply(sections, result: dict, *, checkpoint: Optional[Callable[[], None]] = 
         if sr.status == FLAGGED:
             log.warning("[plan] section %s produced but flagged: %s",
                         sr.key, "; ".join(sr.findings)[:300])
-        if isinstance(payload, dict) and payload.get("error"):
-            # Produced, but the producer reported its own failure. Recorded, not promoted:
-            # both pre-migration steps wrote the errored payload and withheld step_done, and
-            # a migration that quietly started crediting it would be a behaviour change.
-            # The checkpoint still fires -- it only persists the partial result for the
-            # progress UI, and segment_ranking already called it on this path, so
+        if not _has_data(payload):
+            # Produced, but not something to credit as a completed step. Recorded, not
+            # promoted: all three pre-migration steps wrote the payload and withheld
+            # step_done, and a migration that quietly started crediting it would be a
+            # behaviour change -- on the cover page's "N steps completed" line, and on
+            # resume, which recomputes a step that was never recorded rather than skipping
+            # past a hole. The checkpoint still fires: it only persists partial state for
+            # the progress UI, and segment_ranking already called it on this path, so
             # withholding it here would be the behaviour change instead.
-            log.warning("[plan] section %s returned an error: %s",
-                        sr.key, str(payload.get("error"))[:160])
+            log.warning("[plan] section %s produced nothing to credit: %s", sr.key,
+                        str(payload)[:160])
         else:
             step_done(result, sr.key)
         if checkpoint:
@@ -173,21 +199,30 @@ def apply(sections, result: dict, *, checkpoint: Optional[Callable[[], None]] = 
     return results
 
 
-def _needs_a_company_universe(profile: dict) -> Optional[str]:
-    """Why a customer universe does not apply to this venture, or None when it does.
+def _is_b2b(profile: dict) -> bool:
+    """Does this venture have customer COMPANIES to enumerate?
 
-    Step 5 returns immediately unless the business model mentions b2b or saas, because a
-    direct-to-consumer venture has no companies to enumerate. MEASURED: 14 of 19 corpus
-    reports have no customer_universe and ALL 14 are non-B2B. Every downstream
-    segment_ranking absence on those reports is by design, and reporting it as "declared
-    input absent" is true but reads to a founder as something that broke.
+    Step 5 has always tested the business model string for b2b or saas, and returned
+    immediately otherwise, because a direct-to-consumer venture has no company universe to
+    build. MEASURED: 14 of 19 corpus reports have no customer_universe and ALL 14 are
+    non-B2B.
     """
     model = (profile.get("business_model") or "").lower()
-    if "b2b" in model or "saas" in model:
+    return "b2b" in model or "saas" in model
+
+
+def _not_b2b_because(profile: dict, what_it_needs: str) -> Optional[str]:
+    """Why a B2B-only section does not apply here, in that section's own words.
+
+    Each section says what IT was going to do and why this venture is not the audience for
+    it. A shared sentence would have been shorter and wrong: the reason under "Customer
+    universe" must not read as an explanation of segment prioritization, which is exactly
+    the mistake this function's first version shipped.
+    """
+    if _is_b2b(profile):
         return None
     shown = (profile.get("business_model") or "not stated").strip()
-    return (f"segment prioritization ranks the B2B customer universe, and this venture's "
-            f"business model is {shown}; there are no customer companies to rank")
+    return f"{what_it_needs}, and this venture's business model is {shown}"
 
 
 def segment_ranking_section(profile: dict, opps: list) -> Section:
@@ -217,5 +252,41 @@ def segment_ranking_section(profile: dict, opps: list) -> Section:
         optional=("consumer_research", "operator_weights"),
         label="Segment ranking",
         origin="llm",
-        inapplicable=lambda: _needs_a_company_universe(profile),
+        inapplicable=lambda: _not_b2b_because(
+            profile, "segment prioritization ranks the B2B customer universe into "
+                     "buyer segments"),
+    )
+
+
+def customer_universe_section(profile: dict, opps: list) -> Section:
+    """Step 5, declared rather than called. The third section, and the root of a chain.
+
+    THE SECTION WITH NO INPUTS. It reads nothing from the result: profile and the
+    competitor roster are run-scoped arguments, so `consumes` is empty and applicability is
+    the ONLY gate. That makes it the cleanest statement of what `inapplicable` is for --
+    there is no missing input here to mistake for a failure, only a venture this section
+    was never about.
+
+    IT CLOSES THE CHAIN. segment_ranking now reports "declared input absent:
+    customer_universe" when it is skipped, which pointed the reader at a section that
+    explained nothing about itself. Both now answer with the same fact -- this venture is
+    not B2B -- so the explanation terminates instead of forwarding.
+
+    The count-gated credit stays: an empty universe is an honest finding and lands in the
+    result, but leaves the step unrecorded so a resume recomputes it rather than skipping
+    past a hole. `_has_data` carries that, which is why it reads `count` instead of the
+    bare error check the other two sections needed.
+    """
+    def produce(ctx: dict) -> dict:
+        from .steps.customer_universe import build_universe
+        return build_universe(ctx, profile, opps)
+
+    return Section(
+        key="customer_universe",
+        produce=produce,
+        label="Customer universe",
+        origin="fetched",
+        inapplicable=lambda: _not_b2b_because(
+            profile, "this section enumerates the real companies that could buy a B2B "
+                     "product"),
     )

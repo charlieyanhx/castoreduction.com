@@ -21,6 +21,8 @@ detectors can run at the moment they matter.
 """
 from __future__ import annotations
 
+import re
+
 import logging
 from datetime import datetime
 
@@ -190,7 +192,13 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
     _na = [{"label": _sec_label(k), "reason": v}
            for k, v in sorted((r.get("_inapplicable_sections") or {}).items())]
 
-    _dropped = [{"label": _sec_label(k), "reason": v}
+    # A FOUNDER MUST NOT BE SHOWN "ValueError:". The assembler records a failed section as
+    # "{ExceptionName}: {message}", which is right for the log and for the gates that read
+    # _dropped_outputs, and wrong for a page a buyer reads. The stored reason keeps the
+    # class name; only the rendered one drops it.
+    _exc_prefix = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*"
+                             r"(Error|Exception|Interrupt|Timeout|Exit)\s*:\s*")
+    _dropped = [{"label": _sec_label(k), "reason": _exc_prefix.sub("", str(v))}
                 for k, v in sorted((r.get("_dropped_outputs") or {}).items())]
 
     html = tpl.render(
