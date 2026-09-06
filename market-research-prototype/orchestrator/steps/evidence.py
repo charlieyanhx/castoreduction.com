@@ -307,6 +307,29 @@ def run_evidence_step(result: dict, profile: dict, opps: list,
         result["audience"] = top_audience
         result["audiences"] = taste_results  # full set for transparency
         step_done(result, "audience")
+    else:
+        # THE ABSENCE HAS TO STATE ITSELF. MEASURED over the 19-report corpus: `audiences`
+        # was absent on 13 and the run recorded no reason on any of them, so the reader met
+        # a gap indistinguishable from a section that was never meant to exist. The
+        # information was already here -- how many brands were attempted, how many came
+        # back undecodable -- it just had no `else` to write it down. D54 checks that an
+        # absent section carries a reason; this is the branch that gives it one.
+        attempted = len(taste_futs)
+        # THE FIRST RECORDER WINS. The domainless-roster branch above already names the
+        # root cause ("no competitor carries a domain"), and it runs before the decodes are
+        # even submitted. Overwriting it here with "nothing decoded" would replace a cause
+        # with its symptom -- caught by test_a_domainless_roster_records_the_four_section_drop
+        # the moment this branch was added without the guard.
+        if "audiences" in (result.get("_dropped_outputs") or {}):
+            why = ""
+        elif cannot_decode_results:
+            why = (f"no consumer signal exists for the {len(cannot_decode_results)} brand(s) "
+                   f"queried; a decode that returns nothing is not a decode that failed")
+        elif attempted:
+            why = f"all {attempted} taste decode(s) errored or timed out"
+        else:
+            why = "no competitor brand was available to decode an audience from"
+        record_dropped_output(result, "audiences", why)   # a falsy reason is a no-op
     # Iter 40 (#3c): surface the cannot_decode brands so the report can show
     # "we tried but no consumer signal exists for these enterprise B2B brands"
     if cannot_decode_results:

@@ -79,7 +79,7 @@ def run_economics_step(result: dict, profile: dict, *, psm_result: dict, biz_kin
         if (result.get("discover") or {}).get("geo_sourced"):
             record_dropped_output(
                 result, "pricing_benchmark",
-                "scraped price benchmarks are skipped for geo-sourced local ventures — "
+                "scraped price benchmarks are skipped for geo-sourced local ventures: "
                 "venue websites rarely publish a clean per-unit price, and D13 blocks any "
                 "report that ships one (measured: a $21 'per drink' row scraped from a "
                 "cafe page)")

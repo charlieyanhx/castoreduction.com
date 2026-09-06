@@ -324,7 +324,14 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
     {% endif %}
     <p><strong>Generated:</strong> {{ generated_date }}</p>
     <p><strong>Pipeline:</strong> {{ steps_completed|length }} steps completed ({{ ', '.join(steps_completed) }})</p>
-    {% if degraded_steps %}<p style="color:#b45309"><strong>Degraded:</strong> {{ degraded_steps|join(', ') }} produced a fallback rather than a measurement — figures from these steps are not evidence.</p>{% endif %}
+    {% if degraded_steps %}<p style="color:#b45309"><strong>Degraded:</strong> {{ degraded_steps|join(', ') }} produced a fallback rather than a measurement. Figures from these steps are not evidence.</p>{% endif %}
+    {# An absent section states why it is absent. The run recorded the reason in
+       _dropped_outputs; before this, the page showed a gap instead, which reads
+       identically to a section that was never part of the report. #}
+    {% if dropped_sections %}
+    <p style="color:#b45309"><strong>Not produced:</strong>
+      {% for d in dropped_sections %}{{ d.label }} ({{ d.reason }}){% if not loop.last %}; {% endif %}{% endfor %}</p>
+    {% endif %}
     {% if refine_audit %}
     <p><strong>Quality loop:</strong>
       {% if refine_audit.passed %}<span style="color:#047857">✓ passed evaluator contract</span>{% else %}<span style="color:#b45309">{{ refine_audit.weak_dims|join(', ') }} below contract</span>{% endif %}
@@ -2590,6 +2597,23 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
   <div class="rf-msg" id="rfMsg2"></div>
 </section>
 
+{# ANOTHER PASS, ON A REPORT THAT IS FINISHED.
+   The section above is the workspace and applyMode puts it away once the report settles,
+   which left a finished report with no route to a further regeneration at all. The $5
+   rerun pack was priced in Stripe, honoured by iteration.limits(), and reachable from
+   nowhere in the product: money we could take and the reader could not spend. This is the
+   settled counterpart — one section, showing whichever of the two states is true. #}
+<section class="rf-sec no-print" id="rfAgainSec" hidden style="padding-bottom:80px">
+  <h2>Another pass at this report <span class="rf-used" id="rfRerunsLeft"></span></h2>
+  <div class="lede" id="rfAgainLede"></div>
+  <div class="rf-acts">
+    <button class="rf-btn" id="rfBuyRerun">Buy another regeneration</button>
+    <button class="rf-btn go" id="rfReviseAgain" hidden>Regenerate with my notes</button>
+  </div>
+  <div id="rfConfirm2"></div>
+  <div class="rf-msg" id="rfMsg3"></div>
+</section>
+
 {# THE RECEIPT HAS TO OUTLIVE THE WORKSPACE. rfSummary used to sit inside rfDoneSec, and
    settled mode hides that whole section, so the summary a successful finalize draws would
    have been hidden by the same click that produced it. #}
@@ -2608,6 +2632,7 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
   // the pack sizes. Empty until the first GET /credits answers, which is why every reader
   // of these has a no-value branch.
   let LIMITS = {}, PRICES = {}, PACKS = {};
+  let RERUNS_LEFT = 1;   // replaced by GET /credits on every load
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g,
     (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
@@ -2839,8 +2864,34 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
     return {openQ: openQ, openA: openA};
   }
 
+  /* The settled counterpart of the actions block: buy another pass, or spend the one you
+     have. Shown only once the report has settled, because before that the workspace above
+     is where regeneration lives. */
+  function paintAgain(settled) {
+    const sec = $("rfAgainSec");
+    if (!sec) return;
+    sec.hidden = !settled;
+    if (!settled) return;
+    const left = rerunsLeft();
+    const price = PRICES.rerun;
+    $("rfRerunsLeft").textContent = left > 0
+      ? left + " available" : "none left";
+    $("rfBuyRerun").hidden = left > 0;
+    $("rfReviseAgain").hidden = left <= 0;
+    $("rfBuyRerun").textContent = (typeof price === "number")
+      ? "Buy another regeneration — $" + (price % 1 === 0 ? price : price.toFixed(2))
+      : "Buy another regeneration";
+    $("rfAgainLede").textContent = left > 0
+      ? "You have a regeneration in hand. It rebuilds the whole report with your marks and "
+        + "questions folded into the brief, and takes about six minutes."
+      : "This report has used the regeneration it came with. Another one rebuilds it from "
+        + "scratch with everything you have marked and asked since, and takes about six "
+        + "minutes. Your marks and answers stay on this report either way.";
+  }
+
   function render() {
     const settled = applyMode();
+    paintAgain(settled);
     const nA = (st.annotations || []).length, nQ = (st.questions || []).length;
     $("rfBuyMarks").textContent = buyLabel("marks", "marks");
     $("rfBuyQs").textContent = buyLabel("questions", "questions");
@@ -2966,6 +3017,7 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
         // fired, and the question slots disappeared entirely because the loop counts to
         // MAX_Q. Fall back to the declared numbers instead of to nothing.
         LIMITS = c.limits || {};
+        if (typeof c.reruns_left === "number") RERUNS_LEFT = c.reruns_left;
         if (typeof LIMITS.questions === "number") MAX_Q = LIMITS.questions;
         if (typeof LIMITS.marks === "number") MAX_A = LIMITS.marks;
         // The amounts and the pack sizes are the server's to state. See buyLabel.
@@ -3343,8 +3395,21 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
   /* A REPORT GETS ONE REGENERATION, and the button has to know that before it is pressed.
      Pressing a live, inviting button and being told the cycle was already spent reads as
      broken software; the refusal was correct and the presentation was not. */
+  /* How many regenerations this report has left. `revised_to` records that one happened;
+     it is not the budget. Reading it as the budget meant a reader who BOUGHT a rerun still
+     met a disabled "Revision already used" button, so the pack took their $5 and changed
+     nothing they could see. iteration.limits() is the entitlement of record. */
+  function rerunsLeft() {
+    // The SERVER's number, not a second implementation of the rule. Computing it here from
+    // limits minus reruns_used disagreed with the endpoint on a regenerated report — the
+    // page offered a regeneration that POST /revise then refused. See
+    // iteration.reruns_left. RERUNS_LEFT is set by load() from GET /credits; the fallback
+    // is the pre-load default, not a rule.
+    return (typeof RERUNS_LEFT === "number") ? RERUNS_LEFT : 1;
+  }
+
   function paintRevise() {
-    const spent = st && (st.status === "revised" || st.revised_to);
+    const spent = rerunsLeft() <= 0;
     const btn = $("rfRevise");
     if (!spent) return;
     btn.disabled = true;
@@ -3359,18 +3424,26 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
     }
   }
 
-  $("rfRevise").onclick = () => {
+  /* ONE CONFIRM FLOW, TWO BUTTONS. The settled report's "regenerate again" offers exactly
+     the same decision as the draft's, so it asks the same question in the same words
+     rather than growing a second, drifting copy of it. */
+  function openReviseConfirm(boxId) {
     if (notReady()) return;      // st is read two lines down; see the mouseup guard
-    const box = $("rfConfirm");
+    const box = $(boxId);
     /* NO TOGGLE. This used to close the panel on a second press, so the commonest thing a
        reader does with a button that seems not to have worked, press it again, undid it.
        The result was a Regenerate button that visibly did nothing. Closing is what "Not
        yet" is for; this always opens. */
     const nA = (st.annotations || []).length, nQ = (st.questions || []).length;
+    // A regeneration is "bought" when the budget is wider than the one that ships free.
+    const bought = ((typeof LIMITS.reruns === "number") ? LIMITS.reruns : 1) > 1;
     box.innerHTML = '<div class="rf-confirm">Regenerating rebuilds the whole report with ' +
       'your ' + nA + ' mark' + (nA === 1 ? "" : "s") + ' and ' + nQ + ' question' +
       (nQ === 1 ? "" : "s") + ' folded into the brief. It takes about six minutes and it is ' +
-      'the one included revision.<div class="rf-pop-row"><span class="grow"></span>' +
+      // WHICH ONE THIS IS depends on what they hold. Calling a pack they just paid $5 for
+      // "the one included revision" tells a buyer their purchase was the freebie.
+      (bought ? 'the regeneration you bought.' : 'the one included revision.') +
+      '<div class="rf-pop-row"><span class="grow"></span>' +
       '<button class="rf-btn" data-no>Not yet</button>' +
       '<button class="rf-btn go" data-yes>Regenerate</button></div></div>';
     box.scrollIntoView({behavior: "smooth", block: "center"});
@@ -3397,7 +3470,11 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
         e.target.textContent = "Regenerate";
       }
     };
-  };
+  }
+
+  $("rfRevise").onclick = () => openReviseConfirm("rfConfirm");
+  $("rfReviseAgain").onclick = () => openReviseConfirm("rfConfirm2");
+  $("rfBuyRerun").onclick = buy("rerun", "Another regeneration");
 
   // The checkout return reads the budgets the first load fetched, so it waits for it.
   load().then(afterReturn);

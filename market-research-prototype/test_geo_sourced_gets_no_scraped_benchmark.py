@@ -67,3 +67,39 @@ class TestTheInvariantHoldsUpstream(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestADroppedSectionSaysSoOnThePage(unittest.TestCase):
+    """The reason was recorded, checked by D54, and shown to nobody.
+
+    record_dropped_output writes to result["_dropped_outputs"] and gates/surface.py D54
+    verifies the entry exists, so the run held an explanation for every absent section.
+    The template mentioned that key ZERO times. A reader met a gap identical to one left by
+    a section that was never meant to exist -- the same defect as an unchecked report
+    looking like a passing one, one surface over.
+    """
+
+    def _render(self, result):
+        from report.render_html import render_report_html
+        return render_report_html(result)
+
+    def test_the_reason_reaches_the_reader(self):
+        r: dict = {"profile": {"summary": "x"}}
+        record_dropped_output(r, "price_intel", "no plausible prices scraped")
+        html = self._render(r)
+        self.assertIn("Not produced:", html)
+        self.assertIn("no plausible prices scraped", html,
+                      "the recorded reason never reached the page")
+
+    def test_the_notice_names_the_section_not_the_result_key(self):
+        """SECTION_SOURCES already carries a human label; a reader should not have to know
+        that the pricing table lives under a key called pricing_benchmark."""
+        r: dict = {"profile": {"summary": "x"}}
+        record_dropped_output(r, "market_sizing", "upstream fetch failed")
+        html = self._render(r)
+        notice = html.split("Not produced:")[1][:200]
+        self.assertIn("Market size", notice, "the label from SECTION_SOURCES")
+        self.assertNotIn("market_sizing", notice, "the raw result key leaked")
+
+    def test_a_report_with_no_drops_grows_no_empty_notice(self):
+        self.assertNotIn("Not produced:", self._render({"profile": {"summary": "x"}}))

@@ -261,6 +261,32 @@ class TestEvidencePhaseStep(unittest.TestCase):
         drop = (result.get("_dropped_outputs") or {}).get("audiences", "")
         self.assertIn("no competitor carries a domain", drop)
 
+    def test_every_brand_undecodable_still_says_why_audiences_is_absent(self):
+        """MEASURED: `audiences` was absent on 13 of 19 corpus reports and NOT ONE recorded
+        a reason. The undecodable brands were already collected -- the branch that writes
+        them down simply had no `else`. A reader met a gap identical to one left by a
+        section that was never part of the report."""
+        from orchestrator.steps.evidence import run_evidence_step
+
+        result = {"_steps_completed": []}
+        with _evidence_patches(taste=lambda b, d, **kw: {"cannot_decode": True, "brand": b}):
+            run_evidence_step(result, {"category": "cafe"}, self._opps())
+        self.assertNotIn("audiences", result, "no section should have been produced")
+        drop = (result.get("_dropped_outputs") or {}).get("audiences", "")
+        self.assertIn("no consumer signal", drop)
+        self.assertIn("3", drop, "the reason counts the brands actually queried")
+
+    def test_a_more_specific_reason_recorded_earlier_is_not_overwritten(self):
+        """The domainless branch names the CAUSE and runs first; this branch would only
+        report the symptom. Replacing one with the other is a quiet downgrade."""
+        from orchestrator.steps.evidence import run_evidence_step
+
+        result = {"_steps_completed": []}
+        with _evidence_patches():
+            run_evidence_step(result, {"category": "cafe"}, self._opps(domains=False))
+        self.assertIn("no competitor carries a domain",
+                      result["_dropped_outputs"]["audiences"])
+
     def test_taste_decodes_land_with_the_undecodable_kept_apart(self):
         from orchestrator.steps.evidence import run_evidence_step
 
@@ -371,6 +397,12 @@ class TestPersonasStep(unittest.TestCase):
             run_personas_step(result, {}, [])
         m.assert_not_called()
         self.assertNotIn("personas", result)
+        # NOT SYNTHESISING IS CORRECT; SAYING NOTHING IS NOT. audiences and personas are
+        # present or absent together on all 19 corpus reports, and personas was absent on
+        # 13 with no reason recorded -- one upstream decode failure cost two sections and
+        # the reader was told about neither.
+        self.assertIn("no audience was decoded",
+                      (result.get("_dropped_outputs") or {}).get("personas", ""))
 
     def test_a_failed_synthesis_is_not_persisted(self):
         from orchestrator.steps.personas import run_personas_step
@@ -380,6 +412,10 @@ class TestPersonasStep(unittest.TestCase):
             run_personas_step(result, {}, [{"brand": "B0"}])
         self.assertNotIn("personas", result)
         self.assertNotIn("personas", result["_steps_completed"])
+        # Work paid for, an error returned, the caller moving on: the exact shape
+        # record_dropped_output exists for. Not persisting it was already right; not
+        # mentioning it made a failed section look like one that was never planned.
+        self.assertIn("LLM down", (result.get("_dropped_outputs") or {}).get("personas", ""))
 
 
 class TestDifferentiatorsStep(unittest.TestCase):

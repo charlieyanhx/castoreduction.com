@@ -159,8 +159,22 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
                                      else (_v.get("_skeleton") or _v.get("_skeleton_reason"))):
             _degraded.append(_k)
 
+    # A SECTION THAT WAS DROPPED HAS TO SAY SO ON THE PAGE.
+    # record_dropped_output() writes the reason to result["_dropped_outputs"] and gate D54
+    # checks it is there, so the frame KNEW why a section was absent -- and then rendered
+    # nothing. MEASURED: 7 call sites record a drop, 3 of 19 corpus reports carry one, and
+    # the template mentioned the key zero times. A reader met a gap where the run held an
+    # explanation, which is the same defect as an unchecked report looking like a passing
+    # one: an absence that does not distinguish itself from a thing that was never meant
+    # to exist. Labelled from SECTION_SOURCES so the notice names "Price Intelligence"
+    # rather than a result key.
+    _labels = {s.result_key: s.section for s in SECTION_SOURCES}
+    _dropped = [{"label": _labels.get(k, k.replace("_", " ").title()), "reason": v}
+                for k, v in sorted((r.get("_dropped_outputs") or {}).items())]
+
     html = tpl.render(
         degraded_steps=_degraded,
+        dropped_sections=_dropped,
         iteration=_iter_state,
         annotate=bool(annotate),
         public=bool(public),
