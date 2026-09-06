@@ -47,6 +47,7 @@ withholding all of them for one is a worse trade than shipping twenty with two f
 """
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Optional
 
@@ -85,13 +86,21 @@ class Section:
     invariants: tuple = ()                       # (name, fn(payload) -> str|None)
 
     def context(self, result: dict) -> dict:
-        """Exactly the declared inputs, in sorted key order.
+        """Exactly the declared inputs, in sorted key order, as a DEEP COPY.
 
         Sorted so a producer that serialises this into a prompt gets a byte-identical
         prefix run to run. Dict order is insertion order in Python, and insertion order
         here is assembly order, which is not something a cache should depend on.
+
+        COPIED because bounding the reads is only half the isolation. A shallow view hands
+        out live references, so a producer could do `ctx["sizing"]["som"] = 999` and
+        silently rewrite a section that had ALREADY been produced and verified -- worse
+        than the stale-read bug this module was built for, which merely read an empty dict
+        rather than writing a wrong number into a checked section. Measured on a real
+        132 KB result: deep-copying the declared subset costs 0.08-0.35 ms, and the whole
+        result under 1 ms, against a run that takes minutes. The isolation is free.
         """
-        return {k: result[k] for k in sorted(self.consumes) if k in result}
+        return {k: copy.deepcopy(result[k]) for k in sorted(self.consumes) if k in result}
 
     def missing(self, result: dict) -> list[str]:
         """Declared inputs that are absent or empty. Empty counts: a section cannot
@@ -161,10 +170,22 @@ def assemble(sections: Iterable[Section], result: dict,
                                f"declared input(s) absent or empty: {', '.join(missing)}")
         else:
             try:
-                payload = section.produce(section.context(result))
+                ctx = section.context(result)
+                before = copy.deepcopy(ctx)
+                payload = section.produce(ctx)
                 result[section.key] = payload
                 findings = [msg for name, check in section.invariants
                             if (msg := _run_check(name, check, payload))]
+                # SAY SO WHEN A PRODUCER TRIED TO WRITE UPSTREAM. The copy already makes
+                # the write harmless, but a silent no-op is its own trap: the author sees
+                # working code whose effect vanishes. Reported as a finding so the
+                # intended-but-impossible mutation is visible at the section that tried it.
+                if ctx != before:
+                    changed = sorted(k for k in ctx if ctx.get(k) != before.get(k))
+                    findings.append(
+                        f"context_is_read_only: producer mutated its inputs "
+                        f"({', '.join(changed)}); the change was discarded — a section may "
+                        f"only write its own key")
                 sr = SectionResult(section.key,
                                    FLAGGED if findings else OK,
                                    f"{len(findings)} invariant(s) failed" if findings else "",

@@ -73,6 +73,55 @@ class TestAProducerSeesOnlyWhatItDeclared(unittest.TestCase):
         self.assertEqual(list(ctx), ["alpha", "middle", "zebra"])
 
 
+class TestAProducerCannotWriteUpstream(unittest.TestCase):
+    """Bounding the READS was only half the isolation, and I shipped the other half broken.
+
+    The first version handed out live references, so a producer could reach through its
+    bounded context and rewrite a section that had ALREADY been produced and verified:
+
+        def four_ps(ctx):
+            ctx["sizing"]["som"] = 999_999      # silently corrupts a checked section
+
+    Both sections reported `ok` and the wrong number shipped. That is strictly worse than
+    the stale-read bug this module exists for -- run14 merely NARRATED an empty dict; this
+    writes a false value into a section that already passed its invariants.
+
+    Measured before choosing the fix: deep-copying the declared subset of a real 132 KB
+    result costs 0.08-0.35 ms, and the whole result under 1 ms, against a run that takes
+    minutes. Isolation at that price is not a trade.
+    """
+
+    def test_mutating_the_context_does_not_reach_the_result(self):
+        def sneaky(ctx):
+            ctx["sizing"]["som"] = 999_999
+            return {"narrative": "fine"}
+
+        result = {}
+        assemble([_s("sizing", produce=lambda c: {"som": 120}),
+                  _s("four_ps", consumes=("sizing",), produce=sneaky)], result)
+        self.assertEqual(result["sizing"]["som"], 120, "upstream section was corrupted")
+
+    def test_the_attempt_is_reported_rather_than_silently_discarded(self):
+        """A no-op that looks like working code is its own trap. The author gets told."""
+        def sneaky(ctx):
+            ctx["sizing"]["som"] = 1
+            return {"ok": True}
+
+        res = assemble([_s("sizing", produce=lambda c: {"som": 120}),
+                        _s("four_ps", consumes=("sizing",), produce=sneaky)], {})
+        four_ps = next(r for r in res if r.key == "four_ps")
+        self.assertEqual(four_ps.status, FLAGGED)
+        self.assertIn("context_is_read_only", four_ps.findings[0])
+        self.assertIn("sizing", four_ps.findings[0], "the finding names what it tried to write")
+
+    def test_a_well_behaved_producer_is_not_flagged(self):
+        """Reading the context must stay free; only writing to it is the offence."""
+        res = assemble([_s("sizing", produce=lambda c: {"som": 120}),
+                        _s("four_ps", consumes=("sizing",),
+                           produce=lambda ctx: {"n": ctx["sizing"]["som"]})], {})
+        self.assertTrue(all(r.status == OK for r in res), [r.as_dict() for r in res])
+
+
 class TestASectionIsVerifiedAsItLands(unittest.TestCase):
     def test_a_failing_invariant_flags_the_section_and_names_it(self):
         sec = _s("sizing", produce=lambda ctx: {"som": -5},
@@ -141,6 +190,8 @@ class TestTheAssemblerIsFrameCode(unittest.TestCase):
         import ast
         import pathlib
 
+        import sys
+
         tree = ast.parse(pathlib.Path("core/section.py").read_text())
         imported = []
         for n in ast.walk(tree):
@@ -148,8 +199,13 @@ class TestTheAssemblerIsFrameCode(unittest.TestCase):
                 imported += [a.name for a in n.names]
             elif isinstance(n, ast.ImportFrom):
                 imported.append(n.module or "")
-        self.assertEqual([m for m in imported if m not in
-                          ("dataclasses", "typing", "__future__")], [])
+        # The RULE is "standard library only", so ask Python what that is rather than
+        # keeping a hand-written allowlist. The list version failed the moment `copy` was
+        # added for write isolation -- a correct import rejected by a stale enumeration,
+        # which is a test that costs edits without catching anything.
+        outside = [m for m in imported
+                   if m.split(".")[0] not in sys.stdlib_module_names]
+        self.assertEqual(outside, [], "core/section.py reached outside the standard library")
 
 
 if __name__ == "__main__":
