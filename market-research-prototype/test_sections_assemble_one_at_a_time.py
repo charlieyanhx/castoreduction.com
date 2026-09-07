@@ -22,7 +22,7 @@ from __future__ import annotations
 import unittest
 
 from core.section import (FAILED, FLAGGED, NOT_APPLICABLE, OK, SKIPPED, Section,
-                          assemble, plan, summarise)
+                          assemble, digest, plan, stale_reads, summarise)
 
 
 def _s(key, produce=None, consumes=(), optional=(), invariants=(), inapplicable=None):
@@ -267,6 +267,61 @@ class TestASectionThatNeverAppliedIsNotAFailure(unittest.TestCase):
         s = summarise(assemble([_s("a"), _s("b", inapplicable=lambda: "not B2B"),
                                 _s("c", consumes=("nope",))], {}))
         self.assertEqual((s[OK], s[NOT_APPLICABLE], s[SKIPPED]), (1, 1, 1))
+
+
+class TestConsumesProvesExistenceNotFinality(unittest.TestCase):
+    """The hole in the ordering guarantee, and the thing that closes it.
+
+    `consumes` orders a section after whichever section OWNS the key it reads. It cannot
+    order it after a step that REWRITES a key it does not own -- and that is not
+    hypothetical: run_financials_step rewrites result["economics"] in place, viability
+    consumes economics, and MEASURED across the corpus, 14 of 19 reports would send
+    viability a materially different prompt in the other order. `economics` is present
+    either way, so no declaration could catch it and the section produces happily.
+
+    Fingerprinting what each section actually read turns that into a question answerable
+    after the fact, for every input, rather than for the one somebody remembered to
+    comment.
+    """
+
+    def test_a_section_records_what_it_read(self):
+        [r] = assemble([_s("v", consumes=("economics",))], {"economics": {"margin": 65}})
+        self.assertEqual(list(r.reads), ["economics"])
+
+    def test_an_input_rewritten_afterwards_is_reported(self):
+        result = {"economics": {"margin": 65}}
+        results = assemble([_s("v", consumes=("economics",))], result)
+        result["economics"] = {"margin": 65, "at_som_volume": 1200}   # financials, later
+        [msg] = stale_reads(results, result)
+        self.assertIn("v was assembled from economics", msg)
+        self.assertIn("changed afterwards", msg)
+
+    def test_an_untouched_input_reports_nothing(self):
+        result = {"economics": {"margin": 65}}
+        results = assemble([_s("v", consumes=("economics",))], result)
+        self.assertEqual(stale_reads(results, result), [])
+
+    def test_an_optional_input_is_watched_too(self):
+        """Optional means "may be absent", not "may quietly change under us"."""
+        result = {"a": {"x": 1}, "b": {"y": 1}}
+        results = assemble([_s("v", consumes=("a",), optional=("b",))], result)
+        result["b"] = {"y": 2}
+        self.assertEqual(len(stale_reads(results, result)), 1)
+
+    def test_a_section_writing_its_own_key_is_not_flagged(self):
+        """assemble writes result[key] itself, and the section did not read its own key.
+        Flagging that would fire on every section on every run."""
+        result = {"economics": {"m": 1}}
+        results = assemble([_s("viability", consumes=("economics",))], result)
+        self.assertEqual(stale_reads(results, result), [])
+
+    def test_the_digest_does_not_move_with_key_order(self):
+        """Dict order is insertion order, and insertion order is not a change."""
+        self.assertEqual(digest({"a": 1, "b": 2}), digest({"b": 2, "a": 1}))
+
+    def test_an_unserialisable_value_fingerprints_instead_of_raising(self):
+        """A digest that crashes on an odd payload takes down the section it watches."""
+        self.assertTrue(digest({"f": object()}))
 
 
 class TestTheSummaryIsWhatAReaderSees(unittest.TestCase):

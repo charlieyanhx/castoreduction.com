@@ -26,7 +26,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from core.section import (FAILED, FLAGGED, NOT_APPLICABLE, OK, SKIPPED, Section,
-                          SectionResult, assemble)
+                          SectionResult, assemble, stale_reads)
 from logger import get
 
 from .steps import record_dropped_output, step_done
@@ -289,4 +289,137 @@ def customer_universe_section(profile: dict, opps: list) -> Section:
         inapplicable=lambda: _not_b2b_because(
             profile, "this section enumerates the real companies that could buy a B2B "
                      "product"),
+    )
+
+
+def check_reads_are_still_current(result: dict) -> list[str]:
+    """Ask, once the run is over, whether any section was assembled from stale data.
+
+    RUN THIS LAST. `consumes` guarantees an input exists when a section runs; it cannot
+    guarantee the input is final, because a step may rewrite a key it does not own.
+    run_financials_step rewrites result["economics"] in place, viability consumes
+    economics, and MEASURED across the corpus, 14 of 19 reports would send viability a
+    materially different prompt in the other order -- with `economics` present either way,
+    so nothing in the declaration could have caught it. The order is correct today; this
+    is what notices if it stops being.
+
+    The finding is attached to the section it belongs to, so it renders on the line that
+    already exists for "this section was produced and something is wrong with it" rather
+    than needing a surface of its own. A produced section stays produced: the reader is
+    told what is wrong with it, not handed a hole where it used to be.
+    """
+    records = [SectionResult(key=d.get("key", ""), status=d.get("status", ""),
+                             reason=d.get("reason", ""),
+                             findings=list(d.get("findings") or []),
+                             reads=dict(d.get("reads") or {}))
+               for d in (result.get("_section_results") or [])]
+    messages = stale_reads(records, result)
+    if not messages:
+        return []
+    by_key = {}
+    for m in messages:
+        by_key.setdefault(m.split(" ", 1)[0], []).append(m)
+    for entry in (result.get("_section_results") or []):
+        found = by_key.get(entry.get("key"))
+        if not found:
+            continue
+        entry["status"] = FLAGGED
+        entry["findings"] = list(entry.get("findings") or []) + found
+        log.warning("[plan] %s", found[0][:200])
+    return messages
+
+
+def brief_rests_on_a_contributing_agent(payload: Any) -> Optional[str]:
+    """A brief with no surviving worker behind it is prose, not research.
+
+    run_research_crew sets `error` to the synthesis error ONLY when nothing contributed
+    (`error=synth.error if not contributing else None`). So a lead that synthesises
+    successfully while every specialist died returns error=None, a populated `brief`, and
+    contributing_agents=[]. Nothing downstream distinguishes that from a real brief.
+
+    This is the codebase's oldest defect shape in the agent layer: an absence read as an
+    answer. The crew already records exactly what is needed to catch it, and nobody asked.
+    """
+    if not isinstance(payload, dict) or payload.get("error"):
+        return None
+    brief = payload.get("brief")
+    if not brief:
+        return None
+    if not (payload.get("contributing_agents") or []):
+        return (f"the brief is {len(str(brief))} characters long and no specialist agent "
+                f"contributed to it; the lead synthesised from nothing")
+    return None
+
+
+def every_dispatched_worker_is_accounted_for(payload: Any) -> Optional[str]:
+    """A worker that died must be visible in the brief's own bookkeeping.
+
+    The crew isolates worker failures on purpose -- "a dead worker doesn't sink the crew"
+    -- and stores None for it. That is the right call and the right record. This checks the
+    record survives: a dispatched worker is either contributing or explicitly empty, never
+    quietly missing from both.
+    """
+    if not isinstance(payload, dict) or payload.get("error"):
+        return None
+    workers = payload.get("workers")
+    if not isinstance(workers, dict) or not workers:
+        return None
+    contributing = set(payload.get("contributing_agents") or [])
+    dead = sorted(n for n, v in workers.items() if not v and n not in contributing)
+    live = sorted(n for n, v in workers.items() if v)
+    missing = sorted(contributing - set(workers))
+    if missing:
+        return (f"contributing_agents names {', '.join(missing)}, which never appears in "
+                f"the worker roster; the brief credits an agent that did not run")
+    if dead and not live:
+        return (f"every dispatched specialist failed ({', '.join(dead)}) yet the brief "
+                f"was still assembled")
+    return None
+
+
+def research_brief_section(description: str, geo: str = "US",
+                           effort_levers: Optional[dict] = None,
+                           address: Optional[str] = None) -> Section:
+    """The research crew, declared. The fourth section, and the first that is an AGENT.
+
+    WHAT THIS TESTS THAT THE OTHER THREE DO NOT. viability, segment_ranking and
+    customer_universe are deterministic or single-call producers. This one fans four
+    specialist agents out over their own harness contexts and has a lead synthesise them.
+    If the frame is a frame, an agent crew is just another producer behind the same
+    contract -- same bounded context, same verdict, same disclosure. That claim was
+    untested: MEASURED, 0 of 19 corpus reports ran the crew.
+
+    THE ABSENCE IT CLOSES IS THE LAST 19/19. run_crew_step's own docstring insists the
+    distinction matters -- "None means 'not attempted' and is distinct from an error; a
+    reader must be able to tell a run that did not buy the crew from one where it was
+    bought and failed" -- and then plan.py did `if _brief is not None` and moved on, so a
+    standard-effort report said nothing at all. Not attempted is exactly what
+    `inapplicable` is for, and now the report says which tier would have produced it.
+
+    `consumes` is empty because the crew researches from the DESCRIPTION, not the result.
+    It reads no section and therefore waits on none.
+    """
+    levers = effort_levers or {}
+
+    def produce(ctx: dict) -> dict:
+        from .steps.crew import run_crew_step
+        brief = run_crew_step({}, description, geo, effort_levers=levers, address=address)
+        if brief is None:
+            # Unreachable while `inapplicable` gates the lever, and worth a loud failure
+            # rather than a None written into the result if the two ever disagree.
+            raise RuntimeError("the crew declined to run despite the effort lever being on")
+        return brief
+
+    return Section(
+        key="research_brief",
+        produce=produce,
+        label="Research brief",
+        origin="llm",
+        inapplicable=lambda: None if levers.get("research_crew") else (
+            "the research crew is a deep-effort stage: four specialist agents plus a lead "
+            "synthesis, and this run was not bought at that tier"),
+        invariants=(("brief_rests_on_a_contributing_agent",
+                     brief_rests_on_a_contributing_agent),
+                    ("every_dispatched_worker_is_accounted_for",
+                     every_dispatched_worker_is_accounted_for)),
     )

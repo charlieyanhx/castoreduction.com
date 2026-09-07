@@ -22,7 +22,7 @@ import pathlib
 import unittest
 from unittest.mock import patch
 
-from core.section import FAILED, OK, SKIPPED
+from core.section import FAILED, FLAGGED, OK, SKIPPED
 from orchestrator.sections import (apply, customer_universe_section,
                                    each_dimension_states_one_score,
                                    score_reconciles_with_its_parts,
@@ -614,3 +614,79 @@ class TestRun14CannotHappenToAMigratedSection(unittest.TestCase):
         with _stub({}):
             apply([viability_section(res.get("profile") or {}, biz_kind="saas")], res)
         self.assertIn("market_sizing", render_report_html(res))
+
+
+class TestTheRealOrderingConstraintIsWatched(unittest.TestCase):
+    """financials rewrites economics; viability reads it. Nothing declared could catch it.
+
+    This is the one dependency in the migrated set that `consumes` cannot express.
+    run_financials_step does `result["economics"] = _enrich_economics_at_som(...)` -- it
+    updates a key it does not own -- and viability passes the whole economics dict into
+    its prompt. MEASURED: 14 of 19 corpus reports carry economics enriched at SOM, and all
+    14 send viability a different prompt if the two run in the other order. `economics` is
+    present either way, so the section produces happily and the report is quietly wrong.
+
+    The order is correct in plan.py today. These tests are what notices if it stops being.
+    """
+
+    def setUp(self):
+        self.enriched = [r for r in _reports()
+                         if (r.get("economics") or {}).get("at_som_volume")]
+        if not self.enriched:
+            self.skipTest("no corpus report exercises the enrichment")
+
+    def _viability_then_financials(self, r):
+        from orchestrator.sections import check_reads_are_still_current
+        from orchestrator.steps.financials_step import run_financials_step
+
+        res = json.loads(json.dumps(r))
+        res.pop("viability", None)
+        res["economics"] = {k: v for k, v in res["economics"].items()
+                            if k != "at_som_volume"}
+        prof = res.get("profile") or {}
+        with _stub({}):
+            apply([viability_section(prof, biz_kind="saas")], res)
+        run_financials_step(res, prof, psm_result={}, biz_kind="retail")
+        return res, check_reads_are_still_current(res)
+
+    def test_the_wrong_order_is_detected_on_every_affected_report(self):
+        for r in self.enriched:
+            _, msgs = self._viability_then_financials(r)
+            self.assertTrue(msgs, "a section built on stale economics went unreported")
+            self.assertIn("economics", msgs[0])
+
+    def test_the_correct_order_reports_nothing(self):
+        """The check has to be quiet on a correct run, or it is noise that gets ignored."""
+        from orchestrator.sections import check_reads_are_still_current
+
+        for r in self.enriched:
+            res = json.loads(json.dumps(r))
+            res.pop("viability", None)
+            with _stub({}):
+                apply([viability_section(res.get("profile") or {}, biz_kind="saas")], res)
+            self.assertEqual(check_reads_are_still_current(res), [])
+
+    def test_the_finding_lands_on_the_section_it_belongs_to(self):
+        """Attached to viability, not announced as a verdict on the report. The section was
+        produced; the reader is told what is wrong with it, not handed a hole."""
+        res, _ = self._viability_then_financials(self.enriched[0])
+        entry = next(d for d in res["_section_results"] if d["key"] == "viability")
+        self.assertEqual(entry["status"], FLAGGED)
+        self.assertIn("viability", res)
+
+    def test_it_reaches_the_reader(self):
+        from report.render_html import render_report_html
+
+        res, _ = self._viability_then_financials(self.enriched[0])
+        html = render_report_html(res)
+        self.assertIn("Checked and flagged:", html)
+        self.assertIn("the report no longer holds", html)
+
+    def test_plan_still_runs_financials_before_viability(self):
+        """The constraint itself, pinned at the source. The runtime check reports a
+        violation after the fact; this one refuses it before anyone pays for a run."""
+        import plan
+
+        src = plan.run_path_source()
+        self.assertLess(src.index("run_financials_step"), src.index("viability_section"),
+                        "viability now runs before financials rewrites economics")

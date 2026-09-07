@@ -48,6 +48,8 @@ withholding all of them for one is a worse trade than shipping twenty with two f
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Optional
 
@@ -146,10 +148,12 @@ class SectionResult:
     status: str
     reason: str = ""
     findings: list[str] = field(default_factory=list)
+    #: Digest of each input as it was AT PRODUCTION TIME. See stale_reads.
+    reads: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {"key": self.key, "status": self.status, "reason": self.reason,
-                "findings": list(self.findings)}
+                "findings": list(self.findings), "reads": dict(self.reads)}
 
 
 def plan(sections: Iterable[Section]) -> list[Section]:
@@ -209,6 +213,7 @@ def assemble(sections: Iterable[Section], result: dict,
             try:
                 ctx = section.context(result)
                 before = copy.deepcopy(ctx)
+                reads = {k: digest(v) for k, v in ctx.items()}
                 payload = section.produce(ctx)
                 result[section.key] = payload
                 findings = [msg for name, check in section.invariants
@@ -226,7 +231,7 @@ def assemble(sections: Iterable[Section], result: dict,
                 sr = SectionResult(section.key,
                                    FLAGGED if findings else OK,
                                    f"{len(findings)} invariant(s) failed" if findings else "",
-                                   findings)
+                                   findings, reads)
             except Exception as e:                           # noqa: BLE001
                 sr = SectionResult(section.key, FAILED, f"{type(e).__name__}: {e}"[:300])
         out.append(sr)
@@ -251,6 +256,49 @@ def _inapplicable(section: Section) -> str:
         return section.inapplicable() or ""
     except Exception:                                        # noqa: BLE001
         return ""
+
+
+def digest(value: Any) -> str:
+    """A short, stable fingerprint of a result value.
+
+    Sorted keys so it does not move with insertion order, and `default=str` so an
+    unserialisable value fingerprints as its repr rather than raising -- a digest that
+    crashes on an odd payload would take down the section it was meant to watch.
+    """
+    try:
+        blob = json.dumps(value, sort_keys=True, default=str)
+    except Exception:                                        # noqa: BLE001
+        blob = repr(value)
+    return hashlib.sha256(blob.encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def stale_reads(results: Iterable[SectionResult], result: dict) -> list[str]:
+    """Sections whose inputs CHANGED after they were produced, one message each.
+
+    `consumes` guarantees an input EXISTS when a section runs. It cannot guarantee the
+    input is FINAL, because the assembler orders on which section owns a key -- and a step
+    can rewrite a key it does not own. That is not hypothetical: run_financials_step
+    rewrites result["economics"] in place, viability consumes economics, and MEASURED
+    across the corpus, 14 of 19 reports would send viability a materially different prompt
+    if the two ran in the other order. The key is present either way, so nothing in the
+    declaration could catch it.
+
+    This closes that hole without asking anyone to declare more. Each section fingerprints
+    what it actually read; comparing the fingerprints at the end of the run answers "was
+    any section assembled from a value that later changed?" -- which is run14's question,
+    asked about every input rather than the one somebody remembered to comment.
+
+    It reports rather than raises: the section already shipped, and the reader needs to be
+    told the ordering was wrong, not handed a blank report.
+    """
+    out = []
+    for r in results:
+        for key, before in sorted((r.reads or {}).items()):
+            now = digest(result.get(key))
+            if now != before:
+                out.append(f"{r.key} was assembled from {key}, which changed afterwards; "
+                           f"the section describes a value the report no longer holds")
+    return out
 
 
 def _run_check(name: str, check: Callable[[Any], Optional[str]], payload: Any) -> str:

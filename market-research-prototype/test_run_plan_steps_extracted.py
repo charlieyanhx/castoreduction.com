@@ -497,6 +497,13 @@ class TestMaxDiffStep(unittest.TestCase):
         m.assert_not_called()
         self.assertEqual(out, {})
         self.assertNotIn("max_diff", result)
+        # NOT SIMULATING IS CORRECT; SAYING NOTHING IS NOT. This was the last silent exit
+        # in the pipeline -- 2 of 19 corpus reports lost the feature ranking here and no
+        # reader was told. The shortfall is an INPUT problem, so it is a recorded drop
+        # rather than an inapplicability: something could have gone differently.
+        reason = (result.get("_dropped_outputs") or {}).get("max_diff", "")
+        self.assertIn("at least three", reason)
+        self.assertIn("extracted 2", reason, "the reason counts what was actually there")
 
     def test_an_error_result_is_persisted_but_not_marked_done(self):
         """The inline semantics: result['max_diff'] carries the error payload (the

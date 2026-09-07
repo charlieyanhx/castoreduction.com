@@ -47,16 +47,28 @@ class TestStageIsWired(unittest.TestCase):
         import inspect
         import plan
         src = plan.run_path_source()
-        # run_plan calls the STEP, which owns the lever check and the crew call.
-        # Asserting on run_research_crew here would pin an implementation detail one
-        # module away and break the moment the step is refactored.
-        self.assertIn("run_crew_step", src)
+        # ANCHOR MOVED: the crew is now a DECLARED section, assembled through
+        # orchestrator/sections.py, so run_plan no longer names run_crew_step or writes
+        # result["research_brief"] itself -- the assembler does both. The declaration is
+        # the stronger statement of the same two facts, and it is asserted directly below
+        # rather than inferred from a substring in a 30 KB source dump.
+        self.assertIn("research_brief_section", src)
         self.assertIn("effort_levers=_levers", src)   # gated, not unconditional
 
     def test_the_brief_lands_under_a_stable_key(self):
-        import inspect
-        import plan
-        self.assertIn('result["research_brief"]', plan.run_path_source())
+        from orchestrator.sections import research_brief_section
+        self.assertEqual(research_brief_section("v").key, "research_brief")
+
+    def test_the_gate_is_the_effort_lever_and_nothing_else(self):
+        """What "gated, not unconditional" now means precisely: below deep the section is
+        NOT APPLICABLE, so its producer is never built and the crew is never dispatched."""
+        from orchestrator.sections import research_brief_section
+        self.assertIsNone(research_brief_section("v", "US", {"research_crew": True})
+                          .inapplicable())
+        off = research_brief_section("v", "US", {"research_crew": False}).inapplicable()
+        self.assertIn("deep-effort", off)
+        self.assertIsNotNone(research_brief_section("v", "US", {}).inapplicable(),
+                             "no lever at all must not run four agents")
 
 
 class TestStageBehaviour(unittest.TestCase):

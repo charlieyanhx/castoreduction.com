@@ -73,7 +73,10 @@ from orchestrator.steps.max_diff import run_max_diff_step
 from orchestrator.steps.personas import run_personas_step
 from orchestrator.steps.pricing_sim import run_pricing_sim_step
 from orchestrator.steps.profile import run_profile_step
-from orchestrator.sections import (apply as apply_sections, customer_universe_section,
+from orchestrator.sections import (apply as apply_sections,
+                                   check_reads_are_still_current,
+                                   customer_universe_section,
+                                   research_brief_section,
                                    segment_ranking_section, viability_section)
 
 
@@ -2161,14 +2164,17 @@ def _finalize_run(result: dict, *, description: str, geo: str, _levers: dict,
     # since cycle33 but was reachable only via POST /research/crew, so its evidence
     # never reached a report. Returns None when the lever is off, which is distinct
     # from an error: a reader must be able to tell "not bought" from "bought and failed".
-    try:
-        from orchestrator.steps.crew import run_crew_step
-        _brief = run_crew_step(result, description, geo, effort_levers=_levers)
-        if _brief is not None:
-            result["research_brief"] = _brief
-            _step_done(result, "research_crew")
-    except Exception as e:
-        log.warning("[plan] research crew stage failed: %s", e)
+    # (→ orchestrator/sections.py, declared not called) The fourth section, and the first
+    # that is an AGENT CREW rather than a single producer. run_crew_step's docstring
+    # insisted "not attempted" and "bought and failed" must be distinguishable, and this
+    # block then dropped that distinction: a standard-effort report said nothing at all,
+    # on 19 of 19 corpus runs. `inapplicable` is exactly that third answer, so the report
+    # now names the tier that would have produced the brief.
+    # The step is credited as "research_brief" rather than "research_crew": the cover
+    # page's step list names artifacts everywhere else (market_sizing, viability, four_ps),
+    # nothing reads the old name, and 0 of 19 corpus reports carry it.
+    apply_sections([research_brief_section(description, geo, effort_levers=_levers)],
+                   result, checkpoint=checkpoint)
 
     # W6-1: run the 22 invariants on THIS report before it ships. gates.py has only
     # ever swept a corpus after the fact — a developer's view. This is the buyer's:
@@ -2657,6 +2663,16 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
         result = refine_pipeline_result(result, description, geo, profile, opps)
         if "refine" not in (result.get("_steps_completed") or []):
             result.setdefault("_steps_completed", []).append("refine")
+
+    # LAST, AND DELIBERATELY SO: did anything a section read change after it read it?
+    # `consumes` proves an input existed at production time, never that it was final --
+    # a step can rewrite a key it does not own, which run_financials_step does to
+    # result["economics"] while viability consumes it. The order is right today; this is
+    # what notices if it stops being. See orchestrator.sections.check_reads_are_still_current.
+    try:
+        check_reads_are_still_current(result)
+    except Exception:                                    # noqa: BLE001
+        pass          # bookkeeping about the run must never be able to end the run
 
     result["_duration_seconds"] = round(time.time() - t_start, 1)
     # Snapshot the provenance trace into the result so the report can render the debug panel.
