@@ -52,10 +52,15 @@ class _App(unittest.TestCase):
         return c
 
     def _report(self, c):
+        import billing
         import jobs
         who = c.get("/auth/me").json()["owner"]
         jid = jobs.create("plan", {"description": "x" * 80}, owner_id=who)
         jobs.update(jid, state="complete", result={"profile": {"name": "A coffee shop"}})
+        # PAID FOR, so the only thing standing between these reports and a coupon is the
+        # rule under test. A free run earns nothing whether or not it is finished, which
+        # would let the draft cases below pass for the wrong reason.
+        billing.record_spend(jid, who)
         return jid
 
 

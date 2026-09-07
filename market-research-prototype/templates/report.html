@@ -2785,12 +2785,30 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
       state = await r.json();
     } catch (e) { return; }              // an outage hides the offer, it does not break the page
 
+    // NO MONEY PROMISED ON A FREE REPORT. The endpoint pays the $10 only where a purchase
+    // is behind the report, and it says so up front in `earns_reward`, so the card is
+    // drawn to match: a report that ran on the free allowance is offered the listing and
+    // nothing else. Absent field (an older server) is read as the old promise.
+    const earns = state.earns_reward !== false;
+    if (!earns) {
+      $("shareLede").textContent = "Share it";
+      $("shareCopy").textContent =
+        "Founders deciding whether this is worth buying want to read real work. Publishing "
+        + "a paid report earns a $10 code off the next one; this report ran on your free "
+        + "daily allowance, so there is nothing to send for it, but the listing is still "
+        + "yours to put up. Your survey answers, your private notes and your marks are "
+        + "never published. Only the report itself, under a name you choose. You can take "
+        + "it down whenever you like.";
+      $("shareGo").textContent = "Share it";
+    }
+
     // Signed in? Then the coupon has somewhere to live and we do not ask for an address.
+    // No coupon coming? Then there is nothing to send and no address to ask for.
     let me = {};
     try { me = await (await fetch("/auth/me")).json(); } catch (e) { /* treat as guest */ }
     const signedIn = !!me.authenticated;
     const emailRow = $("shareEmailRow");
-    if (emailRow) emailRow.hidden = signedIn;
+    if (emailRow) emailRow.hidden = signedIn || !earns;
     // THE HREF IS SET HERE, NOT IN THE MARKUP. A hardcoded link to the sign-in page is a
     // hand-rolled auth control, which is the duplication account.js exists to replace,
     // and this one has to carry a `next` back to this exact report anyway.
@@ -2798,15 +2816,22 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
     if (reg) reg.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
 
     block.hidden = false;
-    if (state.shared && state.coupon) { showShared(state.title, state.coupon, signedIn ? "account" : "shown"); return; }
+    if (state.shared) {
+      // Already up. With a code it is shown where it lives; without one (a free report)
+      // the page says why, from the same string the endpoint would have answered with.
+      showShared(state.title, state.coupon,
+                 state.coupon ? (signedIn ? "account" : "shown") : "none",
+                 undefined, state.reason);
+      return;
+    }
     const title = $("shareTitle");
     if (title && !title.value) title.value = (state.title || REPORT_TITLE || "").slice(0, 120);
 
     $("shareGo").onclick = async () => {
       const btn = $("shareGo"), errN = $("shareErr");
       errN.textContent = "";
-      const email = (!signedIn && $("shareEmail") ? $("shareEmail").value.trim() : "");
-      if (!signedIn && !email) {
+      const email = (!signedIn && earns && $("shareEmail") ? $("shareEmail").value.trim() : "");
+      if (!signedIn && earns && !email) {
         // THE ONE THING WE INSIST ON. Without an account and without an address there is
         // nowhere to put the code, and a reward that vanishes with the tab is not one.
         errN.textContent = "Add an email so we can send you the code, or sign in first.";
@@ -2822,7 +2847,7 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
         });
         const out = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(out.detail || ("the server said " + r.status));
-        showShared(out.title, out.coupon, out.delivered, out.redeemable);
+        showShared(out.title, out.coupon, out.delivered, out.redeemable, out.reason);
       } catch (e) {
         btn.disabled = false;
         btn.textContent = was;
@@ -2831,18 +2856,27 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
     };
   }
 
-  function showShared(title, coupon, delivered, redeemable) {
+  function showShared(title, coupon, delivered, redeemable, reason) {
     $("shareForm").hidden = true;
     $("shareCopy").hidden = true;
     $("shareDone").hidden = false;
-    $("shareCode").textContent = coupon.code;
-    const where = delivered === "email"
-      ? "The code is on its way to your inbox as well."
-      : (delivered === "account"
-         ? "It is saved to your account, so it is here whenever you need it."
-         : "Write it down: it is not stored anywhere you can sign in to yet.");
+    // PUBLISHED IS NOT THE SAME AS PAID. A free report lands here with no coupon at all,
+    // so the code box and the checkout instruction stand down and the server's reason
+    // takes their place. Reading .code off a null here would have turned a successful
+    // publish into "Could not publish it" on screen.
+    $("shareCodeBox").hidden = !coupon;
+    $("shareHow").hidden = !coupon;
+    $("shareCode").textContent = coupon ? coupon.code : "";
+    const where = !coupon
+      ? (reason || "This report ran on your free daily allowance, so there is no code to "
+                   + "send for it. Your library listing stands.")
+      : (delivered === "email"
+         ? "The code is on its way to your inbox as well."
+         : (delivered === "account"
+            ? "It is saved to your account, so it is here whenever you need it."
+            : "Write it down: it is not stored anywhere you can sign in to yet."));
     $("shareDoneWhere").textContent = where
-      + (redeemable === false
+      + (coupon && redeemable === false
          ? " It becomes redeemable as soon as checkout is live on this instance." : "");
     $("shareView").href = "/library/" + encodeURIComponent(JOB) + "/report.html";
     $("shareView").target = "_blank";
@@ -2854,9 +2888,10 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
       // Of every error on this page that is the one that must not fail quietly.
       try {
         await api("DELETE", "/jobs/" + JOB + "/share");
-        // The code was earned and is kept; only the listing goes.
-        $("shareDoneWhere").textContent =
-          "Taken back out of the library. Your code is still yours.";
+        // The code, where there was one, was earned and is kept; only the listing goes.
+        $("shareDoneWhere").textContent = coupon
+          ? "Taken back out of the library. Your code is still yours."
+          : "Taken back out of the library.";
         $("shareView").remove();
         ev.target.remove();
       } catch (e) {
@@ -3530,7 +3565,7 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
      `done` flag the feedback survey waits on — so it never appears beside a revision that
      is still running. -->
 <div id="shareBlock" class="no-print" hidden style="margin-top:40px;padding:22px;background:#fff;border-radius:10px;border:1px solid #e5e7eb;box-shadow:0 1px 3px rgba(0,0,0,.05)">
-  <div style="font-size:9pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#2B3C2B;margin-bottom:7px">Earn $10</div>
+  <div id="shareLede" style="font-size:9pt;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#2B3C2B;margin-bottom:7px">Earn $10</div>
   <h3 style="margin:0 0 8px;font-size:13pt;color:#111827">Put this report in our library</h3>
   <p id="shareCopy" style="font-size:10pt;color:#4b5563;margin:0 0 14px;line-height:1.6;max-width:62ch">
     Founders deciding whether this is worth buying want to read real work. Publish yours
@@ -3555,12 +3590,12 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
   </div>
   <div id="shareDone" hidden>
     <p style="font-size:10pt;color:#111827;margin:0 0 10px">Published. <span id="shareDoneWhere"></span></p>
-    <div style="display:inline-block;padding:11px 16px;border:1px dashed #2B3C2B;border-radius:8px;background:#f6f7f5">
+    <div id="shareCodeBox" style="display:inline-block;padding:11px 16px;border:1px dashed #2B3C2B;border-radius:8px;background:#f6f7f5">
       <div style="font-size:8.5pt;letter-spacing:.09em;text-transform:uppercase;color:#6b7280">Your code</div>
       <div id="shareCode" style="font-size:15pt;font-weight:700;letter-spacing:.06em;color:#2B3C2B;font-variant-numeric:tabular-nums"></div>
     </div>
     <p style="font-size:9.5pt;color:#6b7280;margin:12px 0 0">
-      Enter it in the discount box at checkout. <a id="shareView" href="#" style="color:#2B3C2B">See your listing</a>
+      <span id="shareHow">Enter it in the discount box at checkout.</span> <a id="shareView" href="#" style="color:#2B3C2B">See your listing</a>
       &middot; <a id="shareUndo" href="#" style="color:#6b7280">take it back down</a>
     </p>
   </div>

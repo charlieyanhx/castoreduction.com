@@ -1054,15 +1054,49 @@ class ShareRequest(BaseModel):
     email: str | None = Field(default=None, max_length=254)
 
 
+#: What the owner is told when publishing earns nothing. One string, served by both share
+#: routes, so the card before the click and the answer after it say the same thing.
+NO_REWARD_REASON = ("This report ran on your free daily allowance, so there is no reward "
+                    "to send for it. Your library listing stands.")
+
+
+def _reward_backed(job_id: str) -> bool:
+    """Does publishing this report earn the coupon? Only when a purchase is behind it.
+
+    THE REWARD IS A REBATE, NOT A GIFT. The $10 code is paid for out of the price of the
+    report it rewards, which is what keeps the library trade honest instead of turning it
+    into a faucet. A report that ran on the free daily allowance has no price to give ten
+    dollars back from, and one whose credit was refunded has already had the whole price
+    given back. Either would let a free run be turned into money by pressing Share.
+    Publishing still succeeds for both; only the reward is withheld.
+
+    Both ledger questions are asked, not just the first: paid_owner happens to hide a
+    refunded spend today, but the rule is "paid and not refunded" and it is written here
+    as stated rather than left to an implementation detail of one query.
+    """
+    import billing
+    return bool(billing.paid_owner(job_id)) and not billing.was_refunded(job_id)
+
+
 @router.get("/jobs/{job_id}/share")
 def get_share_state(job_id: str):
-    """Is this published, and what did sharing it earn? Owner only."""
+    """Is this published, what did sharing it earn, and would sharing it earn? Owner only.
+
+    `earns_reward` is what lets the card stop promising money on a free report: the page
+    reads it before it draws the offer, so the button never says "$10" where the POST
+    below would answer with none.
+    """
     import sharing
     _owned_job(job_id)                       # 404s for anything that is not yours
     e = sharing.entry(job_id)
-    return {"shared": bool(e), "title": (e or {}).get("title"),
-            "reward_usd": sharing.REWARD_USD,
-            "coupon": sharing.coupon_for_job(job_id)}
+    coupon = sharing.coupon_for_job(job_id)
+    earns = bool(coupon) or _reward_backed(job_id)
+    out = {"shared": bool(e), "title": (e or {}).get("title"),
+           "reward_usd": sharing.REWARD_USD,
+           "coupon": coupon, "earns_reward": earns}
+    if not earns:
+        out["reason"] = NO_REWARD_REASON
+    return out
 
 
 @router.post("/jobs/{job_id}/share")
@@ -1116,8 +1150,17 @@ def share_report(job_id: str, req: ShareRequest):
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-    # THE REWARD. Minted once per report — a second POST returns the same code rather than
-    # a second $10 — and delivered wherever this founder can actually be reached.
+    # THE REWARD NEEDS A PURCHASE BEHIND IT. The listing above is already live; what is
+    # decided here is only whether it is paid for. A code already minted for this report
+    # is already promised and is handed back regardless (the gate is on minting a new
+    # one), otherwise a free or refunded run publishes and earns nothing, and the answer
+    # says so in plain words rather than leaving the founder to wonder where the code went.
+    if sharing.coupon_for_job(job_id) is None and not _reward_backed(job_id):
+        return {"shared": True, "title": entry["title"], "coupon": None,
+                "delivered": "none", "reason": NO_REWARD_REASON, "redeemable": False}
+
+    # Minted once per report: a second POST returns the same code rather than a second
+    # $10. Delivered wherever this founder can actually be reached.
     import auth as _auth
     account_email = None
     try:

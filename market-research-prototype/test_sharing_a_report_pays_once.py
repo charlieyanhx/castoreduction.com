@@ -198,6 +198,11 @@ class _App(unittest.TestCase):
         _st = _it.get_state(jid)
         _st["status"] = "final"
         _it._save(jid, _st)
+        # AND PAID FOR, because the reward needs a purchase behind it. The ledger row
+        # post_plan writes is the only thing the endpoint reads to decide that; a report
+        # that ran on the free allowance publishes and earns nothing.
+        import billing
+        billing.record_spend(jid, owner)
         return jid
 
 
