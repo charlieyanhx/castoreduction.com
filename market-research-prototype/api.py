@@ -356,6 +356,34 @@ def _resume_interrupted_runs():
         log.warning("[startup] could not resume interrupted runs: %s", e)
 
 
+@app.on_event("startup")
+def _push_coupons_minted_without_stripe():
+    """A CODE PROMISED BEFORE THE KEYS LANDED IS STILL A PROMISE.
+
+    sharing.mint pays a founder the moment they publish, keys or no keys: without Stripe
+    the row keeps stripe_promo_id NULL, and the code they were handed is typed into a
+    checkout box that rejects it, which sharing._sync_to_stripe calls worse than offering
+    nothing. sharing.sync_pending exists to push that backlog once keys are added, and
+    nothing called it, so adding keys to an instance that had run without them fixed the
+    next share and none of the earlier ones.
+
+    Boot is the one moment every instance passes through after its config changes, so the
+    backlog is pushed here. Idle when Stripe is not configured: there is nowhere to push.
+    """
+    try:
+        import billing
+        import sharing
+        if not billing.configured():
+            return
+        n = sharing.sync_pending()
+        if n > 0:
+            log.info("[startup] pushed %d coupon(s) minted before Stripe was configured", n)
+    except Exception as e:                                   # noqa: BLE001
+        # A backlog that could not be pushed is still listed by sharing.pending(), which is
+        # visible and fixable. A boot loop is neither.
+        log.warning("[startup] could not push pending coupons to Stripe: %s", e)
+
+
 def _cleanup_orphaned_jobs():
     """Retained for callers that want the old bury-it behaviour (tests, one-off tools)."""
     n = jobs.cleanup_orphaned_jobs(grace_seconds=60)
