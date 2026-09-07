@@ -29,7 +29,7 @@ PARTIAL = Path(__file__).parent / "templates" / "partials" / "brand_mark.html"
 #: the imported marketing page and carries its own, larger mark by design.
 CHROME_PAGES = [
     "survey.html", "dashboard.html", "progress.html",
-    "home.html", "library.html", "forgot.html", "reset.html",
+    "home.html", "library.html", "forgot.html", "reset.html", "login.html",
 ]
 
 MARK = 'viewBox="0 0 100 100"'
@@ -62,12 +62,14 @@ class ThereIsExactlyOneDefinition(unittest.TestCase):
 
 
 class TheOnlyThingThatVariesIsTheDestination(unittest.TestCase):
-    def test_the_survey_logo_leaves_the_app_and_the_rest_do_not(self):
+    def test_the_survey_and_login_logos_leave_the_app_and_the_rest_do_not(self):
         """The survey is reached from the marketing page, so its logo goes back there.
-        Every signed-in surface goes to /home. That is the one legitimate difference, and
-        it is a parameter rather than a second copy of the markup."""
-        survey = (WEB / "survey.html").read_text(encoding="utf-8")
-        self.assertIn('home = "/"', survey)
+        Login is outside the app too: nobody on it has a session yet, so /home would only
+        bounce them straight back. Every signed-in surface goes to /home. That is the one
+        legitimate difference, and it is a parameter rather than a second copy of the
+        markup."""
+        for n in ("survey.html", "login.html"):
+            self.assertIn('home = "/"', (WEB / n).read_text(encoding="utf-8"), n)
         for n in ("dashboard.html", "home.html", "library.html"):
             self.assertIn('home = "/home"', (WEB / n).read_text(encoding="utf-8"), n)
 
@@ -98,7 +100,7 @@ class ThePagesAreActuallyRendered(unittest.TestCase):
             os.environ["JOBS_DB_PATH"] = self._old
 
     ROUTES = ["/survey", "/dashboard.html", "/progress.html", "/home",
-              "/library", "/forgot", "/reset"]
+              "/library", "/forgot", "/reset", "/login"]
 
     def test_every_route_renders_the_mark(self):
         for r in self.ROUTES:

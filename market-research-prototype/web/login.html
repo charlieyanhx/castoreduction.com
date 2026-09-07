@@ -44,9 +44,12 @@
     background: var(--ink); color: #efeae3; padding: 56px 48px;
     display: flex; flex-direction: column; justify-content: space-between;
   }
-  .mark { display: flex; align-items: center; gap: 10px; font-weight: 600;
-          letter-spacing: .01em; }
-  .mark .dot { width: 10px; height: 10px; border-radius: 50%; background: #7cb69f; }
+  /* THE SHARED MARK ON A DARK GROUND. brand.css sets the wordmark in ink on paper; this
+     panel is ink, so the words take the panel's own text colours. The mark is a column
+     flex child here and would otherwise stretch to the full row. */
+  .pitch .brand-mark { align-self: flex-start; }
+  .pitch .brand-mark .word { color: #efeae3; }
+  .pitch .brand-mark .sub { color: #7cb69f; }
   .pitch h1 {
     font: 600 clamp(28px, 2.4vw, 40px)/1.15 ui-serif, Georgia, "Times New Roman", serif;
     margin: 40px 0 14px; max-width: 15ch;
@@ -118,7 +121,7 @@
 </head>
 <body>
   <section class="pitch">
-    <div class="mark"><span class="dot"></span> Castor</div>
+    {% with home = "/" %}{% include "partials/brand_mark.html" %}{% endwith %}
     <div>
       <h1>Market research you can check.</h1>
       <p>Every number in a Castor report carries the source it came from, and the report

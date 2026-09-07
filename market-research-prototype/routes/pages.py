@@ -151,11 +151,13 @@ def index():
 @router.get("/login", response_class=HTMLResponse)
 def login_page():
     """Sign in / sign up. #94 shipped the endpoints and no screen, which made the product
-    usable only by someone holding the route list and a curl command."""
-    f = WEB_DIR / "login.html"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="login page not built")
-    return FileResponse(f, headers=_NO_CACHE)
+    usable only by someone holding the route list and a curl command.
+
+    RENDERED, NOT SENT. This was the one chrome page still on FileResponse, and so the one
+    page that still hand-carried its own mark: a dot and the word Castor, which is not the
+    mark the other seven show. It includes the partial now, and a FileResponse would hand
+    the browser the literal Jinja tag. _render_page keeps the 404 for a missing file."""
+    return _render_page("login.html")
 
 
 @router.get("/forgot", response_class=HTMLResponse)
