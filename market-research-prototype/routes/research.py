@@ -364,15 +364,42 @@ def _stub_run(description: str) -> dict | None:
     return result
 
 
+def _owner_email(owner_id: str) -> str | None:
+    """The address a finished run is announced to, for an account or a guest.
+
+    A GUEST WHO PAID HAS AN ADDRESS. The landing page promises the report by email with no
+    account required, and Stripe collected an address at checkout that billing keeps on
+    the entitlement row. _notify_owner used to return early for any owner id starting
+    with "guest-" before looking, so the one buyer that promise was made to was the one
+    buyer never told. The run that just finished SPENT the credit, so on a single-report
+    purchase billing.email_on_credits (rows with credit left) finds nothing and
+    billing.last_email_for (the most recent row, spent or not) is what answers. A guest
+    who has bought nothing has no row and stays silent, which is right: there is nobody
+    to tell.
+
+    KNOWN EDGE, LEFT ALONE HERE. The link in the mail is /jobs/{id}/report.html, and that
+    job is owned by the guest cookie. It opens on the browser that bought the report and
+    404s on any other device, because a guest has no login to prove the job is theirs.
+    Cross-device access for guests is a separate piece of work; this only stops the mail
+    from never being sent at all.
+    """
+    import auth
+    import billing
+    if str(owner_id).startswith("guest-"):
+        return (billing.email_on_credits(owner_id, "report")
+                or billing.last_email_for(owner_id, "report"))
+    return auth.account_email(owner_id)
+
+
 def _notify_owner(owner_id: str, job_id: str, result: dict) -> None:
     """Email the owner that their run finished. Withheld gets its own message, because
-    silence after a purchase reads as a failed purchase."""
+    silence after a purchase reads as a failed purchase. A guest is sent exactly what an
+    account is sent, once _owner_email has found an address for them."""
     try:
-        import auth
         import mailer
-        if not owner_id or str(owner_id).startswith("guest-"):
+        if not owner_id:
             return
-        email = auth.account_email(owner_id)
+        email = _owner_email(owner_id)
         if not email:
             return
         name = ((result or {}).get("profile") or {}).get("name") or ""
@@ -667,9 +694,10 @@ def post_plan(req: PlanRequest):
             _refund_if_nothing_was_delivered(_owner, job_id, result)
 
         # TELL THEM IT FINISHED. Six minutes is longer than anyone watches a tab, and the
-        # progress page only helps someone who kept it open. Guests have no address, and a
-        # send that fails is a log line: the report exists either way, and failing the run
-        # over its notification would be the tail wagging the dog.
+        # progress page only helps someone who kept it open. A guest who never bought
+        # anything has no address, and a send that fails is a log line: the report exists
+        # either way, and failing the run over its notification would be the tail wagging
+        # the dog.
         _notify_owner(_owner, job_id, result)
         return result
         return result

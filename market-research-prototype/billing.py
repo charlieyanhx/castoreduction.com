@@ -407,7 +407,7 @@ def credit_back(account_id: str, kind: str = "report", reason: str = "",
     # claim_by_email, so a guest whose paid run crashed got a credit they could never
     # claim onto an account, and /billing/status had no address left to prefill the
     # registration form with. The refund inherits the address of the purchase it undoes.
-    email = email_on_credits(account_id, kind) or _last_email_for(account_id, kind)
+    email = email_on_credits(account_id, kind) or last_email_for(account_id, kind)
     # job_id NAMES WHAT THIS UNDOES. On a purchase row it means "this pack belongs to that
     # report"; on a refund row (session_id NULL) it means "this is the money back for that
     # report", which is what was_refunded reads.
@@ -418,12 +418,17 @@ def credit_back(account_id: str, kind: str = "report", reason: str = "",
     return ok
 
 
-def _last_email_for(account_id: str, kind: str = "report") -> str | None:
+def last_email_for(account_id: str, kind: str = "report") -> str | None:
     """The address on this owner's most recent entitlement of a kind, spent or not.
 
-    email_on_credits only looks at rows with credit LEFT, which is exactly wrong for a
-    refund: the credit being given back was just spent, so its row reads remaining = 0 and
-    the address on it would be skipped.
+    THE ROW THAT WAS JUST USED IS THE ONE WITH NOTHING LEFT. email_on_credits only looks
+    at rows with credit LEFT, which is exactly wrong for anything that happens after a
+    spend: the credit a refund gives back was just spent, and the run a report-ready mail
+    announces just spent it too, so on a single-report purchase the only row reads
+    remaining = 0 and the address on it would be skipped. credit_back and the finish
+    notification in routes/research both read this after email_on_credits comes up empty.
+
+    Only this owner's own rows are read, for the same reason as email_on_credits.
     """
     c = _db()
     try:
