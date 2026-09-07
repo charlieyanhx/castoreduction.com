@@ -195,13 +195,53 @@ class TestTheRouteAgrees(_TempDB):
     """The arithmetic above has to be the arithmetic post_revise actually runs."""
 
     def test_post_revise_reads_the_bought_limit(self):
-        import inspect
-        import routes.jobs as rj
-        src = inspect.getsource(rj.post_revise)
-        self.assertIn('limits(st)["reruns"]', src,
-                      "post_revise stopped consulting the bought rerun budget")
-        self.assertNotIn('status") == "revised" or params.get("previous_job_id")', src,
-                         "the flat refusal is back; the rerun pack is unspendable again")
+        """ASSERTS THE BEHAVIOUR, NOT THE SPELLING.
+
+        This read post_revise's source for the literal `limits(st)["reruns"]`. The property
+        it cares about is that a BOUGHT rerun is spendable, and that survived the rule
+        moving into iteration.reruns_left, where it is now shared with GET /credits so the
+        page and the endpoint cannot disagree. The substring did not survive, so a correct
+        refactor turned this red while the thing it protects was intact.
+
+        A source-string assertion answers "is the code still written this way". This one
+        asks "does buying a regeneration let you run one", which is what the pack is for.
+        """
+        import iteration
+        import jobs
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        import api
+        c = TestClient(api.app)
+        c.get("/auth/me")
+        brief = ("A neighbourhood wine bar in Sellwood, Portland, thirty seats, glasses "
+                 "about fourteen dollars.")
+
+        def run(**body):
+            cap = {}
+            import plan as _plan
+            with patch.object(jobs, "run_async", lambda j, fn, **k: cap.update(w=fn)), \
+                 patch.object(_plan, "run_plan", lambda *a, **k: {"profile": {"name": "x"}}):
+                r = c.post("/plan", json={"description": brief, **body})
+            self.assertEqual(r.status_code, 200, r.text)
+            jid = r.json()["job_id"]
+            with patch("report.verifier.blocking_findings", lambda _r: []):
+                produced = cap["w"]()
+            jobs.update(jid, state="complete", result=produced)
+            return jid
+
+        base = run()
+        self.assertEqual(c.post(f"/jobs/{base}/revise").status_code, 200,
+                         "the included regeneration must run")
+        self.assertEqual(c.post(f"/jobs/{base}/revise").status_code, 402,
+                         "and only once")
+
+        iteration.grant(base, "rerun", packs=1, paid=True)     # what the webhook does
+        self.assertEqual(c.post(f"/jobs/{base}/revise").status_code, 200,
+                         "a bought rerun must be spendable; that is the whole pack")
+        self.assertEqual(c.post(f"/jobs/{base}/revise").status_code, 402,
+                         "a pack of one must not buy unlimited regenerations")
 
 
 if __name__ == "__main__":

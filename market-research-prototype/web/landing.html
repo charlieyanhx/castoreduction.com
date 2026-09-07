@@ -264,7 +264,7 @@
                 <a href="#corporate" class="nav-link">Corporate</a>
             </div>
             <div class="nav-cta desktop">
-                <a href="/login" class="nav-signin">Sign in</a>
+                <a href="/login" class="nav-signin" data-account-fallback>Sign in</a>
                 <a href="/start" class="nav-cta-btn">Generate your report</a>
             </div>
             <button class="hamburger" id="hamburgerBtn" onclick="toggleMobileMenu()" aria-label="Toggle menu">
@@ -277,7 +277,7 @@
             <a href="#pricing" class="mobile-menu-link" onclick="closeMobileMenu()">Pricing</a>
             <a href="#consulting" class="mobile-menu-link" onclick="closeMobileMenu()">Consult</a>
             <a href="#corporate" class="mobile-menu-link" onclick="closeMobileMenu()">Corporate</a>
-            <a href="/login" class="mobile-link">Sign in</a>
+            <a href="/login" class="mobile-link" data-account-fallback>Sign in</a>
                 <a href="/start" class="mobile-menu-link" style="font-weight: 700; color: #2B3C2B; margin-top: 0.5rem; border-top: 1px solid rgba(43,60,43,0.08); padding-top: 1rem;">Generate your report</a>
         </div>
     </nav>
@@ -990,5 +990,8 @@
             }, 600);
         }
     </script>
+<!-- The shared sign-in control. Without it this page showed a static "Sign in" to
+     people who were already signed in, on the one page every visitor starts from. -->
+<script src="/account.js" defer></script>
 </body>
 </html>

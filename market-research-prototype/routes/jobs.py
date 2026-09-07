@@ -461,9 +461,13 @@ def get_credits(job_id: str):
     import iteration
     st = iteration.get_state(job_id)
     lim = iteration.limits(st)
+    j = _owned_job(job_id) or {}
     return {"limits": lim,
             "used": {"questions": len(st.get("questions") or []),
                      "marks": len(st.get("annotations") or [])},
+            # THE SERVER DECIDES THIS, not the page. See iteration.reruns_left: the rule
+            # had two implementations that disagreed on a regenerated report.
+            "reruns_left": iteration.reruns_left(job_id, j.get("params") or {}),
             "prices_usd": iteration.PACK_PRICES_USD,
             "pack_sizes": iteration.PACK_SIZES}
 
@@ -549,9 +553,7 @@ def post_revise(job_id: str):
     # which is the entire purpose of the $5 pack. Before this the pack was grantable and
     # unspendable: iteration.grant took the money, limits() duly reported two reruns, and
     # this route refused anyway because it never read limits() at all.
-    used = ((1 if params.get("previous_job_id") else 0)
-            + (1 if st.get("status") == "revised" else 0))
-    if used >= iteration.limits(st)["reruns"]:
+    if iteration.reruns_left(job_id, params) <= 0:
         raise HTTPException(
             status_code=402,
             detail="this report has used every regeneration it has; pay for another "

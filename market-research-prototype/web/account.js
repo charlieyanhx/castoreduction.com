@@ -63,9 +63,19 @@
      all, which is what the floating pill is for. */
   function mount() {
     var host = document.querySelector(".rail-acts")
+            || document.querySelector(".nav-cta")
             || document.querySelector("header.rail")
             || document.querySelector("header.topbar")
             || document.querySelector("header");
+    /* A HARDCODED "Sign in" IS RIGHT UNTIL SOMEONE SIGNS IN. The marketing page ships one
+       so the door exists without JavaScript, and it then told returning customers to sign
+       in on every visit. Marked links stand down the moment this control mounts, so the
+       no-JS fallback survives and the stale copy does not. */
+    [].forEach.call(document.querySelectorAll("[data-account-fallback]"), function (el) {
+      el.hidden = true;
+      el.style.display = "none";      // [hidden] loses to any author display rule
+    });
+
     var w = document.createElement("span");
     w.className = "ca-wrap";
     w.setAttribute("data-account-control", "");

@@ -155,7 +155,7 @@
 </head>
 <body>
 <header class="rail">
-  <a class="brand-mark" href="/home"><svg viewBox="0 0 100 100" width="32" height="32"><g transform="translate(10,8)"><ellipse cx="40" cy="38" rx="38" ry="35" fill="#B07840"/><ellipse cx="40" cy="46" rx="28" ry="24" fill="#D4A870"/><circle cx="28" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="29.5" cy="28.5" r="2" fill="white"/><circle cx="52" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="53.5" cy="28.5" r="2" fill="white"/><ellipse cx="40" cy="42" rx="6" ry="4.5" fill="#2B3C2B"/><path d="M35 48 Q40 54 45 48" stroke="#2B3C2B" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="4" y1="38" x2="22" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="2" y1="46" x2="20" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="4" y1="54" x2="22" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="38" x2="58" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="78" y1="46" x2="60" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="54" x2="58" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><ellipse cx="12" cy="12" rx="9" ry="8" fill="#B07840"/><ellipse cx="68" cy="12" rx="9" ry="8" fill="#B07840"/></g></svg><div><span class="word">Castor</span><span class="sub">Research</span></div></a>
+  {% with home = "/home" %}{% include "partials/brand_mark.html" %}{% endwith %}
   <span class="rail-acts">
     <a class="btn go" href="/survey">Generate your report</a>
   </span>
@@ -187,14 +187,20 @@
     return isFinite(d) ? d.toLocaleDateString(undefined,
       { year: "numeric", month: "short", day: "numeric" }) : "";
   };
+  /* A FAILURE HERE USED TO READ AS "NOTHING PUBLISHED YET", on the page whose whole job is
+     to convince a stranger this product produces real work. A 500 answers with
+     {"detail": ...}, which parses perfectly, has no `reports`, and fell through the `|| []`
+     into the empty state. The catch below only ever fired for a dropped connection.
+     castor.api throws on any refusal, so both land in the same place. */
   let reports = [];
   try {
-    reports = (await (await fetch("/library.json")).json()).reports || [];
+    reports = (await window.castor.api("GET", "/library.json")).reports || [];
   } catch (e) {
     shelf.innerHTML = "";
     const n = document.createElement("div");
     n.className = "empty";
-    n.textContent = "The library could not be loaded just now. Reload to try again.";
+    n.textContent = "The library could not be loaded just now. "
+      + window.castor.reason(e) + " Reload to try again.";
     shelf.appendChild(n);
     return;
   }
@@ -224,6 +230,7 @@
 </script>
 <!-- THE PUBLIC PAGE MOST NEEDS THE WAY IN. This is written for a stranger deciding
      whether to buy, and it was the one page with no sign-in control at all. -->
+<script src="/castor-api.js"></script>
 <script src="/account.js" defer></script>
 </body>
 </html>

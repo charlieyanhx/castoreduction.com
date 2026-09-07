@@ -135,7 +135,7 @@
 <body>
 
 <header class="rail">
-  <a class="brand-mark" href="/home"><svg viewBox="0 0 100 100" width="32" height="32"><g transform="translate(10,8)"><ellipse cx="40" cy="38" rx="38" ry="35" fill="#B07840"/><ellipse cx="40" cy="46" rx="28" ry="24" fill="#D4A870"/><circle cx="28" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="29.5" cy="28.5" r="2" fill="white"/><circle cx="52" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="53.5" cy="28.5" r="2" fill="white"/><ellipse cx="40" cy="42" rx="6" ry="4.5" fill="#2B3C2B"/><path d="M35 48 Q40 54 45 48" stroke="#2B3C2B" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="4" y1="38" x2="22" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="2" y1="46" x2="20" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="4" y1="54" x2="22" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="38" x2="58" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="78" y1="46" x2="60" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="54" x2="58" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><ellipse cx="12" cy="12" rx="9" ry="8" fill="#B07840"/><ellipse cx="68" cy="12" rx="9" ry="8" fill="#B07840"/></g></svg><div><span class="word">Castor</span><span class="sub">Research</span></div></a>
+  {% with home = "/home" %}{% include "partials/brand_mark.html" %}{% endwith %}
   <a class="navlink" id="libLink" href="/dashboard.html" hidden>Your library</a>
 </header>
 
@@ -220,6 +220,19 @@
 
   var createdAt = null;
   var since = 0;
+
+  /* LOSING CONTACT IS NOT LOSING THE RUN, and it is not nothing either.
+     Every failed poll fell through to setTimeout(poll, 2500) with no counter and no
+     message, so a 5xx or a dropped connection meant this page said "Building your report"
+     at a server that was not answering, for as long as the tab stayed open. The comment
+     defending it was right that the work is server side; it did not follow that the reader
+     should be told nothing.
+     So: keep trying, say so once it is worth saying, and stop before the spinner becomes a
+     lie. GRACE is roughly 12s of silence, GIVE_UP roughly two minutes. */
+  var POLL_MS = 2500;
+  var GRACE_POLLS = 5;
+  var GIVE_UP_POLLS = 48;
+  var missed = 0;
   var seen = [];
   var finished = false;
   /* The description this run was given. Kept because a stopped run's only useful exit is
@@ -491,6 +504,30 @@
       .catch(function () { /* the link stays hidden, which is the safe default */ });
   })();
 
+  /* What a failed poll does, in one place: both the 5xx branch and the dropped-connection
+     branch used to duplicate `tick(); setTimeout(poll, 2500)` and say nothing. Returns
+     false when it has given up, so the caller stops rescheduling. */
+  function pollFailed(why) {
+    missed += 1;
+    if (missed >= GIVE_UP_POLLS) {
+      stopClock();
+      var head = $("title").firstChild;
+      if (head) head.nodeValue = "We lost contact with the server";
+      $("sub").innerHTML =
+        "Your report may still be running: the work happens on our side, not in this tab. "
+        + "<a href=\"/dashboard.html\">Open your library</a> to see whether it finished, "
+        + "or reload this page to start watching again.";
+      return false;
+    }
+    if (missed === GRACE_POLLS) {
+      // Said once, not every 2.5 seconds. A line that rewrites itself constantly reads as
+      // a broken page rather than a patient one.
+      $("sub").textContent = "We have lost contact with the server. Your report is still "
+        + "running; this page will keep trying." + (why ? " (" + why + ")" : "");
+    }
+    return true;
+  }
+
   async function poll() {
     try {
       // CHECK THE STATUS BEFORE TRUSTING THE BODY. A 404 or 401 answer has no `state`,
@@ -506,7 +543,12 @@
             + "may be from a browser session that has since been cleared."
           : "You are signed out. Sign in and open it from your library.");
       }
-      if (!res.ok) { tick(); setTimeout(poll, 2500); return; }   // 5xx: keep trying
+      if (!res.ok) {                                   // 5xx: keep trying, but say so
+        tick();
+        if (pollFailed("server error " + res.status)) setTimeout(poll, POLL_MS);
+        return;
+      }
+      missed = 0;                                      // answered: back to normal
       var j = await res.json();
       if (j.created_at) createdAt = j.created_at;
       // Kept for fail(): the description is the one piece of the interview a stopped run
@@ -540,10 +582,14 @@
       if (j.state === "complete") { tick(); return succeed(j.result); }
       if (j.state === "error") { tick(); return fail(j.error); }
     } catch (e) {
-      // A dropped poll is not a failed run. Keep polling; the work is server side.
+      // A dropped poll is not a failed run. Keep polling; the work is server side. But a
+      // page that has been told nothing for two minutes should stop pretending.
+      tick();
+      if (pollFailed("no connection")) setTimeout(poll, POLL_MS);
+      return;
     }
     tick();
-    setTimeout(poll, 2500);
+    setTimeout(poll, POLL_MS);
   }
 
   renderPhases([]);

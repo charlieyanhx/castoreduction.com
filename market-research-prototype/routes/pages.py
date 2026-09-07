@@ -23,11 +23,36 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
 
 from logger import get
 from llm import get_usage
-from routes.deps import APP_VERSION, DOCS_DIR, WEB_DIR, _NO_CACHE
+from routes.deps import (APP_VERSION, DOCS_DIR, TEMPLATES_DIR, WEB_DIR,
+                         SafeUndefined, _NO_CACHE)
 
 log = get("api")
 
 router = APIRouter()
+
+def _render_page(name: str, **ctx) -> HTMLResponse:
+    """Serve a page from web/ through Jinja, so it can include shared partials.
+
+    THE PAGES WERE STATIC FILES AND THE CHROME WAS COPY-PASTE. Seven of them hand-carried
+    the brand mark; two of those carried a battery emoji instead, for months, because there
+    was no single definition for them to disagree with. A page that INCLUDES the mark cannot
+    drift from it.
+
+    The loader sees web/ first and templates/ second, so a page keeps its own name and a
+    partial is addressed as partials/x.html. Nothing else changes: same file, same
+    no-cache headers, and every page is plain HTML with no Jinja tokens of its own, so
+    rendering one is a no-op until it opts in with an {% include %}.
+    """
+    from jinja2 import Environment, FileSystemLoader
+
+    f = WEB_DIR / name
+    if not f.exists():
+        raise HTTPException(status_code=404, detail=f"{name} not built")
+    env = Environment(
+        loader=FileSystemLoader([str(WEB_DIR), str(TEMPLATES_DIR)]),
+        autoescape=True, undefined=SafeUndefined)
+    return HTMLResponse(env.get_template(name).render(**ctx), headers=_NO_CACHE)
+
 
 def _render_docs_index() -> str:
     """List all markdown files in docs/ as a clickable index."""
@@ -115,9 +140,11 @@ def index():
     landing = WEB_DIR / "landing.html"
     if landing.exists():
         return FileResponse(landing, headers=_NO_CACHE)
-    f = WEB_DIR / "survey.html"
-    if f.exists():
-        return FileResponse(f, headers=_NO_CACHE)
+    # RENDERED, NOT SENT. survey.html carries an {% include %} now, so a FileResponse here
+    # would hand the browser the literal Jinja tag. This fallback only runs on an install
+    # with no landing page, which is exactly the install nobody would notice it on.
+    if (WEB_DIR / "survey.html").exists():
+        return _render_page("survey.html")
     return JSONResponse({"ok": True, "hint": "no web/landing.html or survey.html"})
 
 
@@ -134,10 +161,7 @@ def login_page():
 @router.get("/forgot", response_class=HTMLResponse)
 def forgot_page():
     """Ask for a reset link. Linked from the login screen."""
-    f = WEB_DIR / "forgot.html"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="forgot page not built")
-    return FileResponse(f, headers=_NO_CACHE)
+    return _render_page("forgot.html")
 
 
 @router.get("/reset", response_class=HTMLResponse)
@@ -145,10 +169,7 @@ def reset_page():
     """Where the reset EMAIL lands. mailer.send_password_reset builds
     {base}/reset?token=..., so this route existing is what makes the whole recovery flow
     real rather than a set of endpoints nobody can reach."""
-    f = WEB_DIR / "reset.html"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="reset page not built")
-    return FileResponse(f, headers=_NO_CACHE)
+    return _render_page("reset.html")
 
 
 @router.get("/verify")
@@ -178,14 +199,21 @@ def account_js():
     return FileResponse(f, media_type="application/javascript", headers=_NO_CACHE)
 
 
+@router.get("/castor-api.js")
+def castor_api_js():
+    """The shared transport. Served from its own route, like account.js, so it carries the
+    no-cache headers a browser holding half an old bundle would otherwise defeat."""
+    f = WEB_DIR / "castor-api.js"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="castor-api.js not built")
+    return FileResponse(f, media_type="application/javascript", headers=_NO_CACHE)
+
+
 @router.get("/home", response_class=HTMLResponse)
 def home_page():
     """The account page: credits, runs in flight, the idea notebook, recent reports,
     settings. Where a RETURNING founder lands; `/` stays the survey for a first visit."""
-    f = WEB_DIR / "home.html"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="home not built")
-    return FileResponse(f, headers=_NO_CACHE)
+    return _render_page("home.html")
 
 
 @router.get("/library", response_class=HTMLResponse)
@@ -196,28 +224,19 @@ def library_page():
     stranger weighing $29 wants to read real work — so it must render for someone with no
     cookie, no account and no interest in making one yet. /library.json is what it reads,
     and that endpoint carries titles and job ids only: no owner, no email, no draft."""
-    f = WEB_DIR / "library.html"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="library not built")
-    return FileResponse(f, headers=_NO_CACHE)
+    return _render_page("library.html")
 
 
 @router.get("/dashboard.html", response_class=HTMLResponse)
 def dashboard_page():
     """The dashboard page, if this install has one built."""
-    f = WEB_DIR / "dashboard.html"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="dashboard not built")
-    return FileResponse(f, headers=_NO_CACHE)
+    return _render_page("dashboard.html")
 
 
 @router.get("/progress.html", response_class=HTMLResponse)
 def progress_page():
     """The run-progress page, if this install has one built."""
-    f = WEB_DIR / "progress.html"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="progress page not built")
-    return FileResponse(f, headers=_NO_CACHE)
+    return _render_page("progress.html")
 
 
 @router.get("/start", response_class=HTMLResponse)
@@ -235,10 +254,7 @@ def survey_page():
     The JS is inlined deliberately. _stamped_html's version-stamping regex is hardcoded to
     workspace.js, so an external survey.js would be served unstamped and a browser holding
     half an old bundle is exactly the failure _asset_version exists to prevent."""
-    f = WEB_DIR / "survey.html"
-    if not f.exists():
-        raise HTTPException(status_code=404, detail="survey not built")
-    return FileResponse(f, headers=_NO_CACHE)
+    return _render_page("survey.html")
 
 
 @router.get("/survey.js")

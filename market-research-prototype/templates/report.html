@@ -2655,6 +2655,15 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
       return r.json(); });
 
   let st = null;
+  /* WHAT A FAILED MUTATION SAYS. Four of these ran .then(load) with no .catch: a refusal
+     became an unhandled rejection, the reload put the row back, and the click read as
+     having done nothing at all. `load` reverting the UI is correct; doing it silently is
+     not, because "nothing happened" and "we refused" look identical from the outside. */
+  const failed = (what) => (e) => {
+    say(what + ": " + ((e && e.message) || "the server refused") + ".");
+    load();          // put the page back in step with the server either way
+  };
+
   function say(msg) {
     // Both, deliberately. Marking happens while scrolled into the report and the actions
     // are at the foot, so a single message node is always in the wrong place.
@@ -2839,14 +2848,22 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
     $("shareView").target = "_blank";
     $("shareUndo").onclick = async (ev) => {
       ev.preventDefault();
+      // IT NEVER CHECKED THE ANSWER. A raw fetch resolves on a 404 or a 403 exactly as it
+      // does on success, so a refused withdrawal still printed "Taken back out of the
+      // library" and the founder believed their report was private while it was public.
+      // Of every error on this page that is the one that must not fail quietly.
       try {
-        await fetch("/jobs/" + encodeURIComponent(JOB) + "/share", { method: "DELETE" });
+        await api("DELETE", "/jobs/" + JOB + "/share");
         // The code was earned and is kept; only the listing goes.
         $("shareDoneWhere").textContent =
           "Taken back out of the library. Your code is still yours.";
         $("shareView").remove();
         ev.target.remove();
-      } catch (e) { /* leaving the panel as-is is the honest failure */ }
+      } catch (e) {
+        $("shareDoneWhere").textContent =
+          "This report is STILL in the library: " + (e.message || "the server refused") +
+          ". Reload the page and try again.";
+      }
     };
   }
 
@@ -2986,14 +3003,18 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
     });
 
     document.querySelectorAll("[data-del-e]").forEach((el) => el.onclick = () =>
-      api("PATCH", "/jobs/" + JOB + "/input-edits", {field: el.dataset.delE, value: ""}).then(load));
+      api("PATCH", "/jobs/" + JOB + "/input-edits", {field: el.dataset.delE, value: ""})
+        .then(load).catch(failed("That correction was not removed")));
     document.querySelectorAll("[data-del-a]").forEach((el) => el.onclick = () =>
-      api("DELETE", "/jobs/" + JOB + "/annotations/" + el.dataset.delA).then(load));
+      api("DELETE", "/jobs/" + JOB + "/annotations/" + el.dataset.delA)
+        .then(load).catch(failed("That mark was not deleted")));
     document.querySelectorAll("[data-del-q]").forEach((el) => el.onclick = () =>
-      api("DELETE", "/jobs/" + JOB + "/questions/" + el.dataset.delQ).then(load));
+      api("DELETE", "/jobs/" + JOB + "/questions/" + el.dataset.delQ)
+        .then(load).catch(failed("That question was not deleted")));
     document.querySelectorAll("textarea[data-a]").forEach((el) => el.onchange = () => {
       const v = el.value.trim();
-      if (v) api("PATCH", "/jobs/" + JOB + "/qa/" + el.dataset.a, {a: v}).then(load);
+      if (v) api("PATCH", "/jobs/" + JOB + "/qa/" + el.dataset.a, {a: v})
+        .then(load).catch(failed("Your answer was not saved"));
     });
     document.querySelectorAll("textarea[data-c]").forEach((el) => el.onchange = () => {
       const v = el.value.trim();

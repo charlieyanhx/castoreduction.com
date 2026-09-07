@@ -453,6 +453,29 @@ def build_revision_brief(job_id: str, description: str) -> str:
     return " ".join(p for p in parts if p.strip())
 
 
+def reruns_left(job_id: str, params: dict | None = None) -> int:
+    """How many regenerations this report can still run. THE ONE RULE, in one place.
+
+    It was written twice and the two copies disagreed. routes/jobs.post_revise counted
+    "this report IS a revision" plus "this report HAS been revised"; the report page
+    counted limits().reruns minus reruns_used. On a regenerated report those give 0 and 1:
+    the page offered a regeneration the endpoint then refused with 402, which is the exact
+    live-button-dead-action failure the page's own comment warns about.
+
+    Three things spend a regeneration, and all three count:
+      previous_job_id   this report is itself the output of one
+      status revised    this report has spent its own
+      reruns_used       the ledger spend_rerun writes, which survives both of the above
+    """
+    st = get_state(job_id)
+    used = max(
+        int(st.get("reruns_used") or 0),
+        (1 if (params or {}).get("previous_job_id") else 0)
+        + (1 if st.get("status") == "revised" else 0),
+    )
+    return max(0, int(limits(st).get("reruns") or 1) - used)
+
+
 def spend_rerun(job_id: str) -> bool:
     """Claim one of this report's regenerations. False when they are all spent.
 

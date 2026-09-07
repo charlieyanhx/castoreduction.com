@@ -157,7 +157,7 @@
 <body>
 
 <header class="rail">
-  <a class="brand-mark" href="/home"><svg viewBox="0 0 100 100" width="32" height="32"><g transform="translate(10,8)"><ellipse cx="40" cy="38" rx="38" ry="35" fill="#B07840"/><ellipse cx="40" cy="46" rx="28" ry="24" fill="#D4A870"/><circle cx="28" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="29.5" cy="28.5" r="2" fill="white"/><circle cx="52" cy="30" r="5.5" fill="#2B3C2B"/><circle cx="53.5" cy="28.5" r="2" fill="white"/><ellipse cx="40" cy="42" rx="6" ry="4.5" fill="#2B3C2B"/><path d="M35 48 Q40 54 45 48" stroke="#2B3C2B" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="4" y1="38" x2="22" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="2" y1="46" x2="20" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="4" y1="54" x2="22" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="38" x2="58" y2="42" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="78" y1="46" x2="60" y2="46" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><line x1="76" y1="54" x2="58" y2="50" stroke="#2B3C2B" stroke-width="1.8" stroke-linecap="round"/><ellipse cx="12" cy="12" rx="9" ry="8" fill="#B07840"/><ellipse cx="68" cy="12" rx="9" ry="8" fill="#B07840"/></g></svg><div><span class="word">Castor</span><span class="sub">Research</span></div></a>
+  {% with home = "/home" %}{% include "partials/brand_mark.html" %}{% endwith %}
   <span class="rail-acts">
     <a class="btn go" href="/survey">New report</a>
   </span>
@@ -244,6 +244,7 @@
   </section>
 </main>
 
+<script src="/castor-api.js"></script>
 <script src="/account.js" defer></script>
 <script>
 (function () {
@@ -271,18 +272,25 @@
     if (text != null) n.textContent = text;
     return n;
   }
-  function get(url) { return fetch(url).then(function (r) { return r.ok ? r.json() : null; }); }
+  /* `null` MEANT BOTH "nothing there" AND "the call failed". A 500 from /jobs made
+     reports(null) draw the empty state, so the page told a customer they had no reports
+     when what happened was that we could not fetch them, and the failure banner below
+     could never fire because nothing rejected. It throws now; each section says which of
+     the two it is. */
+  function get(url) { return window.castor.api("GET", url); }
 
   /* THE BODY OF A FAILED CALL IS THE ONLY PLACE THE REASON LIVES. Every write on this
      page used to read r.json() and never r.ok, so a refusal that arrived with a perfectly
      good explanation (checkout's 402, a DELETE's 404) was thrown away and the control
      just went quiet. This keeps the status and the parsed detail together. */
   function post(url, body) {
-    return fetch(url, {method: "POST", headers: {"content-type": "application/json"},
-                       body: JSON.stringify(body || {})})
-      .then(function (r) {
-        return r.json().catch(function () { return null; })
-                .then(function (d) { return {ok: r.ok, status: r.status, d: d || {}}; });
+    // Kept in the {ok, status, d} shape every caller on this page already reads; the
+    // difference is that a dropped connection now arrives here as a refusal with a
+    // sentence, instead of an unhandled rejection and a dead button.
+    return window.castor.api("POST", url, body || {})
+      .then(function (d) { return {ok: true, status: 200, d: d || {}}; })
+      .catch(function (e) {
+        return {ok: false, status: e.status, d: {detail: window.castor.reason(e)}};
       });
   }
   function detailOf(x, fallback) {
@@ -465,22 +473,20 @@
       dmsg.hidden = true;
       del.addEventListener("click", function () {
         del.disabled = true; dmsg.hidden = true; dmsg.className = "msg"; dmsg.textContent = "";
-        fetch("/intake/" + encodeURIComponent(d.session_id), {method: "DELETE"})
-          .then(function (r) {
-            // The card came off on ANY answer. DELETE 404s for a draft that is not yours,
-            // so the row disappeared, nothing was deleted, and the draft was back on the
-            // next load.
-            if (r.ok) { card.remove(); if (!host.children.length) drafts([]); return; }
-            del.disabled = false;
-            dmsg.hidden = false;
-            dmsg.className = "msg err";
-            dmsg.textContent = "This draft was not discarded. Reload the page and try again.";
+        // The card used to come off on ANY answer. DELETE 404s for a draft that is not
+        // yours, so the row disappeared, nothing was deleted, and the draft was back on
+        // the next load. Both failure shapes land in one place now, and the server's own
+        // reason is shown rather than a guess at it.
+        window.castor.api("DELETE", "/intake/" + encodeURIComponent(d.session_id))
+          .then(function () {
+            card.remove();
+            if (!host.children.length) drafts([]);
           })
-          .catch(function () {
+          .catch(function (e) {
             del.disabled = false;
             dmsg.hidden = false;
             dmsg.className = "msg err";
-            dmsg.textContent = "The server could not be reached. Try again in a moment.";
+            dmsg.textContent = window.castor.reason(e);
           });
       });
       acts.appendChild(del);
@@ -551,51 +557,66 @@
 
     $("pwSave").addEventListener("click", function () {
       var m = $("pwMsg"); m.className = "msg"; m.textContent = "";
-      fetch("/auth/password", {method: "POST",
-        headers: {"content-type": "application/json"},
-        body: JSON.stringify({current: $("pwCur").value, new: $("pwNew").value})})
-        // A non-JSON error body (a proxy 502, a gateway timeout) rejects with nothing
-        // downstream to catch it: unhandled rejection, the button stays dead, nothing said.
-        .then(function (r) { return r.json().catch(function () { return {}; })
-                              .then(function (d) { return {ok: r.ok, d: d}; }); })
-        .then(function (x) {
-          m.className = "msg " + (x.ok ? "ok" : "err");
-          m.textContent = x.ok ? "Password updated." : (x.d.detail || "Could not update that.");
-          if (x.ok) { $("pwCur").value = ""; $("pwNew").value = ""; }
+      // THE COMMENT BELOW USED TO DESCRIBE A BUG THIS CHAIN STILL HAD. It guarded the
+      // JSON parse and then had no terminal .catch, so a dropped connection was still an
+      // unhandled rejection with the button dead and nothing said. castor.api reports
+      // that case as a refusal with a sentence, and the .catch here is what shows it.
+      window.castor.api("POST", "/auth/password",
+                        {current: $("pwCur").value, new: $("pwNew").value})
+        .then(function () {
+          m.className = "msg ok";
+          m.textContent = "Password updated.";
+          $("pwCur").value = ""; $("pwNew").value = "";
+        })
+        .catch(function (e) {
+          m.className = "msg err";
+          m.textContent = window.castor.reason(e);
         });
     });
 
     $("delBtn").addEventListener("click", function () {
       var m = $("delMsg"); m.className = "msg"; m.textContent = "";
       if (!window.confirm("Delete your account and every report in it? This cannot be undone.")) return;
-      fetch("/auth/account", {method: "DELETE",
-        headers: {"content-type": "application/json"},
-        body: JSON.stringify({password: $("delPw").value,
-                              confirm_email: $("delEmail").value})})
-        // A non-JSON error body (a proxy 502, a gateway timeout) rejects with nothing
-        // downstream to catch it: unhandled rejection, the button stays dead, nothing said.
-        .then(function (r) { return r.json().catch(function () { return {}; })
-                              .then(function (d) { return {ok: r.ok, d: d}; }); })
-        .then(function (x) {
-          if (x.ok) { location.href = "/"; return; }
+      // Deleting an account is the one action on this page nobody can retry into
+      // existence if it half-works, so a failure has to say so rather than go quiet.
+      window.castor.api("DELETE", "/auth/account",
+                        {password: $("delPw").value,
+                         confirm_email: $("delEmail").value})
+        .then(function () { location.href = "/"; })
+        .catch(function (e) {
           m.className = "msg err";
-          m.textContent = x.d.detail || "Could not delete the account.";
+          m.textContent = window.castor.reason(e);
         });
     });
   }
 
   confirmedBanner();
-  Promise.all([get("/auth/me"), get("/billing/status"),
-               get("/jobs?limit=100"), get("/intake/drafts")])
-    .then(function (r) {
-      var me = r[0], bill = r[1], jobs = r[2], nb = r[3];
+  /* ALL FOUR ARE INDEPENDENT, so one failing must not blank the other three, and must not
+     be reported as an empty result. allSettled keeps them apart: a section renders, or it
+     says it could not load. Promise.all here meant a single 500 took the whole page. */
+  Promise.allSettled([get("/auth/me"), get("/billing/status"),
+                      get("/jobs?limit=100"), get("/intake/drafts")])
+    .then(function (rs) {
+      var v = rs.map(function (x) { return x.status === "fulfilled" ? x.value : null; });
+      var failed = rs.map(function (x) { return x.status === "rejected"; });
+      var me = v[0], bill = v[1], jobs = v[2], nb = v[3];
+      if (failed[2]) {
+        $("reports").textContent = "";
+        $("reports").appendChild(el("div", "empty",
+          "Could not load your reports just now. Reload to try again."));
+      }
+      if (failed[3]) {
+        $("drafts").textContent = "";
+        $("drafts").appendChild(el("div", "empty",
+          "Could not load your drafts just now. Reload to try again."));
+      }
       if (me && !me.authenticated) {
         $("hello").textContent = "Your workspace";
         $("lede").textContent = "You are browsing as a guest. Sign in to keep this.";
       }
       meters(me, bill);
-      reports(jobs);
-      drafts(nb && nb.drafts);
+      if (!failed[2]) reports(jobs);
+      if (!failed[3]) drafts(nb && nb.drafts);
       settings(me);
       verifyBanner(me);
     })
