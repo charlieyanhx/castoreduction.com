@@ -157,11 +157,7 @@ class TestHiddenActuallyHides(unittest.TestCase):
             uses = "hidden>" in body or ".hidden =" in body or "hidden = " in body
             if not uses:
                 continue
-            guarded = "[hidden]" in body
-            # index.html has no <style> of its own; its guard lives in the sheet it links.
-            if not guarded and 'href="/web/app.css"' in body:
-                guarded = "[hidden]" in Path("web/app.css").read_text()
-            if not guarded:
+            if "[hidden]" not in body:
                 naked.append(p)
         self.assertEqual(naked, [],
                          f"these toggle elements with `hidden` and never defend it "
