@@ -18,6 +18,7 @@ Run:
 from __future__ import annotations
 import os
 import secrets
+import threading
 from urllib.parse import urlencode, quote
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -356,6 +357,24 @@ def _resume_interrupted_runs():
         log.warning("[startup] could not resume interrupted runs: %s", e)
 
 
+# The thread pushing the coupon backlog, so a test can join it. None until the startup
+# handler below starts one, and None again when a boot has nothing to push.
+_coupon_push_thread: threading.Thread | None = None
+
+
+def _push_pending_coupons():
+    """The body of the push thread. It catches everything, as the synchronous push did."""
+    try:
+        import sharing
+        n = sharing.sync_pending()
+        if n > 0:
+            log.info("[startup] pushed %d coupon(s) minted before Stripe was configured", n)
+    except Exception as e:                                   # noqa: BLE001
+        # A backlog that could not be pushed is still listed by sharing.pending(), which is
+        # visible and fixable. A thread that took the process down with it is neither.
+        log.warning("[startup] could not push pending coupons to Stripe: %s", e)
+
+
 @app.on_event("startup")
 def _push_coupons_minted_without_stripe():
     """A CODE PROMISED BEFORE THE KEYS LANDED IS STILL A PROMISE.
@@ -369,17 +388,27 @@ def _push_coupons_minted_without_stripe():
 
     Boot is the one moment every instance passes through after its config changes, so the
     backlog is pushed here. Idle when Stripe is not configured: there is nowhere to push.
+
+    ON A THREAD, BECAUSE A SLOW STRIPE MUST NOT HOLD THE HEALTH CHECK HOSTAGE. Every code
+    in the backlog is up to two 20-second calls to Stripe, and the platform only marks a
+    deploy healthy once /healthz answers. Pushed synchronously, a backlog against an
+    unreachable Stripe kept the server from listening for minutes, at the one moment every
+    instance passes through, and the deploy was declared dead for work that was never
+    urgent. The configured() gate stays on the boot path because it is a cheap read of the
+    environment; the push itself runs on a daemon thread, which never blocks boot and
+    never outlives the process. Its handle is kept in _coupon_push_thread.
     """
+    global _coupon_push_thread
+    _coupon_push_thread = None
     try:
         import billing
-        import sharing
         if not billing.configured():
             return
-        n = sharing.sync_pending()
-        if n > 0:
-            log.info("[startup] pushed %d coupon(s) minted before Stripe was configured", n)
+        t = threading.Thread(target=_push_pending_coupons, daemon=True, name="coupon-push")
+        t.start()
+        _coupon_push_thread = t
     except Exception as e:                                   # noqa: BLE001
-        # A backlog that could not be pushed is still listed by sharing.pending(), which is
+        # Same rule as the thread body: a backlog still listed by sharing.pending() is
         # visible and fixable. A boot loop is neither.
         log.warning("[startup] could not push pending coupons to Stripe: %s", e)
 
@@ -1326,6 +1355,29 @@ def describe_agent_api(name: str):
 
 
 
-# Serve the web app
+class _AssetsOnly(StaticFiles):
+    """The /web mount serves assets, and a page source is not an asset.
+
+    THE PAGES UNDER web/ ARE TEMPLATES NOW. Eight of them carry an {% include %} for the
+    shared brand mark and are rendered by routes.pages._render_page, so the file on disk is
+    a Jinja source and not the document a browser should see. A plain StaticFiles mount
+    handed that source out anyway. MEASURED 2026-09-07: GET /web/login.html was a 200 with
+    the literal include tag in the body, and so was /web/LOGIN.HTML, because the filesystem
+    underneath folds case. Nothing links a page at /web/<name>.html; the mount exists for
+    brand.css, the scripts and any image the pages reference.
+
+    So the mount refuses every .html, case folded to match the disk, and serves the rest
+    unchanged. The refusal is the same 404 the mount already gives a file that does not
+    exist, which is what a page source is, from an asset URL. It stays a Mount named "web"
+    at /web because the stylesheet test reads the route table to learn what URLs serve.
+    """
+
+    async def get_response(self, path: str, scope):
+        if path.lower().endswith(".html"):
+            raise HTTPException(status_code=404, detail="page sources are rendered, not served")
+        return await super().get_response(path, scope)
+
+
+# Serve the web app's assets. The pages themselves come from routes/pages.py.
 if WEB_DIR.exists():
-    app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
+    app.mount("/web", _AssetsOnly(directory=WEB_DIR), name="web")
