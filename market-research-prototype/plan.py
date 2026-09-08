@@ -2173,8 +2173,12 @@ def _finalize_run(result: dict, *, description: str, geo: str, _levers: dict,
     # The step is credited as "research_brief" rather than "research_crew": the cover
     # page's step list names artifacts everywhere else (market_sizing, viability, four_ps),
     # nothing reads the old name, and 0 of 19 corpus reports carry it.
+    # NO checkpoint= HERE. `checkpoint` is defined ~176 lines further down, and the
+    # pre-migration crew call never took one either. Passing it raised NameError on every
+    # real run at this line, which 4052 passing tests did not catch because nothing in the
+    # suite executes run_plan's body this far. See test_run_plan_uses_no_name_before_it_exists.
     apply_sections([research_brief_section(description, geo, effort_levers=_levers)],
-                   result, checkpoint=checkpoint)
+                   result)
 
     # W6-1: run the 22 invariants on THIS report before it ships. gates.py has only
     # ever swept a corpus after the fact — a developer's view. This is the buyer's:
