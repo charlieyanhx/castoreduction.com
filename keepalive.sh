@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# QUICK-TUNNEL MODE ONLY. This script starts a throwaway trycloudflare.com link and a
+# server, for a one-off test. The stable link (app.castor-advisory.com) is the named
+# tunnel "shuttle" plus the server, both run by launchd: see config/launchd/*.plist.
+# This script never touches that tunnel; its pkill patterns match only its own.
+#
 # Castor keepalive watchdog. Survives:
 #   - cloudflared crashes      (auto-restart loop)
 #   - uvicorn crashes          (auto-restart loop)
@@ -15,10 +20,10 @@
 #   cat ~/.castor_url.txt
 #
 # Stop it cleanly:
-#   pkill -f "keepalive.sh"; pkill -f cloudflared; pkill -f "uvicorn api:app"
+#   pkill -f "keepalive.sh"; pkill -f "cloudflared --config /dev/null tunnel --url"; pkill -f "uvicorn api:app"
 
 set -u
-PROJECT_DIR="/Users/charlieyan/Downloads/castor-advisories"
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 URL_FILE="$HOME/.castor_url.txt"
 LOG_FILE="/tmp/castor_keepalive.log"
 SERVER_LOG="/tmp/castor_server.log"
@@ -34,7 +39,7 @@ CAFFEINATE_PID=$!
 echo "[$(date)] caffeinate PID $CAFFEINATE_PID"
 
 # Cleanup on exit
-trap 'echo "[$(date)] keepalive shutting down"; kill $CAFFEINATE_PID 2>/dev/null; pkill -f cloudflared 2>/dev/null; pkill -f "uvicorn api:app" 2>/dev/null; exit 0' INT TERM
+trap 'echo "[$(date)] keepalive shutting down"; kill $CAFFEINATE_PID 2>/dev/null; pkill -f "cloudflared --config /dev/null tunnel --url" 2>/dev/null; pkill -f "uvicorn api:app" 2>/dev/null; exit 0' INT TERM
 
 # 2. Start (and watchdog) the uvicorn server
 start_server() {
@@ -42,14 +47,14 @@ start_server() {
         return 0  # already running
     fi
     echo "[$(date)] starting uvicorn..."
-    nohup .venv/bin/uvicorn api:app --host 127.0.0.1 --port 8765 > "$SERVER_LOG" 2>&1 &
+    nohup .venv/bin/python -m uvicorn api:app --host 127.0.0.1 --port 8765 > "$SERVER_LOG" 2>&1 &
     sleep 6
     curl -sf http://127.0.0.1:8765/healthz > /dev/null 2>&1
 }
 
 # 3. Start (and watchdog) cloudflared tunnel
 start_tunnel() {
-    pkill -f cloudflared 2>/dev/null
+    pkill -f "cloudflared --config /dev/null tunnel --url" 2>/dev/null
     sleep 2
     echo "[$(date)] starting cloudflared..."
     nohup cloudflared --config /dev/null tunnel --url http://127.0.0.1:8765 > "$TUNNEL_LOG" 2>&1 &
