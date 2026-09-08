@@ -121,22 +121,40 @@ def send_verify_email(to: str, token: str) -> bool:
         f"{url}\n\nThe link expires in 24 hours.\n")
 
 
-def send_report_ready(to: str, job_id: str, name: str = "") -> bool:
+def _guest_trailer(to: str) -> str:
+    """What a guest needs to know that an account holder does not.
+
+    THE LINK IS OWNED BY A COOKIE. A guest's report belongs to the guest id in the browser
+    that bought it, so the link opens there and nowhere else. Telling them it was "in your
+    library" was the account holder's truth mailed to someone with no library. Confirming
+    the address is what moves the report (api._claim_prepaid), so the mail says exactly
+    that, with the address spelled out because it has to be this one.
+    """
+    where = f" at {base_url()}/login" if base_url() else ""
+    return (f"This link opens on the browser that bought the report. To read it anywhere "
+            f"else, create an account with {to}{where} and confirm the address when the "
+            f"confirmation mail arrives: the report then moves to that account's library, "
+            f"on any device.\n")
+
+
+def send_report_ready(to: str, job_id: str, name: str = "", guest: bool = False) -> bool:
     url = f"{base_url()}/jobs/{job_id}/report.html" if base_url() else ""
     what = f"Your report on {name} is ready" if name else "Your Castor report is ready"
-    return send(to, what,
-                f"{what}.\n\n{url}\n\n"
-                "It is in your library whenever you want it.\n")
+    trailer = (_guest_trailer(to) if guest
+               else "It is in your library whenever you want it.\n")
+    return send(to, what, f"{what}.\n\n{url}\n\n{trailer}")
 
 
-def send_report_withheld(to: str, job_id: str, name: str = "") -> bool:
+def send_report_withheld(to: str, job_id: str, name: str = "",
+                         guest: bool = False) -> bool:
     """A withheld report is still news, and silence reads as a failed purchase."""
     url = f"{base_url()}/jobs/{job_id}/report.html" if base_url() else ""
     what = f"Your report on {name} needs a look" if name else "Your Castor report needs a look"
+    trailer = f"\n{_guest_trailer(to)}" if guest else ""
     return send(to, what,
                 f"{what}.\n\nThe run finished, but its own checks flagged something and it "
                 f"is being held back rather than published as-is. The page explains which "
-                f"check and what would clear it.\n\n{url}\n")
+                f"check and what would clear it.\n\n{url}\n{trailer}")
 
 
 def send_coupon(to: str, code: str, value_usd: float) -> bool:

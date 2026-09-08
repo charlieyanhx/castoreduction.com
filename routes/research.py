@@ -377,11 +377,11 @@ def _owner_email(owner_id: str) -> str | None:
     who has bought nothing has no row and stays silent, which is right: there is nobody
     to tell.
 
-    KNOWN EDGE, LEFT ALONE HERE. The link in the mail is /jobs/{id}/report.html, and that
-    job is owned by the guest cookie. It opens on the browser that bought the report and
-    404s on any other device, because a guest has no login to prove the job is theirs.
-    Cross-device access for guests is a separate piece of work; this only stops the mail
-    from never being sent at all.
+    THE LINK IS OWNED BY THE GUEST COOKIE. /jobs/{id}/report.html opens on the browser
+    that bought the report and 404s anywhere else, until the buyer creates an account with
+    this address and confirms it: that is when api._claim_prepaid moves the guest's work
+    onto the account. _notify_owner passes guest=True so the mail says exactly that
+    instead of promising a library a guest does not have.
     """
     import auth
     import billing
@@ -393,8 +393,9 @@ def _owner_email(owner_id: str) -> str | None:
 
 def _notify_owner(owner_id: str, job_id: str, result: dict) -> None:
     """Email the owner that their run finished. Withheld gets its own message, because
-    silence after a purchase reads as a failed purchase. A guest is sent exactly what an
-    account is sent, once _owner_email has found an address for them."""
+    silence after a purchase reads as a failed purchase. A guest is sent the same news at
+    the address _owner_email found, with the mail told they are a guest so it can say
+    where the link works and how to make it work everywhere."""
     try:
         import mailer
         if not owner_id:
@@ -402,6 +403,7 @@ def _notify_owner(owner_id: str, job_id: str, result: dict) -> None:
         email = _owner_email(owner_id)
         if not email:
             return
+        is_guest = str(owner_id).startswith("guest-")
         name = ((result or {}).get("profile") or {}).get("name") or ""
         withheld = False
         try:
@@ -412,9 +414,9 @@ def _notify_owner(owner_id: str, job_id: str, result: dict) -> None:
         if (result or {}).get("error"):
             return                    # a failed run is not news worth an email yet
         if withheld:
-            mailer.send_report_withheld(email, job_id, name)
+            mailer.send_report_withheld(email, job_id, name, guest=is_guest)
         else:
-            mailer.send_report_ready(email, job_id, name)
+            mailer.send_report_ready(email, job_id, name, guest=is_guest)
     except Exception as e:                                   # noqa: BLE001
         log.warning("[api] could not notify owner of %s: %s", job_id, e)
 

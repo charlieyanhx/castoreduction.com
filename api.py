@@ -574,21 +574,49 @@ def _claim_prepaid(account_id: str) -> dict:
     is gone. Confirming the address is what earns it: this runs from the two endpoints
     that prove possession of a mailbox, /auth/verify and /auth/reset.
 
+    THE WHOLE GUEST FOLLOWS, NOT JUST THE UNSPENT CREDIT. claim_by_email moves credit with
+    something left on it, and the credit that bought a finished report has nothing left,
+    so a buyer registering on a second device got their spare credits and a 404 on the
+    report the mail had just announced. The report is owned by the guest id, and a guest
+    id that paid with this address is this person, so it gets the same four moves the
+    cookie handover in _set_session makes: entitlements, jobs, shares, drafts. Only ever
+    off a guest id: a row already on an account is somebody's, whatever address the card
+    carried.
+
     Never raises. A claim that fails must not turn a working confirmation link into an
-    error page.
+    error page, and one guest id that will not move must not stop the next one.
     """
-    out = {"credits": 0, "coupons": 0}
+    out = {"guests": 0, "jobs": 0, "credits": 0, "coupons": 0}
     try:
         import billing
+        import intake as _intake
         import sharing
         email = auth.account_email(account_id)
         if not email:
             return out
+        for guest in billing.guest_owners_for_email(email):
+            if not str(guest).startswith("guest-"):
+                continue                      # the query promises this; hold it here too
+            try:
+                # Entitlements first: billing.reassign_owner records the move before it
+                # touches a row, so a webhook landing mid-claim already follows the buyer.
+                billing.reassign_owner(guest, account_id)
+                out["jobs"] += jobs.reassign_owner(guest, account_id)
+                sharing.reassign_owner(guest, account_id)
+                _intake.reassign_owner(guest, account_id)
+                out["guests"] += 1
+            except Exception as e:                           # noqa: BLE001
+                log.warning("[auth] could not move guest %s onto %s: %s",
+                            guest[:12], account_id[:8], e)
+        # Whatever the address still holds that no guest id owned: a coupon minted with
+        # no owner, or a row a failed move above left behind.
         out["credits"] = billing.claim_by_email(email, account_id)
         out["coupons"] = sharing.claim_by_email(email, account_id)
-        if out["credits"] or out["coupons"]:
-            log.info("[auth] %s verified and claimed %d credit(s), %d coupon(s)",
-                     account_id[:8], out["credits"], out["coupons"])
+        if any(out.values()):
+            log.info("[auth] %s verified and claimed %d guest workspace(s) holding %d "
+                     "report(s), plus %d credit(s), %d coupon(s)",
+                     account_id[:8], out["guests"], out["jobs"], out["credits"],
+                     out["coupons"])
     except Exception as e:                                   # noqa: BLE001
         log.warning("[auth] could not claim prepaid items for %s: %s", account_id[:8], e)
     return out

@@ -12,9 +12,11 @@ reads remaining = 0, and only billing.last_email_for, which reads the most recen
 or not, finds the address. A test that grants a credit and does not spend it would pass
 on email_on_credits alone and miss the buyer who matters.
 
-KNOWN EDGE, DELIBERATELY NOT COVERED HERE. The link in that mail is owned by the guest
-cookie, so it opens on the browser that bought the report and 404s elsewhere. That is a
-separate piece of work; this file only asks that the mail is sent at all.
+THE LINK IN THAT MAIL IS OWNED BY THE GUEST COOKIE, so it opens on the browser that
+bought the report and 404s elsewhere until the address is confirmed. The mail is told the
+owner is a guest (guest=True) so it can say so; what happens after the confirmation click
+is test_a_paid_report_opens_on_a_second_device.py's job. This file only asks that the
+mail is sent at all, and to whom.
 """
 from __future__ import annotations
 
@@ -80,7 +82,7 @@ class AGuestWhoPaidIsToldTheReportIsReady(_Env):
         """The common case: one credit, bought and spent on this very run."""
         self._guest_who_paid_and_ran()
         ready, held = self._notify(GUEST, RESULT)
-        ready.assert_called_once_with(BUYER, "job-1", "A coffee shop")
+        ready.assert_called_once_with(BUYER, "job-1", "A coffee shop", guest=True)
         held.assert_not_called()
 
     def test_a_withheld_report_gets_the_withheld_mail_like_an_account_would(self):
@@ -88,7 +90,7 @@ class AGuestWhoPaidIsToldTheReportIsReady(_Env):
         because silence after a purchase reads as a failed purchase."""
         self._guest_who_paid_and_ran()
         ready, held = self._notify(GUEST, RESULT, withheld=True)
-        held.assert_called_once_with(BUYER, "job-1", "A coffee shop")
+        held.assert_called_once_with(BUYER, "job-1", "A coffee shop", guest=True)
         ready.assert_not_called()
 
     def test_a_guest_with_credit_left_is_found_without_the_spent_row_query(self):
@@ -99,7 +101,7 @@ class AGuestWhoPaidIsToldTheReportIsReady(_Env):
         billing.consume(GUEST, "report")
         self.assertEqual(billing.balance(GUEST, "report"), 4)
         ready, _ = self._notify(GUEST, RESULT)
-        ready.assert_called_once_with(BUYER, "job-1", "A coffee shop")
+        ready.assert_called_once_with(BUYER, "job-1", "A coffee shop", guest=True)
 
 
 class AGuestWithNothingToTellStaysSilent(_Env):
@@ -132,7 +134,8 @@ class AnAccountOwnerIsUnchanged(_Env):
         import auth
         with patch.object(auth, "account_email", lambda _id: "founder@example.com"):
             ready, _ = self._notify("acct-1", RESULT)
-        ready.assert_called_once_with("founder@example.com", "job-1", "A coffee shop")
+        ready.assert_called_once_with("founder@example.com", "job-1", "A coffee shop",
+                                      guest=False)
 
     def test_an_account_with_no_address_is_not_mailed(self):
         import auth

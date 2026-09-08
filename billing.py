@@ -290,6 +290,33 @@ def claim_by_email(email: str, account_id: str) -> int:
     return n
 
 
+def guest_owners_for_email(email: str) -> list[str]:
+    """Every guest id that paid with this address, spent rows included. Oldest first.
+
+    THE SPENT ROW IS THE ONE THAT MATTERS. claim_by_email moves credit with something
+    left on it, and the credit that bought a finished report has nothing left, so a buyer
+    who registered on a second device found their spare credits waiting and the report
+    gone. The report is owned by the guest id, not by the row, and api._claim_prepaid
+    needs those ids to move the whole workspace: entitlements, jobs, shares, drafts.
+
+    Only guest ids, by construction. A row already on an account is somebody's, whatever
+    address Stripe collected for it, and must never be handed to whoever proves that
+    address.
+    """
+    email = (email or "").strip().lower()
+    if not email:
+        return []
+    c = _db()
+    try:
+        rows = c.execute(
+            "SELECT account_id FROM entitlements WHERE email = ? "
+            "AND account_id LIKE 'guest-%' GROUP BY account_id ORDER BY MIN(created_at)",
+            (email,)).fetchall()
+    finally:
+        c.close()
+    return [r[0] for r in rows]
+
+
 def reassign_owner(old_owner: str, new_owner: str) -> int:
     """Move unspent credits from a guest to the account they just created.
 
