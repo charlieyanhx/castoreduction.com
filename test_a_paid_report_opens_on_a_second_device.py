@@ -245,6 +245,37 @@ class NobodyElseGetsIt(_Env):
         self.assertIn(r.status_code, (302, 303))
         self.assertTrue(auth.email_is_verified(acct))
 
+    def test_a_move_that_fails_once_completes_on_the_next_confirmation(self):
+        """THE GUEST ID MUST STAY FINDABLE UNTIL THE LAST MOVE. _claim_prepaid finds guest
+        ids through their entitlement rows. Moving those rows first meant that when a
+        later move raised, the retry could no longer see the guest at all: the credits
+        were on the account and the report was stranded under an id nothing would look
+        up again. The rows move last, so a failure anywhere before them leaves the guest
+        exactly as discoverable as it was, and the next confirmation finishes the job."""
+        import jobs
+        a = self._guest_client()
+        guest = a.get("/auth/me").json()["owner"]
+        jid = self._paid_finished_report(guest)
+        b = self._fresh_client()
+        acct = self._signup(b, BUYER)
+        real = jobs.reassign_owner
+        calls = {"n": 0}
+
+        def once_broken(old, new):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("db gone, once")
+            return real(old, new)
+
+        with patch.object(jobs, "reassign_owner", side_effect=once_broken):
+            self._verify(b, acct)
+            self._verify(b, acct)
+        self.assertGreaterEqual(calls["n"], 2, "the second confirmation never retried the move")
+        r = b.get(f"/jobs/{jid}/report.html")
+        self.assertEqual(r.status_code, 200,
+                         "one failed move stranded the report for good: the retry could "
+                         "not find the guest because its credit rows had already moved")
+
 
 class TheMailTellsAGuestTheTruth(_Env):
     def _body_sent_to(self, owner, withheld=False):

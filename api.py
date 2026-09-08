@@ -598,18 +598,25 @@ def _claim_prepaid(account_id: str) -> dict:
             if not str(guest).startswith("guest-"):
                 continue                      # the query promises this; hold it here too
             try:
-                # Entitlements first: billing.reassign_owner records the move before it
-                # touches a row, so a webhook landing mid-claim already follows the buyer.
-                billing.reassign_owner(guest, account_id)
+                # THE MOVE IS RECORDED FIRST AND THE ROWS MOVE LAST. record_move is what
+                # a webhook landing mid-claim follows, so it goes before anything else.
+                # The entitlement rows are how guest_owners_for_email finds this guest,
+                # so they go after everything else: a move that raises in between leaves
+                # the guest exactly as findable as it was, and the next confirmation
+                # finishes the job instead of stranding a report under an id nothing
+                # will look up again.
+                billing.record_move(guest, account_id)
                 out["jobs"] += jobs.reassign_owner(guest, account_id)
                 sharing.reassign_owner(guest, account_id)
                 _intake.reassign_owner(guest, account_id)
+                billing.reassign_owner(guest, account_id)
                 out["guests"] += 1
             except Exception as e:                           # noqa: BLE001
                 log.warning("[auth] could not move guest %s onto %s: %s",
                             guest[:12], account_id[:8], e)
-        # Whatever the address still holds that no guest id owned: a coupon minted with
-        # no owner, or a row a failed move above left behind.
+        # Whatever the address still holds that no guest id owned, such as a coupon minted
+        # with no owner; and, after a move that failed before its rows moved, the unspent
+        # credit on those rows, so the balance is right even before the retry.
         out["credits"] = billing.claim_by_email(email, account_id)
         out["coupons"] = sharing.claim_by_email(email, account_id)
         if any(out.values()):
