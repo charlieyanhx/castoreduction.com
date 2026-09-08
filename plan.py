@@ -1316,31 +1316,28 @@ def size_by_scale(scale_decision: dict | None, description: str, profile: dict,
     # rollout keeps its own engine; an unknown level keeps today's path, where
     # size_hyperlocal degrades honestly on its own.
     _level = None if (n_locations and n_locations > 1) else _geo_level(location)
-    _downgrade = None
-    _sized_by = "size_hyperlocal"
+    # WHICH METHOD, DECIDED IN skills/sizing/routing.py. This was an if/elif here, which
+    # meant adding a sizing method required editing the orchestrator -- and the person
+    # most qualified to add one is the person who should never have to open this file.
+    # The route names a REGISTERED skill and the arguments to call it with; resolving the
+    # name through SKILL_REGISTRY is what makes "declare a method" enough. The city-scale
+    # reroute still carries its reason so D52 can tell it from a silent substitution.
+    import skills  # noqa: F401  — registers every method before the lookup
+    from skills.registry import resolve as resolve_skill
+    from skills.sizing.routing import route_physical_sizing
+    _route = route_physical_sizing(
+        location=location, category=cat or "food_away_from_home",
+        n_locations=n_locations, geo_level=_level,
+        osm_key=osm_key, osm_value=osm, radius_m=radius_m)
+    _downgrade = _route.downgrade
+    _sized_by = _route.skill
     try:
-        if n_locations and n_locations > 1:
-            from skills.sizing.regional import size_regional
-            _sized_by = "size_regional"
-            ev = size_regional(representative_address=location,
-                               planned_locations=n_locations,
-                               category=cat or "food_away_from_home",
-                               osm_value=osm, radius_m=radius_m)
-        elif _level in ("city", "region", "zip"):
-            # The founder named a city (or wider). Product decision 2026-08-19: an
-            # honest city-scale scan instead of a withheld report — per-site fair
-            # share, site_needed, pick-your-corner note. The reroute is DISCLOSED so
-            # D52 can tell a reasoned downgrade from a silent substitution.
-            from skills.sizing.citywide import size_citywide
-            _sized_by = "size_citywide"
-            _downgrade = (f"the location {location!r} geocodes at {_level} level, not a "
-                          f"site — city-scale scan ran instead of the trade-area model")
-            ev = size_citywide(place=location, category=cat or "food_away_from_home",
-                               osm_value=osm, osm_key=osm_key)
-        else:
-            from skills.sizing.hyperlocal import size_hyperlocal
-            ev = size_hyperlocal(address=location, category=cat or "food_away_from_home",
-                                 osm_value=osm, osm_key=osm_key, radius_m=radius_m)
+        _fn = resolve_skill(_route.skill)
+        if _fn is None:
+            # A route naming a method nobody registered is a declaration bug, not a thin
+            # data run. Loud here beats a report sized by nothing and caught at D52.
+            raise LookupError(f"routing chose {_route.skill!r}, which is not registered")
+        ev = _fn(**_route.kwargs)
     except Exception as e:
         log.warning("[plan] %s sizing failed (non-fatal): %s", _sized_by, e)
         return None

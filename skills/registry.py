@@ -70,6 +70,35 @@ class SkillMeta:
 SKILL_REGISTRY: Registry[SkillMeta] = Registry("skill")
 
 
+def resolve(name: str):
+    """The method registered under `name`, AS IT IS NOW.
+
+    Not `SKILL_REGISTRY[name].fn`. That reference is captured when the decorator runs, so
+    it keeps pointing at the original function even after the module attribute is
+    replaced -- and replacing the module attribute is how every test in this project
+    substitutes a method (`patch("skills.sizing.hyperlocal.size_hyperlocal", ...)`).
+    Dispatching through the captured reference silently ignores all of them, which is the
+    same binding trap that once reverted the four_ps split and that makes patching the
+    facade of a package reach nothing.
+
+    So the registry stores WHERE the method lives and looks it up at call time. A name
+    resolves to the current definition, patched or not, and a method stays substitutable
+    by the person working on it. Falls back to the captured reference when the module
+    cannot be reached, because a dispatcher that raises on an import quirk is worse than
+    one that calls the function it already holds.
+    """
+    meta = SKILL_REGISTRY.get(name)
+    if meta is None:
+        return None
+    if not meta.module:
+        return meta.fn
+    try:
+        import importlib
+        return getattr(importlib.import_module(meta.module), meta.name, meta.fn)
+    except Exception:                                    # noqa: BLE001
+        return meta.fn
+
+
 def _where(fn: Callable) -> dict:
     """Where a function is defined, repo-relative. Best-effort: a missing source file must
     never stop a skill from registering."""
