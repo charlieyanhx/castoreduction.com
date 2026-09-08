@@ -36,6 +36,7 @@ from routes.deps import (                                          # noqa: F401
 )
 import jobs
 import quota
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from logger import get
 import scrape  # noqa: F401 — installs requests-cache globally on import
@@ -245,10 +246,31 @@ def _find_existing_job(kind: str, match_params: dict, max_age_hours: int = 24) -
     return None
 
 
+# BOOT HAS ONE PLACE TO READ NOW. Three @app.on_event("startup") decorators used to spread
+# the boot sequence across three places and left their order to the reader to reconstruct;
+# FastAPI 0.135 and Starlette 1.0 deprecate the form and want one lifespan. The three steps
+# below are the same functions they always were, and the order is the point: refuse first,
+# because a misconfigured container must exit before it does any work or answers a health
+# check; resume second, because the interrupted runs are a paying customer's, and every
+# second of boot they are not running is a second they were bought for; push last, because
+# the coupon backlog is the least urgent thing here and runs on its own thread anyway.
+# A raise before `yield` aborts startup, exactly as a raise from the old decorator did.
+# The steps are looked up by name at boot rather than captured here, so a test can put a
+# recorder in the module and watch the real sequence run.
+@asynccontextmanager
+async def _refuse_resume_push(app: FastAPI):
+    """Refuse a misconfigured boot, resume interrupted runs, push pending coupons, serve."""
+    _refuse_to_boot_misconfigured()
+    _resume_interrupted_runs()
+    _push_coupons_minted_without_stripe()
+    yield
+
+
 app = FastAPI(
     title="Market Research Prototype",
     version=APP_VERSION,
     description="Discover rising DTC brands, decode their audiences, and match product ideas.",
+    lifespan=_refuse_resume_push,
 )
 
 
@@ -312,15 +334,11 @@ app.include_router(_research_router)
 
 
 
-@app.on_event("startup")
 def _refuse_to_boot_misconfigured():
-    if paywall_off():
-        log.warning("[billing] CASTOR_PAYWALL_OFF=1 \u2014 nobody is being asked "
-                    "to pay. Reports run on the free daily allowance.")
     """FAIL AT BOOT, NOT AT THE FIRST LOGIN.
 
     auth._session_secret() raises when CASTOR_ENV=production and SESSION_SECRET is unset,
-    but it only raises when something asks it to sign — which nothing does during startup.
+    but it only raises when something asks it to sign, which nothing does during startup.
     So the container came up, /healthz answered 200, the platform marked the deploy
     healthy, and every signup and login 500'd. Worse, account creation happens BEFORE the
     session is signed, so the first person to try permanently consumed their email address
@@ -328,13 +346,15 @@ def _refuse_to_boot_misconfigured():
 
     A deploy that cannot serve a login is a failed deploy and should look like one.
     """
+    if paywall_off():
+        log.warning("[billing] CASTOR_PAYWALL_OFF=1: nobody is being asked "
+                    "to pay. Reports run on the free daily allowance.")
     if os.environ.get("CASTOR_ENV", "").lower() != "production":
         return
     import auth as _auth
     _auth._session_secret()          # raises RuntimeError -> the container exits
 
 
-@app.on_event("startup")
 def _resume_interrupted_runs():
     """Pick up where a dead worker left off, rather than burying its work.
 
@@ -357,8 +377,8 @@ def _resume_interrupted_runs():
         log.warning("[startup] could not resume interrupted runs: %s", e)
 
 
-# The thread pushing the coupon backlog, so a test can join it. None until the startup
-# handler below starts one, and None again when a boot has nothing to push.
+# The thread pushing the coupon backlog, so a test can join it. None until the boot step
+# below starts one, and None again when a boot has nothing to push.
 _coupon_push_thread: threading.Thread | None = None
 
 
@@ -375,7 +395,6 @@ def _push_pending_coupons():
         log.warning("[startup] could not push pending coupons to Stripe: %s", e)
 
 
-@app.on_event("startup")
 def _push_coupons_minted_without_stripe():
     """A CODE PROMISED BEFORE THE KEYS LANDED IS STILL A PROMISE.
 
