@@ -1,15 +1,38 @@
+# Castor — one project, one ignore file.
+# Merged when the product was promoted from market-research-prototype/ to the repo root:
+# the paths that used to be prefixed no longer are, and the two lists became one.
+
+# --- local environment ---
+.venv/
+.env
 .claude/
 .DS_Store
-claude-code-main/
-out/.cache/
+.session_secret
+.bin/
 
-# server/run logs (srv*.log, deep*.log) are run artifacts, never source
+# --- python ---
+__pycache__/
+*.pyc
+
+# --- local state: caches, job store, transcripts ---
+.cache.sqlite
+.jobs.sqlite
+.http_cache.sqlite
+.cex_curve_cache.json
+.transcripts/
+jobs.db
+
+# --- run artifacts, never source ---
+out/
 *.log
 
-# bulk public reference data (large, re-downloadable)
-market-research-prototype/data/
+# --- vendored reference copy, not ours ---
+claude-code-main/
 
-# latex build artifacts
-docs/*.aux
-docs/*.log
-docs/*.out
+# --- bulk public reference data (large, re-downloadable) ---
+data/
+
+# --- latex build artifacts ---
+docs/papers/*.aux
+docs/papers/*.log
+docs/papers/*.out

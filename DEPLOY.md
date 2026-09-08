@@ -44,9 +44,8 @@ Two paths to host this somewhere stable. Pick **Render** for simplest (web UI on
    flyctl auth login
    ```
 
-3. **From the `market-research-prototype/` directory:**
+3. **From the repository root:**
    ```bash
-   cd market-research-prototype
 
    # Create the app (reads fly.toml)
    flyctl launch --name castor-research --region sjc --no-deploy

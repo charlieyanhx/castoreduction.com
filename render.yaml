@@ -14,7 +14,6 @@ services:
     runtime: docker
     repo: https://github.com/charlieyanhx/castoreduction.com
     branch: master
-    rootDir: market-research-prototype
     dockerfilePath: ./Dockerfile
     dockerContext: .
     plan: starter             # $7/mo, always-on (free tier sleeps which breaks long /plan jobs)

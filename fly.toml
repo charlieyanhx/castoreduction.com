@@ -4,7 +4,7 @@
 # To deploy on Fly (alternative to Render):
 #   1. Install flyctl:  curl -L https://fly.io/install.sh | sh
 #   2. Authenticate:    flyctl auth login
-#   3. Create app:      cd market-research-prototype && flyctl launch --name castor-research --region sjc --no-deploy
+#   3. Create app:      flyctl launch --name castor-research --region sjc --no-deploy
 #   4. Create volume:   flyctl volumes create castor_data --size 5 --region sjc
 #   5. Set secrets:     flyctl secrets set GEMINI_API_KEY=... GROQ_API_KEY=... ANTHROPIC_API_KEY=...
 #   6. Deploy:          flyctl deploy

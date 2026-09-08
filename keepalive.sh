@@ -18,7 +18,7 @@
 #   pkill -f "keepalive.sh"; pkill -f cloudflared; pkill -f "uvicorn api:app"
 
 set -u
-PROJECT_DIR="/Users/charlieyan/Downloads/castor-advisories/market-research-prototype"
+PROJECT_DIR="/Users/charlieyan/Downloads/castor-advisories"
 URL_FILE="$HOME/.castor_url.txt"
 LOG_FILE="/tmp/castor_keepalive.log"
 SERVER_LOG="/tmp/castor_server.log"

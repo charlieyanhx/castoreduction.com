@@ -17,7 +17,7 @@ from __future__ import annotations
 
 
 class MRPError(Exception):
-    """Base for all market-research-prototype errors."""
+    """Base for all Castor errors."""
 
     def to_dict(self) -> dict:
         """The error as a JSON-able dict, carrying its class so a caller can branch on the kind

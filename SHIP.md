@@ -123,7 +123,6 @@ Verified end-to-end with MintBox v5 (subscription mint candy box) — 2026-04-21
 
 ```bash
 # 1. Install
-cd market-research-prototype
 ./install.sh
 
 # 2. Set ONE LLM API key in .env:

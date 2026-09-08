@@ -5,7 +5,7 @@ Paste the block below into a fresh session to continue the work.
 ---
 
 ```
-Continue the Castor R4 fix-order work in /Users/charlieyan/Downloads/castor-advisories/market-research-prototype (git repo, branch master, all pushed). Castor is a market-research report generator; this program hardens it against the R4 qualitative audit (baseline: 13.5% pass / 53 criticals).
+Continue the Castor R4 fix-order work in /Users/charlieyan/Downloads/castor-advisories (git repo, branch master, all pushed). Castor is a market-research report generator; this program hardens it against the R4 qualitative audit (baseline: 13.5% pass / 53 criticals).
 
 SOURCE OF TRUTH: docs/R4_FIX_ORDER.md — a severity-ranked list of 24 root-cause fixes. Read it first. Ranks 1–22 are fully FIXED (each has a "FIXED" note there). Ranks 23–24 are partially done; the doc records exactly what's left with file locations.
 

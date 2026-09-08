@@ -2,7 +2,7 @@
 # cycle31-r3 chain: wait for v8 to finish, then restart server with all
 # cycle31-r3 fixes loaded, then fire ship-readiness bench.
 set -e
-cd /Users/charlieyan/Downloads/castor-advisories/market-research-prototype
+cd /Users/charlieyan/Downloads/castor-advisories
 
 # 1. Wait for v8 to finish
 echo "[$(date +%H:%M:%S)] waiting for bench_v8 to finish..."

@@ -30,7 +30,7 @@ const VERDICT = {
   required: ['refuted', 'reason'],
 }
 
-const REPO = '/Users/charlieyan/Downloads/castor-advisories/market-research-prototype'
+const REPO = '/Users/charlieyan/Downloads/castor-advisories'
 const ARGS = typeof args === 'string' ? JSON.parse(args) : args
 const DIR = ARGS.corpusDir
 const GROUPS = [

@@ -130,7 +130,7 @@ No live external calls in any test.
 ## File layout
 
 ```
-market-research-prototype/
+castor/                   # the repository root
 ├── README.md             # you are here
 ├── SHIP.md               # ship checklist + status (READY)
 ├── CONTRIBUTING.md       # engineering policy + iteration changelog

@@ -9,7 +9,7 @@ rationale: these move report trust now; persistence doesn't.
 
 ## Environment facts (do not re-derive)
 
-- Repo: `/Users/charlieyan/Downloads/castor-advisories/market-research-prototype`
+- Repo: `/Users/charlieyan/Downloads/castor-advisories`
 - Python: `.venv/bin/python` — tests: `.venv/bin/python -m pytest <files> -q -p no:cacheprovider`
 - Full sweep: `.venv/bin/python -m pytest $(ls test_*.py | grep -v live | tr '\n' ' ') -q -p no:cacheprovider`
   — must end `N passed, 0 failed`, no skips. Baseline N=779; each item only adds.
