@@ -21,6 +21,12 @@ detectors can run at the moment they matter.
 """
 from __future__ import annotations
 
+# MODULE SCOPE, NOT CALL TIME. These were borrowed from `api` inside the function with
+# the note "api imports plan, plan imports us": a cycle worked around rather than
+# removed, and the last edge where the report layer reached up into routing.
+from paths import TEMPLATES_DIR
+from rendering import SafeUndefined, display_title
+
 import re
 
 import logging
@@ -65,12 +71,10 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
     # Taken at call time: the renderer must stay importable without the market-research
     # modules, or the frame cannot be reused for another kind of report.
     import charts
-    from api import SafeUndefined, display_title   # local: api imports plan, plan imports us
     j = {"result": result or {}}
     from jinja2 import Environment, FileSystemLoader
     from datetime import datetime
 
-    from api import TEMPLATES_DIR       # module-relative; see api.py
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=True,
                       undefined=SafeUndefined)
     tpl = env.get_template("report.html")

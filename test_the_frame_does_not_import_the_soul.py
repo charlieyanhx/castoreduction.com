@@ -42,6 +42,12 @@ _FRAME_FILES = {
     "llm.py", "logger.py", "cache.py", "net.py", "errors.py", "jobs.py", "auth.py",
     "quota.py", "url_guard.py", "billing.py", "feedback.py", "history.py",
     "iteration.py", "provenance.py", "cli.py", "api.py",
+    # Where files live, and the two rendering helpers both the report and the routes
+    # need. Split out of routes/deps.py and routes/jobs.py so report/render_html.py
+    # stopped borrowing them from `api` at call time -- the last upward edge in the
+    # layer graph. Frame by this list's own standard: stdlib and jinja2 only, and true
+    # of any report the harness produces.
+    "paths.py", "rendering.py",
 }
 _FRAME_DIRS = (
     "core/", "tools/registry", "skills/registry", "agents/registry", "capabilities/",

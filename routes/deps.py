@@ -27,13 +27,15 @@ import jinja2
 # TemplateNotFound. A path anchored to "wherever this source file happens to sit" is a
 # path that breaks the moment the file is organised, so it is anchored to the package
 # parent instead and the four definitions read off it.
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# MOVED TO paths.py. report/ needs these too, and it had to reach up through `api`
+# at call time to borrow them. Re-exported here so every existing
+# `from routes.deps import ...` keeps working unchanged.
+from paths import DOCS_DIR, PROJECT_ROOT, TEMPLATES_DIR, WEB_DIR  # noqa: F401
 
 # The app version, here rather than only on the FastAPI object: /healthz reports it
 # and lives in routes/pages.py, which deliberately has no handle on the app.
 APP_VERSION = "0.1.0"
 
-WEB_DIR = PROJECT_ROOT / "web"
 
 # Legacy compat
 
@@ -42,37 +44,13 @@ WEB_DIR = PROJECT_ROOT / "web"
 # every HTML report 500 with TemplateNotFound, while the JSON API, the workspace UI and
 # the entire test suite kept working — pytest runs with the project as cwd, so the
 # relative path always resolved there.
-TEMPLATES_DIR = PROJECT_ROOT / "templates"
 
 # ---------------------------------------------------------------------------
 # Docs viewer — render docs/**.md as HTML at /docs[/<path>]
 # Added cycle 31 so a partner can read method/process docs via the public tunnel.
 # ---------------------------------------------------------------------------
-DOCS_DIR = PROJECT_ROOT / "docs"
 
 # Static frontend — the workspace is now the front door (cycle34).
 _NO_CACHE = {"Cache-Control": "no-cache, must-revalidate"}
 
-class SafeUndefined(jinja2.ChainableUndefined):
-    """A missing template field must NEVER 500 the whole report (M2-class hardening). The default
-    Undefined raises on `'{:,.0f}'.format(missing)`, on `missing > 0` comparisons, and on
-    arithmetic — any one of which blanks the entire page. This renders/behaves NULLISH instead, so
-    one absent value degrades to a blank cell. ChainableUndefined base also lets `a.b.c` chains
-    resolve to undefined rather than raising. The degradation banner + validation flags still
-    surface genuinely missing data, so we lose nothing by failing soft here."""
-    __slots__ = ()
-    def __format__(self, spec): return ""
-    def __bool__(self): return False
-    def __lt__(self, other): return False
-    def __le__(self, other): return False
-    def __gt__(self, other): return False
-    def __ge__(self, other): return False
-    def __int__(self): return 0
-    def __float__(self): return 0.0
-    def __add__(self, other): return other
-    def __radd__(self, other): return other
-    def __sub__(self, other): return 0
-    def __mul__(self, other): return 0
-    __rmul__ = __mul__
-    def __truediv__(self, other): return 0
-    def __round__(self, n=0): return 0
+from rendering import SafeUndefined  # noqa: F401  (moved down; see rendering.py)

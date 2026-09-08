@@ -29,7 +29,8 @@ from pydantic import BaseModel, Field
 
 import jobs
 from logger import get
-from routes.deps import TEMPLATES_DIR, SafeUndefined
+from rendering import SafeUndefined, display_title
+from routes.deps import TEMPLATES_DIR
 
 log = get("api")
 
@@ -182,26 +183,6 @@ def _withheld_page(job_id: str, blocking: list, remedies: list | None = None,
         "text-decoration:none\">Start a new report</a></p></div>")
 
 
-def display_title(profile: dict) -> str:
-    """The venture name a human should see.
-
-    The LLM often extracts name="Unknown" from a description-only brief. Printing that
-    on a paid deliverable (or a PDF cover) is worse than naming what the report is
-    ABOUT, so fall back to category, then to the first sentence of the summary.
-
-    NOT a route — keep it above the decorator below. Defining it BETWEEN the
-    @router.get and get_job_report_html registered THIS function as the report.html
-    handler, and every request 422'd asking for a `profile` body.
-    """
-    profile = profile or {}
-    name = str(profile.get("name") or "").strip()
-    if name.lower() not in ("", "unknown", "untitled", "n/a", "none", "null"):
-        return name
-    derived = (profile.get("category") or "").strip()
-    if derived:
-        return derived
-    summ = str(profile.get("summary") or "").strip()
-    return summ.split(".")[0][:60] if summ else "Market Research"
 
 
 @router.get("/jobs")
