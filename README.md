@@ -125,6 +125,53 @@ These are codified in [CONTRIBUTING.md](CONTRIBUTING.md):
 
 No live external calls in any test.
 
+### Exercising one capability
+
+The suite is offline and mocked, so it proves the wiring, not the sources. The other
+direction -- does this tool still return real data -- used to mean `python -m
+tools.run_live`, a whole report, several minutes and a chain of model calls, for a
+verdict that said the report was thin without saying which of the 64 registered
+capabilities went quiet.
+
+`./bench.sh` calls any one of them on its own, or sweeps the lot:
+
+```bash
+./bench.sh                                       # what you can run
+./bench.sh hackernews_mentions                   # one capability, on its own
+./bench.sh reddit_mentions query="pour over" limit=3
+./bench.sh list --match census                   # find a name
+./bench.sh doctor                                # what bench cannot call
+./bench.sh smoke                                 # all 64, about 80s
+```
+
+Testing one agent means three things: pick it, give it a venture, read what it wrote.
+
+```bash
+./bench.sh market_scan_agent --prompt "a mobile dog grooming van in Portland" --llm real
+./bench.sh synthesis_agent --full                # the whole payload, not an excerpt
+./bench.sh market_scan_agent --prompt "..." --key gemini
+```
+
+`--prompt` goes into the capability's own first text argument and prints which one that
+was. Any prose in the result -- an agent's `answer`, a brief, a narrative -- is printed
+wrapped and labelled, with the token cost underneath. `--key gemini` runs against a key
+you supply instead of `.env`: given on its own it asks for the value without echoing, so
+nothing lands in your shell history, and it pins the backend to that provider so the
+answer really does come from the key you named. A billing provider needs `--allow-paid`
+as a second, deliberate yes.
+
+Two caches make a sweep cheap. HTTP goes through requests-cache (24h), and
+`llm.call_json` caches on the full prompt; bench passes FIXED fixture arguments, so
+every run asks the same questions. `--llm cached`, the default for `smoke`, serves the
+model from `.cache.sqlite` and reports a miss as `llm-miss` rather than quietly billing
+for it. `--llm off` skips the model entirely and checks the plumbing in seconds.
+
+Verdicts stay apart -- `ok`, `empty`, `skeleton`, `refused`, `error`, `llm-miss`,
+`no-fixture`, `timeout` -- because "found nothing", "inferred it", "would not accept the
+arguments" and "blew up" are four different facts. Only the ones that mean the CODE is
+wrong set a non-zero exit. Each run is written to `out/bench/last.json` and the next one
+prints what moved.
+
 ---
 
 ## File layout
