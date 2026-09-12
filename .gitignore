@@ -36,3 +36,9 @@ data/
 docs/papers/*.aux
 docs/papers/*.log
 docs/papers/*.out
+
+# SQLite side files and the pytest cache never belong in history
+.jobs.sqlite-wal
+.jobs.sqlite-shm
+.pytest_cache/
+feedback-for-jane.*
