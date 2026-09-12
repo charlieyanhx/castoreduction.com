@@ -165,11 +165,15 @@ Return JSON:
       "description": "1 sentence — what this business sells or does",
       "relevance": "direct | adjacent | reference — 'direct' = same product category; 'adjacent' = same buyer/business model but different product; 'reference' = different category but instructive case study",
       "is_competitor": "true | false — set FALSE when this is NOT a competitor in this market: a wrong-entity match (e.g. a cryptography firm surfaced for a superconductor venture), a different-category business, or a pure reference. Put the reason in the thesis. This is a STRUCTURED verdict — do not bury 'this isn't really a competitor' in the thesis prose while leaving relevance 'direct'.",
+      "tier": "direct | indirect — copied from the homepage relevance filter; null if unscored",
+      "indirect_type": "needs-based | resource-based | null",
       "thesis": "why this is an opportunity or reference — 1-2 sentences, specific",
       "suggested_next_step": "decode_taste | monitor | ignore"
     }}
   ]
 }}
+
+Use the `tier` and `indirect_type` fields as provided — do not re-classify. If null, classify based on your knowledge.
 
 Scoring guidance:
 - Rising trend slope + young domain + growing Trustpilot velocity = hottest (80-100)
@@ -562,6 +566,208 @@ def _verify_competitor_completeness(candidates: list[dict], category: str, geo: 
     return candidates
 
 
+_RELEVANCE_FILTER_SYSTEM = (
+    "You are classifying a competitor list for a startup founder. "
+    "For each candidate, read the homepage snippet and classify it.\n\n"
+    "TIER definitions:\n"
+    "  direct — same product, same customer, same use case as the venture\n"
+    "  indirect — different product, but competes for same customer need or budget\n\n"
+    "INDIRECT_TYPE definitions (only set when tier=indirect):\n"
+    "  needs-based — different product, same underlying customer job-to-be-done "
+    "(e.g. spreadsheets vs project management software)\n"
+    "  resource-based — different product, competes for same budget or customer attention "
+    "(e.g. energy drinks vs premium coffee)\n\n"
+    "RELEVANCE_SCORE 0-100: how strongly this candidate competes within its tier. "
+    "Base this on the PAGE CONTENT, not the brand name alone. "
+    "If no snippet was fetched, score on name + domain only and note it.\n\n"
+    "Return ONLY JSON:\n"
+    "{\"results\": [{\"name\": str, \"tier\": \"direct\"|\"indirect\", "
+    "\"indirect_type\": \"needs-based\"|\"resource-based\"|null, "
+    "\"relevance_score\": int, \"reason\": str}]}\n\n"
+    "Return an entry for EVERY candidate. Never drop any."
+)
+
+
+def _fetch_homepage_snippet(domain: str, max_chars: int = 600) -> str | None:
+    """Fetch a competitor homepage and return a short text snippet for LLM classification.
+
+    Fast path: scrape.http (cached 24h). Slow path: crawl4ai if the page is a JS shell.
+    Returns title + meta description + first max_chars of body text, or None on failure.
+    """
+    import re as _re
+    url = f"https://{domain}"
+    html = ""
+    try:
+        from scrape.http import request as _http
+        resp = _http("GET", url, timeout=8)
+        if resp is not None and getattr(resp, "status_code", 0) == 200:
+            html = resp.text or ""
+    except Exception:
+        html = ""
+
+    from scrape.structured import page_is_substantive
+    if not html or not page_is_substantive(html)[0]:
+        try:
+            from scrape.crawl import fetch_page as _crawl
+            res = _crawl(url)
+            if isinstance(res, dict):
+                html = res.get("markdown") or res.get("html") or html
+        except Exception:
+            pass
+
+    if not html:
+        return None
+
+    # Extract title
+    title_m = _re.search(r"<title[^>]*>(.*?)</title>", html, _re.I | _re.S)
+    title = title_m.group(1).strip()[:120] if title_m else ""
+
+    # Extract meta description (og:description or name="description")
+    meta_m = _re.search(
+        r'<meta[^>]+(?:name=["\']description["\']|property=["\']og:description["\'])[^>]+content=["\']([^"\']{0,300})',
+        html, _re.I
+    ) or _re.search(
+        r'<meta[^>]+content=["\']([^"\']{0,300})[^>]+(?:name=["\']description["\']|property=["\']og:description["\'])',
+        html, _re.I
+    )
+    meta = meta_m.group(1).strip() if meta_m else ""
+
+    # Extract body text — strip tags, collapse whitespace
+    body = _re.sub(r"<[^>]+>", " ", html)
+    body = _re.sub(r"\s+", " ", body).strip()[:max_chars]
+
+    parts = [p for p in [f"Title: {title}", f"Meta: {meta}", f"Content: {body}"] if p.split(": ", 1)[1]]
+    return "\n".join(parts) if parts else None
+
+
+def _filter_by_homepage(
+    candidates: list[dict],
+    venture_description: str,
+    keep_direct: int = 10,
+    keep_indirect: int = 10,
+    indirect_drop_threshold: int = 50,
+) -> tuple[list[dict], list[dict]]:
+    """Fetch each candidate's homepage and classify as direct vs indirect competitor.
+
+    Returns (kept_candidates, dropped_candidates).
+
+    Direct competitors: ranked by relevance score, all kept (up to keep_direct).
+    Indirect competitors: split into needs-based and resource-based, each ranked,
+    those below indirect_drop_threshold are dropped (unless operator-seeded).
+    Unscored candidates (fetch + LLM both failed) are kept and passed through.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    # Resolve domains for candidates that don't have one
+    for c in candidates:
+        if not c.get("domain"):
+            try:
+                from sources import probe_domain_patterns as _probe
+                result = _probe(c["name"])
+                if result and isinstance(result, dict):
+                    c["domain"] = result.get("domain")
+            except Exception:
+                pass
+
+    # Fetch snippets in parallel
+    fetchable = [c for c in candidates if c.get("domain")]
+    snippets: dict[str, str | None] = {}
+
+    def _fetch(c: dict) -> tuple[str, str | None]:
+        return c["domain"], _fetch_homepage_snippet(c["domain"])
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = {pool.submit(_fetch, c): c for c in fetchable}
+        for future in as_completed(futures):
+            try:
+                domain, snippet = future.result()
+                snippets[domain] = snippet
+            except Exception:
+                pass
+
+    for c in candidates:
+        c["_homepage_snippet"] = snippets.get(c.get("domain", ""))
+
+    # Build prompt
+    lines = []
+    for i, c in enumerate(candidates, 1):
+        snippet = c.get("_homepage_snippet") or "(no page content fetched)"
+        lines.append(f"{i}. {c.get('name', '?')} ({c.get('domain', 'unknown domain')})\n{snippet}")
+
+    user_msg = (
+        f"VENTURE: {venture_description}\n\n"
+        f"CANDIDATES:\n\n" + "\n\n".join(lines)
+    )
+
+    try:
+        raw = call_json(system=_RELEVANCE_FILTER_SYSTEM, user=user_msg, max_tokens=1500) or {}
+        results = raw.get("results") or []
+    except Exception as e:
+        log.warning("[discover] relevance filter LLM call failed (non-fatal): %s", e)
+        return candidates, []
+
+    # Merge scores back
+    name_index = {(c.get("name") or "").strip().lower(): c for c in candidates}
+    for entry in results:
+        if not isinstance(entry, dict):
+            continue
+        key = (entry.get("name") or "").strip().lower()
+        c = name_index.get(key)
+        if not c:
+            continue
+        c["_tier"] = entry.get("tier")
+        c["_indirect_type"] = entry.get("indirect_type")
+        c["_relevance_score"] = entry.get("relevance_score", 50)
+        c["_relevance_reason"] = entry.get("reason", "")
+
+    # Split by tier
+    direct = [c for c in candidates if c.get("_tier") == "direct"]
+    indirect = [c for c in candidates if c.get("_tier") == "indirect"]
+    unscored = [c for c in candidates if "_tier" not in c]
+
+    # Direct: sort by relevance, keep all up to cap
+    direct_sorted = sorted(direct, key=lambda c: c.get("_relevance_score", 0), reverse=True)
+    direct_out = direct_sorted[:keep_direct]
+
+    # Indirect: split by type, rank, drop below threshold
+    needs = sorted(
+        [c for c in indirect if c.get("_indirect_type") == "needs-based"],
+        key=lambda c: c.get("_relevance_score", 0), reverse=True,
+    )
+    resource = sorted(
+        [c for c in indirect if c.get("_indirect_type") == "resource-based"],
+        key=lambda c: c.get("_relevance_score", 0), reverse=True,
+    )
+
+    def _above_threshold(c: dict) -> bool:
+        if c.get("_seed") == "operator":
+            return True
+        return (c.get("_relevance_score") or 0) >= indirect_drop_threshold
+
+    needs_kept = [c for c in needs if _above_threshold(c)]
+    needs_dropped = [c for c in needs if not _above_threshold(c)]
+    resource_kept = [c for c in resource if _above_threshold(c)]
+    resource_dropped = [c for c in resource if not _above_threshold(c)]
+
+    indirect_out = (needs_kept + resource_kept)[:keep_indirect]
+    dropped = needs_dropped + resource_dropped
+
+    # Tag dropped candidates so they appear in not_shown_candidates with a reason
+    for c in dropped:
+        c["_filter_dropped"] = True
+        c["_drop_reason"] = (
+            f"indirect/{c.get('_indirect_type', 'unknown')} relevance score "
+            f"{c.get('_relevance_score', 0)} < {indirect_drop_threshold}"
+        )
+
+    kept = direct_out + indirect_out + unscored
+    log.info(
+        "[discover] relevance filter: %d direct, %d indirect kept, %d dropped",
+        len(direct_out), len(indirect_out), len(dropped),
+    )
+    return kept, dropped
+
+
 def _enriched_index(enriched: list) -> tuple[dict, dict]:
     """domain→record and brand→record lookups, for matching the records the synthesis
     LLM rebuilt back to the Python-enriched originals they came from."""
@@ -591,7 +797,7 @@ def _merge_enrichment_provenance(ranked_ops: list, enriched: list) -> None:
         if not src:
             continue
         for key in ("off_category", "relevance_score", "domain_source",
-                    "domain_confidence"):
+                    "domain_confidence", "_tier", "_indirect_type"):
             if key in src:
                 op[key] = src[key]
 
@@ -891,6 +1097,13 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
     # Runs before enrichment so any additions get the same signal gathering + hygiene.
     candidates = _verify_competitor_completeness(candidates, category, geo)
 
+    # Homepage relevance filter: fetch each candidate's homepage, classify as direct vs
+    # indirect, drop low-relevance indirect competitors before the expensive enrichment loop.
+    candidates, dropped_by_filter = _filter_by_homepage(
+        candidates,
+        venture_description=category,
+    )
+
     # 3. Gather signals for each candidate.
     # Iter 39: parallelize — each candidate's signal gathering is fully
     # independent (different domains, different APIs). Sequential was
@@ -1008,6 +1221,13 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
             for c in enriched_sorted
             if str(c.get("brand") or "").lower() not in _shown
             and str(c.get("brand") or "").lower() not in _refs][:20]
+        # Append candidates dropped by the homepage relevance filter
+        for c in dropped_by_filter:
+            synthesis["not_shown"].append({
+                "brand": c.get("name") or c.get("brand"),
+                "score": c.get("_score"),
+                "_drop_reason": c.get("_drop_reason"),
+            })
         result["synthesis"] = synthesis
     except Exception as e:
         log.warning("LLM synthesis failed (%s), building raw ranking", e)
@@ -1046,6 +1266,20 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
     syn["ranked_opportunities"] = comps
     if refs:
         syn["reference_cases"] = refs
+    # Ensure dropped_by_filter entries appear in not_shown (covers the fallback path too)
+    if dropped_by_filter:
+        existing_not_shown = syn.get("not_shown") or []
+        existing_brands = {str(e.get("brand") or "").lower() for e in existing_not_shown}
+        for c in dropped_by_filter:
+            brand = c.get("name") or c.get("brand")
+            if str(brand or "").lower() not in existing_brands:
+                existing_not_shown.append({
+                    "brand": brand,
+                    "score": c.get("_score"),
+                    "_drop_reason": c.get("_drop_reason"),
+                })
+                existing_brands.add(str(brand or "").lower())
+        syn["not_shown"] = existing_not_shown
     result["synthesis"] = syn
 
     _set_canonical_density(result)  # R4 rank 9: density == displayed roster length

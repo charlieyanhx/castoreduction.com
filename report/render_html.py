@@ -86,7 +86,10 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
     viability = r.get("viability", {})
     validation = r.get("validation", {})
     psm = (r.get("pricing", {}) or {}).get("psm", {})
-    competitors = (r.get("discover", {}).get("synthesis", {}) or {}).get("ranked_opportunities", [])
+    _all_ranked = (r.get("discover", {}).get("synthesis", {}) or {}).get("ranked_opportunities", [])
+    # Split into direct competitors (no tier or tier=direct) and indirect competitors
+    competitors = [c for c in _all_ranked if c.get("_tier") != "indirect"]
+    indirect_competitors = [c for c in _all_ranked if c.get("_tier") == "indirect"]
 
     # Color for viability score
     score = viability.get("viability_score") or 0
@@ -237,6 +240,8 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
         research_brief=r.get("research_brief"),
         psm=psm,
         competitors=competitors,
+        # Indirect competitors (needs-based or resource-based) — shown separately
+        indirect_competitors=indirect_competitors,
         # R4 rank 10: reference/off-category entries partitioned out of the competitor
         # roster — shown separately so they don't count as competitors.
         reference_cases=(r.get("discover", {}).get("synthesis", {}) or {}).get("reference_cases", []),
