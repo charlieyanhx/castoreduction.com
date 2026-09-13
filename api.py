@@ -378,16 +378,62 @@ def _refuse_to_boot_misconfigured():
                 f"CASTOR_PAYWALL_PREVIEW is set on {where}: the gate would grant every "
                 "purchase without a card. Unset it; the preview is for an instance with "
                 "no Stripe keys.")
-    if not production:
+    if production:
+        import auth as _auth
+        _auth._session_secret()      # raises RuntimeError -> the container exits
+        if ((os.environ.get("RESEND_API_KEY") or "").strip()
+                and not (os.environ.get("CASTOR_PUBLIC_URL") or "").strip()):
+            raise RuntimeError(
+                "RESEND_API_KEY is set without CASTOR_PUBLIC_URL: every mail carries a link "
+                "and there is no origin to build one against. Set CASTOR_PUBLIC_URL to the "
+                "address founders reach this instance at.")
+    # After every refusal, so a container that is about to exit does not call Stripe first.
+    _warn_when_no_webhook_reaches_this_host()
+
+
+def _webhook_url_this_host_needs() -> str | None:
+    """Where Stripe has to deliver for the webhook grant path to exist at all.
+
+    None when CASTOR_PUBLIC_URL is unset: without it nothing can say what the endpoint
+    should read, and nothing is asked of Stripe.
+    """
+    public = (os.environ.get("CASTOR_PUBLIC_URL") or "").strip().rstrip("/")
+    return f"{public}/billing/webhook" if public else None
+
+
+def _warn_when_no_webhook_reaches_this_host():
+    """AN INSTANCE THAT CAN CHARGE MUST KNOW WHETHER STRIPE CAN REACH IT.
+
+    billing.configured() only proves two env vars are non-empty. The webhook endpoint is
+    a dashboard setting the code cannot see, and MEASURED on the live account it was
+    registered against the marketing site's root, wrong host and wrong path: every
+    checkout would have charged a card and credited nothing, and the only symptom was a
+    buyer looking at the paywall again. GET /billing/confirm closes the grant gap; this
+    turns the misconfiguration itself into a line in the boot log.
+
+    LOGS, NEVER RAISES. A missing endpoint no longer strands a purchase, so it is a fault
+    to fix and not a reason to keep the product down; and Stripe being slow or absent at
+    boot must not decide whether the container comes up. One bounded call, every failure
+    caught, and it is skipped outright when there is no public URL to compare against.
+    """
+    try:
+        import billing
+        if not billing.configured():
+            return
+        expected = _webhook_url_this_host_needs()
+        if not expected:
+            return
+        urls = billing.enabled_webhook_urls()
+    except Exception as e:                                   # noqa: BLE001
+        log.warning("[billing] could not check the Stripe webhook endpoints: %s", e)
         return
-    import auth as _auth
-    _auth._session_secret()          # raises RuntimeError -> the container exits
-    if ((os.environ.get("RESEND_API_KEY") or "").strip()
-            and not (os.environ.get("CASTOR_PUBLIC_URL") or "").strip()):
-        raise RuntimeError(
-            "RESEND_API_KEY is set without CASTOR_PUBLIC_URL: every mail carries a link "
-            "and there is no origin to build one against. Set CASTOR_PUBLIC_URL to the "
-            "address founders reach this instance at.")
+    if expected in urls:
+        return
+    log.error("[billing] no enabled Stripe webhook endpoint targets %s (Stripe has %s). "
+              "A purchase is still granted when the buyer's browser returns, but a "
+              "buyer who closes the tab on Stripe's receipt page gets nothing until "
+              "the endpoint is registered at https://dashboard.stripe.com/webhooks",
+              expected, ", ".join(urls) or "none")
 
 
 def _resume_interrupted_runs():
@@ -1172,8 +1218,9 @@ def billing_checkout(req: CheckoutRequest, request: Request):
     """Start a hosted Stripe Checkout and return its URL.
 
     The card is entered on Stripe's page, so no card detail reaches this process. Nothing
-    is granted here: a browser arriving at a success URL proves nothing, and only the
-    signed webhook does."""
+    is granted here: a browser arriving at a success URL proves nothing by itself. What
+    grants is Stripe's own word on the session, read either from the signed webhook or
+    by GET /billing/confirm retrieving it with the secret key."""
     import billing
     owner = _current_owner(request)
     # THE PACK IS BOUGHT FOR ONE REPORT, SO PROVE IT IS YOURS. job_id rode straight into
@@ -1219,10 +1266,15 @@ def billing_checkout(req: CheckoutRequest, request: Request):
         # the run they just paid for would never start and their answers would be gone.
         sid = (req.session_id or "").strip()
         tail = f"&s={quote(sid, safe='')}" if sid else ""
+    # THE SESSION ID RIDES BACK WITH THE BROWSER. Stripe substitutes the literal
+    # {CHECKOUT_SESSION_ID} when it redirects, and that id is what GET /billing/confirm
+    # retrieves and fulfils. Without it the only grant path is the webhook, and a webhook
+    # that was never registered, or points at another host, charges the card and credits
+    # nothing while the survey redraws the paywall at somebody who has just paid.
     try:
         url = billing.create_checkout(
             req.kind, owner,
-            success_url=f"{back}?paid={req.kind}{tail}",
+            success_url=f"{back}?paid={req.kind}{tail}&session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{back}?paid=cancelled{tail}",
             job_id=req.job_id)
     except billing.BillingError as e:
@@ -1230,9 +1282,61 @@ def billing_checkout(req: CheckoutRequest, request: Request):
     return {"url": url}
 
 
+@app.get("/billing/confirm")
+def billing_confirm(session_id: str, request: Request):
+    """The browser is back from Stripe: grant what that session paid for, now.
+
+    THE WEBHOOK IS A SEPARATE DELIVERY AND MAY NEVER COME. It goes to whatever endpoint
+    the Stripe dashboard names, which the code cannot see and the boot check can only
+    warn about; a delivery Stripe cannot land is retried for a while and then dropped.
+    The browser, though, always comes back to the success URL, carrying the session id
+    the checkout route asked Stripe to substitute. This retrieves that session from
+    Stripe with the secret key and hands it to billing.fulfill in the same event shape
+    the webhook would have, so the session-id idempotency guard makes the two deliveries
+    one: whichever lands second grants nothing.
+
+    OWNER-SCOPED. A session id is not a secret (it sits in a URL), so the grant only goes
+    through when the account the session was created for resolves to the caller. 404 for
+    a stranger's session, which is also the right answer for one that does not exist:
+    a 403 would confirm the id is real.
+
+    Nothing is granted on an unpaid session, whatever the caller says: payment_status is
+    Stripe's word, read over TLS with our key, and only "paid" counts.
+    """
+    import billing
+    owner = _current_owner(request)
+    if not billing.is_session_id(session_id):
+        raise HTTPException(status_code=422, detail="that is not a checkout session id")
+    if not billing.configured():
+        raise HTTPException(status_code=404, detail="no such purchase")
+    try:
+        session = billing.retrieve_checkout_session(session_id)
+    except billing.BillingError as e:
+        # A transport failure is not a refusal. The browser re-reads /billing/status
+        # regardless, and the webhook may still land.
+        raise HTTPException(status_code=503, detail=str(e))
+    if not session:
+        raise HTTPException(status_code=404, detail="no such purchase")
+    meta = session.get("metadata") or {}
+    buyer = meta.get("account_id") or session.get("client_reference_id") or ""
+    if not buyer or billing.resolve_owner(buyer) != owner:
+        raise HTTPException(status_code=404, detail="no such purchase")
+    if session.get("payment_status") != "paid":
+        return {"granted": False, "reason": "session is not paid",
+                "payment_status": session.get("payment_status"),
+                "report_credits": billing.balance(owner, "report")}
+    out = billing.fulfill({"type": "checkout.session.completed",
+                           "data": {"object": session}})
+    if out.get("granted"):
+        log.info("[billing] confirmed %s for %s at the success URL",
+                 session_id[:20], owner[:12])
+    return {**out, "report_credits": billing.balance(owner, "report")}
+
+
 @app.post("/billing/webhook")
 async def billing_webhook(request: Request):
-    """Stripe reporting a settled payment. The only thing that grants anything.
+    """Stripe reporting a settled payment. One of the two things that grant anything;
+    GET /billing/confirm is the other, and both fulfil through the same session-id guard.
 
     Reads the RAW body, because the signature covers the bytes Stripe sent and
     re-serialising the parsed JSON would change them. Deliberately not session

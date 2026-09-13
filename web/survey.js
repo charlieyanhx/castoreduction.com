@@ -1259,7 +1259,9 @@
     var url = new URL(location.href);
     var paid = url.searchParams.get("paid");
     if (!paid || !session) return false;
+    var checkout = url.searchParams.get("session_id");
     url.searchParams.delete("paid");
+    url.searchParams.delete("session_id");
     history.replaceState(null, "", url.toString());
 
     if (paid === "cancelled") {
@@ -1273,6 +1275,18 @@
       notice("Checkout cancelled. Nothing was charged, and every answer you gave is "
              + "still here.");
       return true;
+    }
+
+    /* THE GRANT THAT DOES NOT WAIT FOR THE WEBHOOK. Stripe substitutes the session id
+       into the success URL, and /billing/confirm retrieves that session with the secret
+       key and fulfils it through the same idempotent path the webhook uses. Asked BEFORE
+       /billing/status is read, so the status that decides whether the gate is redrawn
+       already reflects the purchase; and before loadCard, so the "credit is on your
+       account" copy in the failure branch below is true when it is shown. A failure here
+       is swallowed: the webhook is the other path, and the status read says which landed. */
+    if (checkout) {
+      try { await api("GET", "/billing/confirm?session_id=" + encodeURIComponent(checkout)); }
+      catch (e) { /* the webhook may still grant it; /billing/status below is the verdict */ }
     }
 
     try {
@@ -1342,6 +1356,7 @@
         var dead = new URL(location.href);
         dead.searchParams.delete("s");
         dead.searchParams.delete("paid");
+        dead.searchParams.delete("session_id");
         history.replaceState(null, "", dead.toString());
         renderProse();
         notice(e && (e.status === 404 || e.status === 403)

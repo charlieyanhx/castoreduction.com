@@ -26,6 +26,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import sqlite3
 import time
 import uuid
@@ -607,6 +608,92 @@ def create_checkout(kind: str, account_id: str, success_url: str, cancel_url: st
         raise BillingError("the payment provider returned no checkout link")
     return url
 
+
+#: What a Checkout Session id looks like. The id is spliced into a URL path below, so
+#: anything outside this shape is refused before it can reach the request line.
+_SESSION_ID_RE = re.compile(r"^cs_[A-Za-z0-9_]{1,200}$")
+
+
+def is_session_id(session_id: str | None) -> bool:
+    return bool(session_id) and bool(_SESSION_ID_RE.match(session_id))
+
+
+def retrieve_checkout_session(session_id: str) -> dict | None:
+    """One Checkout Session, as Stripe holds it now. None when Stripe has no such session.
+
+    THE GRANT PATH THAT DOES NOT WAIT FOR THE WEBHOOK. Stripe's webhook is a separate
+    delivery to whatever endpoint the dashboard names, and an instance whose endpoint
+    was never registered, or points at the wrong host, charges the card and hears
+    nothing. The browser, though, comes back to the success URL carrying the session id,
+    and this fetch asks Stripe directly what that session paid for. The answer arrives
+    over TLS from Stripe, authenticated by our secret key, so it is as trustworthy as a
+    signed webhook and needs no signature of its own.
+
+    Same raw HTTP as create_checkout, and the same three refusals: a session Stripe does
+    not know is None, a configuration fault carries Stripe's own message, and a transport
+    failure says try again.
+    """
+    if not configured():
+        raise BillingError("payments are not configured on this instance")
+    if not is_session_id(session_id):
+        raise BillingError("that is not a checkout session id")
+    import requests
+    # A SHORTER LEASH THAN create_checkout. The buyer's browser is waiting on this one,
+    # on a blank survey, before it can say "payment received"; a Stripe read answers in
+    # well under a second, and ten of them is already a page that looks broken.
+    try:
+        r = requests.get(f"{STRIPE_API}/checkout/sessions/{session_id}", timeout=10,
+                         auth=(os.environ["STRIPE_SECRET_KEY"], ""))
+    except Exception as e:                                   # noqa: BLE001
+        log.warning("[billing] could not reach Stripe: %s", e)
+        raise BillingError("could not reach the payment provider, try again")
+    if r.status_code == 404:
+        return None
+    if not r.ok:
+        detail = ""
+        try:
+            detail = ((r.json() or {}).get("error") or {}).get("message") or ""
+        except Exception:                                    # noqa: BLE001
+            detail = (r.text or "")[:200]
+        log.error("[billing] Stripe refused the session lookup (%s): %s",
+                  r.status_code, detail)
+        if 400 <= r.status_code < 500 and detail:
+            raise BillingError(f"Stripe refused the lookup: {detail}")
+        raise BillingError("the payment provider refused the request, try again")
+    try:
+        session = r.json() or {}
+    except Exception as e:                                   # noqa: BLE001
+        log.warning("[billing] Stripe returned an unreadable session: %s", e)
+        raise BillingError("the payment provider returned an unreadable session")
+    if not isinstance(session, dict) or session.get("id") != session_id:
+        raise BillingError("the payment provider returned a different session")
+    return session
+
+
+def enabled_webhook_urls() -> list[str]:
+    """The URL of every enabled webhook endpoint on this Stripe account.
+
+    FOR THE BOOT CHECK. The app's grant path is POST /billing/webhook on its own host, and
+    nothing in the code can see whether the dashboard points anywhere near it: the only
+    symptom of a missing endpoint is a buyer who paid and holds nothing. Listing the
+    endpoints turns that into a line in the boot log. Disabled endpoints are left out
+    because Stripe delivers nothing to them, which is the same as their not existing.
+
+    Raises BillingError rather than returning an empty list on failure, so a caller can
+    tell "Stripe has no endpoints" from "Stripe could not be asked".
+    """
+    if not configured():
+        raise BillingError("payments are not configured on this instance")
+    import requests
+    try:
+        r = requests.get(f"{STRIPE_API}/webhook_endpoints", params={"limit": "100"},
+                         timeout=10, auth=(os.environ["STRIPE_SECRET_KEY"], ""))
+        r.raise_for_status()
+        rows = (r.json() or {}).get("data") or []
+    except Exception as e:                                   # noqa: BLE001
+        raise BillingError(f"could not list the webhook endpoints: {e}")
+    return [str(row.get("url") or "") for row in rows
+            if isinstance(row, dict) and row.get("status", "enabled") == "enabled"]
 
 
 def create_promo_code(code: str, amount_off_cents: int, currency: str = "usd") -> str:
