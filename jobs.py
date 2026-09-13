@@ -254,11 +254,15 @@ def list_recent(limit: int = 50, owner_id: str | None = None) -> list[dict]:
 
 #: How many times a job may be picked back up after a worker died on it. A run that
 #: kills the process would otherwise be resumed on every boot forever, and each attempt
-#: costs six minutes of somebody's machine.
+#: costs six minutes of somebody's machine. A pending row found at boot counts too: it was
+#: queued behind the gate when the process died, and a crash loop that never lets it start
+#: must end in a refund rather than in a row that says "Waiting to start" for a day.
 MAX_RESUMES = 2
 
 #: Nothing older than this comes back. A "running" row from last week is not an
-#: interrupted run, it is archaeology.
+#: interrupted run, it is archaeology. It is also somebody's money: a row past the window
+#: is moved to error and its credit is given back, rather than left forever in a state the
+#: library renders as still working.
 RESUMABLE_WINDOW_S = 24 * 3600
 
 
@@ -284,39 +288,58 @@ def requeue_orphans(grace_seconds: int = 60,
                     max_age_s: int = RESUMABLE_WINDOW_S) -> list[str]:
     """Put interrupted runs back in the queue instead of burying them. Returns their ids.
 
-    THE OLD BEHAVIOUR THREW AWAY A REPORT SOMEONE PAID FOR. cleanup_orphaned_jobs marks a
-    stale `running` row as `error` — correct when the only alternative was a zombie that
+    THE OLD BEHAVIOUR THREW AWAY A REPORT SOMEONE PAID FOR. The first sweep marked a stale
+    `running` row as `error`, which was correct when the only alternative was a zombie that
     polls forever, and wrong now, because everything needed to finish the job is already
     on disk. run_plan takes `resume_from`, orchestrator.steps.skip_step skips any step
     recorded complete whose outputs are intact, and plan.py checkpoints the partial result
     into this row after EVERY step. A deploy in the middle of a six-minute run was
     destroying work that was 90% done and fully recoverable.
 
+    EVERY ROW THAT IS NOT FINISHED IS LOOKED AT. `running` and `pending` alike, whatever
+    their age: the boot sweep passes grace_seconds=0 because nothing in a process that has
+    just started can be running, and a row checkpointed fifteen seconds before the kill is
+    exactly as dead as one from an hour ago. A 60-second grace used to exclude it, and
+    since only `pending` rows are ever handed to the resumer, that row stayed `running`
+    for good. grace_seconds still means something to a caller that is NOT booting, where a
+    fresh row may have a live worker on it.
+
+    WHAT CANNOT COME BACK IS REFUNDED. A row past MAX_RESUMES, or older than
+    RESUMABLE_WINDOW_S, or of a kind that does not resume, is moved to `error` with a
+    reason and billing.refund_for_job is called for it. The credit was spent at submit and
+    every other refund path lives inside a worker this row will never reach again. The
+    refund is idempotent by its own conditional UPDATE and returns False for a free run, so
+    it is safe to call for every row buried here.
+
+    A `pending` row is stamped with the same `_resumes` count as a `running` one: the
+    resumer reads that stamp as "the boot sweep found this row unattended", which is what
+    lets it tell an orphan from a row a live request created a moment ago.
+
     Only `plan` jobs come back: the others take seconds, so restarting one is cheaper than
     reasoning about whether it half-finished.
     """
     now = int(time.time())
     out: list[str] = []
+    buried: list[tuple[str, str]] = []
     with _lock:
         c = _conn()
         try:
             rows = c.execute(
-                "SELECT id, kind, params_json FROM jobs WHERE state = 'running' "
-                "AND updated_at < ? AND updated_at > ?",
-                (now - grace_seconds, now - max_age_s)).fetchall()
-            for jid, kind, pj in rows:
+                "SELECT id, kind, params_json, updated_at FROM jobs "
+                "WHERE state IN ('running', 'pending') AND updated_at <= ?",
+                (now - grace_seconds,)).fetchall()
+            for jid, kind, pj, updated_at in rows:
                 try:
                     params = json.loads(pj or "{}")
                 except Exception:                            # noqa: BLE001
                     params = {}
                 tries = int(params.get("_resumes") or 0)
-                if kind != "plan" or tries >= MAX_RESUMES:
+                reason = _why_not_resumable(kind, tries, int(updated_at or 0), now,
+                                            max_age_s)
+                if reason:
                     c.execute("UPDATE jobs SET state = 'error', error = ?, updated_at = ? "
-                              "WHERE id = ?",
-                              ("interrupted by a server restart and not resumable"
-                               if kind != "plan" else
-                               f"interrupted {tries + 1} times; not retried again",
-                               now, jid))
+                              "WHERE id = ?", (reason, now, jid))
+                    buried.append((jid, reason))
                     continue
                 params["_resumes"] = tries + 1
                 c.execute("UPDATE jobs SET state = 'pending', params_json = ?, "
@@ -325,14 +348,47 @@ def requeue_orphans(grace_seconds: int = 60,
                 out.append(jid)
         finally:
             c.close()
+    if buried:
+        _refund_buried(buried)
     if out:
         log.warning("[startup] requeued %d interrupted run(s) to resume: %s",
                     len(out), [j[:8] for j in out])
     return out
 
 
+def _why_not_resumable(kind: str, tries: int, updated_at: int, now: int,
+                       max_age_s: int) -> str:
+    """The reason this row is buried rather than requeued, or "" when it can come back."""
+    if now - updated_at > max_age_s:
+        return (f"interrupted and left for more than {max_age_s // 3600} hours; "
+                "not resumed")
+    if kind != "plan":
+        return "interrupted by a server restart and not resumable"
+    if tries >= MAX_RESUMES:
+        return f"interrupted {tries + 1} times; not retried again"
+    return ""
+
+
+def _refund_buried(buried: list[tuple[str, str]]) -> None:
+    """Give back the credit on every run the sweep just buried.
+
+    Imported here rather than at the top so the module graph keeps pointing down: billing
+    is a peer that knows nothing about jobs, and jobs should not need it to import. Each
+    refund is its own try, because money that could not be returned must be logged loudly
+    and must not stop the next row from being looked at, or the server from coming up.
+    """
+    from billing import refund_for_job
+    for jid, reason in buried:
+        try:
+            if refund_for_job(jid, reason):
+                log.warning("[startup] refunded the credit on buried run %s (%s)",
+                            jid[:8], reason)
+        except Exception as e:                               # noqa: BLE001
+            log.error("[billing] COULD NOT REFUND buried run %s: %s", jid[:8], e)
+
+
 def pending_ids(kind: str = "plan", max_age_s: int = RESUMABLE_WINDOW_S) -> list[str]:
-    """Jobs waiting to be run. Nothing polls this; the startup resumer reads it once."""
+    """Jobs waiting to be run. Read by the resumer at boot and again after every run."""
     now = int(time.time())
     c = _conn()
     try:
@@ -341,34 +397,6 @@ def pending_ids(kind: str = "plan", max_age_s: int = RESUMABLE_WINDOW_S) -> list
             "ORDER BY created_at", (kind, now - max_age_s)).fetchall()]
     finally:
         c.close()
-
-
-def cleanup_orphaned_jobs(grace_seconds: int = 60) -> int:
-    """
-    cycle31: At server startup, mark any jobs in 'running' state that haven't been
-    updated within grace_seconds as 'error' (orphaned by previous-server crash).
-    Without this, bench polling sees zombies as in-progress forever and timeouts.
-    Returns # of cleaned-up jobs.
-    """
-    now = int(time.time())
-    cutoff = now - grace_seconds
-    with _lock:
-        c = _conn()
-        cursor = c.execute(
-            "SELECT id FROM jobs WHERE state = 'running' AND updated_at < ?",
-            (cutoff,),
-        )
-        orphaned = [r[0] for r in cursor.fetchall()]
-        for jid in orphaned:
-            c.execute(
-                "UPDATE jobs SET state = 'error', error = ?, updated_at = ? WHERE id = ?",
-                ("orphaned by server restart (was running when worker died)", now, jid),
-            )
-        c.close()
-    if orphaned:
-        log.warning("[startup] cleaned up %d orphaned 'running' jobs: %s",
-                    len(orphaned), [j[:8] for j in orphaned])
-    return len(orphaned)
 
 
 def _attach_transcript(job_id: str):
@@ -435,54 +463,137 @@ def _detach_transcript(handle) -> None:
 # BoundedSemaphore raises ValueError on the imbalance instead.
 _RUN_GATE = threading.BoundedSemaphore(1)
 
+# WHICH JOBS THIS PROCESS HAS A THREAD ON. A job is `pending` from creation until its
+# worker acquires the gate, so the row alone cannot say whether anyone is attending it: a
+# row queued behind a running job in this process looks exactly like a row a dead process
+# left behind. The resumer that drains the queue after every run needs the difference, or
+# it would hand a second thread to a job whose first thread is waiting its turn, and two
+# workers would run one paid report against one shared ledger. Membership is taken before
+# the thread starts and dropped after the terminal state is published, so at no point is a
+# job both attended and invisible here. Process-local by design: another process's threads
+# are what the boot sweep is for.
+_IN_FLIGHT: set[str] = set()
+_IN_FLIGHT_LOCK = threading.Lock()
+
+# WHAT RUNS WHEN THE GATE FREES. A pending row that could not start when the resumer
+# looked (its owner already had a run in flight) used to wait for the next boot, which on
+# a healthy server never comes: the row rendered "Waiting to start" with the credit spent
+# and nothing left to start it. The worker calls this after it has released the gate and
+# published its outcome, so the queue drains itself. routes.research registers the resumer
+# here; jobs does not import it, so the module graph keeps pointing down.
+_DRAIN: Callable[[], object] | None = None
+
+
+def register_drain(fn: Callable[[], object] | None) -> None:
+    """Name the function every finished run calls to start whatever is still queued."""
+    global _DRAIN
+    _DRAIN = fn
+
+
+def in_flight(job_id: str) -> bool:
+    """Does THIS process already have a worker thread on the job, running or queued?"""
+    with _IN_FLIGHT_LOCK:
+        return job_id in _IN_FLIGHT
+
+
+def _drain_pending(db: str) -> None:
+    """Run the registered drain, and never let it take a worker thread down with it.
+
+    ONLY FOR THE DATABASE THE JOB RAN IN. `db` is the path resolved when the worker was
+    spawned; the drain is skipped if JOBS_DB_PATH names somewhere else now. In production
+    there is one database and this never fires. Under test, a worker that outlives the
+    test which spawned it would otherwise read the NEXT test's database, start a row that
+    test had staged, and hand it a result from the wrong run.
+    """
+    fn = _DRAIN
+    if fn is None or str(_db_path()) != db:
+        return
+    try:
+        fn()
+    except Exception as e:                                   # noqa: BLE001
+        # The rows it could not start are still pending, which is visible and fixable at
+        # the next run or the next boot. A dead worker thread is neither.
+        log.error("[jobs] draining the queue after a run failed: %s", e)
+
 
 def run_async(job_id: str, fn: Callable[[], dict], progress_fn: Callable | None = None) -> None:
     """
     Spawn a thread to run fn(), catch any error, update job state.
 
     Generation is serialized process-wide (see _RUN_GATE): the thread starts immediately
-    but waits its turn, and the job stays `pending` until it actually begins — a queued
-    job that claimed `running` would both mislead the UI and look orphaned to
-    cleanup_orphaned_jobs' staleness cutoff.
+    but waits its turn, and the job stays `pending` until it actually begins. A queued job
+    that claimed `running` would mislead the UI and be resumed twice by the boot sweep.
+
+    ONE THREAD PER JOB. A job this process already has a worker on, running or waiting its
+    turn, is not started again: the resumer reads pending rows after every run, and the
+    only thing standing between "the queue drains itself" and "a paid report runs twice at
+    once" is this refusal. Logged, because a second call is a caller's mistake.
 
     If the function accepts a `progress` callback, pass one that persists
-    partial results to the jobs table after each step — so the UI can show
+    partial results to the jobs table after each step, so the UI can show
     live progress instead of waiting for final completion.
     """
+    with _IN_FLIGHT_LOCK:
+        if job_id in _IN_FLIGHT:
+            log.warning("[jobs] %s already has a worker in this process; not started again",
+                        job_id[:8])
+            return
+        _IN_FLIGHT.add(job_id)
+    db = str(_db_path())
+
     def progress_callback(partial_result: dict):
         """Called by the worker function to checkpoint partial results."""
         update(job_id, result=partial_result)
 
     def worker():
-        # The terminal state is published only after the slot is released, so a caller that
-        # sees `complete`/`error` knows the next job can start immediately. _run_one catches
-        # everything and returns an outcome, so no path can leave the job stuck `running`.
-        """Run the job on its own thread, holding the global run gate for the duration."""
+        """Run the job on its own thread, holding the global run gate for the duration.
+
+        The terminal state is published only after the slot is released, so a caller that
+        sees `complete`/`error` knows the next job can start immediately. _run_one catches
+        everything and returns an outcome, so no path can leave the job stuck `running`.
+        """
         _RUN_GATE.acquire()
         try:
             outcome = _run_one(job_id, fn, progress_callback)
         finally:
             _RUN_GATE.release()
-        # THE PUBLISH IS THE LAST THING THAT CAN FAIL, and it was the one step outside a
-        # guard. _run_one catches everything and returns an outcome, so the docstring
-        # above says no path leaves a job stuck `running` — but this write can raise on
-        # its own (a full disk, a lock held past the timeout, the file gone) and then the
-        # thread dies with the outcome in its hand. The job stays `running` until the
-        # orphan sweep an hour later, and the exception surfaces nowhere.
         try:
-            update(job_id, **outcome)
-        except Exception as e:                               # noqa: BLE001
-            log.error("[jobs] could not publish the terminal state of %s: %s", job_id, e)
-            try:
-                update(job_id, **outcome)                    # one retry; locks are brief
-            except Exception as e2:                          # noqa: BLE001
-                log.error("[jobs] %s is stranded in its last state: %s", job_id, e2)
-                return
-        if outcome.get("state") == "complete":
-            log.info("job %s complete", job_id)
+            if _publish(job_id, outcome) and outcome.get("state") == "complete":
+                log.info("job %s complete", job_id)
+        finally:
+            # THE GATE IS FREE AND THE ROW IS FINAL: let go of the job, then start whatever
+            # was waiting for the slot. Forgetting comes first so the drain can see this
+            # process is no longer attending the job, and the drain runs even when the
+            # publish failed, because the queue behind a stranded row is still a queue.
+            with _IN_FLIGHT_LOCK:
+                _IN_FLIGHT.discard(job_id)
+            _drain_pending(db)
 
     t = threading.Thread(target=worker, daemon=True, name=f"job-{job_id[:8]}")
     t.start()
+
+
+def _publish(job_id: str, outcome: dict) -> bool:
+    """Write the terminal state, with one retry. False when the row could not be written.
+
+    THE PUBLISH IS THE LAST THING THAT CAN FAIL, and it was the one step outside a guard.
+    _run_one catches everything and returns an outcome, so the docstring above says no
+    path leaves a job stuck `running`, but this write can raise on its own (a full disk, a
+    lock held past the timeout, the file gone) and then the thread died with the outcome
+    in its hand. The job stayed `running` until the next boot's sweep, and the exception
+    surfaced nowhere.
+    """
+    try:
+        update(job_id, **outcome)
+        return True
+    except Exception as e:                                   # noqa: BLE001
+        log.error("[jobs] could not publish the terminal state of %s: %s", job_id, e)
+    try:
+        update(job_id, **outcome)                            # one retry; locks are brief
+        return True
+    except Exception as e2:                                  # noqa: BLE001
+        log.error("[jobs] %s is stranded in its last state: %s", job_id, e2)
+        return False
 
 
 def _run_one(job_id: str, fn: Callable[[], dict],

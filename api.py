@@ -393,14 +393,23 @@ def _refuse_to_boot_misconfigured():
 def _resume_interrupted_runs():
     """Pick up where a dead worker left off, rather than burying its work.
 
-    This used to be cleanup_orphaned_jobs, which marked an interrupted run `error`. That
-    was right when a zombie row was the only alternative, and wrong once run_plan learned
-    to resume: the partial result is already in the row, checkpointed after every step, so
-    a deploy in the middle of a six-minute run was destroying something nearly finished
-    that a user had paid for.
+    This used to be a sweep that marked an interrupted run `error`. That was right when a
+    zombie row was the only alternative, and wrong once run_plan learned to resume: the
+    partial result is already in the row, checkpointed after every step, so a deploy in
+    the middle of a six-minute run was destroying something nearly finished that a user
+    had paid for.
+
+    NO GRACE AT BOOT. Nothing in a process that has just started can be running, so every
+    unfinished row is a dead worker's, however recently it checkpointed. The 60-second
+    grace this passed before was written for a sweep that might run beside live workers,
+    and here it excluded exactly the run interrupted within a minute of its last step:
+    that row stayed `running` for good, was never handed to the resumer, and past the
+    resumable window was never errored or refunded either. What the sweep cannot bring
+    back it now buries with the credit returned, and what it requeues the resumer starts,
+    draining the rest as each slot frees.
     """
     try:
-        requeued = jobs.requeue_orphans(grace_seconds=60)
+        requeued = jobs.requeue_orphans(grace_seconds=0)
         from routes.research import resume_interrupted
         started = resume_interrupted()
         if requeued or started:
@@ -465,14 +474,6 @@ def _push_coupons_minted_without_stripe():
         # Same rule as the thread body: a backlog still listed by sharing.pending() is
         # visible and fixable. A boot loop is neither.
         log.warning("[startup] could not push pending coupons to Stripe: %s", e)
-
-
-def _cleanup_orphaned_jobs():
-    """Retained for callers that want the old bury-it behaviour (tests, one-off tools)."""
-    n = jobs.cleanup_orphaned_jobs(grace_seconds=60)
-    if n:
-        from logger import get
-        get("api").info("startup: marked %d orphaned jobs as error", n)
 
 
 WEB_DIR.mkdir(exist_ok=True)

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import json as _json
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -226,30 +227,66 @@ def post_match(req: MatchRequest):
     return {"job_id": job_id}
 
 
-def resume_interrupted() -> int:
-    """Restart every run a dead worker left behind, seeded from its own checkpoint.
+# ONE DRAIN AT A TIME. resume_interrupted runs at boot and again on every worker thread
+# that has just released the gate, and two of those can overlap when jobs finish close
+# together. Each reads the same pending rows; serialized, the second sees what the first
+# just started and skips it. Blocking rather than skipping, because a drain that gave up
+# on finding another in progress would miss a row that became startable in between.
+_DRAIN_LOCK = threading.Lock()
 
-    CALLED ONCE AT STARTUP. The partial result already in the row becomes run_plan's
-    `resume_from`, and orchestrator.steps.skip_step then skips each step recorded complete
-    whose outputs are intact — so a run interrupted at step 20 of 27 does the last seven,
-    not all of them. That is the difference between a deploy costing a user six minutes and
-    costing them their report.
+
+def resume_interrupted() -> int:
+    """Start every run the boot sweep found unattended, seeded from its own checkpoint.
+
+    CALLED AT BOOT, AND AGAIN AFTER EVERY RUN. The partial result already in the row
+    becomes run_plan's `resume_from`, and orchestrator.steps.skip_step then skips each
+    step recorded complete whose outputs are intact, so a run interrupted at step 20 of 27
+    does the last seven, not all of them. That is the difference between a deploy costing a
+    user six minutes and costing them their report.
+
+    THE QUEUE DRAINS ITSELF. An owner gets one run at a time, so when the sweep leaves two
+    of theirs pending, or one pending behind a run that was already resumed, the second is
+    refused its slot here. It used to stay pending until the next boot, which on a healthy
+    server is never: "Waiting to start", credit spent, nothing left to start it. Now
+    jobs.run_async calls this again from each worker once it has released the gate and
+    published its outcome, so the refused row starts the moment the slot frees. Nothing
+    here can spin: a row that starts and fails leaves `pending` for `error`, a row refused
+    its slot is not started and so triggers no further drain, and a row this process
+    already has a thread on is skipped rather than started twice.
+
+    ONLY ROWS THE SWEEP STAMPED. jobs.requeue_orphans marks every unattended row it finds
+    with a `_resumes` count, running and pending alike. A pending row without that stamp
+    was created by a live request in this process and has its own worker waiting on the
+    gate; picking it up here would run one paid report twice.
 
     QUOTA IS NOT RE-CHARGED. The daily run was spent when they submitted; being interrupted
     by our deploy is not a second run. The concurrency slot is claimed, because the machine
     genuinely is about to do the work.
     """
+    with _DRAIN_LOCK:
+        return _start_unattended()
+
+
+def _start_unattended() -> int:
+    """The body of resume_interrupted, under its lock. Returns how many runs it started."""
     import jobs as _jobs
     import quota as _quota
-    from plan import run_plan
 
     ids = _jobs.pending_ids("plan")
+    if not ids:
+        return 0
+    from plan import run_plan
+
     started = 0
     for job_id in ids:
+        if _jobs.in_flight(job_id):
+            continue          # this process has a thread on it already, waiting its turn
         row = _jobs.get_unscoped(job_id) if hasattr(_jobs, "get_unscoped") else None
         if not row:
             continue
         params = row.get("params") or {}
+        if not int(params.get("_resumes") or 0):
+            continue          # a live request's row, not an orphan; see the docstring
         seed = row.get("result") or None
         owner = row.get("owner_id") or _jobs.LEGACY_OWNER
         description = str(params.get("description") or "")
@@ -258,7 +295,10 @@ def resume_interrupted() -> int:
         try:
             _quota.claim_run_slot(owner, job_id=job_id, count_daily=False)
         except _quota.QuotaExceeded:
-            continue          # this owner is already running something; leave it pending
+            # This owner already has a run in flight. Left pending on purpose: the worker
+            # that holds their slot calls back here when it finishes, and that is when
+            # this row starts.
+            continue
 
         def work(progress=None, _d=description, _p=params, _s=seed, _o=owner,
                  _j=job_id):
@@ -299,9 +339,14 @@ def resume_interrupted() -> int:
 
         _jobs.run_async(job_id, work)
         started += 1
-        log.info("[startup] resuming %s from %d completed step(s)",
+        log.info("[resume] starting %s from %d completed step(s)",
                  job_id[:8], len((seed or {}).get("_steps_completed") or []))
     return started
+
+
+# The worker calls back into the resumer once its gate is free. Registered by the module
+# that owns the resumer, so jobs never has to import routes.
+jobs.register_drain(resume_interrupted)
 
 
 def _refund_if_nothing_was_delivered(owner_id: str, job_id: str, result: dict) -> None:

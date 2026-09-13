@@ -123,7 +123,12 @@ class ARefundHappensAtMostOnce(_Env):
 
 class AResumedRunRefundsAndAnnounces(_Env):
     def _interrupted_paid_job(self):
-        """A job left `pending` by a dead worker, whose credit was already spent."""
+        """A job left `pending` by a dead worker, whose credit was already spent.
+
+        SWEPT AS BOOT SWEEPS IT. The resumer only starts rows the boot sweep has stamped as
+        unattended; a bare pending row looks like one a live request created a moment ago,
+        whose own worker is waiting on the gate, and is left alone on purpose.
+        """
         import billing
         import jobs
         owner = "acct-buyer"
@@ -131,6 +136,7 @@ class AResumedRunRefundsAndAnnounces(_Env):
         billing.consume(owner, "report")
         jid = jobs.create("plan", {"description": BRIEF}, owner_id=owner)
         billing.record_spend(jid, owner)
+        jobs.requeue_orphans(grace_seconds=0)
         return owner, jid
 
     def test_a_resumed_run_that_fails_gives_the_credit_back(self):
