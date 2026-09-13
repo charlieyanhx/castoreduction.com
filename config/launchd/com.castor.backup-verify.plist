@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- A BACKUP NOBODY HAS READ BACK IS A HOPE. Sunday at 04:00, half an hour after the
+       nightly copy, this opens the newest file in ~/CastorBackups read-only, runs SQLite's
+       integrity check, counts every table, and fails if that newest copy is more than a
+       day and a half old, which is how a nightly agent that quietly stopped shows up. The
+       verdict goes to the same log as the nightly run, ~/Library/Logs/castor/backup.log,
+       so one file answers both questions: did it run, and is what it wrote any good.
+       Install: cp to ~/Library/LaunchAgents and
+       launchctl load -w ~/Library/LaunchAgents/com.castor.backup-verify.plist -->
+  <key>Label</key><string>com.castor.backup-verify</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/charlieyan/Downloads/castor-advisories/.venv/bin/python</string>
+    <string>/Users/charlieyan/Downloads/castor-advisories/backup.py</string>
+    <string>--verify</string><string>/Users/charlieyan/CastorBackups</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/charlieyan/Downloads/castor-advisories</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key><integer>0</integer>
+    <key>Hour</key><integer>4</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+  <key>StandardOutPath</key><string>/Users/charlieyan/Library/Logs/castor/backup.log</string>
+  <key>StandardErrorPath</key><string>/Users/charlieyan/Library/Logs/castor/backup.log</string>
+</dict>
+</plist>

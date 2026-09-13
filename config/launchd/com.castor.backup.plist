@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- THE ONLY COPY OF EVERY ACCOUNT AND PURCHASE GETS A SECOND ONE, NIGHTLY. .jobs.sqlite
+       sits in this laptop's working copy, mode 0600, and Time Machine does not cover it.
+       At 03:30 launchd runs backup.py as the same user as com.castor.server, so the file
+       is readable, and the copy lands in ~/CastorBackups: off the repo, and the one folder
+       a cloud sync or a Time Machine include has to carry away. Copies older than 30 days
+       are pruned only after the new one has matched the source. A run missed while the Mac
+       slept happens at the next wake. com.castor.backup-verify.plist reads the newest copy
+       back once a week. Install: mkdir -p ~/Library/Logs/castor, cp to ~/Library/LaunchAgents
+       and launchctl load -w ~/Library/LaunchAgents/com.castor.backup.plist; to take one now
+       without waiting for 03:30, launchctl start com.castor.backup -->
+  <key>Label</key><string>com.castor.backup</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/charlieyan/Downloads/castor-advisories/.venv/bin/python</string>
+    <string>/Users/charlieyan/Downloads/castor-advisories/backup.py</string>
+    <string>--out</string><string>/Users/charlieyan/CastorBackups</string>
+    <string>--keep-days</string><string>30</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/charlieyan/Downloads/castor-advisories</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>3</integer>
+    <key>Minute</key><integer>30</integer>
+  </dict>
+  <key>StandardOutPath</key><string>/Users/charlieyan/Library/Logs/castor/backup.log</string>
+  <key>StandardErrorPath</key><string>/Users/charlieyan/Library/Logs/castor/backup.log</string>
+</dict>
+</plist>
