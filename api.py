@@ -345,14 +345,49 @@ def _refuse_to_boot_misconfigured():
     against an account they could never log into.
 
     A deploy that cannot serve a login is a failed deploy and should look like one.
+
+    AND NOT AT THE FIRST PURCHASE. CASTOR_STUB_REPORT and CASTOR_PAYWALL_PREVIEW are test
+    switches: the stub answers POST /plan with a clone of a finished report, the preview
+    grants a purchase with no card behind it. Nothing read either one at boot, so the day
+    one was left on where the paywall stood, a founder paid for a report and the credit
+    bought a clone stamped "(test run)". So a selling instance, billing.configured() with
+    the paywall on, refuses to boot with either switch set, and production refuses both
+    whatever the paywall says, because production is not where tests run. The developer
+    shape, keys in place behind CASTOR_PAYWALL_OFF, still boots: nobody is charged there.
+
+    Production also refuses a RESEND_API_KEY without CASTOR_PUBLIC_URL. Every mail carries
+    a link, and mailer.configured() goes quietly false without the origin, so the deploy
+    that pasted the key looked complete and account recovery was dead until somebody
+    tried it.
     """
+    production = os.environ.get("CASTOR_ENV", "").lower() == "production"
     if paywall_off():
         log.warning("[billing] CASTOR_PAYWALL_OFF=1: nobody is being asked "
                     "to pay. Reports run on the free daily allowance.")
-    if os.environ.get("CASTOR_ENV", "").lower() != "production":
+    import billing
+    selling = billing.configured() and not paywall_off()
+    if production or selling:
+        where = "CASTOR_ENV=production" if production else "an instance that is selling"
+        if (os.environ.get("CASTOR_STUB_REPORT") or "").strip():
+            raise RuntimeError(
+                f"CASTOR_STUB_REPORT is set on {where}: a purchase here would buy a clone "
+                "of a finished report. Unset it, or set CASTOR_PAYWALL_OFF=1 on a "
+                "non-production instance to test the flow without charging anyone.")
+        if _paywall_preview():
+            raise RuntimeError(
+                f"CASTOR_PAYWALL_PREVIEW is set on {where}: the gate would grant every "
+                "purchase without a card. Unset it; the preview is for an instance with "
+                "no Stripe keys.")
+    if not production:
         return
     import auth as _auth
     _auth._session_secret()          # raises RuntimeError -> the container exits
+    if ((os.environ.get("RESEND_API_KEY") or "").strip()
+            and not (os.environ.get("CASTOR_PUBLIC_URL") or "").strip()):
+        raise RuntimeError(
+            "RESEND_API_KEY is set without CASTOR_PUBLIC_URL: every mail carries a link "
+            "and there is no origin to build one against. Set CASTOR_PUBLIC_URL to the "
+            "address founders reach this instance at.")
 
 
 def _resume_interrupted_runs():
