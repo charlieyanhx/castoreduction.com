@@ -688,3 +688,54 @@ class TestThePromptIsStable(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheWritingIsCheckedAfterItIsWritten(unittest.TestCase):
+    """The verifier runs before the writer, so D62 could never see the prose in a real
+    run: on diag02 it sat in blind_ids while the gate's own tests passed. This runs the
+    two in pipeline order and reads what the founder would."""
+
+    def _verified_fixture(self):
+        from report.verifier import verify_report
+        res = _fixture()
+        res.pop("synthesis", None)
+        vr = verify_report(res, None, use_llm=False)
+        res["verification"] = {"status": "verified", "summary": vr.summary(),
+                               "findings": [f.__dict__ for f in vr.findings]}
+        self.assertIn("D62", res["verification"]["summary"]["coverage"]["blind_ids"],
+                      "the premise: D62 is blind when the verifier runs before the writer")
+        return res
+
+    def _write(self, res, text):
+        import plan
+        writer = _Writer(_message(text))
+        with patch.dict(os.environ, _OPTED_IN, clear=False), patch("anthropic.Anthropic", writer):
+            plan._write_the_analyst_report(res, _VENTURE)
+        return res
+
+    def test_a_clean_report_is_kept_and_d62_is_answered(self):
+        res = self._write(self._verified_fixture(), _MARKDOWN)
+        self.assertTrue((res["synthesis"].get("markdown") or "").strip())
+        cov = res["verification"]["summary"]["coverage"]
+        self.assertNotIn("D62", cov["blind_ids"])
+        self.assertNotIn("D63", cov["blind_ids"])
+        self.assertNotIn("synthesis", res.get("_dropped_outputs") or {})
+        self.assertTrue(res["verification"]["summary"]["publishable"])
+
+    def test_an_invented_number_withholds_the_writing_not_the_report(self):
+        bad = _MARKDOWN + "\n\nRent in the Mission averages $9,400 a month.\n"
+        res = self._write(self._verified_fixture(), bad)
+        syn = res["synthesis"]
+        self.assertFalse((syn.get("markdown") or "").strip(), "the failing prose reached the page")
+        self.assertIn("9,400", syn.get("withheld_reason", ""))
+        self.assertIn("9,400", (res.get("_dropped_outputs") or {}).get("synthesis", ""))
+        ids = [f.get("invariant") for f in res["verification"]["findings"]]
+        self.assertIn("D62", ids)
+        self.assertTrue(res["verification"]["summary"]["publishable"],
+                        "the facts passed; only the writing is withheld")
+        self.assertNotIn("D62", res["verification"]["summary"]["coverage"]["blind_ids"])
+
+    def test_the_page_falls_back_when_the_writing_is_withheld(self):
+        from report.render_synthesis import synthesis_view
+        res = self._write(self._verified_fixture(), _MARKDOWN + "\n\nRent averages $9,400 a month.\n")
+        self.assertIsNone(synthesis_view(res, label="Analyst report"))

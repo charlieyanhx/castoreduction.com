@@ -2315,6 +2315,63 @@ def _write_the_analyst_report(result: dict, description: str) -> None:
         log.error("[plan] the analyst report could not be declared: %s: %s",
                   type(e).__name__, e)
         record_dropped_output(result, "synthesis", f"{type(e).__name__}: {e}")
+        return
+    _check_the_writing(result)
+
+
+def _check_the_writing(result: dict) -> None:
+    """Run the two synthesis gates on the report that was just written.
+
+    THE VERIFIER RUNS BEFORE THE WRITER, BY DESIGN: the analyst report reads the findings
+    and says what they mean. So when verify_report ran, there was no synthesis for D62 and
+    D63 to read, and they answered "not applicable". MEASURED on the first real run with
+    the writer on (diag02, 2026-09-14): D62 sat in blind_ids, the gate that exists to
+    catch an invented number never saw the prose, and the gate's own tests could not tell,
+    because they hand it a result that already carries a synthesis.
+
+    So the writing gets checked here, after it is written. A D62 failure withholds the
+    WRITING, not the report: the facts passed their gates, and a fifty-cent paragraph that
+    failed its check is not a reason to withhold twenty-two sections of research. The
+    markdown moves aside, the page falls back to the narrative it rendered before the
+    synthesis existed, the drop is disclosed the way every other dropped section is, and
+    the verification record carries the finding as advisory with D62 and D63 moved from
+    blind to answered. Nothing here raises: a gate that crashes leaves the writing in place
+    and says so.
+    """
+    syn = result.get("synthesis")
+    if not isinstance(syn, dict) or not (syn.get("markdown") or "").strip():
+        return
+    try:
+        from gates.synthesis import (d62_synthesis_numbers_are_in_the_evidence_it_cites as d62,
+                                     d63_synthesis_citations_resolve as d63)
+        f62, f63 = d62(result, None), d63(result, None)
+    except Exception as e:                                   # noqa: BLE001 - never block a run
+        log.error("[plan] the writing could not be checked: %s: %s", type(e).__name__, e)
+        return
+    ver = result.get("verification")
+    if isinstance(ver, dict):
+        findings = ver.setdefault("findings", [])
+        summary = ver.setdefault("summary", {})
+        cov = summary.setdefault("coverage", {})
+        blind = [g for g in (cov.get("blind_ids") or []) if g not in ("D62", "D63")]
+        answered = int(cov.get("answered") or 0)
+        for gid, f in (("D62", f62), ("D63", f63)):
+            if f.ok is None:
+                continue
+            answered += 1
+            if f.ok is False:
+                findings.append({"invariant": gid, "severity": "advisory",
+                                 "detail": f.detail, "audit_class": "synthesis"})
+                summary["advisory"] = int(summary.get("advisory") or 0) + 1
+        cov["blind_ids"] = blind
+        cov["answered"] = answered
+    if f62.ok is False:
+        syn["withheld_markdown"] = syn.pop("markdown")
+        syn["withheld_reason"] = f62.detail
+        record_dropped_output(result, "synthesis",
+                              "the written analysis did not pass its citation check and is "
+                              f"withheld; the evidence below stands on its own ({f62.detail})")
+        log.warning("[plan] analyst report withheld by D62: %s", f62.detail[:200])
 
 
 def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progress=None,
