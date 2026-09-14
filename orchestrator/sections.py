@@ -476,12 +476,20 @@ def synthesis_section(result: dict, description: str) -> Section:
         return write_synthesis(ctx, description, style)
 
     def why_not() -> Optional[str]:
+        from capabilities.effort import effort_config
         from llm import backend_configured, paid_backend_allowed
         if (result or {}).get("_stub"):
             return with_operator_note(
                 "this run is a clone of another report, not research into this venture; "
                 "there is nothing to write from",
                 "CASTOR_STUB_REPORT names the report it was cloned from")
+        # THE PURCHASE DECIDES BEFORE THE DEPLOYMENT DOES. A quick run is a fast look at
+        # the numbers, and the written report is an Opus call it was not bought at; that
+        # reason belongs to the founder, so it comes before the deployment's, and it
+        # carries no operator note because there is no variable to set.
+        if not effort_config((result or {}).get("_effort")).get("analyst_report"):
+            return ("the written report starts at standard effort, and this run was "
+                    "bought at quick")
         if not backend_configured("anthropic"):
             return with_operator_note(
                 f"written by {MODEL}, and this deployment has not enabled it",

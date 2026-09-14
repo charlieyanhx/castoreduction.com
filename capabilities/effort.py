@@ -32,6 +32,9 @@ _CONFIG: dict[str, dict] = {
         "competitor_enrich_limit": 5,
         "verify_with_llm": False,
         "research_crew": False,
+        # The analyst report is an Opus call, about fifty cents a run. Quick is the tier
+        # for a fast look at the numbers; the written report starts at standard.
+        "analyst_report": False,
     },
     STANDARD: {
         "max_candidates": 20,
@@ -39,6 +42,7 @@ _CONFIG: dict[str, dict] = {
         "competitor_enrich_limit": 10,
         "verify_with_llm": False,
         "research_crew": False,
+        "analyst_report": True,
     },
     DEEP: {
         "max_candidates": 35,
@@ -49,6 +53,7 @@ _CONFIG: dict[str, dict] = {
         "verify_with_llm": True,
         # Four specialist agents, each with its own harness loop. Same reasoning.
         "research_crew": True,
+        "analyst_report": True,
     },
 }
 

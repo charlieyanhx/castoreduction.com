@@ -271,6 +271,30 @@ class TestTheThreeReasonsItDoesNotApply(unittest.TestCase):
         self.assertEqual(res["_inapplicable_sections"]["synthesis"], sr.reason)
         self.assertNotIn("synthesis", res.get("_dropped_outputs") or {})
 
+    def test_a_quick_run_is_not_written_and_says_so_to_the_founder(self):
+        """The lever lives with the other tier levers in capabilities.effort, and the
+        reason is the founder's: it names the tier, not a variable."""
+        res = _fixture()
+        res["_effort"] = "quick"
+        sr, writer = _assemble(res, _message(),
+                               env={"ANTHROPIC_API_KEY": "sk-test-fake", "LLM_ALLOW_PAID": "1"})
+        self.assertEqual(sr.status, NOT_APPLICABLE)
+        self.assertIn("quick", sr.reason)
+        self.assertNotIn("[operator:", sr.reason)
+        self.assertEqual(writer.constructed, 0)
+
+    def test_standard_and_deep_are_written(self):
+        for tier in ("standard", "deep", None, "not-a-tier"):
+            with self.subTest(tier=tier):
+                res = _fixture()
+                if tier is not None:
+                    res["_effort"] = tier
+                sr, writer = _assemble(res, _message(),
+                                       env={"ANTHROPIC_API_KEY": "sk-test-fake",
+                                            "LLM_ALLOW_PAID": "1"})
+                self.assertNotEqual(sr.status, NOT_APPLICABLE, sr.reason)
+                self.assertEqual(writer.constructed, 1)
+
     def test_without_a_key_it_says_which_variable(self):
         res = _fixture()
         sr, writer = _assemble(res, _message(), env={"LLM_ALLOW_PAID": "1"})
