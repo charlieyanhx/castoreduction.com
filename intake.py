@@ -62,6 +62,18 @@ TREE_FIELDS = (
 )
 ALL_FIELDS = REQUIRED_FIELDS + NICE_TO_HAVE_FIELDS + TREE_FIELDS
 
+# HOW THE REPORT READS is the founder's call, not a fact about the venture. The fact layer
+# is the product; the writing is delegated under a citation gate, and the founder picks
+# which of three shapes that writing takes: a one-page decision memo, the full analysis
+# with every number linked to its source, or an operating plan for the first 90 days.
+# The choice rides the intake record as `report_style` rather than `extracted`, because
+# a preference in `extracted` would become a "fact", enter the classifier's blob and be
+# composed into the brief the pipeline reads. The source of truth for the names is
+# report/synthesis.STYLES; this is the intake's local copy, kept here on purpose because
+# intake never imports report/. Keep the two tuples identical.
+REPORT_STYLES = ("memo", "full", "operating")
+DEFAULT_REPORT_STYLE = "full"
+
 # The escape hatch: a founder who answers vaguely forever must not be trapped in the
 # interview. After this many user turns, every still-open tree question is marked as an
 # assumption and the session goes ready — the report then discloses what was assumed.
@@ -1029,6 +1041,28 @@ def is_confirmed(session: dict) -> bool:
     return bool((session or {}).get("confirmed"))
 
 
+def parse_report_style(value: Any) -> str:
+    """The founder's report style, validated. Blank means the default.
+
+    Raises ValueError with the sentence the form shows, so a hand-built request cannot
+    put a style name the synthesis layer does not know into the run. The survey's
+    control is a closed choice, so a real founder never sees this message."""
+    said = str(value if value is not None else "").strip().lower()
+    if not said:
+        return DEFAULT_REPORT_STYLE
+    if said not in REPORT_STYLES:
+        raise ValueError("Report style must be one of "
+                         + ", ".join(REPORT_STYLES) + f"; got {said!r}.")
+    return said
+
+
+def report_style_of(session: dict | None) -> str:
+    """What the founder chose, or the default when they chose nothing (or the session
+    predates the choice). Never raises: a stored value is one this module wrote."""
+    said = (session or {}).get("report_style")
+    return said if said in REPORT_STYLES else DEFAULT_REPORT_STYLE
+
+
 def intake_record(session: dict) -> dict:
     """The structured survivor of the survey: what the founder knew, declared unknown,
     and was warned about, in a shape the run and its gates can read.
@@ -1061,7 +1095,10 @@ def intake_record(session: dict) -> dict:
                       for i in confirmation_items(ex) if i.get("warning")]
     return {"facts": facts, "slots": typed, "unknowns": unknowns,
             "warnings_shown": warnings_shown,
-            "confirmed": bool((session or {}).get("confirmed"))}
+            "confirmed": bool((session or {}).get("confirmed")),
+            # The founder's choice of report shape. Always present, so the run and the
+            # synthesis layer read one key and never guess: absent on the form means full.
+            "report_style": report_style_of(session)}
 
 
 def mark_confirmed(session: dict) -> dict:
@@ -1170,6 +1207,11 @@ def apply_form_answers(session: dict, answers: dict) -> dict:
     ex = session.setdefault("extracted",         # the wrong name and every blank answer
                             {f: None for f in ALL_FIELDS})   # raised NameError, so the
     asked = {q["field"]: q for q in form_questions(session)}  # endpoint 500'd on the first
+    # THE REPORT STYLE IS VALIDATED FIRST, before anything is written, so a refused submit
+    # leaves the session exactly as it was. It lives on the session, not in `extracted`
+    # (see REPORT_STYLES), and a blank leaves the earlier choice or the default standing.
+    if (answers or {}).get("report_style") not in (None, ""):
+        session["report_style"] = parse_report_style(answers["report_style"])
     for field, value in (answers or {}).items():             # realistic submit.
         if field not in ALL_FIELDS and field not in asked:
             continue                      # never invent a field the tree does not know

@@ -26,7 +26,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from core.section import (FAILED, FLAGGED, NOT_APPLICABLE, OK, SKIPPED, Section,
-                          SectionResult, assemble, stale_reads)
+                          SectionResult, assemble, stale_reads, with_operator_note)
 from logger import get
 
 from .steps import record_dropped_output, step_done
@@ -422,4 +422,84 @@ def research_brief_section(description: str, geo: str = "US",
                      brief_rests_on_a_contributing_agent),
                     ("every_dispatched_worker_is_accounted_for",
                      every_dispatched_worker_is_accounted_for)),
+    )
+
+
+#: What the writer cannot write without. Sizing, economics, financials and the score are
+#: the spine of every decision the report is asked to make; a venture missing one of them
+#: has no report to synthesise, only sections to list.
+SYNTHESIS_CONSUMES = ("market_sizing", "economics", "financials", "viability")
+
+
+def synthesis_section(result: dict, description: str) -> Section:
+    """The analyst report, declared. The fifth section, and the one that reads everything.
+
+    IT CONSUMES THE OUTPUT OF EVERY OTHER SECTION, so it runs last, and that is derived,
+    not arranged: `optional` names every top-level key the fact layer carries, which
+    makes each of them an ordering edge in core.section.plan. A section added tomorrow is
+    read by the writer the moment it lands in the result, because the roster is the union
+    of the declared FACT_KEYS and what this run actually holds.
+
+    THREE REASONS IT DOES NOT APPLY, each stated in its own words. A stubbed run is a
+    clone of another report, so there is nothing about this venture to write from. No
+    ANTHROPIC_API_KEY means no writer. And the writer is a paid Opus call by design
+    (MEASURED: a smaller model invented two figures the citation gate then caught), so
+    it waits for the same consent the JSON chain waits for: LLM_ALLOW_PAID=1 or
+    LLM_BACKEND=anthropic.
+
+    EACH REASON IS WRITTEN FOR TWO READERS. All three are facts about the deployment, not
+    the venture, and a founder reading the page needs only the first half: the report is
+    not written here. The operator who has to set the variable needs its name, so the
+    name rides the same string as an operator note (core.section.with_operator_note),
+    which the log and the stored result keep and the page drops. MEASURED before this:
+    "Synthesis (the report is written by claude-opus-5 and ANTHROPIC_API_KEY is not set)"
+    on every buyer's page of a deployment that had not opted in. The reasons read as the
+    clause after the section's name, the way the research brief's does.
+
+    A WRITE THAT FAILS IS A FAILED SECTION, NEVER A FAILED RUN. The assembler already
+    records a raising producer as FAILED with the exception's class and message, and
+    `apply` routes that to the page. Twenty-one sections of paid research do not become
+    worthless because the twenty-second could not be written.
+
+    `result` is closed over for applicability only. The producer reads its declared
+    context, and the style it writes in rides that context on intake.report_style.
+    """
+    from report.synthesis import (DEFAULT_STYLE, DROPPED_KEY, FACT_KEYS, INAPPLICABLE_KEY,
+                                  MODEL, the_writing_ran_to_its_end, write_synthesis)
+
+    carried = {k for k in (result or {}) if not str(k).startswith("_")}
+    optional = (tuple(sorted((set(FACT_KEYS) | carried) - set(SYNTHESIS_CONSUMES)))
+                + (DROPPED_KEY, INAPPLICABLE_KEY))
+
+    def produce(ctx: dict) -> dict:
+        style = ((ctx.get("intake") or {}).get("report_style")) or DEFAULT_STYLE
+        return write_synthesis(ctx, description, style)
+
+    def why_not() -> Optional[str]:
+        from llm import backend_configured, paid_backend_allowed
+        if (result or {}).get("_stub"):
+            return with_operator_note(
+                "this run is a clone of another report, not research into this venture; "
+                "there is nothing to write from",
+                "CASTOR_STUB_REPORT names the report it was cloned from")
+        if not backend_configured("anthropic"):
+            return with_operator_note(
+                f"written by {MODEL}, and this deployment has not enabled it",
+                "ANTHROPIC_API_KEY is not set")
+        if not paid_backend_allowed("anthropic"):
+            return with_operator_note(
+                f"written by {MODEL}, a paid model, and this deployment has not opted "
+                f"into paid backends",
+                "set LLM_ALLOW_PAID=1 or LLM_BACKEND=anthropic")
+        return None
+
+    return Section(
+        key="synthesis",
+        produce=produce,
+        consumes=SYNTHESIS_CONSUMES,
+        optional=optional,
+        label="Analyst report",
+        origin="llm",
+        inapplicable=why_not,
+        invariants=(("the_writing_ran_to_its_end", the_writing_ran_to_its_end),),
     )

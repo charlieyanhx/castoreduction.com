@@ -31,6 +31,11 @@ PRICING = {
     "claude-haiku-4-5": {"input": 1.00, "output": 5.00},
     "claude-sonnet-4-5": {"input": 3.00, "output": 15.00},
     "claude-opus-4-6": {"input": 15.00, "output": 75.00},
+    # The synthesis writer (report/synthesis.py) and its measured runner-up. Priced so the
+    # run's cost ledger can show the analyst report under its own model: MEASURED
+    # 2026-09-12, one Opus pass over a 141 KB fact layer was $0.50.
+    "claude-opus-5": {"input": 5.00, "output": 25.00},
+    "claude-sonnet-5": {"input": 2.00, "output": 10.00},
     # Groq free tier
     "llama-3.3-70b-versatile": {"input": 0.0, "output": 0.0},
     "llama-3.1-8b-instant": {"input": 0.0, "output": 0.0},
@@ -40,6 +45,13 @@ PRICING = {
     "gemini-1.5-flash": {"input": 0.0, "output": 0.0},
 }
 DEFAULT_PRICING = {"input": 0.0, "output": 0.0}
+
+
+def cost_usd(model: str, in_tok: int, out_tok: int) -> float:
+    """Dollars for one call, priced per model. An unrecognised model prices at zero so a
+    new model id counts its tokens without being able to break the accounting."""
+    price = PRICING.get(model, DEFAULT_PRICING)
+    return (in_tok / 1_000_000) * price["input"] + (out_tok / 1_000_000) * price["output"]
 
 
 # ---------------------------------------------------------------------------
@@ -57,8 +69,7 @@ class Usage:
     def add(self, model: str, in_tok: int, out_tok: int) -> None:
         """Record one call. Cost is priced per model, falling back to DEFAULT_PRICING so an
         unrecognised model still counts rather than silently costing nothing."""
-        price = PRICING.get(model, DEFAULT_PRICING)
-        cost = (in_tok / 1_000_000) * price["input"] + (out_tok / 1_000_000) * price["output"]
+        cost = cost_usd(model, in_tok, out_tok)
         self.calls += 1
         self.input_tokens += in_tok
         self.output_tokens += out_tok
@@ -117,9 +128,28 @@ BACKEND_DEFAULTS = {
 PAID_BACKENDS = frozenset({"anthropic"})
 
 
-def _configured(backend: str) -> bool:
+def backend_configured(backend: str) -> bool:
+    """Does this backend have a real key? A value ending in "..." is a placeholder pasted
+    from a template, not a credential, and is treated as absent."""
     key = os.environ.get(BACKEND_DEFAULTS[backend]["key_env"], "").strip()
     return bool(key) and not key.endswith("...")
+
+
+_configured = backend_configured
+
+
+def paid_backend_allowed(backend: str = "anthropic") -> bool:
+    """Has the operator said this paid backend may spend money on this run?
+
+    ONE RULE, READ IN TWO PLACES. fallback_chain applies it to keep the JSON chain off the
+    paid key on a throttle; the synthesis section applies it before writing the analyst
+    report, which is a paid Opus call by design. Two copies of "LLM_ALLOW_PAID=1 or
+    LLM_BACKEND=anthropic" would drift, and the drift would be a bill.
+    """
+    allow_paid = (os.environ.get("LLM_ALLOW_PAID", "").strip().lower()
+                  in ("1", "true", "yes"))
+    explicit = os.environ.get("LLM_BACKEND", "").strip().lower()
+    return allow_paid or explicit == backend
 
 
 def fallback_chain() -> list:
@@ -140,14 +170,11 @@ def fallback_chain() -> list:
     backoff for a call that cannot succeed.
     """
     primary, _ = _backend_and_model()
-    allow_paid = (os.environ.get("LLM_ALLOW_PAID", "").strip().lower()
-                  in ("1", "true", "yes"))
-    explicit = os.environ.get("LLM_BACKEND", "").strip().lower()
     chain = [primary]
     for name in BACKEND_DEFAULTS:
-        if name == primary or not _configured(name):
+        if name == primary or not backend_configured(name):
             continue
-        if name in PAID_BACKENDS and not (allow_paid or explicit == name):
+        if name in PAID_BACKENDS and not paid_backend_allowed(name):
             continue
         chain.append(name)
     return chain
@@ -279,6 +306,81 @@ def _call_anthropic(system: str, user: str, max_tokens: int, model: str,
         system=system, messages=[{"role": "user", "content": user}],
     )
     return msg.content[0].text, msg.usage.input_tokens, msg.usage.output_tokens
+
+
+# Models that take adaptive thinking and an effort level. budget_tokens is rejected with a
+# 400 on these; older models reject `output_config`. Prefix-matched so a dated snapshot id
+# lands on the same side as its family.
+_ADAPTIVE_THINKING_MODELS = ("claude-opus-5", "claude-sonnet-5")
+
+
+@dataclass(frozen=True)
+class LongText:
+    """One long prose answer and what it cost. `stop_reason` is kept because a report cut
+    off at max_tokens is not a report, and only the caller can decide what to do about it."""
+    text: str
+    in_tok: int
+    out_tok: int
+    stop_reason: str
+    model: str
+
+
+def call_long_text(system: str, user: str, max_tokens: int = 32000,
+                   model: str = "claude-opus-5") -> LongText:
+    """One long prose call on the anthropic backend, streamed, with usage recorded.
+
+    A SEPARATE PATH FROM _call_anthropic, ON PURPOSE. That one serves the 277-token JSON
+    slots: non-streaming, temperature 0, reads content[0].text. None of that survives a
+    frontier model writing an 8,000-word report. The first content block may be a thinking
+    block, so content[0].text raises; a 32k-token answer needs streaming or the request
+    times out; and thinking is what the writing quality was measured with, so temperature
+    is left to the model. Keeping the two apart means the JSON path cannot be broken by a
+    change the prose path needs.
+
+    Errors are logged by kind, most specific first, and re-raised unchanged: the section
+    assembler records the exception's own class as the reason, and a wrapper would hide
+    it. Nothing here ever logs the key.
+    """
+    import anthropic
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not key:
+        from errors import AuthError
+        raise AuthError("ANTHROPIC_API_KEY is not set; the long-text path is anthropic only")
+    client = anthropic.Anthropic(api_key=key)
+    kw: dict = dict(model=model, max_tokens=max_tokens, system=system,
+                    messages=[{"role": "user", "content": user}])
+    if model.startswith(_ADAPTIVE_THINKING_MODELS):
+        kw["thinking"] = {"type": "adaptive"}
+        kw["output_config"] = {"effort": "high"}
+    t0 = time.time()
+    try:
+        with client.messages.stream(**kw) as stream:
+            msg = stream.get_final_message()
+    except anthropic.RateLimitError as e:
+        log.warning("[llm] %s rate-limited after %.0fs: %s", model, time.time() - t0, e)
+        raise
+    except anthropic.APIStatusError as e:
+        log.warning("[llm] %s refused the request (HTTP %s): %s", model,
+                    getattr(e, "status_code", "?"), e)
+        raise
+    except anthropic.APIConnectionError as e:
+        log.warning("[llm] %s unreachable after %.0fs: %s", model, time.time() - t0, e)
+        raise
+    text = "".join(getattr(b, "text", "") for b in msg.content
+                   if getattr(b, "type", "") == "text")
+    in_tok = int(getattr(msg.usage, "input_tokens", 0) or 0)
+    out_tok = int(getattr(msg.usage, "output_tokens", 0) or 0)
+    # Accounted the same way the chain accounts its calls: the process-wide by_model
+    # tally, and the run ledger that result["_cogs"] is computed from.
+    usage.add(model, in_tok, out_tok)
+    try:
+        import provenance as _trace
+        _trace.record_llm(model, cached=False, in_tok=in_tok, out_tok=out_tok)
+    except Exception:
+        pass
+    log.info("call_long_text [%s] %d->%d tok, %.1fs, stop=%s", model, in_tok, out_tok,
+             time.time() - t0, msg.stop_reason)
+    return LongText(text, in_tok, out_tok, str(msg.stop_reason or ""), model)
 
 
 def _call_groq(system: str, user: str, max_tokens: int, model: str,

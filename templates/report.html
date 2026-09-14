@@ -374,8 +374,13 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
     <div class="tier">{{ viability.tier or 'unrated' }}</div>
   </div>
   <div style="flex:1">
-    {% if viability.headline %}<div class="headline">{{ viability.headline }}</div>{% endif %}
-    {% if viability.summary %}<p style="margin-top:6px;font-size:11pt;color:#374151">{{ viability.summary }}</p>{% endif %}
+    {#- THE SYNTHESIS REPLACES THE NARRATIVE, NOT THE SCORE. When result.synthesis carries
+       prose, the headline and summary the slot model wrote give way to it; the score, the
+       tier and the confidence are facts and stay. Every `not synthesis` gate on this page
+       is written inline, and this comment strips the whitespace before it, so a report
+       without a synthesis renders byte for byte what it rendered before one existed. #}
+    {% if viability.headline and not synthesis %}<div class="headline">{{ viability.headline }}</div>{% endif %}
+    {% if viability.summary and not synthesis %}<p style="margin-top:6px;font-size:11pt;color:#374151">{{ viability.summary }}</p>{% endif %}
     <p style="margin-top:8px;font-size:9pt;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em">
       Confidence: <strong style="color:#1f2937">{{ viability.confidence_in_score or 'unknown' }}</strong>
     </p>
@@ -460,7 +465,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 <div class="no-print" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px;margin:16px 0;font-size:10pt">
   <strong style="text-transform:uppercase;letter-spacing:.05em;color:#4b5563;font-size:9pt">Jump to</strong>
   <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:10px 16px;color:#2563eb">
-    <a href="#executive-summary" style="color:inherit">Executive summary</a> ·
+    {% if synthesis %}<a href="#synthesis" style="color:inherit">Analyst report</a>{% else %}<a href="#executive-summary" style="color:inherit">Executive summary</a>{% endif %} ·
     <a href="#differentiators" style="color:inherit">Differentiators</a> ·
     {# R4 rank 24: each of these SECTIONS renders conditionally, but the nav links used
        to render unconditionally — dead in-page anchors on 16/16 reports. Guard every
@@ -476,7 +481,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
     {% if market_sizing and market_sizing.macro_anchors and (market_sizing.macro_anchors.series or market_sizing.macro_anchors.vertical_anchors) %}<a href="#macro-anchors" style="color:inherit">Macro anchors</a> ·{% endif %}
     {# Guarded with the same condition as the section itself — D43 fails any in-page
        anchor whose target id is absent. #}
-    {% if section_provenance %}<a href="#provenance" style="color:inherit">Provenance</a> ·{% endif %}
+    {% if section_provenance %}<a href="#provenance" style="color:inherit">Provenance</a> ·{% endif %}{% if synthesis %} <a href="#cited-facts" style="color:inherit">Cited facts</a> ·{% endif %}
     <a href="#methodology" style="color:inherit">Methodology</a> ·
     <a href="#citations" style="color:inherit">Citations</a>
   </div>
@@ -555,7 +560,51 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 </div>
 
 <!-- EXECUTIVE SUMMARY -->
-{% if four_ps.executive_summary %}
+{% if synthesis %}
+{# THE ANALYST'S REPORT IS THE FRONT HALF. One frontier-model pass over the whole fact
+   layer, rendered by report/render_synthesis.py: the prose is escaped before it is
+   converted, so nothing the model wrote is markup, and every [path] it cited is a link
+   to the Cited facts appendix, where the value sits under the path that names it. The
+   style lives here rather than in the head so a page without a synthesis carries no
+   trace of one. #}
+<style>
+.synthesis { margin: 24px 0 8px; }
+.synthesis h3 { margin-top: 28px; font-family: var(--serif); font-size: 16.5px; }
+.synthesis p { font-size: 11.5pt; }
+.synthesis table { width: 100%; margin: 14px 0; font-size: 10.5pt; }
+.synthesis th, .synthesis td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.synthesis thead th { border-bottom: 2px solid var(--ink); }
+.synthesis hr { border: none; border-top: 1px solid var(--line); margin: 26px 0; }
+.synthesis blockquote { margin: 14px 0; padding: 2px 0 2px 16px; border-left: 2px solid var(--line); color: var(--ink-soft); }
+.synthesis li { margin: 5px 0; color: var(--ink-soft); }
+a.cite { font-family: var(--mono); font-size: 8.5pt; color: var(--muted); white-space: nowrap; vertical-align: 1px; }
+a.cite::before { content: "["; } a.cite::after { content: "]"; }
+a.cite:hover { color: var(--accent); text-decoration: none; }
+.synthesis-provenance { margin: 18px 0 30px; padding-top: 10px; border-top: 1px solid var(--line);
+                        font-size: 9.5pt; color: var(--muted); letter-spacing: .02em; }
+.synthesis-provenance strong { color: var(--ink-soft); font-weight: 600; }
+.cited-facts { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 18px; }
+.cited-facts th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--ink); }
+.cited-facts th code { font-family: var(--mono); font-size: 9pt; font-weight: 400; letter-spacing: 0;
+                       text-transform: none; color: var(--muted); margin-left: 6px; }
+.cited-facts td { padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top;
+                  font-size: 9.5pt; overflow-wrap: anywhere; }
+.cited-facts td.path { width: 42%; font-family: var(--mono); color: var(--ink-soft); }
+.cited-facts td.value { color: var(--ink); }
+.cited-facts td.value.absent { color: var(--fail); font-style: italic; }
+.cited-facts tr:target td, .cited-facts:target th { background: #fdf6dc; }
+</style>
+<section class="synthesis" id="synthesis">
+{{ synthesis.html | safe }}
+</section>
+<p class="synthesis-provenance">
+  Written by <strong>{{ synthesis.provenance.model or 'an unnamed model' }}</strong>
+  {%- if synthesis.provenance.style %} in the <strong>{{ synthesis.provenance.style }}</strong> style{% endif %}
+  {%- if synthesis.provenance.usd %} for <strong>${{ synthesis.provenance.usd }}</strong>{% endif %}
+  {%- if synthesis.provenance.seconds %} in <strong>{{ synthesis.provenance.seconds }} seconds</strong>{% endif %}.
+  Every number links to its source: {{ synthesis.n_facts }} cited facts, each resolved in the Cited facts appendix.
+</p>
+{% endif %}{% if four_ps.executive_summary and not synthesis %}
 <div class="exec-summary">
   <h2 id="executive-summary">Executive Summary</h2>
   {# Iter 42 (issue 1): summary now contains <strong> HTML, render with safe.
@@ -1275,12 +1324,12 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
     {% endfor %}
   </tbody>
 </table>
-{% if segment_ranking.top_pick_objection %}
+{% if segment_ranking.top_pick_objection and not synthesis %}
 <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px;font-size:10pt;color:#991b1b;margin-top:8px">
   <strong>Your own interview data pushes back:</strong> {{ segment_ranking.top_pick_objection }}
 </div>
 {% endif %}
-{% if segment_ranking.top_pick and segment_ranking.top_pick.key_risk %}
+{% if segment_ranking.top_pick and segment_ranking.top_pick.key_risk and not synthesis %}
 <div style="margin-top:10px;background:#fef2f2;border-left:3px solid #dc2626;padding:8px 12px;font-size:10pt">
   <strong>Risk of targeting #{{ 1 }} ({{ segment_ranking.top_pick.label }}):</strong> {{ segment_ranking.top_pick.key_risk }}
 </div>
@@ -1684,7 +1733,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 {% endif %}
 
 <!-- 4Ps -->
-<h2>4Ps Marketing Plan</h2>
+{% if not synthesis %}<h2>4Ps Marketing Plan</h2>
 
 {% for p_key, p_label in [('product','Product'), ('price','Price'), ('place','Place'), ('promotion','Promotion')] %}
 {% set section = four_ps[p_key] %}
@@ -1707,7 +1756,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
   {% endif %}
 </div>
 {% endif %}
-{% endfor %}
+{% endfor %}{% endif %}
 
 <!-- PRICING DETAIL -->
 {# A venture whose users pay nothing has no price to recommend. MEASURED without this gate:
@@ -2242,7 +2291,34 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 </p>
 {% endif %}
 
-<!-- ITER 36: METHODOLOGY APPENDIX -->
+{% if synthesis %}
+{# WHERE EVERY CITATION LANDS. One row per path the analyst cited, its value read from the
+   result at render time. The row's id is the citation's slug, so a click on [path] in the
+   prose arrives here; a path that does not resolve says so in red rather than being
+   dropped, because a citation to nothing is the thing the reader most needs to see. A bare
+   citation of a whole section shares its table's id and carries none of its own. #}
+<h2 id="cited-facts">Cited facts</h2>
+<p style="font-size:10pt;color:#4b5563">The {{ synthesis.n_facts }} paths the analyst's
+  report cites, grouped by the section of the result they live in, with the value each one
+  held when this page was rendered. A path marked <em>not in the evidence</em> was cited but
+  does not exist in the result.</p>
+{# The section name is the table's head row rather than a heading above it: print repeats
+   a thead on every page a table runs onto, and a heading orphaned at the foot of a page
+   (measured on the first PDF) is what a separate block gives. #}
+{% for g in synthesis.facts %}
+<table class="cited-facts" id="{{ g.slug }}">
+  <thead><tr><th colspan="2">{{ g.label }}<code>{{ g.key }}</code></th></tr></thead>
+  <tbody>
+  {% for f in g.facts %}
+  <tr{% if f.slug != g.slug %} id="{{ f.slug }}"{% endif %}>
+    <td class="path">{{ f.path }}</td>
+    <td class="value{% if not f.found %} absent{% endif %}">{{ f.text }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endfor %}
+{% endif %}<!-- ITER 36: METHODOLOGY APPENDIX -->
 <h2 id="methodology">Methodology Appendix</h2>
 <div style="font-size:10pt;color:#4b5563">
   <p><strong>Pipeline.</strong> This report is produced by a multi-step market research pipeline following the Castor Advisories Market Research Spec. Each step either extracts structured data, runs a deterministic calculation, or performs a simulated research exercise via LLM. {{ steps_completed|length }} steps completed for this run.</p>

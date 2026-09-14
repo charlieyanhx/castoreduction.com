@@ -77,7 +77,8 @@ from orchestrator.sections import (apply as apply_sections,
                                    check_reads_are_still_current,
                                    customer_universe_section,
                                    research_brief_section,
-                                   segment_ranking_section, viability_section)
+                                   segment_ranking_section, synthesis_section,
+                                   viability_section)
 
 
 def _validation_gate(result: dict) -> dict:
@@ -2225,6 +2226,17 @@ def _finalize_run(result: dict, *, description: str, geo: str, _levers: dict,
             result["verification"] = {"status": "not_run", "reason": "verification failed",
                                       "summary": {"publishable": True}, "findings": []}
 
+    # THE ANALYST REPORT, LAST. (-> orchestrator/sections.py, declared not called) It reads
+    # every other section, the verification findings included, so it runs after all of
+    # them and after the verifier: the order is derived from what it declares, and this is
+    # simply the last place in the run where the fact layer is complete. MEASURED
+    # 2026-09-12: one Opus pass over the fact layer wrote what the four narrated sections
+    # could not, and found four pipeline defects while doing it. A stubbed run, a missing
+    # key or a deployment that has not opted into paid backends makes it NOT_APPLICABLE
+    # with the reason on the page; a write that fails is a FAILED section. Neither can
+    # cost the run, and the cost of a write that succeeds lands in _cogs below.
+    _write_the_analyst_report(result, description)
+
     # Item 6: release the ledger on the normal path. An early return leaves it behind, which
     # persistence.transcript.attach reclaims on the next direct run rather than going silent.
     try:
@@ -2262,10 +2274,53 @@ def _finalize_run(result: dict, *, description: str, geo: str, _levers: dict,
 
 
 
+def _stamp_report_style(result: dict, report_style: str | None,
+                        seed_style: str | None = None) -> None:
+    """Record the founder's chosen report style where the synthesis section reads it.
+
+    ON THE INTAKE RECORD, not a key of its own: it is an answer the founder gave, the
+    survey is where answers live, and the section reads intake as one declared input
+    rather than two. A fresh dict rather than a write into the caller's: `intake` arrives
+    from the request body, and stamping into it would edit the request.
+
+    THREE PLACES A CHOICE CAN COME FROM, in order: the caller's `report_style`, the style
+    already on the intake record, and `seed_style`, which is what a resumed run's first
+    attempt chose. The seed comes last and is still read, because run_plan lets a fresh
+    intake record overwrite a resumed one, and the style rode that record: MEASURED, a
+    memo interrupted by a deploy resumed as a full report. Nothing anywhere means nothing
+    written, and the section falls back to DEFAULT_STYLE.
+    """
+    style = (report_style or (result.get("intake") or {}).get("report_style")
+             or seed_style)
+    if not style:
+        return
+    result["intake"] = {**(result.get("intake") or {}), "report_style": style}
+
+
+def _write_the_analyst_report(result: dict, description: str) -> None:
+    """Declare and assemble the synthesis section, and let nothing on that line fail the run.
+
+    THE ASSEMBLER ALREADY CONTAINS THE PRODUCER: a raising write is a FAILED section with
+    the exception's class as its reason, and a raising applicability check is contained the
+    same way. What it cannot contain is the declaration itself, which imports
+    report/synthesis.py at call time; a module that fails to import would have raised
+    here, outside every guard, and cost twenty-two sections of finished research the
+    moment the twenty-third could not be named. So the declaration gets the same treatment
+    the assembler gives the write: recorded under _dropped_outputs with the exception's own
+    class and message, and the run goes on to its bill.
+    """
+    try:
+        apply_sections([synthesis_section(result, description)], result)
+    except Exception as e:                                   # noqa: BLE001 - never block a run
+        log.error("[plan] the analyst report could not be declared: %s: %s",
+                  type(e).__name__, e)
+        record_dropped_output(result, "synthesis", f"{type(e).__name__}: {e}")
+
+
 def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progress=None,
              operator_weights: dict | None = None, refine: bool = False,
              resume_from: dict | None = None, effort: str | None = None,
-             intake: dict | None = None) -> dict:
+             intake: dict | None = None, report_style: str | None = None) -> dict:
     """
     Run the full market research pipeline on a raw description.
 
@@ -2280,6 +2335,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     ledger, was deleted as unused: nothing ever called it, so no run was ever actually
     resumed. The parameter is kept because it is the seam a real resume would use, and it
     is exercised directly by callers that already hold a partial result.
+    `report_style` is the founder's choice of analyst report (report.synthesis.STYLES);
+    it is stamped onto result["intake"], where the synthesis section reads it.
     """
     # Item 6: a run outside the job system had NO ledger record at all -- measured zero
     # transcript files for a direct plan.run_plan call -- so every provenance question about
@@ -2313,6 +2370,8 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
     # full run rather than propagating holes.
     result: dict = dict(resume_from or {})
     result.setdefault("_steps_completed", [])
+    # The style the first attempt chose, read before the fresh record can overwrite it.
+    _seed_style = ((result.get("intake") or {}).get("report_style")) if resume_from else None
     # Wave A: the intake record lands on the result BEFORE any step runs, because the
     # profile step is its first consumer (confirmed facts beat LLM re-extraction) and
     # the verifier its last (declared unknowns are disclosed, not hidden). A fresh
@@ -2338,6 +2397,19 @@ def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progre
                          "labels: %d fact(s)", len(_re_facts))
         except Exception as e:                       # noqa: BLE001 - never block a run
             log.warning("[plan] intake reconstruction skipped: %s", e)
+    _stamp_report_style(result, report_style, seed_style=_seed_style)
+    # HOW THE REPORT READS, resolved once and stamped before any step runs, so the
+    # synthesis layer reads one key. The explicit request wins over the intake record,
+    # the record over the default, and a name nobody knows resolves to the default rather
+    # than failing a submitted brief: POST /plan already refused it at the door, so only
+    # a direct caller can get here with one, and a typo must not cost them the run.
+    from intake import DEFAULT_REPORT_STYLE, parse_report_style
+    try:
+        result["report_style"] = parse_report_style(
+            report_style or (result.get("intake") or {}).get("report_style"))
+    except ValueError as e:
+        log.warning("[plan] %s Using %r.", e, DEFAULT_REPORT_STYLE)
+        result["report_style"] = DEFAULT_REPORT_STYLE
     result["_effort"] = _effort
     if resume_from:
         log.info("[plan] resuming with %d completed step(s): %s",

@@ -150,10 +150,39 @@ class SectionResult:
     findings: list[str] = field(default_factory=list)
     #: Digest of each input as it was AT PRODUCTION TIME. See stale_reads.
     reads: dict = field(default_factory=dict)
+    #: The section's own name, as declared. THE PAGE NAMES A SECTION FROM THIS RECORD when
+    #: its static table has no entry: a section declared here and nowhere else was reaching
+    #: the reader as its result key, title-cased ("Synthesis" for the analyst report).
+    label: str = ""
 
     def as_dict(self) -> dict:
         return {"key": self.key, "status": self.status, "reason": self.reason,
-                "findings": list(self.findings), "reads": dict(self.reads)}
+                "findings": list(self.findings), "reads": dict(self.reads),
+                "label": self.label}
+
+
+# A REASON HAS TWO READERS. The founder meets it on the page; the operator meets it in the
+# log and the stored result. Most reasons serve both at once ("this venture's business
+# model is direct-to-consumer"). A reason about the DEPLOYMENT does not: the founder needs
+# to know the section was not written here, the operator needs the variable to set, and a
+# variable name on a buyer's page is noise for one reader and the only useful part for the
+# other. So a section may end its reason with a note for the operator, and the renderer
+# drops it. The stored reason keeps both, which is the same split the page already makes
+# for a failed section's exception class.
+OPERATOR_NOTE = " [operator: "
+
+
+def with_operator_note(reason: str, note: str) -> str:
+    """`reason` for everyone, `note` for the operator, in one string the log keeps whole."""
+    return f"{reason}{OPERATOR_NOTE}{note}]"
+
+
+def for_the_reader(reason: str) -> str:
+    """The reason without its operator note, for a page a founder reads. A reason that
+    carries no note is returned as it is."""
+    text = str(reason)
+    cut = text.find(OPERATOR_NOTE)
+    return text if cut < 0 else text[:cut]
 
 
 def plan(sections: Iterable[Section]) -> list[Section]:
@@ -205,10 +234,11 @@ def assemble(sections: Iterable[Section], result: dict,
         # malfunction.
         why_not = _inapplicable(section)
         if why_not:
-            sr = SectionResult(section.key, NOT_APPLICABLE, why_not)
+            sr = SectionResult(section.key, NOT_APPLICABLE, why_not, label=section.label)
         elif (missing := section.missing(result)):
             sr = SectionResult(section.key, SKIPPED,
-                               f"declared input(s) absent or empty: {', '.join(missing)}")
+                               f"declared input(s) absent or empty: {', '.join(missing)}",
+                               label=section.label)
         else:
             try:
                 ctx = section.context(result)
@@ -231,9 +261,10 @@ def assemble(sections: Iterable[Section], result: dict,
                 sr = SectionResult(section.key,
                                    FLAGGED if findings else OK,
                                    f"{len(findings)} invariant(s) failed" if findings else "",
-                                   findings, reads)
+                                   findings, reads, label=section.label)
             except Exception as e:                           # noqa: BLE001
-                sr = SectionResult(section.key, FAILED, f"{type(e).__name__}: {e}"[:300])
+                sr = SectionResult(section.key, FAILED, f"{type(e).__name__}: {e}"[:300],
+                                   label=section.label)
         out.append(sr)
         if on_section is not None:
             try:

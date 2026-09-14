@@ -7,7 +7,8 @@
  *   3  the reveal + the ask    the founder's own arithmetic, its limits stated, then the
  *                              call to run the report.
  *   4  the extras             the remaining questions, asked once they have committed and
- *                              before the run launches. All skippable.
+ *                              before the run launches, and how the report should read.
+ *                              All skippable.
  *
  * WHY THIS ORDER. The expensive thing is the report. Everything before it is nearly free,
  * and until now that free budget bought the founder nothing: they filled a survey and were
@@ -80,6 +81,24 @@
   var STAGES = ["Your venture", "How you charge", "The few we need",
               "What we found", "Last extras"];
   var MIN_PROSE = 40;
+
+  /* HOW THE REPORT READS. The research is the same either way: the fact layer is the
+     product, and the writing is delegated under a citation gate. What the founder picks
+     here is the shape of the writing. `value` is what the server validates
+     (intake.REPORT_STYLES, mirrored from report/synthesis.STYLES); `label` is what they
+     read. A closed choice: no write-in, because a style nobody has built cannot be
+     rendered, and the default is the full analysis. */
+  var REPORT_STYLES = [
+    { value: "memo",
+      label: "Decision memo: the verdict and the three things that decide it, one page" },
+    { value: "full",
+      label: "Full analysis: everything the research found, with every number linked " +
+             "to its source" },
+    { value: "operating",
+      label: "Operating plan: the first 90 days, volumes, staffing, kill criteria" }
+  ];
+  var DEFAULT_REPORT_STYLE = "full";
+  var styleSaid = null;       // the founder's pick, kept across back-and-forward
 
   function el(tag, cls, text) {
     var n = document.createElement(tag);
@@ -379,8 +398,14 @@
     spec.options.forEach(function (o) {
       var lab = el("label", "opt");
       var input = document.createElement("input");
-      input.type = "radio"; input.name = spec.field; input.value = o.label;
-      if (pre && pre === o.label) input.checked = true;
+      input.type = "radio"; input.name = spec.field;
+      // The money fork posts the LABEL: those are the founder's own payment words, and
+      // the classifier reads them verbatim. A keyed choice (post_value) posts the option's
+      // VALUE instead, because the server validates it against a fixed list and the words
+      // are only there to be read. The pre-fill compares against whichever one is posted.
+      var posted = spec.post_value ? o.value : o.label;
+      input.value = posted;
+      if (pre && pre === posted) input.checked = true;
       input.onchange = function () { writein.classList.remove("show"); };
       lab.appendChild(input);
       lab.appendChild(el("span", null, o.label));
@@ -599,8 +624,9 @@
 
     go.textContent = "Run the full report";
     tally.textContent = card.deferred_count
-      ? card.deferred_count + " optional questions come next, then it runs."
-      : "";
+      ? card.deferred_count + " optional questions and how the report should read come " +
+        "next, then it runs."
+      : "One question on how the report should read comes next, then it runs.";
     paint(be ? "Your numbers, before we look anything up"
              : "Here is where you stand so far",
       "This is arithmetic on what you told us, with the workings shown so you can check " +
@@ -617,9 +643,23 @@
      click and equally fine. */
   function renderExtras() {
     form.innerHTML = "";
-    (card.deferred || []).forEach(function (q, i) {
+    var deferred = card.deferred || [];
+    deferred.forEach(function (q, i) {
       form.appendChild(renderQuestion(q, i));
     });
+    // THE REPORT STYLE, drawn the way the money fork is drawn: a spec built here, handed
+    // to control() through renderQuestion, read back by readAnswers with the rest of the
+    // stage. Keyed (post_value), so what is posted is memo | full | operating and not the
+    // sentence beside it. It is asked on every venture, which is why this stage always
+    // runs now, deferred questions or none.
+    var styleSpec = { field: "report_style", question: "How should the report read?",
+                      input_kind: "choice", options: REPORT_STYLES, post_value: true,
+                      value: styleSaid || DEFAULT_REPORT_STYLE };
+    var styleQ = renderQuestion(styleSpec, deferred.length);
+    styleQ.querySelectorAll("input[type=radio]").forEach(function (r) {
+      r.addEventListener("change", function () { styleSaid = r.value; });
+    });
+    form.appendChild(styleQ);
     go.textContent = "Start the report";
     skip.hidden = false;
     tally.textContent = "All optional. Blanks become disclosed assumptions, never silent ones.";
@@ -672,9 +712,9 @@
       }
 
       if (stage === 3) {
-        if ((card.deferred || []).length) { stage = 4; showStage(); return; }
-        await launch();
-        return;
+        // Always through the extras, even with no deferred questions: the report style
+        // is asked there, and the founder should see the choice before the run starts.
+        stage = 4; showStage(); return;
       }
       if (stage === 4) {
         await api("POST", "/intake/" + session + "/form", { answers: answers });
@@ -741,6 +781,10 @@
   async function launchPaid(description, intake) {
     var body = { description: description, operator_weights: {} };
     if (intake) body.intake = intake;
+    // The style rides the /plan body from the INTAKE RECORD, not from the page: the
+    // record is what /confirm handed back, so a founder returning from checkout on a
+    // fresh page load still gets the shape they picked. Absent means the full analysis.
+    if (intake && intake.report_style) body.report_style = intake.report_style;
     try {
       var job = await api("POST", "/plan", body);
       // Accepted. NOW the interview is spent, so it leaves the notebook.
@@ -1231,7 +1275,20 @@
   skip.onclick = async function () {
     go.disabled = true;
     skip.disabled = true;
-    try { await launch(); }
+    try {
+      // SKIP SKIPS THE QUESTIONS, NOT THE STYLE. The report style sits on the same
+      // screen with a selection already showing, and what is selected is what runs: a
+      // founder who picked the memo and then skipped the optional questions must not be
+      // handed the full analysis without a word. One answer is posted; the rest are left
+      // blank, which is what skipping means.
+      var picked = form.querySelector(
+        '.ctl[data-field="report_style"] input[type=radio]:checked');
+      if (picked) {
+        await api("POST", "/intake/" + session + "/form",
+                  { answers: { report_style: picked.value } });
+      }
+      await launch();
+    }
     catch (e) { err.textContent = "Could not start the report: " + e.message; }
     finally { go.disabled = false; skip.disabled = false; }
   };

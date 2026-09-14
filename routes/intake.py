@@ -179,7 +179,13 @@ def post_intake_form(session_id: str, body: dict | None = None):
     run starts."""
     from intake import apply_form_answers, confirmation_payload
     s = _owned_session(session_id)
-    apply_form_answers(s, (body or {}).get("answers") or {})
+    try:
+        apply_form_answers(s, (body or {}).get("answers") or {})
+    except ValueError as e:
+        # A REFUSAL IS A SENTENCE, NOT A 500. The one answer the form validates is the
+        # report style, a closed choice on the survey, so this is only ever reached by
+        # a hand-built request; it still deserves the reason rather than a stack trace.
+        raise HTTPException(status_code=400, detail=str(e))
     try:
         return confirmation_payload(s)
     except Exception:                                        # noqa: BLE001

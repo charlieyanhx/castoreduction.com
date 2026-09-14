@@ -96,6 +96,21 @@ class PlanRequest(BaseModel):
     # Wave E: an explicit delta link for revision runs, whose amended description
     # would never match find_previous_plan's exact-text lookup.
     previous_job_id: str | None = None
+    # The shape of the analyst report (report.synthesis.STYLES: memo, full, operating).
+    # None means the default; anything else is checked at the door, because a style the
+    # writer does not know would otherwise be discovered six minutes and one paid run
+    # later, as a FAILED section on a report the founder has already waited for.
+    report_style: str | None = None
+
+    @field_validator("report_style")
+    @classmethod
+    def _style_is_one_the_writer_knows(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        from report.synthesis import STYLES
+        if v not in STYLES:
+            raise ValueError(f"unknown report_style {v!r}; one of {', '.join(sorted(STYLES))}")
+        return v
 
 
 class CrewRequest(BaseModel):
@@ -312,6 +327,10 @@ def _start_unattended() -> int:
             """
             import billing as _billing
             try:
+                # THE STYLE THEY CHOSE RIDES THE RESUME. `params` is the request as it
+                # was submitted (req.model_dump()), report_style included. Left out here,
+                # the fresh `intake` overwrote the seed's stamped record inside run_plan
+                # and a memo interrupted by a deploy came back as a full report.
                 result = run_plan(
                     _d,
                     geo=_p.get("geo") or "US",
@@ -320,6 +339,7 @@ def _start_unattended() -> int:
                     operator_weights=_p.get("operator_weights"),
                     effort=_p.get("effort"),
                     intake=_p.get("intake"),
+                    report_style=_p.get("report_style"),
                     resume_from=_s,
                 )
             except BaseException:
@@ -654,6 +674,7 @@ def post_plan(req: PlanRequest):
                 refine=req.refine,
                 effort=req.effort,
                 intake=req.intake,
+                report_style=req.report_style,
             )
         except BaseException:
             # A CRASH IS THE COMMONEST WAY TO DELIVER NOTHING, and it was the one case

@@ -32,7 +32,9 @@ import re
 import logging
 from datetime import datetime
 
+from core.section import for_the_reader
 from report.section_provenance import SECTION_SOURCES  # noqa: F401  (template may read it)
+from report.render_synthesis import synthesis_view
 
 log = logging.getLogger("mrp.report.render")
 
@@ -178,9 +180,17 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
     # to exist. Labelled from SECTION_SOURCES so the notice names "Price Intelligence"
     # rather than a result key.
     _labels = {s.result_key: s.section for s in SECTION_SOURCES}
+    # A SECTION THE TABLE DOES NOT KNOW STILL HAS A NAME: the one it declared on the
+    # assembler, which rides the run's own record in _section_results. The table stays
+    # first for the sections it lists, because its names are the page's curated ones;
+    # the record is what stops a new section reaching the reader as its result key,
+    # title-cased. MEASURED: the analyst report rendered as "Synthesis".
+    _declared = {sr.get("key"): sr.get("label")
+                 for sr in (r.get("_section_results") or [])
+                 if isinstance(sr, dict) and sr.get("label")}
 
     def _sec_label(key: str) -> str:
-        return _labels.get(key) or key.replace("_", " ").title()
+        return _labels.get(key) or _declared.get(key) or key.replace("_", " ").title()
 
     # A SECTION THAT LANDED BUT FAILED ITS OWN CHECK. core/section.py verifies each
     # section the moment it is produced, which is the whole reason for assembling one at a
@@ -196,7 +206,10 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
     # have no customer universe and all 14 are direct-to-consumer, so their missing segment
     # prioritization is by design. Listing it beside genuine failures hands a founder a
     # list of things that look broken. Separate line, separate colour, no alarm.
-    _na = [{"label": _sec_label(k), "reason": v}
+    # A REASON ABOUT THE DEPLOYMENT KEEPS ITS OPERATOR NOTE OFF THE PAGE. The stored
+    # reason may end with "[operator: ...]" naming the variable to set; the log and the
+    # JSON keep it, the founder does not see it. See core.section.for_the_reader.
+    _na = [{"label": _sec_label(k), "reason": for_the_reader(v)}
            for k, v in sorted((r.get("_inapplicable_sections") or {}).items())]
 
     # A FOUNDER MUST NOT BE SHOWN "ValueError:". The assembler records a failed section as
@@ -205,10 +218,20 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
     # class name; only the rendered one drops it.
     _exc_prefix = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*"
                              r"(Error|Exception|Interrupt|Timeout|Exit)\s*:\s*")
-    _dropped = [{"label": _sec_label(k), "reason": _exc_prefix.sub("", str(v))}
+    _dropped = [{"label": _sec_label(k),
+                 "reason": for_the_reader(_exc_prefix.sub("", str(v)))}
                 for k, v in sorted((r.get("_dropped_outputs") or {}).items())]
 
+    # THE ANALYST'S REPORT, WHEN THE RUN WROTE ONE. result["synthesis"]["markdown"] is one
+    # frontier-model pass over the whole fact layer; on the page it replaces the narrative
+    # front half (viability headline and summary, the segment-ranking callouts, the 4Ps
+    # prose) and every path it cites becomes a link into a Cited facts appendix. None when
+    # absent, and None means the template renders exactly what it rendered before: the
+    # fallback is byte-identical and a test pins it.
+    _synthesis = synthesis_view(r, label=_sec_label)
+
     html = tpl.render(
+        synthesis=_synthesis,
         degraded_steps=_degraded,
         dropped_sections=_dropped,
         inapplicable_sections=_na,

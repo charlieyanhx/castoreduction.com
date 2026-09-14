@@ -168,6 +168,7 @@ most of this codebase's historical bugs were something reading `payload` without
 | `report/trace.py` | 486 | **Sentence-level provenance.** Which script produced *this* sentence — value indexing, non-overlapping annotation, `by_script` inverted view, `recorded_producers` (ledger fact) beating the static map. |
 | `report/section_provenance.py` | 143 | The static section → producing-script table. 22 entries, all now resolving to code that runs. |
 | `report/render_html.py` | 163 | The one renderer, shared by the API route and the in-run verifier. `debug=1` turns on the attribution overlay. |
+| `report/render_synthesis.py` | 206 | The analyst's report (`result.synthesis.markdown`) as the page's front half: escaped before it is converted, every `[path]` a link to a Cited facts row that holds the value, and None when absent so the page is what it was. |
 | `report/pdf.py`, `render_md.py` | 326/199 | Print-grade PDF, Markdown. |
 | `harness_gates.py` | 364 | Gates on the *harness itself* (H01–…): tool descriptions, negative scope, agent contracts, ledger integrity. |
 

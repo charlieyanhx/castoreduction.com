@@ -551,9 +551,13 @@ def post_revise(job_id: str):
         rec = dict(rec, facts=dict(rec.get("facts") or {}, **edits),
                    unknowns=[u for u in (rec.get("unknowns") or []) if u not in edits])
     from api import OperatorWeights, PlanRequest, post_plan   # call-time: see module docstring
+    # A REVISION IS THE SAME REPORT, AMENDED. The founder who asked for a memo and then
+    # corrected a fact gets the memo back, not the default full report; the style is a
+    # request field like the rest of `params` and travels with them.
     out = post_plan(PlanRequest(description=amended, intake=rec,
                                 previous_job_id=job_id,
-                                operator_weights=OperatorWeights()))
+                                operator_weights=OperatorWeights(),
+                                report_style=params.get("report_style")))
     new_id = out["job_id"]
     iteration.carry_forward(job_id, new_id)
     iteration.mark_revised(job_id, new_id)

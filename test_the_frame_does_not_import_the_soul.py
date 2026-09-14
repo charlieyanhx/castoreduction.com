@@ -54,6 +54,9 @@ _FRAME_DIRS = (
     "harness/", "persistence/", "entry/", "context/", "config/", "model/", "routes/",
     "scrape/", "report/citation", "report/verifier", "report/trace",
     "report/section_provenance", "report/render_html", "report/render_md",
+    # Markdown to HTML with the citations resolved against whatever result it is handed:
+    # stdlib and the markdown package, and true of any report that carries a synthesis.
+    "report/render_synthesis",
     "gates/common", "gates/runner",
 )
 
