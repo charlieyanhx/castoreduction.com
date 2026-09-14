@@ -70,6 +70,16 @@ _KNOWN_UNREACHABLE: dict[str, str] = {
            "the negative half — ok=False when the geography, the establishment count or "
            "the statistic is dropped. Remove this entry after the next corpus "
            "regeneration.",
+    "D62": "reads result.synthesis.markdown, the delegated analyst report, which no stored "
+           "report carries: the synthesis layer did not exist when this corpus was "
+           "generated, so D62 is N/A on every one of them BY CONSTRUCTION. NOT a pass: "
+           "test_synthesis_citation_gate.py holds it to the real diag01 run, the first fact "
+           "layer a frontier model wrote a report over, and the demonstration below runs "
+           "that same artifact (tests/fixtures/synthesis). Remove this entry after the next "
+           "corpus regeneration.",
+    "D63": "the advisory half of D62, reading the same key on the same absent section, so "
+           "it is N/A on the corpus for the same reason and proven on the same artifact. "
+           "Remove this entry after the next corpus regeneration.",
 }
 
 
@@ -82,7 +92,7 @@ _KNOWN_UNREACHABLE: dict[str, str] = {
 # entry's demonstration and requires a real True/False verdict out of it, and refuses an
 # entry that blames the corpus without joining this set. The rule and the check are the same
 # object now.
-_STALENESS_ALLOWLISTED = {"D60"}
+_STALENESS_ALLOWLISTED = {"D60", "D62", "D63"}
 
 # The phrase every staleness reason ends on. An entry promising that the next regeneration
 # will fix it IS a staleness claim, whether or not whoever wrote it remembered this set.
@@ -130,6 +140,20 @@ def _d60_on_the_live_run():
     return d60(*_load_one(_RUN18))
 
 
+def _d62_on_the_diag01_synthesis():
+    """The real diag01 fact layer with the real Opus report over it. Borrowed from the
+    gate's own test file so the fixture path and the founder's words are stated once."""
+    from gates import d62_synthesis_numbers_are_in_the_evidence_it_cites as d62
+    from test_synthesis_citation_gate import fixture_result
+    return d62(fixture_result(), None)
+
+
+def _d63_on_the_diag01_synthesis():
+    from gates import d63_synthesis_citations_resolve as d63
+    from test_synthesis_citation_gate import fixture_result
+    return d63(fixture_result(), None)
+
+
 class _Demonstration(NamedTuple):
     """How a gate excused on staleness proves it can still answer.
 
@@ -151,6 +175,11 @@ class _Demonstration(NamedTuple):
 
 _STALENESS_DEMONSTRATIONS: dict[str, _Demonstration] = {
     "D60": _Demonstration(_d60_on_a_current_shape_payload, (_RUN18, _d60_on_the_live_run)),
+    # No live half yet: the diag01 report was written by reference-synth.py over a stored
+    # result, not by the pipeline. The first pipeline-produced synthesis is the artifact
+    # that should be named here.
+    "D62": _Demonstration(_d62_on_the_diag01_synthesis),
+    "D63": _Demonstration(_d63_on_the_diag01_synthesis),
 }
 
 

@@ -18,6 +18,7 @@ from gates.pricing import *       # noqa: F401,F403
 from gates.provenance import *    # noqa: F401,F403
 from gates.sizing import *        # noqa: F401,F403
 from gates.surface import *       # noqa: F401,F403
+from gates.synthesis import *     # noqa: F401,F403
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),
@@ -80,6 +81,8 @@ INVARIANTS: list[Invariant] = [
     Invariant("D59", "SOM anchor discloses its method", "run14 $390K vs run15 $650K for the same venture — an unsourced single-unit revenue guess published as the headline with no alternative beside it", "fail", d59_som_anchor_discloses_its_method),
     Invariant("D61", "4Ps volume targets are ladder rungs, not inventions", "run17 recommended 250 drinks/day in Price and 150/day in Place and Promotion — 67% apart, both obeying a rule that only pinned a range", "fail", d61_volume_targets_match_the_ladder),
     Invariant("D60", "area-average SOM is labelled as one", "the sourced anchor is a mean across 525 county establishments; rendered under the old 'single-unit revenue' label it reads as this one store, now carrying a Census citation", "fail", d60_area_average_is_labelled),
+    Invariant("D62", "synthesis numbers are in the evidence it cites", "Sonnet 4.5 on the diag01 fact layer invented a BEA 21% price-level figure and a $12,000 / $4,500 / $2,000 / $23,000 cost sketch; a whole-blob number match passed both; pooling only the values the report cites and matching each number at the scale its own suffix names fails three of the four cost figures, and the paragraph rule for small integers fails the 21%", "fail", d62_synthesis_numbers_are_in_the_evidence_it_cites),
+    Invariant("D63", "synthesis citations resolve", "a [path] the reader cannot follow is a footnote that looks sourced and is not; advisory because the model may cite a dropped section by its name", "warn", d63_synthesis_citations_resolve),
 ]
 
 
