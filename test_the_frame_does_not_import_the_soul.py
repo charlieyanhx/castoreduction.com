@@ -23,12 +23,13 @@ caller never has to). So this file fails hard on the first and merely records th
 
 WHERE THIS STANDS. The hard rule holds outright: zero frame modules import the soul at
 module scope, so `import core`, `import harness.agent`, `import gates.runner` all work
-with no market-research module loaded. Eleven deferred (call-time) dependencies remain,
-capped here so they cannot grow. Most are the HTTP and CLI surfaces naming domain entry
-points; the honest fix is a report-type registry for them to dispatch through, which is
-design work rather than a move.
+with no market-research module loaded. Twelve modules still carry deferred (call-time)
+dependencies, capped here so they cannot grow. Most are the HTTP and CLI surfaces naming
+domain entry points; the honest fix is a report-type registry for them to dispatch
+through, which is design work rather than a move. (Eleven until routes.jobs was split
+and its workshop half became routes.workshop: the same reach, in two files.)
 
-_KNOWN is what those eleven are. Adding to it is how a boundary stops being one, so the
+_KNOWN is what those twelve are. Adding to it is how a boundary stops being one, so the
 count is asserted separately: a new leak fails even if someone lists it.
 """
 from __future__ import annotations
@@ -66,6 +67,9 @@ _KNOWN = {
     # The HTTP and CLI surfaces call domain entry points by name. Fixing this means a
     # report-type registry that routes dispatch through, which is real design work.
     "api", "cli", "routes.jobs", "routes.research", "routes.intake", "routes.pages",
+    # Split out of routes.jobs (the workshop routes); the same call-time reach into
+    # report.workshop and report.rewrite, in a second file, not a second dependency.
+    "routes.workshop",
     # The sweep engine now takes its table (invariants=/gate_map=) and only falls back to
     # the market-research one at call time. Deferred, not welded.
     "gates.runner",
@@ -164,7 +168,7 @@ class TestTheBoundaryHolds(unittest.TestCase):
         dispatch through, and until that exists the count must not grow.
         """
         _, late = self._leaks()
-        self.assertLessEqual(len(late), 11,
+        self.assertLessEqual(len(late), 12,
                              f"deferred frame -> soul dependencies grew: {sorted(late)}")
         self.assertEqual(sorted(set(late) - _KNOWN), [],
                          "a frame module started reaching into the domain")

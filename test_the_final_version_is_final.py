@@ -43,6 +43,10 @@ class _TempDB(unittest.TestCase):
         import jobs
         jobs._reset_for_tests()
         self.it = iteration
+        # Questions are paid from the workshop pool; production opens it at submit or on
+        # first read, and these fixed ids are opened here the same way.
+        for jid in ("v1", "v2"):
+            iteration.endow(jid, paid=False)
 
     def tearDown(self):
         if self._old is None:
@@ -150,10 +154,11 @@ class TestBoughtCapacityIsHonoured(_TempDB):
     def _buy(self, job_id, kind):
         return self.it.grant(job_id, kind, packs=1, paid=True)
 
-    def test_every_mark_within_the_cap_reaches_the_brief(self):
-        """build_revision_brief slices marks[:limits()["marks"]], and limits() is the
-        base budget on every report now. Every mark the reader could make must ride."""
-        cap = self.it.limits(self.it.get_state("v1"))["marks"]
+    def test_every_mark_reaches_the_brief(self):
+        """Marks are uncapped (limits()["marks"] is None), and build_revision_brief
+        slices nothing: every mark the reader made must ride."""
+        self.assertIsNone(self.it.limits(self.it.get_state("v1"))["marks"])
+        cap = 8
         for i in range(cap):
             self.it.add_annotation("v1", section="s", quote=f"quote number {i}",
                                    comment=f"comment number {i}")
@@ -188,15 +193,18 @@ class TestBoughtCapacityIsHonoured(_TempDB):
         st = self.it.get_state("v2")
         self.assertGreaterEqual(used(params, st), self.it.limits(st)["reruns"])
 
+        before = self.it.balance("v2")
         st = self._buy("v2", "rerun")
         self.assertEqual(self.it.limits(st)["reruns"], 1, "the cap does not widen")
-        self.assertEqual(self.it.balance("v2"), self.it.COST_REWRITE,
+        self.assertEqual(self.it.balance("v2") - before, self.it.COST_REWRITE,
                          "the $5 must land somewhere: one rewrite's worth")
         for kind in ("marks", "questions"):
             self._buy("v2", kind)
-        self.assertEqual(self.it.balance("v2"), self.it.COST_REWRITE + 5 + 5)
+        self.assertEqual(self.it.balance("v2"), before + self.it.COST_REWRITE + 5 + 5)
         self.assertEqual(self.it.limits(self.it.get_state("v2")),
-                         {"questions": 5, "marks": 5, "reruns": 1})
+                         {"questions": before + self.it.COST_REWRITE + 5 + 5,
+                          "marks": None, "reruns": 1},
+                         "the page's counters are the pool; nothing widens a cap")
 
     def test_an_unpaid_grant_is_still_refused(self):
         """The seam stays shut. Only billing.fulfill passes paid=True."""

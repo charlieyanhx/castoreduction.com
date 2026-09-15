@@ -251,6 +251,8 @@ class ThePoolSurvivesEveryOtherWriter(_TempDB):
         """Each writer, one at a time: a pack lands right after its read and before its
         write. The writer's own change must land AND the pack must survive."""
         import iteration as it
+        for jid in ("with-q", "src", "to-answer", "w2"):
+            it.endow(jid, paid=False)           # a question is refused on an empty pool
         it.add_question("with-q", "seed question?")
         it.add_annotation("with-a", section="s", quote="q", comment="c")
         it.add_question("src", "carried?")
@@ -286,7 +288,8 @@ class ThePoolSurvivesEveryOtherWriter(_TempDB):
                 with patch.object(it, "get_state", hooked):
                     write(job)
                 self.assertEqual(fired, [1], "the interleaving did not happen")
-                self.assertEqual(it.balance(job), 30,
+                opened = it.INCLUDED_CREDITS_FREE if job in ("with-q", "src", "to-answer", "w2") else 0
+                self.assertEqual(it.balance(job), opened + 30,
                                  f"{name} overwrote the pool with its stale copy")
         # and the writers did what they were asked
         self.assertEqual(len(it.get_state("w1")["annotations"]), 1)
@@ -397,8 +400,9 @@ class AnOldReportConverts(_TempDB):
         self.assertEqual(it.balance("j"), 10)
         it.grant("j", "marks", packs=2, paid=True)
         self.assertEqual(it.balance("j"), 20)
-        self.assertEqual(it.limits(it.get_state("j"))["marks"], it.MAX_ANNOTATIONS,
-                         "the cap no longer widens; the money lands in the pool")
+        lim = it.limits(it.get_state("j"))
+        self.assertIsNone(lim["marks"], "marks are uncapped; the money lands in the pool")
+        self.assertEqual(lim["questions"], 20, "and the page's counter is the pool")
 
     def test_the_workshop_pack_grants_thirty(self):
         import iteration as it
@@ -611,7 +615,10 @@ class TheWorkshopRoute(_App):
         c = self._client()
         jid = self._run(c)
         body = c.get(f"/jobs/{jid}/credits").json()
-        self.assertEqual(body["workshop"], {"balance": 10, "granted": 10, "spent": 0})
+        ws = body["workshop"]
+        self.assertEqual((ws["balance"], ws["granted"], ws["spent"]), (10, 10, 0))
+        self.assertEqual(ws["pack"], {"kind": "workshop", "credits": 30, "usd": 5.0})
+        self.assertEqual(ws["costs"]["rewrite"], 10)
         self.assertEqual(body["prices_usd"]["workshop"], 5.0)
         self.assertEqual(body["pack_sizes"]["workshop"], 30)
 

@@ -157,9 +157,12 @@ class TestFulfilment(_Billing):
         import billing, iteration
         base = iteration.limits(iteration.get_state("job-A"))
         billing.fulfill(_session_event(kind="marks", job="job-A", session_id="cs_old"))
-        self.assertEqual(iteration.balance("job-A"),
-                         iteration.PACK_ANNOTATIONS * iteration.OLD_KIND_CREDITS["marks"])
-        self.assertEqual(iteration.limits(iteration.get_state("job-A")), base)
+        credits = iteration.PACK_ANNOTATIONS * iteration.OLD_KIND_CREDITS["marks"]
+        self.assertEqual(iteration.balance("job-A"), credits)
+        lim = iteration.limits(iteration.get_state("job-A"))
+        self.assertIsNone(lim["marks"], "marks are uncapped; nothing to widen")
+        self.assertEqual(lim["questions"], base["questions"] + credits,
+                         "the page's counter is the pool, so it shows the five")
 
 
 class TestNothingIsFreeWithoutPayment(_Billing):

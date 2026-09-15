@@ -321,6 +321,7 @@ from routes.pages import router as _pages_router
 from routes.jobs import router as _jobs_router
 from routes.intake import router as _intake_router
 from routes.research import router as _research_router
+from routes.workshop import router as _workshop_router
 # Re-exported: `api.PlanRequest` is an address the tests already use, and moving a
 # definition should not move its address.
 from routes.research import (                                     # noqa: F401
@@ -331,6 +332,7 @@ app.include_router(_pages_router)
 app.include_router(_jobs_router)
 app.include_router(_intake_router)
 app.include_router(_research_router)
+app.include_router(_workshop_router)
 
 
 

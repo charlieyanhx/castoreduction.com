@@ -22,6 +22,10 @@ class _TempDB(unittest.TestCase):
         import jobs
         jobs._reset_for_tests()
         self.iteration = iteration
+        # Questions are paid from the workshop pool; production opens it at submit or on
+        # first read, and the fixed ids these tests use are opened here the same way.
+        for jid in ("j1", "j-qs"):
+            iteration.endow(jid, paid=False)
 
     def tearDown(self):
         if self._old is None:
@@ -37,11 +41,15 @@ class TestTheNewLimits(_TempDB):
         self.assertEqual(self.iteration.MAX_ANNOTATIONS, 5)
         self.assertEqual(self.iteration.MAX_QUESTIONS, 5)
 
-    def test_the_sixth_question_is_refused(self):
-        for i in range(5):
+    def test_the_eleventh_question_is_refused(self):
+        """The cap is the pool: a free report opens with ten credits, an answer costs
+        one, and a question the balance could not pay to answer is refused at the
+        door with the reason, the way the chat answers 402."""
+        for i in range(self.iteration.INCLUDED_CREDITS_FREE):
             self.iteration.add_question("j1", f"question {i}?")
-        with self.assertRaises(self.iteration.IterationError):
+        with self.assertRaises(self.iteration.IterationError) as ctx:
             self.iteration.add_question("j1", "one too many?")
+        self.assertIn("credit", str(ctx.exception))
 
     def test_the_sixth_mark_is_kept(self):
         """The cap on marks went with the workshop (2026-09-14): a mark is a note now,
@@ -99,9 +107,11 @@ class TestOneCycleThenPay(_TempDB):
         /auth/me first and hand the answer in.
         """
         import jobs
-        return jobs.create("plan", {"description": "A coffee cart in Los Angeles for "
-                                                   "commuters and office workers."},
-                           owner_id=owner)
+        jid = jobs.create("plan", {"description": "A coffee cart in Los Angeles for "
+                                                  "commuters and office workers."},
+                          owner_id=owner)
+        self.iteration.endow(jid, paid=False)          # what submit does
+        return jid
 
     def test_revise_creates_one_delta_linked_run_then_locks(self):
         from fastapi.testclient import TestClient
@@ -176,14 +186,19 @@ class TestBoughtCapacity(_TempDB):
     def test_a_bought_pack_lands_in_that_reports_pool(self):
         os.environ["CASTOR_ALLOW_UNPAID_CREDITS"] = "1"
         try:
+            opened = self.iteration.INCLUDED_CREDITS_FREE
             base = self.iteration.limits(self.iteration.get_state("j1"))
-            self.assertEqual(base, {"questions": 5, "marks": 5, "reruns": 1})
+            self.assertEqual(base, {"questions": opened, "marks": None, "reruns": 1},
+                             "the counters are the pool in the page's units")
             self.iteration.grant("j1", "workshop", 1)
-            self.assertEqual(self.iteration.balance("j1"), self.iteration.PACK_WORKSHOP)
+            self.assertEqual(self.iteration.balance("j1"),
+                             opened + self.iteration.PACK_WORKSHOP)
             self.assertEqual(self.iteration.balance("j2"), 0,
                              "a pack is for one report, not the buyer")
-            self.assertEqual(self.iteration.limits(self.iteration.get_state("j1")), base,
-                             "the caps are the base budget; the pool is where money goes")
+            self.assertEqual(self.iteration.limits(self.iteration.get_state("j1")),
+                             {"questions": opened + self.iteration.PACK_WORKSHOP,
+                              "marks": None, "reruns": 1},
+                             "the pool is where the money goes, and the counter shows it")
         finally:
             os.environ.pop("CASTOR_ALLOW_UNPAID_CREDITS", None)
 
@@ -203,7 +218,8 @@ class TestBoughtCapacity(_TempDB):
             st = self.iteration.get_state("j1")
             self.assertEqual(len(st["annotations"]), 7)
             self.assertEqual(self.iteration.balance("j1"),
-                             5 * self.iteration.OLD_KIND_CREDITS["marks"])
+                             self.iteration.INCLUDED_CREDITS_FREE
+                             + 5 * self.iteration.OLD_KIND_CREDITS["marks"])
             self.assertEqual(st["extra"], {})
         finally:
             os.environ.pop("CASTOR_ALLOW_UNPAID_CREDITS", None)
@@ -250,6 +266,7 @@ class TestCarriedQuestionsGetAnswered(_TempDB):
                                                      "commuters and office workers."},
                              owner_id=owner)
         jobs.update(job_id, state="done", result={"profile": {"name": "x"}})
+        self.iteration.endow(job_id, paid=False)         # what submit does
         if question:
             self.iteration.add_question(job_id, question)
 

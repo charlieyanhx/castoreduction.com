@@ -29,6 +29,7 @@ to live under `notes`, are `clarifications`.
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from typing import Any, NamedTuple, Optional
@@ -80,6 +81,9 @@ PACK_WORKSHOP = 30           # the one pack
 PACK_WORKSHOP_USD = 5.0
 COSTS = {"turn": COST_TURN, "explain": COST_EXPLAIN, "note": COST_NOTE,
          "rewrite": COST_REWRITE}
+#: The pack as every answer carries it (a 402, GET /workshop, GET /iteration): ONE shape,
+#: so the page never types a price and repricing is this line.
+WORKSHOP_PACK = {"kind": "workshop", "credits": PACK_WORKSHOP, "usd": PACK_WORKSHOP_USD}
 
 # THE OLD KINDS CONVERT, THEY DO NOT VANISH. A pack bought under the old counters, or a
 # webhook for one that lands after this shipped, is worth this many workshop credits per
@@ -93,6 +97,16 @@ PACK_PRICES_USD = {"questions": 5.0, "marks": 2.0, "rerun": 5.0,
                    "workshop": PACK_WORKSHOP_USD}
 PACK_SIZES = {"questions": PACK_QUESTIONS, "marks": PACK_ANNOTATIONS, "rerun": PACK_RERUN,
               "workshop": PACK_WORKSHOP}
+
+
+def pack_credits(kind: str) -> int:
+    """What one pack of `kind` is worth in workshop credits: the pool's own pack is
+    PACK_WORKSHOP; an old kind is its units at OLD_KIND_CREDITS per unit."""
+    if kind not in PACK_SIZES:
+        raise IterationError("unknown pack: %s" % kind)
+    if kind == "workshop":
+        return PACK_WORKSHOP
+    return PACK_SIZES[kind] * OLD_KIND_CREDITS[kind]
 
 #: What the ledger calls the credits a report opens with. endow() looks for this line to
 #: know it has already run, so the word is a contract, not a label.
@@ -121,17 +135,25 @@ _LOCK = threading.RLock()
 
 
 def limits(st: dict) -> dict:
-    """The caps for THIS report: the base budget plus whatever was bought.
+    """The counters the report page draws, derived from the pool in the page's own units.
 
-    KEPT THROUGH THE TRANSITION. `extra` is converted into workshop credits on first read
-    (migrate_old_counters), so on a migrated state this is the base budget: five marks,
-    five questions, one included re-run. A re-run past the included one costs a report
-    credit under the new design, not workshop credits, and the pool does not widen it.
+    KEPT THROUGH THE TRANSITION. The page reads "n of N questions" and "n of N marks" and
+    counts its question slots to N, so N has to be a number that means something against
+    the pool: questions is what the balance can still pay to answer plus the ones already
+    answered (an open question is one the pool still has to pay for, so it does not widen
+    the count); marks are uncapped now and say so with None, which the page reads as its
+    own default; the re-run is the one included, and a re-run past it costs a report
+    credit under the new design, not workshop credits. `extra` is empty once
+    migrate_old_counters has run, so the rerun term is the pre-migration row only.
     """
-    extra = (st or {}).get("extra") or {}
+    st = st or {}
+    pool = st.get("workshop") or {}
+    balance = max(0, int(pool.get("granted") or 0) - int(pool.get("spent") or 0))
+    answered = sum(1 for q in st.get("questions") or [] if (q.get("a") or "").strip())
+    extra = st.get("extra") or {}
     return {
-        "questions": MAX_QUESTIONS + int(extra.get("questions") or 0),
-        "marks": MAX_ANNOTATIONS + int(extra.get("marks") or 0),
+        "questions": balance + answered,
+        "marks": None,
         "reruns": 1 + int(extra.get("rerun") or 0),
     }
 
@@ -401,6 +423,10 @@ def _empty() -> dict:
             #: Every rewrite this report has had, oldest first, withheld ones included:
             #: see record_rewrite. What a rewrite spends comes out of the same pool.
             "rewrites": [],
+            #: Why the last answering pass (POST /iterate) stopped before every open
+            #: question and mark had its turn, in the founder's words; None when it did
+            #: not. Cleared by the next pass that runs.
+            "stopped": None,
             "status": "draft", "revision": 1, "finalized_at": None, "next_id": 1}
 
 
@@ -561,16 +587,6 @@ def remove_note(job_id: str, note_id: int) -> dict:
         return _save(job_id, st)
 
 
-def notes_for_rewrite(job_id: str) -> str:
-    """The founder's notes as a numbered plain-text block for a prompt; "" with none.
-
-    ONE RENDERING FOR BOTH PATHS. The rewrite (the synthesis pass run again with the notes)
-    and the re-run (the amended brief) read the same lines, so the two cannot drift on
-    what a note looks like or on which notes ride: all of them, in the order written.
-    """
-    return "\n".join(_note_lines(get_state(job_id)))
-
-
 # -------------------------------------------------- the marks, as the page posts them --
 def add_annotation(job_id: str, *, section: str, quote: str, comment: str,
                    marker: str = "comment") -> dict:
@@ -591,18 +607,21 @@ def remove_annotation(job_id: str, annotation_id: int) -> dict:
 def add_question(job_id: str, text: str) -> dict:
     """Record a question the report must answer before it can be called final.
 
-    Capped for the same reason as marks: the value is in the sharpest few, and an
-    unbounded list becomes a backlog nobody answers.
+    THE POOL IS THE CAP. Asking is free and answering costs a turn, so a question is
+    refused when the open ones already spoken for the balance: stored, it could only sit
+    unanswered, and finalize refuses on exactly that.
     """
     text = (text or "").strip()
     if not text:
         raise IterationError("an empty question cannot be answered")
     with _LOCK:
         st = get_state(job_id)
-        cap = limits(st)["questions"]
-        if len(st["questions"]) >= cap:
-            raise IterationError(f"at most {cap} questions per revision: "
-                                 "the point is the sharpest ones, not all of them")
+        pool = _pool(st)
+        left = int(pool.get("granted") or 0) - int(pool.get("spent") or 0)
+        if len(open_questions(st)) >= left:
+            raise IterationError(
+                f"{max(0, left)} workshop credit(s) left and each answer costs "
+                f"{COST_TURN}; answer the open questions first, or add a workshop pack")
         st["questions"].append({
             "id": _take_id(st), "q": text[:600], "a": None, "a_origin": None,
             "based_on": [], "grounded": None, "created_at": int(time.time()),
@@ -779,18 +798,93 @@ def draft_answers(job_id: str, result: dict) -> dict:
         return _save(job_id, st)
 
 
+# ------------------------------------------------------------- the answering pass --
+#: POST /iterate, the page's "answer from the report" button, is one workshop turn per
+#: open question and one Explain per open mark, each paid from the pool. The route makes
+#: the calls; these read what is open and record what came back, under the lock, on a
+#: fresh copy of the row each time, so a pack or a turn that landed during a call is
+#: never written over.
+def open_questions(st: dict) -> list[dict]:
+    """The questions without an answer, in the order asked."""
+    return [q for q in (st or {}).get("questions") or [] if not (q.get("a") or "").strip()]
+
+
+def open_marks(st: dict) -> list[dict]:
+    """The marks no note has come back on. A note of kind "note" is for the rewrite and
+    is never asked; a mark is the page's highlight with a comment, and Explain is the
+    verb it gets."""
+    explained = {c.get("annotation_id") for c in (st or {}).get("clarifications") or []}
+    return [n for n in (st or {}).get(NOTES_KEY) or []
+            if n.get("kind") == "mark" and n.get("id") not in explained]
+
+
+def based_on(citations: list) -> list[str]:
+    """The sections an answer drew on, from the paths it cited: market_sizing.som.mid is
+    market_sizing. Sorted and unique; empty for an answer that cited nothing."""
+    heads = set()
+    for c in citations or []:
+        head = re.split(r"[.\[]", str(c).strip(), 1)[0]
+        if head:
+            heads.add(head)
+    return sorted(heads)
+
+
+def answer_question(job_id: str, question_id: int, text: str, citations: list,
+                    refused: bool) -> dict:
+    """Record the analyst's answer on one question. A refused answer is stored as the
+    refusal, ungrounded; grounded means it cited something and was not refused."""
+    sections = [] if refused else based_on(citations)
+    with _LOCK:
+        st = get_state(job_id)
+        for q in st["questions"]:
+            if q["id"] == int(question_id):
+                q.update({"a": (text or "").strip()[:2000], "a_origin": "llm",
+                          "based_on": sections, "grounded": bool(sections)})
+                return _save(job_id, st)
+    raise IterationError("no such question")
+
+
+def explain_mark(job_id: str, mark_id: int, text: str, citations: list,
+                 refused: bool) -> dict:
+    """Record the analyst's note back against one mark, once per mark."""
+    sections = [] if refused else based_on(citations)
+    with _LOCK:
+        st = get_state(job_id)
+        if any(c.get("annotation_id") == int(mark_id) for c in st["clarifications"]):
+            return st
+        st["clarifications"].append({
+            "annotation_id": int(mark_id), "note": (text or "").strip()[:1500],
+            "based_on": sections, "grounded": bool(sections)})
+        return _save(job_id, st)
+
+
+def finish_answering(job_id: str, stopped: Optional[str]) -> dict:
+    """Close one pass: the reason it stopped early, or None, and status "answered" only
+    when nothing is left open. An unpaid question stays visibly open, and the record
+    says why in the founder's words rather than leaving a blank to explain itself."""
+    with _LOCK:
+        st = get_state(job_id)
+        st["stopped"] = stopped or None
+        if not stopped and not open_questions(st) and not open_marks(st):
+            st["status"] = "answered"
+        return _save(job_id, st)
+
+
+def workshop_view(st: dict) -> dict:
+    """The pool as the page reads it beside the counters: the balance and how it got
+    there, what each verb costs, the one pack, what the migration brought in, and why
+    the last answering pass stopped. THE PAGE IS TOLD, IT DOES NOT COMPUTE."""
+    pool = (st or {}).get("workshop") or {}
+    granted = int(pool.get("granted") or 0)
+    spent = int(pool.get("spent") or 0)
+    migrated = sum(int(line.get("n") or 0) for line in pool.get("ledger") or []
+                   if str(line.get("what") or "").startswith("migrated:"))
+    return {"balance": max(0, granted - spent), "granted": granted, "spent": spent,
+            "costs": dict(COSTS), "pack": dict(WORKSHOP_PACK), "migrated": migrated,
+            "stopped": (st or {}).get("stopped") or None}
+
+
 # ------------------------------------------------------------------- the workshop chat --
-#: What each verb costs, in workshop credits (owner's decision, 2026-09-14). A chat turn
-#: and an Explain (a turn seeded with the passage the founder selected) are the same call
-#: and the same price; a note for re-edit is free; a rewrite runs only the writing again.
-#: A re-run is not priced here: one is included per report and then it is a report
-#: credit, which is what spend_rerun and reruns_left already count. The pack is what
-#: the 402 offers when the pool is empty.
-COST_TURN = 1
-COST_EXPLAIN = 1
-COST_NOTE = 0
-COST_REWRITE = 10
-WORKSHOP_PACK = {"kind": "workshop", "credits": 30, "usd": 5.0}
 #: How much of one turn is kept. A founder's question and an analyst's answer are both
 #: short by design (the prompt asks for 2 to 6 sentences); the caps are for the record,
 #: not the model, and they stop a pasted report from becoming a stored one.
@@ -840,14 +934,11 @@ def chat_history(job_id: str) -> list[dict]:
 
 
 def pinned_notes(st: dict) -> list[str]:
-    """The founder's notes for the next re-edit, as lines the analyst reads first.
-
-    Today the marks are the notes: a passage the founder quoted and what they said about
-    it. When the workshop stores a note for re-edit on its own, this is the one place
-    that reads it, so the chat keeps seeing every note without learning where it lives.
-    """
+    """The founder's notes for the next re-edit, as lines the analyst reads first: every
+    note of either kind, a mark from the page or a note from the sidebar, since both ride
+    into the rewrite and the analyst should know what it has been asked to change."""
     out: list[str] = []
-    for a in (st or {}).get("annotations") or []:
+    for a in (st or {}).get(NOTES_KEY) or []:
         quote = (a.get("quote") or "").strip()
         comment = (a.get("comment") or "").strip()
         if not comment:
@@ -887,14 +978,7 @@ def set_answer(job_id: str, question_id: int, answer: str) -> dict:
     raise IterationError("no such question")
 
 
-# ------------------------------------------------------------------ the workshop pool --
-#: What a rewrite costs. TEN, against one for a chat turn, because a rewrite is a full Opus
-#: pass over the fact layer (about $0.56 to serve, about three minutes) and a turn is a
-#: cached prefix plus a question (about five cents). The ratio is the cost ratio, rounded.
-COST_REWRITE = 10
-#: The one pack the 402 offers when the pool is short: one kind, one Stripe price.
-PACK_WORKSHOP = 30
-PACK_WORKSHOP_USD = 5.0
+# ---------------------------------------------------------------------- the rewrite --
 #: How long one rewrite may hold a report. A rewrite is a synchronous Opus call of about
 #: three minutes; a lease still held after this is a process that died mid-call, and the
 #: next click may go ahead.
@@ -1229,18 +1313,17 @@ def carry_forward(old_job_id: str, new_job_id: str) -> dict:
     carry: on a fast or failed run the worker got to the draft step first and found nothing
     to answer. Whoever arrives first wins; the second is a no-op.
 
-    BOUGHT CAPACITY IS HONOURED HERE. The question slice reads limits(old), not the base
-    constant. A reader who paid $5 for five more questions and asked ten had the last five
-    stranded on a report they had already navigated away from, unanswered and unreachable.
-    Notes have no cap, so every one carries.
+    EVERY QUESTION CARRIES. The old cap was the bought counter, and a reader who paid for
+    five more questions and asked ten had the last five stranded on a report they had
+    navigated away from. The pool has no such slice: the new report's own credits pay to
+    answer what carried, and a question the pool cannot yet pay for stays visibly open.
     """
     with _LOCK:
         old = get_state(old_job_id)
         new = get_state(new_job_id)
-        caps = limits(old)
 
         already_q = {(q.get("q") or "").strip() for q in (new.get("questions") or [])}
-        for q in (old.get("questions") or [])[:caps["questions"]]:
+        for q in (old.get("questions") or []):
             text = (q.get("q") or "").strip()
             if text in already_q:
                 continue

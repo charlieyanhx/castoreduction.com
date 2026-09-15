@@ -33,6 +33,11 @@ class _TempDB(unittest.TestCase):
         os.environ["JOBS_DB_PATH"] = str(Path(tempfile.mkdtemp()) / "t.sqlite")
         import jobs
         jobs._reset_for_tests()
+        # A question is answered from the workshop pool now, and asking one the pool
+        # could not pay for is refused; every report in production is endowed at submit
+        # or on first read, so the ids these tests use are opened here the same way.
+        for jid in ("j1", "j9"):
+            iteration.endow(jid, paid=False)
 
     def tearDown(self):
         if self._old is None:
@@ -45,7 +50,7 @@ class _TempDB(unittest.TestCase):
 
 class TestTheLayer(_TempDB):
     def test_empty_state_has_the_shape(self):
-        st = iteration.get_state("j1")
+        st = iteration.get_state("j-untouched")
         self.assertEqual(st["annotations"], [])
         self.assertEqual(st["questions"], [])
         self.assertEqual(st["status"], "draft")
@@ -68,10 +73,11 @@ class TestTheLayer(_TempDB):
         iteration.remove_annotation("j1", aid)
         self.assertEqual(iteration.get_state("j1")["annotations"], [])
 
-    def test_questions_capped_at_five(self):
-        # Wave E (operator spec 2026-08-20): 5 questions, down from 10 — the point is
-        # the sharpest ones, and the single regen must be able to honor all of them.
-        for i in range(iteration.MAX_QUESTIONS):
+    def test_questions_are_capped_by_the_pool(self):
+        """The cap was five (operator spec 2026-08-20); it is the balance now. A free
+        report opens with ten credits and an answer costs one, so the eleventh open
+        question is the one the pool could not pay for."""
+        for i in range(iteration.INCLUDED_CREDITS_FREE):
             iteration.add_question("j1", f"question {i}?")
         with self.assertRaises(iteration.IterationError):
             iteration.add_question("j1", "one too many?")
