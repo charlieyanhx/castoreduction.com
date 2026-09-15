@@ -248,7 +248,7 @@ castor/                   # the repository root
 These are real gaps for a v2:
 - **B2B mode** — pipeline assumes DTC-style audience scraping. For B2B SaaS we'd want firmographic + buying-committee analysis instead.
 - **Historical tracking** — running the same plan again should show deltas (viability up/down, new competitors, etc.). Currently each run is independent.
-- **Streaming answers in the workshop** — an answer is checked whole before it is shown, so the panel shows a clock rather than tokens.
+- **Streaming answers in the workshop**: an answer is checked whole before it is shown, so the panel shows a clock rather than tokens.
 - **PDF native generation** — currently relies on browser Cmd+P. WeasyPrint needs system Pango/Cairo.
 - **Real-time progress** — UI polls every 1.2s. WebSocket would feel snappier.
 - **Reddit signal** — currently 403'd by anti-scraping. Needs operator's Reddit OAuth credentials via praw.
