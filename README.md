@@ -32,8 +32,24 @@ A buyer of paid market research expects to see:
 | **Critical assumptions** | What could invalidate this? | If wrong, the score doesn't hold |
 | **Numbered citations** | Where did each claim come from? | Every claim ties to a source |
 
+The report opens with the **analyst's report**: one Claude Opus pass written from the whole
+fact layer above, in the style the founder asked for (decision memo, full report, operating
+plan), under a citation gate (D62) that refuses any number the fact layer does not hold. The
+pipeline's own furniture, the verdict tile, the tables and the cited-facts appendix, reads
+below it as the evidence.
+
+After the report comes the **workshop**, a sidebar on the owner's page:
+- **Ask** the analyst who wrote it; answers cite the report's numbers and pass the same gate
+- **Select a passage** to have it explained, or to leave a note for the next rewrite
+- **Rewrite** the writing with the notes, in any style (the facts stay; about three minutes)
+- **Re-run** the research from corrected survey answers (one included, then a report credit)
+- **Mark as final**, which is what lets the report go into the public library
+
+One pool of workshop credits pays for it (a paid report opens with 30, a free one with 10;
+an answer or an explanation is 1, a note 0, a rewrite 10; a pack of 30 is $5).
+
 Buyer can also:
-- View as **full HTML report** (~12 pages)
+- View as **full HTML report** (~12 pages) or download the **PDF**
 - View as **investor one-pager** (single sheet, KPI strip + wedge persona + scenarios)
 - **Compare two plans** side-by-side via `/compare?left=X&right=Y`
 - **Submit thumbs-up/down + comment** feedback per report (stored locally)
@@ -232,7 +248,7 @@ castor/                   # the repository root
 These are real gaps for a v2:
 - **B2B mode** — pipeline assumes DTC-style audience scraping. For B2B SaaS we'd want firmographic + buying-committee analysis instead.
 - **Historical tracking** — running the same plan again should show deltas (viability up/down, new competitors, etc.). Currently each run is independent.
-- **Operator edit/regenerate** — can't tweak a 4P section and ask LLM to regenerate just that part.
+- **Streaming answers in the workshop** — an answer is checked whole before it is shown, so the panel shows a clock rather than tokens.
 - **PDF native generation** — currently relies on browser Cmd+P. WeasyPrint needs system Pango/Cairo.
 - **Real-time progress** — UI polls every 1.2s. WebSocket would feel snappier.
 - **Reddit signal** — currently 403'd by anti-scraping. Needs operator's Reddit OAuth credentials via praw.
