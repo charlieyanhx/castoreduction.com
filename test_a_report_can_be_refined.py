@@ -206,16 +206,16 @@ class TestTheRevisedReportRenders(_TempDB):
         self.assertIn("Top-down from the industry figure.", html)
         self.assertIn("justify", html)
 
-    def test_the_revision_banner_appears_only_when_final(self):
+    def test_the_final_banner_appears_only_when_final(self):
         from report.render_html import render_report_html
         html = render_report_html(self.RESULT, job_id="j9")
-        self.assertNotIn("Revised", html)
+        self.assertNotIn("Final version", html)
         iteration.add_question("j9", "q?")
         qid = iteration.get_state("j9")["questions"][0]["id"]
         iteration.set_answer("j9", qid, "a")
         iteration.finalize("j9")
         html = render_report_html(self.RESULT, job_id="j9")
-        self.assertIn("Revised", html)
+        self.assertIn("Final version", html)
 
     def test_an_operator_edited_answer_is_labelled(self):
         from report.render_html import render_report_html

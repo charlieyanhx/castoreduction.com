@@ -37,6 +37,7 @@ HERE = Path(__file__).parent
 LIBRARY = HERE / "web" / "library.html"
 PROGRESS = HERE / "web" / "progress.html"
 REPORT = HERE / "templates" / "report.html"
+WORKSHOP = HERE / "templates" / "workshop.html"
 
 
 class ThePublicLibraryDistinguishesEmptyFromBroken(unittest.TestCase):
@@ -124,30 +125,43 @@ class TakingItDownMeansItCameDown(unittest.TestCase):
 
 
 class EveryMutationOnTheReportSpeaks(unittest.TestCase):
-    def setUp(self):
-        self.src = REPORT.read_text(encoding="utf-8")
+    """The four mutations moved into the workshop sidebar (templates/workshop.html) with
+    the refine layer; the rule moved with them. Every write the panel makes sits in a
+    try, and its catch says which action failed, in the founder's words, with the
+    server's own sentence where that reads well."""
 
-    def test_no_mutation_ends_in_a_bare_then_load(self):
-        """`.then(load)` with no `.catch` is the exact shape of a click that looks ignored."""
-        bare = re.findall(r'api\("(?:POST|PATCH|DELETE)"[^;]{0,160}\.then\(load\)\s*\)?;',
+    def setUp(self):
+        self.src = WORKSHOP.read_text(encoding="utf-8")
+
+    def test_no_mutation_ends_in_a_bare_then(self):
+        """`.then(...)` with no `.catch` is the exact shape of a click that looks ignored."""
+        bare = re.findall(r'api\("(?:POST|PATCH|DELETE)"[^;]{0,200}\.then\([^;]{0,80};',
                           self.src)
         offenders = [b for b in bare if ".catch" not in b]
         self.assertEqual(offenders, [], f"silent mutations: {offenders}")
 
-    def test_the_failure_reporter_puts_the_page_back_in_step(self):
-        """Reverting the UI is right; doing it without a word is what made the two
-        indistinguishable."""
-        i = self.src.index("const failed = (what)")
-        window = self.src[i:i + 300]
-        self.assertIn("say(", window)
-        self.assertIn("load()", window)
+    def test_every_write_is_awaited_inside_a_try(self):
+        """Each POST/PATCH/DELETE the panel makes is reached through `await api(` and
+        the nearest enclosing block opener above it is a `try {`."""
+        for m in re.finditer(r'await api\("(?:POST|PATCH|DELETE)"', self.src):
+            before = self.src[max(0, m.start() - 400):m.start()]
+            self.assertIn("try {", before,
+                          f"a write with no try around it: {self.src[m.start():m.start() + 60]}")
+
+    def test_the_failure_reporter_names_the_status(self):
+        """One place turns a status into a sentence: 402 is the offer, 409 the server's
+        reason, 503 not enabled, 502 the credit came back, 0 the connection."""
+        i = self.src.index("function explain(e, what)")
+        window = self.src[i:i + 900]
+        for code in ("402", "409", "503", "502", "422", "0"):
+            self.assertIn(f"e.status === {code}", window, code)
+        self.assertIn("Your credit was returned", window)
 
     def test_each_one_says_which_action_failed(self):
-        for phrase in ("That mark was not deleted",
-                       "That question was not deleted",
-                       "That correction was not removed",
-                       "Your answer was not saved"):
-            self.assertIn(phrase, self.src)
+        for phrase in ("Removing the note", "Saving the note", "That correction",
+                       "The rewrite", "The re-run", "Marking it final", "Buying credits",
+                       "That question"):
+            self.assertIn(phrase, self.src, phrase)
 
 
 if __name__ == "__main__":
