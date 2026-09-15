@@ -430,6 +430,20 @@ a.cite:hover { color: var(--accent); text-decoration: none; }
 </p>
 {% endif %}
 
+{% if synthesis %}
+{# THE REST OF THE PAGE IS EVIDENCE. Under the analyst report the pipeline's computed
+   facts read as an appendix: the score, the sizing, the scenarios, the roster, the
+   prices, the cited facts. The old narrative slots (personas prose, strengths and risks,
+   the simulated interviews, differentiators, the roadmap, the assumptions list) are
+   gated off below with `and not synthesis`: the analyst wrote from the same facts, and
+   two write-ups on one page read as a template. Without a written report the page is
+   what it was. #}
+<h2 id="evidence">Evidence</h2>
+<p style="color:var(--muted);font-size:10.5pt;max-width:62ch">The computed facts the report
+above was written from: what the research measured, modelled and found. Every number the
+analyst cites resolves here or in the Cited facts appendix, and nothing here was written
+by a model.</p>
+{% endif %}
 <!-- VIABILITY HERO -->
 <div class="viability-hero">
   <div>
@@ -526,13 +540,37 @@ a.cite:hover { color: var(--accent); text-decoration: none; }
 {% endif %}
 
 <!-- ITER 36: TABLE OF CONTENTS (clickable navigation) -->
+{% if synthesis %}
+{# Under the analyst report the list names the evidence sections that render, each under
+   the same condition as its section, and nothing that has stood down. #}
+<div class="no-print" style="border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:10px 0;margin:16px 0;font-size:10pt">
+  <strong style="text-transform:uppercase;letter-spacing:.14em;color:var(--muted);font-size:9pt">Jump to</strong>
+  <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:8px 14px">
+    <a href="#synthesis">Analyst report</a>
+    {% if market_sizing and not market_sizing.error %}<a href="#market-size">Market size</a>{% endif %}
+    {% if financials and not financials.error %}<a href="#scenarios">Scenarios</a>{% endif %}
+    {% if customer_universe and customer_universe.count and customer_universe.count > 0 %}<a href="#customer-universe">Customer universe</a>{% endif %}
+    {% if segment_ranking and segment_ranking.top_5 %}<a href="#segment-ranking">Segments</a>{% endif %}
+    <a href="#competitive-landscape">Competitive landscape</a>
+    {% if max_diff and max_diff.ranked_features %}<a href="#features">Features</a>{% endif %}
+    {% if audiences and audiences|length > 1 %}<a href="#audiences">Audiences</a>{% endif %}
+    <a href="#pricing">Pricing</a>
+    <a href="#economics">Unit economics</a>
+    {% if market_sizing and market_sizing.macro_anchors and (market_sizing.macro_anchors.series or market_sizing.macro_anchors.vertical_anchors) %}<a href="#macro-anchors">Macro anchors</a>{% endif %}
+    {% if section_provenance %}<a href="#provenance">Provenance</a>{% endif %}
+    <a href="#cited-facts">Cited facts</a>
+    <a href="#methodology">Methodology</a>
+    <a href="#citations">Citations</a>
+  </div>
+</div>
+{% else %}
 <div class="no-print" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px;margin:16px 0;font-size:10pt">
   <strong style="text-transform:uppercase;letter-spacing:.05em;color:#4b5563;font-size:9pt">Jump to</strong>
   <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:10px 16px;color:#2563eb">
     {% if synthesis %}<a href="#synthesis" style="color:inherit">Analyst report</a>{% else %}<a href="#executive-summary" style="color:inherit">Executive summary</a>{% endif %} ·
     <a href="#differentiators" style="color:inherit">Differentiators</a> ·
     {# R4 rank 24: each of these SECTIONS renders conditionally, but the nav links used
-       to render unconditionally — dead in-page anchors on 16/16 reports. Guard every
+       to render unconditionally: dead in-page anchors on 16/16 reports. Guard every
        conditional link with the SAME condition its section uses. #}
     {% if customer_universe and customer_universe.count and customer_universe.count > 0 %}<a href="#customer-universe" style="color:inherit">Customer universe</a> ·{% endif %}
     {% if segment_ranking and segment_ranking.top_5 %}<a href="#segment-ranking" style="color:inherit">Segment prioritization</a> ·{% endif %}
@@ -543,13 +581,14 @@ a.cite:hover { color: var(--accent); text-decoration: none; }
     <a href="#economics" style="color:inherit">Unit economics</a> ·
     {% if economics.sensitivity and economics.sensitivity.churn_sensitivity %}<a href="#sensitivity" style="color:inherit">Sensitivity</a> ·{% endif %}
     {% if market_sizing and market_sizing.macro_anchors and (market_sizing.macro_anchors.series or market_sizing.macro_anchors.vertical_anchors) %}<a href="#macro-anchors" style="color:inherit">Macro anchors</a> ·{% endif %}
-    {# Guarded with the same condition as the section itself — D43 fails any in-page
+    {# Guarded with the same condition as the section itself; D43 fails any in-page
        anchor whose target id is absent. #}
     {% if section_provenance %}<a href="#provenance" style="color:inherit">Provenance</a> ·{% endif %}{% if synthesis %} <a href="#cited-facts" style="color:inherit">Cited facts</a> ·{% endif %}
     <a href="#methodology" style="color:inherit">Methodology</a> ·
     <a href="#citations" style="color:inherit">Citations</a>
   </div>
 </div>
+{% endif %}
 
 <!-- REPORT INTEGRITY (cycle35: surface backend rigor — no dark capabilities) -->
 {% if integrity %}
@@ -649,7 +688,7 @@ a.cite:hover { color: var(--accent); text-decoration: none; }
 {% endif %}
 
 <!-- TARGET PERSONAS -->
-{% if personas and not personas.error and personas.personas %}
+{% if (personas and not personas.error and personas.personas) and not synthesis %}
 <h2>Target Personas</h2>
 <p style="font-size:11pt;color:#4b5563">Decoded from {{ personas.personas_count }} distinct buyer segments across {{ audiences|length if audiences else 1 }} competitor brands.
 {% if personas.recommended_wedge_persona %} Recommended wedge: <strong style="color:#10b981">{{ personas.recommended_wedge_persona }}</strong>.{% endif %}</p>
@@ -682,7 +721,7 @@ a.cite:hover { color: var(--accent); text-decoration: none; }
 {% endif %}
 
 <!-- STRENGTHS / RISKS -->
-{% if viability.strengths or viability.risks %}
+{% if (viability.strengths or viability.risks) and not synthesis %}
 <div class="split">
   <div class="strengths">
     <h4>Strengths</h4>
@@ -705,7 +744,7 @@ a.cite:hover { color: var(--accent); text-decoration: none; }
 {% endif %}
 
 <!-- ITER 39: Kill criteria + regulatory considerations -->
-{% if viability.kill_criteria or viability.regulatory_considerations %}
+{% if (viability.kill_criteria or viability.regulatory_considerations) and not synthesis %}
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0">
   {% if viability.kill_criteria %}
   <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:14px">
@@ -725,7 +764,7 @@ a.cite:hover { color: var(--accent); text-decoration: none; }
 {% endif %}
 
 <!-- CONSUMER RESEARCH (STORM-style multi-perspective) — cycle33 -->
-{% if consumer_research and consumer_research.synthesis %}
+{% if (consumer_research and consumer_research.synthesis) and not synthesis %}
 {% set cr = consumer_research %}
 {% set syn = cr.synthesis %}
 <h2 id="consumer-research">Consumer Research — Multi-Perspective Simulation</h2>
@@ -819,7 +858,7 @@ a.cite:hover { color: var(--accent); text-decoration: none; }
 
 <!-- MARKET SIZING (TAM/SAM/SOM) -->
 {% if market_sizing and not market_sizing.error %}
-<h2>Market Size</h2>
+<h2 id="market-size">Market Size</h2>
 {% set sizing_blocked = market_sizing.validation and market_sizing.validation.passed == false %}
 {% if sizing_blocked %}
 <div style="border:2px solid #b91c1c;background:rgba(185,28,28,0.08);border-radius:8px;padding:14px;margin:10px 0">
@@ -1054,7 +1093,7 @@ a.cite:hover { color: var(--accent); text-decoration: none; }
 {% set is_marketplace_financials = financials and financials.model == 'marketplace' %}
 {% if financials and not financials.error %}
 <!-- 3-YEAR FINANCIAL PROJECTIONS -->
-<h2>3-Year Revenue Scenarios</h2>
+<h2 id="scenarios">3-Year Revenue Scenarios</h2>
 {% if financials.cost_caveat %}
 <p style="margin:6px 0 0;font-size:9pt;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 10px">{{ financials.cost_caveat }}</p>
 {% endif %}
@@ -1216,7 +1255,7 @@ a.cite:hover { color: var(--accent); text-decoration: none; }
 {% endif %}
 
 <!-- ITER 36: DIFFERENTIATORS + MARKET GAPS (spec step 3d) -->
-{% if differentiators %}
+{% if (differentiators) and not synthesis %}
 <h2 id="differentiators">Differentiators &amp; Market Gaps</h2>
 {% if differentiators.differentiation_strength %}
 <p style="font-size:10pt;color:#6b7280">Differentiation strength: <strong style="color:{% if differentiators.differentiation_strength == 'high' %}#059669{% elif differentiators.differentiation_strength == 'moderate' %}#b45309{% elif differentiators.differentiation_strength == 'moderate-low' %}#d97706{% else %}#dc2626{% endif %}">{{ differentiators.differentiation_strength }}</strong>. {{ differentiators.strength_reasoning }}</p>
@@ -2151,7 +2190,7 @@ a.cite:hover { color: var(--accent); text-decoration: none; }
 {% endif %}
 
 <!-- NEXT STEPS — iter 39: bucket by horizon (30d/60d/90d) when LLM returns dicts -->
-{% if viability.recommended_next_steps %}
+{% if (viability.recommended_next_steps) and not synthesis %}
 <h2>Recommended Next Steps — 30/60/90 Day Roadmap</h2>
 {% set has_horizons = viability.recommended_next_steps[0] is mapping %}
 {% if has_horizons %}
@@ -2189,7 +2228,7 @@ a.cite:hover { color: var(--accent); text-decoration: none; }
 {% endif %}
 
 <!-- CRITICAL ASSUMPTIONS -->
-{% if viability.critical_assumptions %}
+{% if (viability.critical_assumptions) and not synthesis %}
 <div class="method-box">
   <strong>Critical assumptions</strong> — if these turn out wrong, the viability score doesn't hold:
   <ul style="margin-top:6px;padding-left:20px">

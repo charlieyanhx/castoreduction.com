@@ -81,6 +81,28 @@ class TestTheSynthesisRendersAsTheFrontHalf(unittest.TestCase):
         self.assertIn('id="provenance"', self.html)
         self.assertIn('id="methodology"', self.html)
 
+    def test_the_rest_of_the_page_is_evidence_not_a_second_report(self):
+        """Owner, 2026-09-15, looking at the page: "the report generation is still based on
+        template?" It was: under the analyst report the old narrative slots still rendered,
+        so the page was two write-ups stacked. Under a written report the page is the
+        report plus an Evidence appendix of computed facts; the slots a model wrote in a
+        fixed shape (personas prose, strengths and risks, kill criteria, the simulated
+        interviews, differentiators, the roadmap, the assumptions list) stand down."""
+        self.assertTrue('id="evidence"' in self.html, "the evidence divider")
+        for gone in ("<h2>Target Personas</h2>", "Recommended Next Steps",
+                     "Differentiators &amp; Market Gaps", "Multi-Perspective Simulation",
+                     "Critical assumptions</strong>"):
+            self.assertFalse(gone in self.html, f"a narrative slot still renders: {gone}")
+        for kept in ('id="market-size"', 'id="scenarios"', 'id="competitive-landscape"',
+                     'id="pricing"', 'id="cited-facts"', 'id="methodology"'):
+            self.assertTrue(kept in self.html, f"an evidence section is missing: {kept}")
+
+    def test_no_in_page_link_is_dead(self):
+        """D43's rule, on this page: the jump list names only sections that render."""
+        ids = set(_ID.findall(self.html))
+        dead = sorted(set(_ANCHOR.findall(self.html)) - ids)
+        self.assertEqual(dead, [], f"links to nowhere: {dead[:8]}")
+
     def test_a_citation_links_to_an_id_that_exists(self):
         m = re.search(r'<a class="cite" href="#([^"]+)" title="market_sizing\.som\.mid">',
                       self.html)
@@ -123,6 +145,8 @@ class TestWithoutASynthesisThePageIsWhatItWas(unittest.TestCase):
         self.assertIn(_KEY_RISK_CALLOUT, self.html)           # segment_ranking callout
         self.assertIn("4Ps Marketing Plan", self.html)        # four_ps prose
         self.assertIn(_FOUR_PS_PROSE, self.html)
+        self.assertFalse('id="evidence"' in self.html, "no appendix framing either")
+        self.assertTrue("Recommended Next Steps" in self.html, "the roadmap slot renders")
 
     def test_no_trace_of_the_synthesis(self):
         self.assertNotIn('class="cite"', self.html)
