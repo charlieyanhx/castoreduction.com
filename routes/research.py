@@ -537,7 +537,8 @@ def post_plan(req: PlanRequest):
     # the carry was not. Only post_revise legitimately sets this field, and it has already
     # proved ownership via _owned_job, so an unowned id here is a mistake or an attack.
     # 404 rather than 403, matching _owned_job, so the field cannot enumerate job ids.
-    if req.previous_job_id and not jobs.get(req.previous_job_id, owner_id=_owner):
+    _parent = jobs.get(req.previous_job_id, owner_id=_owner) if req.previous_job_id else None
+    if req.previous_job_id and not _parent:
         raise HTTPException(status_code=404, detail="job not found")
 
     # Look for previous run of same description (for delta tracking). A revision run
@@ -616,12 +617,21 @@ def post_plan(req: PlanRequest):
     _revision_of = req.previous_job_id or None
     if _revision_of:
         import iteration as _it
-        if not _it.spend_rerun(_revision_of):
-            jobs.discard(job_id)
-            raise HTTPException(
-                status_code=402,
-                detail=("This report's included revision has already been used. Buy "
-                        "another regeneration for it, or start a new report."))
+        if not _it.spend_rerun(_revision_of, (_parent or {}).get("params") or {}):
+            # THE INCLUDED RE-RUN IS SPENT, SO THIS ONE IS A REPORT CREDIT (owner
+            # decision, 2026-09-14: one re-run included, then a report credit; the rerun
+            # pack is gone). Consumed here, before the work, like a first report's.
+            if billing.consume(_owner, "report"):
+                _paid_credit = True
+                billing.record_spend(job_id, _owner)
+                log.info("[billing] re-run %s of %s paid for with a report credit",
+                         job_id[:8], _revision_of[:8])
+            else:
+                jobs.discard(job_id)
+                raise HTTPException(
+                    status_code=402,
+                    detail=("This report's included re-run has been used; another costs "
+                            "a report credit. Buy one and it runs straight away."))
 
     if not _revision_of and billing.consume(_owner, "report"):
         _paid_credit = True
@@ -663,6 +673,10 @@ def post_plan(req: PlanRequest):
             # put a phantom "Did not finish" in the founder's library for a report that
             # never started, next to a message telling them to try again tomorrow. The row
             # exists only so the quota slot could name it; nothing was attempted.
+            if _paid_credit:
+                # a re-run paid with a report credit above: the credit goes back too
+                billing.credit_back(_owner, "report", "refused before the run began")
+                _paid_credit = False
             jobs.discard(job_id)
             raise HTTPException(status_code=429, detail=str(e))
 

@@ -1264,24 +1264,24 @@ def reruns_left(job_id: str, params: dict | None = None) -> int:
     return max(0, int(limits(st).get("reruns") or 1) - used)
 
 
-def spend_rerun(job_id: str) -> bool:
-    """Claim one of this report's regenerations. False when they are all spent.
+def spend_rerun(job_id: str, params: dict | None = None) -> bool:
+    """Claim this report's included re-run. False when it is spent.
 
-    THE ENTITLEMENT OF RECORD for a revision run. A report includes one regeneration and
-    a rerun pack buys more, and until this existed nothing counted them: post_plan treated
-    ANY previous_job_id as "the included revision", waived the credit and the daily cap,
-    and never asked whether that revision had already been taken.
+    THE ENTITLEMENT OF RECORD for a revision run, and it asks reruns_left, THE ONE RULE:
+    a report that is itself a revision has none to spend, and so has one that spent its
+    own, whichever of the three records says so. Before this it counted reruns_used
+    alone, so a revision could claim "its" included re-run and the rule the page was
+    told disagreed with the one the endpoint spent. `params` is the report's own run
+    params (previous_job_id lives there), as reruns_left takes them.
 
     Read and write under the one lock, so two requests racing for the last one cannot
-    both win. The docstring said this before the lock existed; the shape of the code
-    (read, check, write) said otherwise, and the workshop's spend copied the shape.
+    both win.
     """
     with _LOCK:
-        st = get_state(job_id)
-        used = int(st.get("reruns_used") or 0)
-        if used >= int(limits(st).get("reruns") or 1):
+        if reruns_left(job_id, params) <= 0:
             return False
-        st["reruns_used"] = used + 1
+        st = get_state(job_id)
+        st["reruns_used"] = int(st.get("reruns_used") or 0) + 1
         _save(job_id, st)
         return True
 

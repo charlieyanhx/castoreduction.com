@@ -96,6 +96,7 @@ class ADraftCannotBePublished(_App):
         import iteration
         c = self._client()
         jid = self._report(c)
+        iteration.endow(jid, paid=False)        # a question is paid from the pool
         iteration.add_question(jid, "Is the rent figure right? I think it is 7800.")
         r = c.post(f"/jobs/{jid}/share", json={"title": "Coffee shop"})
         self.assertEqual(r.status_code, 409)

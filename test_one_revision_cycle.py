@@ -149,7 +149,7 @@ class TestOneCycleThenPay(_TempDB):
             self.assertEqual(st["revised_to"], new_id)
             r2 = client.post(f"/jobs/{job_id}/revise")
             self.assertEqual(r2.status_code, 402, r2.text)
-            self.assertIn("pay", r2.json()["detail"].lower())
+            self.assertIn("report credit", r2.json()["detail"].lower())
 
     def test_a_revision_job_cannot_itself_revise(self):
         from fastapi.testclient import TestClient

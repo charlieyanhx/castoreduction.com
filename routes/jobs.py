@@ -410,8 +410,10 @@ def get_iteration(job_id: str):
     if not _owned_job(job_id):
         raise HTTPException(status_code=404, detail="job not found")
     import iteration
+    j = _owned_job(job_id) or {}
     st = opened_state(job_id)
-    return {**st, "workshop": iteration.workshop_view(st), "limits": iteration.limits(st)}
+    return {**st, "workshop": iteration.workshop_view(st), "limits": iteration.limits(st),
+            "reruns_left": iteration.reruns_left(job_id, j.get("params") or {})}
 
 
 @router.post("/jobs/{job_id}/annotations")
@@ -555,17 +557,11 @@ def post_revise(job_id: str):
         raise HTTPException(status_code=404, detail="job not found")
     params = j.get("params") or {}
     st = iteration.get_state(job_id)
-    # ONE REGENERATION PER REPORT, AND THE PACK IS THE WAY PAST IT. `previous_job_id` says
-    # this report IS a revision, so a cycle was already spent producing it; `revised` says
-    # it has spent one of its own. Both count, and both are cleared by buying a rerun,
-    # which is the entire purpose of the $5 pack. Before this the pack was grantable and
-    # unspendable: iteration.grant took the money, limits() duly reported two reruns, and
-    # this route refused anyway because it never read limits() at all.
-    if iteration.reruns_left(job_id, params) <= 0:
-        raise HTTPException(
-            status_code=402,
-            detail="this report has used every regeneration it has; pay for another "
-                   "rerun or take the report as it is")
+    # A RE-RUN PAST THE INCLUDED ONE IS A REPORT CREDIT, NOT A REFUSAL (owner decision,
+    # 2026-09-14). post_plan spends the included re-run (iteration.spend_rerun, the one
+    # rule for how many are left) or, failing that, a report credit, and answers 402 only
+    # when the founder holds neither. This route used to refuse here from its own count,
+    # which once disagreed with the page's; it no longer decides.
     description = str(params.get("description") or "")
     if len(description) < 30:
         raise HTTPException(status_code=422, detail="the original brief is missing")

@@ -175,49 +175,93 @@ class ALateRerunPackIsWorkshopCredits(_App):
                          "a pack of one must not be worth more than one")
 
 
-class TheFinalPageOffersIt(unittest.TestCase):
-    """Markup assertions: the control has to exist and be reachable on a SETTLED report,
-    which is the only page state where the workspace that used to hold it is hidden."""
+class ASecondReRunIsAReportCredit(_App):
+    """What "then a report credit" means at the endpoint: a report that has spent its
+    included re-run is re-run again on a report credit when the account holds one, and
+    refused with the price when it does not. The rerun pack is not the way past it any
+    more; it has no way past it to sell."""
+
+    def _credit(self, c, n=1):
+        """A report credit on the account, the way a refund lands one."""
+        import billing
+        owner = c.get("/auth/me").json()["owner"]
+        for _ in range(n):
+            billing.credit_back(owner, "report", "test")
+        return owner
+
+    def test_without_a_credit_the_second_re_run_is_refused_with_the_price(self):
+        c = self._client()
+        spent = self._spent(c)
+        r = c.post(f"/jobs/{spent}/revise")
+        self.assertEqual(r.status_code, 402, r.text)
+        self.assertIn("report credit", r.json()["detail"])
+
+    def test_with_a_credit_the_second_re_run_runs_and_spends_it(self):
+        import billing
+        c = self._client()
+        spent = self._spent(c)
+        owner = self._credit(c, 1)
+        self.assertEqual(billing.balance(owner, "report"), 1)
+        import jobs
+        import plan as _plan
+        with patch.object(jobs, "run_async", lambda j, fn, **k: None), \
+             patch.object(_plan, "run_plan", lambda *a, **k: {"profile": {"name": "x"}}):
+            r = c.post(f"/jobs/{spent}/revise")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(billing.balance(owner, "report"), 0, "the credit paid for it")
+        self.assertEqual(billing.paid_owner(r.json()["job_id"]), owner,
+                         "ledgered against the new run, so a run that delivers nothing "
+                         "is refunded like any paid report")
+
+    def test_the_page_is_told_which_it_is(self):
+        """GET /iteration carries reruns_left beside the pool, so the sidebar's Re-run
+        button can say "1 included" or "1 report credit" without computing it."""
+        c = self._client()
+        fresh, spent = self._run(c), self._spent(c)
+        self.assertEqual(c.get(f"/jobs/{fresh}/iteration").json()["reruns_left"], 1)
+        self.assertEqual(c.get(f"/jobs/{spent}/iteration").json()["reruns_left"], 0)
+
+
+class TheSidebarOffersIt(unittest.TestCase):
+    """Markup assertions on the workshop sidebar, which replaced the settled-report
+    section and the rerun pack: the re-run control exists for the owner, says whether
+    it is included or a report credit, and reads that from the server."""
 
     def setUp(self):
-        self.tpl = Path(__file__).parent.joinpath("templates/report.html").read_text(
+        self.tpl = Path(__file__).parent.joinpath("templates/workshop.html").read_text(
+            encoding="utf-8")
+        self.page = Path(__file__).parent.joinpath("templates/report.html").read_text(
             encoding="utf-8")
 
-    def test_the_settled_report_has_its_own_section(self):
-        self.assertIn('id="rfAgainSec"', self.tpl)
+    def test_the_sidebar_is_included_for_the_owner_only(self):
+        self.assertIn('{% if not public %}{% include "workshop.html" %}{% endif %}', self.page)
+        self.assertNotIn('id="rfAgainSec"', self.page, "the old section is gone")
+        self.assertNotIn('buy("rerun"', self.page, "the rerun pack is not offered")
 
-    def test_there_is_a_buy_button_for_the_rerun_pack(self):
-        self.assertIn('id="rfBuyRerun"', self.tpl)
-        self.assertIn('buy("rerun"', self.tpl)
+    def test_the_re_run_control_exists(self):
+        for needle in ('id="wsRerun"', 'id="wsRerunGo"', 'id="wsRerunHint"', 'id="wsRerunCost"'):
+            self.assertIn(needle, self.tpl, needle)
 
-    def test_it_is_shown_only_once_the_report_has_settled(self):
-        self.assertIn("sec.hidden = !settled", self.tpl)
+    def test_the_two_states_are_named_from_the_server(self):
+        block = self.tpl[self.tpl.index("function paintRerun"):]
+        self.assertIn("st.reruns_left", block[:600], "the page is told, it does not count")
+        self.assertIn('" included"', block[:600])
+        self.assertIn('"1 report credit"', block[:600])
+        self.assertIn("billing.report_credits", block[:600],
+                      "and says how many report credits the account holds")
 
-    def test_the_price_comes_from_the_server(self):
-        """No amount is typed into the page: PACK_PRICES_USD is the source, so repricing
-        the pack does not need a redeploy."""
-        block = self.tpl[self.tpl.index("function paintAgain"):]
-        self.assertIn("PRICES.rerun", block[:1200])
+    def test_the_confirm_says_which_one_is_being_spent(self):
+        block = self.tpl[self.tpl.index('$("wsRerunGo").onclick'):]
+        self.assertIn("the re-run included with this report", block[:1600])
+        self.assertIn("one report credit", block[:1600])
 
-    def test_the_two_states_are_exclusive(self):
-        block = self.tpl[self.tpl.index("function paintAgain"):]
-        self.assertIn('$("rfBuyRerun").hidden = left > 0', block[:1200])
-        self.assertIn('$("rfReviseAgain").hidden = left <= 0', block[:1200])
-
-    def test_both_regenerate_buttons_share_one_confirm(self):
-        """Two copies of the confirm would drift, and it is the sentence that tells the
-        reader what they are about to spend."""
-        self.assertIn("function openReviseConfirm(", self.tpl)
-        self.assertIn('openReviseConfirm("rfConfirm")', self.tpl)
-        self.assertIn('openReviseConfirm("rfConfirm2")', self.tpl)
-
-    def test_the_confirm_does_not_call_a_bought_pass_the_free_one(self):
-        self.assertIn("the regeneration you bought", self.tpl)
-
-    def test_paintRevise_reads_the_budget_not_the_history(self):
-        block = self.tpl[self.tpl.index("function paintRevise"):]
-        self.assertIn("rerunsLeft()", block[:400])
-        self.assertNotIn('st.status === "revised" || st.revised_to', block[:400])
+    def test_no_price_is_typed_into_the_page(self):
+        """Costs, the pack and its price all ride GET /iteration; the page never states
+        an amount of its own."""
+        self.assertNotIn("$5", self.tpl)
+        self.assertNotIn("30 credits", self.tpl)
+        self.assertIn("st.workshop.costs", self.tpl)
+        self.assertIn("st.workshop.pack", self.tpl)
 
 
 if __name__ == "__main__":
