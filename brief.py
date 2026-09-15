@@ -133,8 +133,16 @@ _MONTHLY_RE = r"(?:per\s+month|/\s*mo(?:nth)?\b|a\s+month|monthly)"
 _YEARLY_RE = r"(?:per\s+year|/\s*yr\b|annually|a\s+year|per\s+annum|yearly)"
 #: The verbs a founder puts between a unit and its price. Bounded, so "the box we ship to
 #: 400 customers is $54" does not bind 400 to "box".
-_LEADIN_RE = (r"(?:costs?|is|are|sells?\s+for|retails?\s+(?:at|for)|priced\s+at|at|for|"
-              r"starts?\s+at|goes\s+for)")
+#: A number with no currency symbol is a price ONLY when one of these introduces it AND a
+#: connector ties it to a unit noun: "around 5.50 for a drink" is a price, "seating for
+#: about 14 patrons" and "roughly 1,200 square feet" are not.
+_APPROX_RE = r"(?:around|about|roughly|approximately|circa|~)"
+_LEADIN_RE = (r"(?:(?:costs?|is|are|sells?\s+for|retails?\s+(?:at|for)|priced\s+at|at|for|"
+              rf"starts?\s+at|goes\s+for)(?:\s+{_APPROX_RE})?|{_APPROX_RE})")
+#: What sits between a price and its unit: "$6 per drink", "$6 a drink", "$5.50 for a
+#: drink". The last was missing, and the first analyst report (SYN-1) read a brief that
+#: said exactly that as having stated no price.
+_CONNECTOR_RE = r"(?:/|per|a|an|each|for\s+(?:a|an|one|each|every))"
 
 
 def _noun_pattern(noun: str) -> str:
@@ -179,7 +187,7 @@ def extract_price(text: str, unit_noun: str | None = None) -> dict | None:
     recurring = f"{_MONTHLY_RE}|{_YEARLY_RE}"
     patterns = (
         # price then unit: "$6 per drink", "$499 per seat per month", "EUR 3.50 per pastry"
-        (rf"{_CUR_RE}\s*{_AMT_RE}\s*(?:/|per|a|an|each)\s*(?P<noun>{alt})\b", None),
+        (rf"{_CUR_RE}\s*{_AMT_RE}\s*{_CONNECTOR_RE}\s*(?P<noun>{alt})\b", None),
         # unit then price: "the hardware costs $249", "each kit sells for $65"
         (rf"(?P<noun>{alt})\b(?:\s+\w+){{0,3}}?\s+{_LEADIN_RE}\s+{_CUR_RE}\s*{_AMT_RE}", None),
         # adjacent, no preposition: "$199 device", "$65 starter kit"
@@ -187,6 +195,9 @@ def extract_price(text: str, unit_noun: str | None = None) -> dict | None:
         # recurring, LAST — a monthly figure is the price only if nothing per-unit is stated
         (rf"{_CUR_RE}\s*{_AMT_RE}\s*{_MONTHLY_RE}", "month"),
         (rf"{_CUR_RE}\s*{_AMT_RE}\s*{_YEARLY_RE}", "year"),
+        # no symbol at all, after everything with one: "around 5.50 for a drink" (SYN-1).
+        # The approximator and the connector are both required; see _APPROX_RE.
+        (rf"(?<!\w){_APPROX_RE}\s*\$?\s*{_AMT_RE}\s*{_CONNECTOR_RE}\s*(?P<noun>{alt})\b", None),
     )
     for pattern, fixed_period in patterns:
         for m in re.finditer(pattern, text, re.I):
@@ -208,7 +219,7 @@ def extract_price(text: str, unit_noun: str | None = None) -> dict | None:
                     period = "year"
             return {
                 "value": value,
-                "currency": _CURRENCIES.get((m.group("cur") or "$").lower(), "USD"),
+                "currency": _CURRENCIES.get((m.groupdict().get("cur") or "$").lower(), "USD"),
                 "basis": (f"stated price per {noun}" if noun
                           else f"stated {period or 'unit'} price"),
                 "period": period,
