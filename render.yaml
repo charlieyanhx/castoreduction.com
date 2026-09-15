@@ -76,6 +76,10 @@ services:
         sync: false
       - key: STRIPE_PRICE_REPORT
         sync: false
+      # The workshop pack (30 credits, $5). The three below it are the old refinement
+      # packs, kept only so a late webhook for one can still be fulfilled.
+      - key: STRIPE_PRICE_WORKSHOP
+        sync: false
       - key: STRIPE_PRICE_MARKS
         sync: false
       - key: STRIPE_PRICE_QUESTIONS

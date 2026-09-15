@@ -357,11 +357,39 @@ def _start_unattended() -> int:
             _notify_owner(_o, _j, result)
             return result
 
+        # A run submitted before the pool existed and picked up after the deploy still
+        # gets its workshop; one endowed at submit is left alone, because endow() looks
+        # for its own ledger line before it writes.
+        _open_the_workshop(job_id, paid=_paid_for(job_id)
+                           or _paid_for(params.get("previous_job_id")))
         _jobs.run_async(job_id, work)
         started += 1
         log.info("[resume] starting %s from %d completed step(s)",
                  job_id[:8], len((seed or {}).get("_steps_completed") or []))
     return started
+
+
+def _paid_for(job_id: str | None) -> bool:
+    """Was this run bought with a report credit that has not been refunded? False for a
+    free run, for no job at all, and for a run whose credit went back."""
+    if not job_id:
+        return False
+    import billing
+    return bool(billing.paid_owner(job_id))
+
+
+def _open_the_workshop(job_id: str, paid: bool) -> None:
+    """Give a run the workshop credits its kind includes, once.
+
+    NEVER FAILS THE RUN. A report with an unopened workshop is a support ticket; a lost
+    report is not. The failure is logged loudly because it is credits the founder was
+    promised.
+    """
+    try:
+        import iteration
+        iteration.endow(job_id, paid=paid)
+    except Exception as e:                                   # noqa: BLE001
+        log.error("[workshop] could not open the pool for %s: %s", job_id[:8], e)
 
 
 # The worker calls back into the resumer once its gate is free. Registered by the module
@@ -637,6 +665,15 @@ def post_plan(req: PlanRequest):
             # exists only so the quota slot could name it; nothing was attempted.
             jobs.discard(job_id)
             raise HTTPException(status_code=429, detail=str(e))
+
+    # THE WORKSHOP OPENS WITH THE REPORT. A paid report includes thirty workshop credits,
+    # one off the free allowance includes ten, and this is the one place the run's kind
+    # is known for certain: the credit was just spent, or the allowance was just
+    # claimed. A revision run inherits its parent's kind, because the included re-run of
+    # a paid report is that paid report's own. The stub path is covered too: it replaces
+    # the research, not this. endow() is idempotent, so the resumer and a retried submit
+    # cannot double it.
+    _open_the_workshop(job_id, paid=_paid_credit or _paid_for(_revision_of))
 
     def work(progress=None):
         """Run the full plan, forwarding progress so the job can checkpoint as it goes."""

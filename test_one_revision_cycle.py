@@ -43,11 +43,14 @@ class TestTheNewLimits(_TempDB):
         with self.assertRaises(self.iteration.IterationError):
             self.iteration.add_question("j1", "one too many?")
 
-    def test_the_sixth_mark_is_refused(self):
+    def test_the_sixth_mark_is_kept(self):
+        """The cap on marks went with the workshop (2026-09-14): a mark is a note now,
+        text that is stored free and carried into the next rewrite, and the rewrite is
+        what is paid for. The question cap above still stands."""
         for i in range(5):
             self.iteration.add_annotation("j1", section="s", quote=f"q{i}", comment="c")
-        with self.assertRaises(self.iteration.IterationError):
-            self.iteration.add_annotation("j1", section="s", quote="x", comment="c")
+        self.iteration.add_annotation("j1", section="s", quote="x", comment="c")
+        self.assertEqual(len(self.iteration.get_state("j1")["annotations"]), 6)
 
 
 class TestInputEdits(_TempDB):
@@ -159,48 +162,62 @@ if __name__ == "__main__":
 
 
 class TestBoughtCapacity(_TempDB):
-    """A pack raises the cap for ONE report. The budgets exist to force triage, so extra
-    capacity is priced rather than free, and it is refused outright until a real checkout
-    exists: a grant that succeeded without payment would make the cap decorative."""
+    """A pack lands in ONE report's workshop pool (owner decision, 2026-09-14: one credit
+    pool replaced the three counters). Extra capacity is still priced rather than free,
+    and still refused outright without a real checkout: a grant that succeeded without
+    payment would make the pool decorative. What a pack no longer does is widen a cap."""
 
     def test_the_cap_is_refused_without_a_checkout(self):
         os.environ.pop("CASTOR_ALLOW_UNPAID_CREDITS", None)
-        with self.assertRaises(self.iteration.IterationError):
-            self.iteration.grant("j1", "marks", 1)
+        for kind in ("marks", "workshop"):
+            with self.assertRaises(self.iteration.IterationError):
+                self.iteration.grant("j1", kind, 1)
 
-    def test_a_bought_pack_raises_only_that_budget(self):
+    def test_a_bought_pack_lands_in_that_reports_pool(self):
         os.environ["CASTOR_ALLOW_UNPAID_CREDITS"] = "1"
         try:
             base = self.iteration.limits(self.iteration.get_state("j1"))
             self.assertEqual(base, {"questions": 5, "marks": 5, "reruns": 1})
-            self.iteration.grant("j1", "marks", 1)
-            after = self.iteration.limits(self.iteration.get_state("j1"))
-            self.assertEqual(after["marks"], 10)
-            self.assertEqual(after["questions"], 5, "one pack must not widen the others")
-            self.assertEqual(after["reruns"], 1)
+            self.iteration.grant("j1", "workshop", 1)
+            self.assertEqual(self.iteration.balance("j1"), self.iteration.PACK_WORKSHOP)
+            self.assertEqual(self.iteration.balance("j2"), 0,
+                             "a pack is for one report, not the buyer")
+            self.assertEqual(self.iteration.limits(self.iteration.get_state("j1")), base,
+                             "the caps are the base budget; the pool is where money goes")
         finally:
             os.environ.pop("CASTOR_ALLOW_UNPAID_CREDITS", None)
 
-    def test_the_sixth_mark_is_allowed_once_a_pack_is_bought(self):
+    def test_a_mark_is_uncapped_and_a_late_marks_pack_becomes_credits(self):
+        """A mark is a note now (workshop, 2026-09-14): free and uncapped, so the sixth
+        one is stored like the first. A marks pack that arrives late still converts to
+        workshop credits at one per mark, so the money is not lost; what is stored does
+        not change."""
         os.environ["CASTOR_ALLOW_UNPAID_CREDITS"] = "1"
         try:
             for i in range(5):
                 self.iteration.add_annotation("j1", section="s", quote=f"q{i}", comment="c")
-            with self.assertRaises(self.iteration.IterationError):
-                self.iteration.add_annotation("j1", section="s", quote="x", comment="c")
-            self.iteration.grant("j1", "marks", 1)
             self.iteration.add_annotation("j1", section="s", quote="x", comment="c")
+            self.assertEqual(len(self.iteration.get_state("j1")["annotations"]), 6)
+            self.iteration.grant("j1", "marks", 1)
+            self.iteration.add_annotation("j1", section="s", quote="y", comment="c")
             st = self.iteration.get_state("j1")
-            self.assertEqual(len(st["annotations"]), 6)
+            self.assertEqual(len(st["annotations"]), 7)
+            self.assertEqual(self.iteration.balance("j1"),
+                             5 * self.iteration.OLD_KIND_CREDITS["marks"])
+            self.assertEqual(st["extra"], {})
         finally:
             os.environ.pop("CASTOR_ALLOW_UNPAID_CREDITS", None)
 
     def test_the_prices_are_the_ones_the_page_shows(self):
+        """The old three stay listed through the transition; the workshop pack is the
+        one the page should offer."""
         self.assertEqual(self.iteration.PACK_PRICES_USD["marks"], 2.0)
         self.assertEqual(self.iteration.PACK_PRICES_USD["questions"], 5.0)
         self.assertEqual(self.iteration.PACK_PRICES_USD["rerun"], 5.0)
+        self.assertEqual(self.iteration.PACK_PRICES_USD["workshop"], 5.0)
         self.assertEqual(self.iteration.PACK_SIZES["marks"], 5)
         self.assertEqual(self.iteration.PACK_SIZES["questions"], 5)
+        self.assertEqual(self.iteration.PACK_SIZES["workshop"], 30)
 
 
 class TestCarriedQuestionsGetAnswered(_TempDB):

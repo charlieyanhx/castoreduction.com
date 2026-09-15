@@ -301,7 +301,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
               padding:5px 12px;border-radius:999px;background:#ecfdf5;border:1px solid #a7f3d0;
               color:#047857;font-size:10pt;font-weight:600">
     Revised · v{{ iteration.revision }} — {{ iteration.questions|length }} reader question(s)
-    answered, {{ iteration.annotations|length }} passage(s) annotated
+    answered, {{ iteration.notes|length }} note(s) from the reader
   </div>
   {% endif %}
   <div class="label">Market Research Report</div>
@@ -2488,16 +2488,19 @@ a.cite:hover { color: var(--accent); text-decoration: none; }
    result is untouched and this block derives from the layer, so the PDF carries it too.
    Provenance is printed on every answer: a hand-written answer and a model-drafted one
    must never be indistinguishable. #}
-{% if iteration.annotations %}
+{# The founder's NOTES, marks and sidebar notes alike (iteration.notes); the model's note
+   back against a mark is iteration.clarifications. Both are the owner's private layer and
+   neither reaches a public page: this whole block is inside the `not public` gate. #}
+{% if iteration.notes %}
 <h2 id="reader-notes">Reader Notes &amp; Clarifications</h2>
 <p style="color:#6b7280;font-size:10.5pt">Passages the reader highlighted on the first
 revision, each with the author's clarification. Notes marked <em>beyond this report's
 data</em> flag questions the underlying research did not examine.</p>
-{% for a in iteration.annotations %}
-{% set note = (iteration.notes | selectattr('annotation_id', 'equalto', a.id) | list | first) %}
+{% for a in iteration.notes %}
+{% set note = (iteration.clarifications | selectattr('annotation_id', 'equalto', a.id) | list | first) %}
 <div style="margin:12px 0;padding:12px 14px;border:1px solid #e5e7eb;border-left:3px solid #b45309;border-radius:8px">
   <div style="font-size:9.5pt;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em">{{ a.section }}</div>
-  <div style="font-size:10.5pt;margin:4px 0;padding-left:10px;border-left:2px solid #f3e2c4;color:#4b5563">“{{ a.quote }}”</div>
+  {% if a.quote %}<div style="font-size:10.5pt;margin:4px 0;padding-left:10px;border-left:2px solid #f3e2c4;color:#4b5563">“{{ a.quote }}”</div>{% endif %}
   <div style="font-size:10.5pt"><strong>Reader:</strong> {{ a.comment }}</div>
   {% if note %}
   <div style="font-size:10.5pt;margin-top:6px"><strong>Clarification:</strong> {{ note.note }}
@@ -3036,7 +3039,7 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
     // The answer control only means something while something is unanswered, and never on
     // a report that has settled: draft_answers writes into a record that is closed.
     const openQ = (st.questions || []).filter((q) => !(q.a || "").trim()).length;
-    const answered = new Set((st.notes || []).map((n) => n.annotation_id));
+    const answered = new Set((st.clarifications || []).map((n) => n.annotation_id));
     const openA = (st.annotations || []).filter((a) => !answered.has(a.id)).length;
     const row = $("rfAnswerRow");
     row.hidden = !!settled || !(openQ + openA);
@@ -3099,7 +3102,7 @@ Answers draw only on this report's own data; where they cannot, they say so.</p>
         '<div class="meta">' + esc(a.section) + "</div>" +
         '<div class="quote">' + esc(a.quote) + "</div>" +
         '<textarea data-c="' + esc(a.id) + '">' + esc(a.comment) + "</textarea>" +
-        (st.notes || []).filter((n) => n.annotation_id === a.id)
+        (st.clarifications || []).filter((n) => n.annotation_id === a.id)
           .map((n) => '<div class="rf-note"><b>Note back:</b> ' + esc(n.note) + "</div>").join("") +
         "</div>";
     }

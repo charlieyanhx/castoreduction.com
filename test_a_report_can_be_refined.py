@@ -49,6 +49,8 @@ class TestTheLayer(_TempDB):
         self.assertEqual(st["annotations"], [])
         self.assertEqual(st["questions"], [])
         self.assertEqual(st["status"], "draft")
+        # The workshop pool (2026-09-14) rides in the same row: one layer of data per job.
+        self.assertEqual(st["workshop"], {"granted": 0, "spent": 0, "ledger": []})
 
     def test_annotation_round_trip(self):
         iteration.add_annotation("j1", section="Market Size",

@@ -44,6 +44,10 @@ PRICE_ENV = {
     "report": "STRIPE_PRICE_REPORT",
     "bundle5": "STRIPE_PRICE_BUNDLE5",
     "bundle10": "STRIPE_PRICE_BUNDLE10",
+    "workshop": "STRIPE_PRICE_WORKSHOP",
+    # THE OLD REFINEMENT PACKS. Not offered any more, but their price ids stay named so a
+    # checkout session opened under them can still be fulfilled when its webhook lands;
+    # the credits arrive converted into the workshop pool (iteration.grant).
     "marks": "STRIPE_PRICE_MARKS",
     "questions": "STRIPE_PRICE_QUESTIONS",
     "rerun": "STRIPE_PRICE_RERUN",
@@ -53,29 +57,42 @@ PRICE_ENV = {
 #: held are not the same: a 5-pack is one line item in Stripe and five report credits here.
 #: fulfill() granted a flat 1 for every account kind, so the landing page's "5 for $99"
 #: charged for five and delivered one. Anything absent grants one of itself.
+#: The workshop pack is 30 credits on ONE job (iteration.PACK_WORKSHOP), not on the account.
 GRANTS = {
     "report":   ("report", 1),
     "bundle5":  ("report", 5),
     "bundle10": ("report", 10),
+    "workshop": ("workshop", 30),
 }
 
 #: The operator's list prices, for drawing a button that says what it costs. The AMOUNT
-#: CHARGED lives in Stripe and only in Stripe — this is display copy, and a mismatch shows
+#: CHARGED lives in Stripe and only in Stripe: this is display copy, and a mismatch shows
 #: up as a surprise on the checkout page rather than as a wrong charge.
-LIST_PRICES_USD = {"report": 29.0, "bundle5": 99.0, "bundle10": 175.0}
+LIST_PRICES_USD = {"report": 29.0, "bundle5": 99.0, "bundle10": 175.0, "workshop": 5.0}
 
-#: How a button should read. Kept beside the prices so the two never drift apart.
+#: How a button should read. Kept beside the prices so the two never drift apart. The
+#: three old refinement packs are deliberately absent: nothing should offer them.
 OFFERS = {
-    "report":   {"label": "This report",   "credits": 1},
-    "bundle5":  {"label": "5 reports",     "credits": 5},
-    "bundle10": {"label": "10 reports",    "credits": 10},
+    "report":   {"label": "This report",          "credits": 1},
+    "bundle5":  {"label": "5 reports",            "credits": 5},
+    "bundle10": {"label": "10 reports",           "credits": 10},
+    "workshop": {"label": "30 workshop credits",  "credits": 30},
 }
 
-#: What each purchase grants. Report credits sit on the ACCOUNT; the refinement packs
-#: attach to one JOB, because a budget that followed the buyer between reports would defeat
-#: the triage the budget exists to force.
+#: What each purchase grants. Report credits sit on the ACCOUNT; the workshop pack attaches
+#: to one JOB, because credits that followed the buyer between reports would make every
+#: report's workshop the same open tab.
 ACCOUNT_KINDS = ("report", "bundle5", "bundle10")
-JOB_KINDS = ("marks", "questions", "rerun")
+JOB_KINDS = ("workshop",)
+#: The three kinds the workshop pool replaced. A webhook for one of them may still arrive,
+#: late, for a session opened before the change, and it must grant what it was worth. They
+#: are accepted here and converted by iteration.grant; they are not in OFFERS.
+LEGACY_JOB_KINDS = ("marks", "questions", "rerun")
+
+
+def is_job_kind(kind: str) -> bool:
+    """Is this bought for one report rather than for the account? Old kinds included."""
+    return kind in JOB_KINDS or kind in LEGACY_JOB_KINDS
 
 #: Stripe's own tolerance for webhook timestamps. Older than this and it is a replay of a
 #: capture, not a delivery.
@@ -527,7 +544,7 @@ def create_checkout(kind: str, account_id: str, success_url: str, cancel_url: st
     price = price_for(kind)
     if not price:
         raise BillingError(f"no price is set for {kind}")
-    if kind in JOB_KINDS and not job_id:
+    if is_job_kind(kind) and not job_id:
         raise BillingError(f"{kind} is bought for one report, and none was named")
 
     import requests
@@ -827,18 +844,25 @@ def fulfill(event: dict) -> dict:
         return {"granted": ok, "kind": kind, "credits": count if ok else 0,
                 "account_id": account_id}
 
-    # A refinement pack. The entitlement row is the receipt and the idempotency guard;
-    # iteration.grant is what actually widens the budget on that one report.
+    # A PACK FOR ONE REPORT. The entitlement row is the receipt and the idempotency guard;
+    # the iteration layer is what actually puts the credits on that one report.
     if not job_id:
         return {"granted": False, "reason": "a pack was bought for no report"}
-    if not _record(account_id, kind, 1, session_id, job_id, email=buyer_email):
+    credit_kind, count = GRANTS.get(kind, (kind, 1))
+    if not _record(account_id, credit_kind, count, session_id, job_id, email=buyer_email):
         return {"granted": False, "reason": "already fulfilled"}
     try:
         import iteration
-        iteration.grant(job_id, kind, packs=1, paid=True)
+        if kind in JOB_KINDS:
+            iteration.credit(job_id, count, "pack", paid=True, ref=session_id)
+        else:
+            # An old kind, bought before the pool existed. grant() converts it at the
+            # published rate and logs that it did.
+            count = iteration.PACK_SIZES[kind] * iteration.OLD_KIND_CREDITS[kind]
+            iteration.grant(job_id, kind, packs=1, paid=True)
     except Exception as e:                                   # noqa: BLE001
         # The row is written, so the payment is recorded and will not be granted twice.
         # Surfacing the failure beats pretending it worked.
         log.error("[billing] paid for %s on %s but granting failed: %s", kind, job_id, e)
         return {"granted": False, "reason": "payment recorded but the grant failed"}
-    return {"granted": True, "kind": kind, "job_id": job_id}
+    return {"granted": True, "kind": kind, "job_id": job_id, "credits": count}

@@ -122,6 +122,18 @@ class ASecondRunOfTheSameWordsIsAFreshReport(_App):
         self.assertNotEqual(r.status_code, 402,
                             "a fresh report must still have its included regeneration")
 
+    def test_it_opens_its_own_workshop(self):
+        """A fresh report is endowed as a fresh report: its own pool, untouched by what
+        the earlier run spent. Under the old counters this was the regeneration being
+        counted as already spent; under the pool it would be an empty workshop."""
+        import iteration
+        c = self._client()
+        first = self._run(c)
+        iteration.spend(first, 4, "turn")
+        second = self._run(c)
+        self.assertEqual(iteration.balance(second), iteration.INCLUDED_CREDITS_FREE)
+        self.assertEqual(iteration.balance(first), iteration.INCLUDED_CREDITS_FREE - 4)
+
     def test_the_deltas_still_fire(self):
         """The lookup is not removed, only narrowed: comparing against your own previous
         run of the same brief is the whole reason it exists."""

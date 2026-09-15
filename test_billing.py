@@ -50,7 +50,8 @@ class _Billing(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self._prev = {k: os.environ.get(k) for k in
                       ("JOBS_DB_PATH", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
-                       "STRIPE_PRICE_REPORT", "CASTOR_ALLOW_UNPAID_CREDITS")}
+                       "STRIPE_PRICE_REPORT", "STRIPE_PRICE_WORKSHOP", "STRIPE_PRICE_MARKS",
+                       "CASTOR_ALLOW_UNPAID_CREDITS")}
         os.environ["JOBS_DB_PATH"] = os.path.join(self._tmp.name, "jobs.sqlite")
         os.environ["STRIPE_WEBHOOK_SECRET"] = SECRET
         os.environ.pop("CASTOR_ALLOW_UNPAID_CREDITS", None)
@@ -141,16 +142,24 @@ class TestFulfilment(_Billing):
         self.assertFalse(billing.consume("acct-1", "report"))
         self.assertEqual(billing.balance("acct-1", "report"), 0)
 
-    def test_a_paid_pack_widens_that_report_and_no_other(self):
+    def test_a_paid_pack_credits_that_report_and_no_other(self):
+        """The workshop pack lands on the ONE job it was bought for. Credits that followed
+        the buyer between reports would make every report's workshop the same open tab."""
+        import billing, iteration
+        billing.fulfill(_session_event(kind="workshop", job="job-A", session_id="cs_pack"))
+        self.assertEqual(iteration.balance("job-A"), iteration.PACK_WORKSHOP)
+        self.assertEqual(iteration.balance("job-B"), 0)
+
+    def test_a_late_pack_of_an_old_kind_is_converted_not_lost(self):
+        """A webhook for a marks pack bought before the pool existed still grants what it
+        was worth: five marks are five workshop credits. The cap it used to widen is not
+        widened; the money lands in the pool."""
         import billing, iteration
         base = iteration.limits(iteration.get_state("job-A"))
-        billing.fulfill(_session_event(kind="marks", job="job-A", session_id="cs_pack"))
-        after = iteration.limits(iteration.get_state("job-A"))
-        self.assertEqual(after["marks"], base["marks"] + iteration.PACK_ANNOTATIONS)
-        # a different report is untouched: a budget that followed the buyer around would
-        # defeat the triage the budget exists to force
-        self.assertEqual(iteration.limits(iteration.get_state("job-B"))["marks"],
-                         base["marks"])
+        billing.fulfill(_session_event(kind="marks", job="job-A", session_id="cs_old"))
+        self.assertEqual(iteration.balance("job-A"),
+                         iteration.PACK_ANNOTATIONS * iteration.OLD_KIND_CREDITS["marks"])
+        self.assertEqual(iteration.limits(iteration.get_state("job-A")), base)
 
 
 class TestNothingIsFreeWithoutPayment(_Billing):
@@ -169,9 +178,11 @@ class TestNothingIsFreeWithoutPayment(_Billing):
     def test_a_pack_cannot_be_bought_without_naming_a_report(self):
         import billing
         os.environ["STRIPE_SECRET_KEY"] = "sk_test_x"
+        os.environ["STRIPE_PRICE_WORKSHOP"] = "price_x"
         os.environ["STRIPE_PRICE_MARKS"] = "price_x"
-        with self.assertRaises(billing.BillingError):
-            billing.create_checkout("marks", "acct-1", "http://s", "http://c")
+        for kind in ("workshop", "marks"):        # the pack, and an old kind still priced
+            with self.assertRaises(billing.BillingError):
+                billing.create_checkout(kind, "acct-1", "http://s", "http://c")
 
 
 class TestTheEndpoint(_Billing):

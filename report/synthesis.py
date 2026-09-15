@@ -81,26 +81,54 @@ RULES, in order of importance:
 4. Say what matters. Lead with the two or three findings that should change this founder's decision, then support them. Rank risks by how much money they put at stake. If the evidence is thin on something load-bearing, that is itself a finding.
 5. Write like an analyst who has read everything, not like a form: paragraphs, a few short tables where numbers compare, no boilerplate section for its own sake. Length: as long as the evidence justifies and no longer. No em dashes."""
 
+#: THE ONE RULE A REWRITE ADDS. A rewrite is the workshop's cheap regeneration: the facts
+#: did not change, only what the founder wants said about them, so the Opus pass runs
+#: again over the same evidence with the previous draft and the founder's notes. Without
+#: this rule the model treats the notes as a brief and writes a new report; with it the
+#: unmarked passages stay as they were, which is what a founder who marked three
+#: sentences is paying ten credits for.
+REVISION_RULE = """REVISION: this is a revision of an earlier draft of the same report, which is given to you below with the founder's notes on it. Every rule above still holds, the numbers and the citations most of all. Change what the notes ask for and nothing the notes do not: a passage no note touches keeps its wording. A note that asks for a fact the evidence lacks is answered in the text with 'not in the evidence' and what would settle it, never with a figure."""
 
-def system_prompt(style: str = DEFAULT_STYLE) -> str:
+#: The keys that hold the writing rather than the evidence. Excluded from the fact layer,
+#: because on a rewrite the result carries the previous draft, and handed over as
+#: evidence the model could cite [synthesis.markdown]: its own earlier prose vouching for
+#: its numbers. The gate's _facts already refuses that path; the writer must not offer it.
+WRITING_KEYS: tuple[str, ...] = ("synthesis", "synthesis_history")
+
+
+def system_prompt(style: str = DEFAULT_STYLE, revision: bool = False) -> str:
     """The measured rules plus the founder's chosen shape. Stable per style, so the prompt
-    prefix is byte-identical run to run and cacheable."""
+    prefix is byte-identical run to run and cacheable. A revision appends REVISION_RULE
+    after the style, so the first-write prefix is unchanged by it."""
     if style not in STYLES:
         raise ValueError(f"unknown report style {style!r}; one of "
                          f"{', '.join(sorted(STYLES))}")
-    return f"{RULES}\n\n{STYLES[style]}"
+    base = f"{RULES}\n\n{STYLES[style]}"
+    return f"{base}\n\n{REVISION_RULE}" if revision else base
 
 
 def fact_layer(result: dict) -> dict:
     """Every non-underscore key of the result: what the pipeline gathered and computed,
-    with none of its bookkeeping. This is the evidence the model may cite."""
-    return {k: v for k, v in (result or {}).items() if not str(k).startswith("_")}
+    with none of its bookkeeping and none of its writing. This is the evidence the model
+    may cite."""
+    return {k: v for k, v in (result or {}).items()
+            if not str(k).startswith("_") and k not in WRITING_KEYS}
+
+
+#: The headings of the three blocks a rewrite appends to the user message. Named so the
+#: route, the tests and the prompt agree on the words.
+PREVIOUS_DRAFT_HEADING = "THE PREVIOUS DRAFT (revise this; a passage no note touches keeps its wording):"
+NOTES_HEADING = ("THE FOUNDER'S NOTES ON THE PREVIOUS DRAFT (address each; a note that asks "
+                 "for a fact the evidence lacks gets 'not in the evidence'):")
+REQUESTS_HEADING = "WHAT THE FOUNDER ASKED FOR IN THE WORKSHOP:"
 
 
 def build_user_message(facts: dict, venture_description: str, dropped: dict | None,
-                       inapplicable: dict | None) -> str:
+                       inapplicable: dict | None, previous: str | None = None,
+                       notes: str | None = None, requests: str | None = None) -> str:
     """The evidence, the founder's words, and the pipeline's own account of what it did
-    not produce.
+    not produce. On a rewrite, the previous draft and what the founder said about it
+    follow the evidence, each under its own heading, and an empty block is left out.
 
     SERIALISED FOR STABILITY. Compact separators and sorted keys, so the same fact layer
     is the same bytes regardless of the order steps wrote it in. The system prompt is the
@@ -109,21 +137,37 @@ def build_user_message(facts: dict, venture_description: str, dropped: dict | No
     (a Decimal, a datetime), and an unserialisable fact must not cost the report.
     """
     compact = dict(separators=(",", ":"), sort_keys=True, default=str)
-    return (
+    parts = [
         f"VENTURE, in the founder's words:\n{(venture_description or '').strip()}\n\n"
         f"SECTIONS THE PIPELINE DROPPED (reason given): {json.dumps(dropped or {}, **compact)}\n"
         f"SECTIONS NOT APPLICABLE: {json.dumps(inapplicable or {}, **compact)}\n\n"
         f"EVIDENCE (JSON; key paths are what you cite):\n{json.dumps(facts, **compact)}"
-    )
+    ]
+    for heading, body in ((PREVIOUS_DRAFT_HEADING, previous), (NOTES_HEADING, notes),
+                          (REQUESTS_HEADING, requests)):
+        if (body or "").strip():
+            parts.append(f"{heading}\n{body.strip()}")
+    return "\n\n".join(parts)
 
 
-def write_synthesis(result: dict, description: str, style: str = DEFAULT_STYLE) -> dict:
+def write_synthesis(result: dict, description: str, style: str = DEFAULT_STYLE,
+                    notes: str | None = None, requests: str | None = None) -> dict:
     """One streamed Opus pass over the fact layer, in the founder's chosen style.
 
     Returns the markdown and its receipt: model, style, tokens, dollars, seconds and the
     stop reason. Usage is recorded in the run's cost ledger by the call itself, so
     result["_cogs"] shows the report under its own model without this function knowing
-    what a ledger is.
+    what a ledger is. The founder's words ride the payload as `venture`, which is where
+    the citation gate looks for the numbers the founder stated and the model cannot
+    cite by path.
+
+    A REWRITE IS THE SAME CALL WITH THREE MORE BLOCKS. `notes` is the founder's notes on
+    the previous draft and `requests` the workshop exchanges that bear on it, both
+    already rendered as plain text. Either one makes this a revision: the system prompt
+    gains REVISION_RULE, and the user message ends with the previous draft (read from
+    result["synthesis"]), the notes and the requests. The evidence is the same bytes as
+    the first write, because the facts did not change; that is the whole reason a
+    rewrite costs a tenth of a re-run.
 
     RAISES rather than returning a hollow payload. An unknown style, a missing key, a rate
     limit, an empty answer: each becomes a FAILED section with the exception's own class
@@ -131,10 +175,17 @@ def write_synthesis(result: dict, description: str, style: str = DEFAULT_STYLE) 
     An empty string in place of a report would be an OK section with nothing in it, which
     is the absence-read-as-answer defect this codebase keeps relearning.
     """
-    system = system_prompt(style)
+    revision = bool((notes or "").strip() or (requests or "").strip())
+    system = system_prompt(style, revision=revision)
     facts = fact_layer(result)
+    previous = None
+    if revision:
+        syn = result.get("synthesis")
+        previous = syn.get("markdown") if isinstance(syn, dict) else None
     user = build_user_message(facts, description, result.get(DROPPED_KEY),
-                              result.get(INAPPLICABLE_KEY))
+                              result.get(INAPPLICABLE_KEY), previous=previous,
+                              notes=notes if revision else None,
+                              requests=requests if revision else None)
     from llm import call_long_text, cost_usd
     t0 = time.time()
     out = call_long_text(system, user, max_tokens=MAX_TOKENS, model=MODEL)
@@ -143,6 +194,7 @@ def write_synthesis(result: dict, description: str, style: str = DEFAULT_STYLE) 
         raise RuntimeError(f"{out.model} returned no text (stop_reason={out.stop_reason or '?'})")
     return {
         "markdown": out.text,
+        "venture": (description or "").strip(),
         "model": out.model,
         "style": style,
         "in_tok": out.in_tok,

@@ -47,11 +47,28 @@ PRICING = {
 DEFAULT_PRICING = {"input": 0.0, "output": 0.0}
 
 
-def cost_usd(model: str, in_tok: int, out_tok: int) -> float:
+#: Prompt caching, priced the way the API bills it: a cache read is a tenth of a fresh
+#: input token and a cache write is a quarter more. The workshop chat is built on this,
+#: since its stable prefix (the fact layer plus the analyst report, about 45k tokens) is
+#: read from the cache on every turn after the first, which is what makes a turn cost
+#: cents rather than a quarter.
+CACHE_READ_FACTOR = 0.10
+CACHE_WRITE_FACTOR = 1.25
+
+
+def cost_usd(model: str, in_tok: int, out_tok: int, cache_read: int = 0,
+             cache_write: int = 0) -> float:
     """Dollars for one call, priced per model. An unrecognised model prices at zero so a
-    new model id counts its tokens without being able to break the accounting."""
+    new model id counts its tokens without being able to break the accounting.
+
+    `in_tok` is what the API calls input_tokens: the uncached part. Cache reads and
+    writes are separate counts on the usage object and are priced at their own rates.
+    """
     price = PRICING.get(model, DEFAULT_PRICING)
-    return (in_tok / 1_000_000) * price["input"] + (out_tok / 1_000_000) * price["output"]
+    per_in = price["input"] / 1_000_000
+    return (in_tok * per_in + (out_tok / 1_000_000) * price["output"]
+            + cache_read * per_in * CACHE_READ_FACTOR
+            + cache_write * per_in * CACHE_WRITE_FACTOR)
 
 
 # ---------------------------------------------------------------------------
@@ -66,10 +83,13 @@ class Usage:
     usd: float = 0.0
     by_model: dict = field(default_factory=dict)
 
-    def add(self, model: str, in_tok: int, out_tok: int) -> None:
+    def add(self, model: str, in_tok: int, out_tok: int, cache_read: int = 0,
+            cache_write: int = 0) -> None:
         """Record one call. Cost is priced per model, falling back to DEFAULT_PRICING so an
-        unrecognised model still counts rather than silently costing nothing."""
-        cost = cost_usd(model, in_tok, out_tok)
+        unrecognised model still counts rather than silently costing nothing. Cache
+        tokens are priced at their own rates and shown on the slot only when a call
+        actually used the cache, so the tally of a run that never did is unchanged."""
+        cost = cost_usd(model, in_tok, out_tok, cache_read, cache_write)
         self.calls += 1
         self.input_tokens += in_tok
         self.output_tokens += out_tok
@@ -81,6 +101,10 @@ class Usage:
         slot["in"] += in_tok
         slot["out"] += out_tok
         slot["usd"] += cost
+        if cache_read:
+            slot["cache_read"] = slot.get("cache_read", 0) + cache_read
+        if cache_write:
+            slot["cache_write"] = slot.get("cache_write", 0) + cache_write
 
     def summary(self) -> dict:
         """A JSON-able snapshot. Dollars rounded to 4dp, which is a cent on a hundred calls."""
@@ -317,16 +341,21 @@ _ADAPTIVE_THINKING_MODELS = ("claude-opus-5", "claude-sonnet-5")
 @dataclass(frozen=True)
 class LongText:
     """One long prose answer and what it cost. `stop_reason` is kept because a report cut
-    off at max_tokens is not a report, and only the caller can decide what to do about it."""
+    off at max_tokens is not a report, and only the caller can decide what to do about it.
+    The two cache counts are what the API reports for a prompt-cached call; zero on a
+    call that set no cache_control, so the writer's receipt is unchanged."""
     text: str
     in_tok: int
     out_tok: int
     stop_reason: str
     model: str
+    cache_read: int = 0
+    cache_write: int = 0
 
 
 def call_long_text(system: str, user: str, max_tokens: int = 32000,
-                   model: str = "claude-opus-5") -> LongText:
+                   model: str = "claude-opus-5", *, system_blocks: list | None = None,
+                   messages: list | None = None, effort: str = "high") -> LongText:
     """One long prose call on the anthropic backend, streamed, with usage recorded.
 
     A SEPARATE PATH FROM _call_anthropic, ON PURPOSE. That one serves the 277-token JSON
@@ -336,6 +365,13 @@ def call_long_text(system: str, user: str, max_tokens: int = 32000,
     times out; and thinking is what the writing quality was measured with, so temperature
     is left to the model. Keeping the two apart means the JSON path cannot be broken by a
     change the prose path needs.
+
+    THE SAME PATH SERVES A CACHED CONVERSATION. The workshop chat passes `system_blocks`,
+    a list of system content blocks with cache_control on the last stable one, and
+    `messages`, the conversation so far ending in the founder's turn; `system` and `user`
+    are then ignored. The cache counts the API reports ride the receipt and the ledger,
+    priced at their own rates, so a turn that read 45k tokens from the cache is costed
+    as the cents it was and not the quarter it would have been.
 
     Errors are logged by kind, most specific first, and re-raised unchanged: the section
     assembler records the exception's own class as the reason, and a wrapper would hide
@@ -347,11 +383,13 @@ def call_long_text(system: str, user: str, max_tokens: int = 32000,
         from errors import AuthError
         raise AuthError("ANTHROPIC_API_KEY is not set; the long-text path is anthropic only")
     client = anthropic.Anthropic(api_key=key)
-    kw: dict = dict(model=model, max_tokens=max_tokens, system=system,
-                    messages=[{"role": "user", "content": user}])
+    kw: dict = dict(model=model, max_tokens=max_tokens,
+                    system=system_blocks if system_blocks is not None else system,
+                    messages=(messages if messages is not None
+                              else [{"role": "user", "content": user}]))
     if model.startswith(_ADAPTIVE_THINKING_MODELS):
         kw["thinking"] = {"type": "adaptive"}
-        kw["output_config"] = {"effort": "high"}
+        kw["output_config"] = {"effort": effort}
     t0 = time.time()
     try:
         with client.messages.stream(**kw) as stream:
@@ -370,17 +408,22 @@ def call_long_text(system: str, user: str, max_tokens: int = 32000,
                    if getattr(b, "type", "") == "text")
     in_tok = int(getattr(msg.usage, "input_tokens", 0) or 0)
     out_tok = int(getattr(msg.usage, "output_tokens", 0) or 0)
+    cache_read = int(getattr(msg.usage, "cache_read_input_tokens", 0) or 0)
+    cache_write = int(getattr(msg.usage, "cache_creation_input_tokens", 0) or 0)
     # Accounted the same way the chain accounts its calls: the process-wide by_model
     # tally, and the run ledger that result["_cogs"] is computed from.
-    usage.add(model, in_tok, out_tok)
+    usage.add(model, in_tok, out_tok, cache_read, cache_write)
     try:
         import provenance as _trace
-        _trace.record_llm(model, cached=False, in_tok=in_tok, out_tok=out_tok)
+        _trace.record_llm(model, cached=False, in_tok=in_tok, out_tok=out_tok,
+                          cache_read=cache_read, cache_write=cache_write)
     except Exception:
         pass
-    log.info("call_long_text [%s] %d->%d tok, %.1fs, stop=%s", model, in_tok, out_tok,
-             time.time() - t0, msg.stop_reason)
-    return LongText(text, in_tok, out_tok, str(msg.stop_reason or ""), model)
+    log.info("call_long_text [%s] %d->%d tok (cache read %d, write %d), %.1fs, stop=%s",
+             model, in_tok, out_tok, cache_read, cache_write, time.time() - t0,
+             msg.stop_reason)
+    return LongText(text, in_tok, out_tok, str(msg.stop_reason or ""), model,
+                    cache_read, cache_write)
 
 
 def _call_groq(system: str, user: str, max_tokens: int, model: str,

@@ -27,6 +27,14 @@ TWO THINGS WERE WRONG BEHIND THE MISSING BUTTON.
   the endpoint then refused with 402 — the live-button-dead-action failure the page's own
   comment warns about. iteration.reruns_left is now the single rule, and GET /credits
   reports it so the page never recomputes it.
+
+THE RERUN PACK ITSELF IS GONE (owner decision, 2026-09-14). One workshop credit pool
+replaced the three counters. A re-run past the included one costs a report credit, not a
+pack, and a rerun pack that still arrives late (a webhook for a session opened before the
+change) lands as ten workshop credits, the price of one rewrite. So the rule for how many
+re-runs are left still has one implementation, the page is still told rather than
+computing it, and the seam is still shut; what changed is what a late pack is worth and
+what it reopens, which is nothing.
 """
 from __future__ import annotations
 
@@ -130,33 +138,41 @@ class OneRuleForHowManyAreLeft(_App):
         self.assertIn("reruns_left", body)
 
 
-class BuyingOneMakesItSpendable(_App):
-    def test_a_bought_pack_reopens_the_regeneration(self):
-        """The whole feature: spent, buy, spendable again."""
+class ALateRerunPackIsWorkshopCredits(_App):
+    def test_a_late_rerun_pack_lands_in_the_pool_and_reopens_nothing(self):
+        """What the webhook does now: the pack is converted, the re-run stays spent. A
+        second re-run costs a report credit under the new design, and workshop credits
+        are not that."""
         import iteration
         c = self._client()
         spent = self._spent(c)
         self.assertEqual(c.post(f"/jobs/{spent}/revise").status_code, 402)
+        before = iteration.balance(spent)
 
         iteration.grant(spent, "rerun", packs=1, paid=True)   # what the webhook does
 
-        self.assertEqual(c.get(f"/jobs/{spent}/credits").json()["reruns_left"], 1)
-        self.assertEqual(c.post(f"/jobs/{spent}/revise").status_code, 200)
+        self.assertEqual(iteration.balance(spent), before + iteration.COST_REWRITE,
+                         "a rerun pack is worth one rewrite")
+        self.assertEqual(c.get(f"/jobs/{spent}/credits").json()["reruns_left"], 0)
+        self.assertEqual(c.post(f"/jobs/{spent}/revise").status_code, 402)
 
     def test_the_pack_is_not_grantable_without_paying(self):
-        """The seam stays shut. A free grant would make the budget decorative."""
+        """The seam stays shut. A free grant would make the pool decorative."""
         c = self._client()
-        r = c.post(f"/jobs/{self._spent(c)}/credits", json={"kind": "rerun", "packs": 1})
-        self.assertEqual(r.status_code, 402)
+        spent = self._spent(c)
+        for kind in ("rerun", "workshop"):
+            r = c.post(f"/jobs/{spent}/credits", json={"kind": kind, "packs": 1})
+            self.assertEqual(r.status_code, 402, kind)
 
-    def test_one_pack_buys_exactly_one_more(self):
+    def test_one_pack_is_exactly_one_pack(self):
         import iteration
         c = self._client()
         spent = self._spent(c)
+        before = iteration.balance(spent)
         iteration.grant(spent, "rerun", packs=1, paid=True)
-        self.assertEqual(c.post(f"/jobs/{spent}/revise").status_code, 200)
-        self.assertEqual(c.post(f"/jobs/{spent}/revise").status_code, 402,
-                         "a pack of one must not buy unlimited regenerations")
+        self.assertEqual(iteration.balance(spent) - before,
+                         iteration.PACK_RERUN * iteration.OLD_KIND_CREDITS["rerun"],
+                         "a pack of one must not be worth more than one")
 
 
 class TheFinalPageOffersIt(unittest.TestCase):

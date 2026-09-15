@@ -24,6 +24,11 @@ controls could never have told the difference. These assert on the SECRET.
 
 `public` is a separate flag from `annotate` on purpose: the owner's PDF must keep carrying
 their notes, so widening `annotate` would have fixed the leak by breaking the feature.
+
+THE NOTES KEY (workshop, 2026-09-14). A mark is now a note of kind "mark" and the sidebar
+writes notes of kind "note" with no passage attached; both live under `notes` and both are
+the same secret. Every assertion below holds for both kinds, so the new key cannot leak
+where the old one was sealed.
 """
 from __future__ import annotations
 
@@ -34,6 +39,7 @@ import unittest
 
 SECRET_MARK = "our actual rent is 7800, do not publish this"
 SECRET_QUOTE = "fixed cost $5,000/mo"
+SECRET_NOTE = "the landlord will take 6900 if we sign by June, keep this out of the report"
 
 
 class _App(unittest.TestCase):
@@ -72,6 +78,8 @@ class _App(unittest.TestCase):
                     result={"profile": {"name": "A coffee shop", "summary": "s"}})
         iteration.add_annotation(jid, section="Economics", quote=SECRET_QUOTE,
                                  comment=SECRET_MARK)
+        # And a sidebar note under the new key, with no passage attached.
+        iteration.add_note(jid, "Economics", "", SECRET_NOTE)
         # Settled, because only a finished report can be published now. The mark stays on
         # it, which is the whole point of these tests: a finished report still carries its
         # author's private notes, and a stranger must still never see them.
@@ -91,6 +99,8 @@ class AStrangerNeverSeesTheMargin(_App):
         self.assertEqual(stranger.get(f"/library/{jid}/report.html").status_code, 200)
         self.assertNotIn(SECRET_MARK, page)
         self.assertNotIn("7800", page)
+        self.assertNotIn(SECRET_NOTE, page)
+        self.assertNotIn("6900", page)
 
     def test_it_does_not_carry_the_passage_they_marked_either(self):
         """Which sentence a founder flagged is itself a disclosure: it says where they
@@ -110,6 +120,7 @@ class AStrangerNeverSeesTheMargin(_App):
         page = stranger.get("/sample").text
         self.assertEqual(stranger.get("/sample").status_code, 200)
         self.assertNotIn(SECRET_MARK, page)
+        self.assertNotIn(SECRET_NOTE, page)
 
     def test_the_report_itself_is_still_published(self):
         """Suppressing the notes must not empty the page: the library exists to show real
@@ -145,6 +156,11 @@ class TheOwnerKeepsTheirOwnNotes(_App):
         comments = [a.get("comment") for a in (state.get("annotations") or [])]
         self.assertIn(SECRET_MARK, comments,
                       "the owner must still be able to reach what they wrote")
+        notes = [n.get("comment") for n in (state.get("notes") or [])]
+        self.assertIn(SECRET_NOTE, notes)
+        self.assertIn(SECRET_MARK, notes, "a mark is a note under the new key too")
+        listed = owner.get(f"/jobs/{jid}/notes").json()["notes"]
+        self.assertEqual([n["comment"] for n in listed], notes)
 
     def test_the_print_copy_still_carries_it(self):
         """The PDF is the one view with no live section, so the record IS the only copy
@@ -156,6 +172,7 @@ class TheOwnerKeepsTheirOwnNotes(_App):
         j = jobs.get_unscoped(jid)
         printed = render_report_html(j["result"], job_id=jid, annotate=0)
         self.assertIn(SECRET_MARK, printed)
+        self.assertIn(SECRET_NOTE, printed)
 
     def test_the_owner_does_not_see_it_twice(self):
         """The duplication itself, stated as a rule."""
@@ -173,6 +190,7 @@ class TheOwnerKeepsTheirOwnNotes(_App):
         comments = [a.get("comment") for a in (state.get("annotations") or [])]
         self.assertIn(SECRET_MARK, comments,
                       "sharing a report must not edit the owner's own copy")
+        self.assertIn(SECRET_NOTE, [n.get("comment") for n in (state.get("notes") or [])])
 
 
 class TheFlagIsSeparateFromTheControls(unittest.TestCase):

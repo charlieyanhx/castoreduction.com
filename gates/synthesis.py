@@ -93,14 +93,20 @@ _MAX_OFFENDERS = 5
 _CONTEXT_CHARS = 60
 
 
+#: The keys that hold writing rather than evidence: the report under test, and the
+#: earlier drafts a workshop rewrite moves aside.
+_WRITING_KEYS = ("synthesis", "synthesis_history")
+
+
 def _facts(r: dict) -> dict:
-    """The fact layer: every non-underscore key of the result, minus the report under test.
+    """The fact layer: every non-underscore key of the result, minus the writing.
 
     A citation to [synthesis.markdown] would resolve to the report itself and pool every
-    number in it, so the report would vouch for its own inventions.
+    number in it, so the report would vouch for its own inventions. A citation to an
+    earlier draft under synthesis_history would do the same one rewrite later.
     """
     return {k: v for k, v in (r or {}).items()
-            if isinstance(k, str) and not k.startswith("_") and k != "synthesis"}
+            if isinstance(k, str) and not k.startswith("_") and k not in _WRITING_KEYS}
 
 
 def _synthesis_markdown(r: dict) -> Optional[str]:
@@ -308,7 +314,8 @@ def _resolve_citations(text: str, facts: dict, pool: set):
     return count, resolved_spans, unresolved
 
 
-def audit_synthesis(markdown: str, facts: dict, founder: Optional[set] = None) -> dict:
+def audit_synthesis(markdown: str, facts: dict, founder: Optional[set] = None,
+                    handed: Optional[set] = None) -> dict:
     """Resolve every citation, pool their numbers, and check every number in the prose.
 
     Returns {"citations", "resolved", "unresolved", "checked", "offenders"} where
@@ -319,9 +326,20 @@ def audit_synthesis(markdown: str, facts: dict, founder: Optional[set] = None) -
     BRACKETS ARE NOT A HIDING PLACE. A citation path contributes no numeric token (see
     _NUM_RE), so every number on the page is checked wherever it sits, inside a bracket
     or outside one. The one span skipped is the destination of a markdown link.
+
+    `founder` joins the pool: numbers the founder stated that the model cannot cite by
+    path. `handed` joins it too and is the same kind of number with NO PATH AT ALL, so it
+    is also exempt from the block rule. A whole number of 100 or less must normally
+    share its paragraph with a citation, because the evidence is large and a small
+    integer is in it by luck; a number the founder typed into a working session, or a
+    credit balance the route asked the analyst to quote, is not in the evidence by luck
+    and has nothing to cite, so holding it to the block rule would refuse "you have 23
+    credits left" for want of a path that does not exist. The intake and the profile are
+    NOT handed: they are in the fact layer and the model can cite them. A percentage is
+    never handed: it is a claim about the evidence, whoever wrote the digits.
     """
     text = markdown or ""
-    pool: set = set(founder or ())
+    pool: set = set(founder or ()) | set(handed or ())
     citations, resolved_spans, unresolved = _resolve_citations(text, facts, pool)
     skipped = [(m.start(), m.end()) for m in _LINK_TARGET_RE.finditer(text)]
 
@@ -349,11 +367,50 @@ def audit_synthesis(markdown: str, facts: dict, founder: Optional[set] = None) -
             offenders.append((tok.raw, context))
             continue
         if tok.whole and abs(tok.value) <= _SMALL_INTEGER:
+            if handed and not tok.is_percent and tok.value in handed:
+                continue
             b_lo, b_hi = layout.block_span(tok.pos)
             if not any(b_lo <= s < b_hi for s, _ in resolved_spans):
                 offenders.append((tok.raw, context))
     return {"citations": citations, "resolved": len(resolved_spans),
             "unresolved": unresolved, "checked": checked, "offenders": offenders}
+
+
+def audit_text(text: str, result: dict, founder_text: str = "") -> list[str]:
+    """The D62 number audit on any prose written over this result: the offending numbers.
+
+    THE SAME RULE THE REPORT IS HELD TO, FOR THE ANSWERS ABOUT IT. The workshop chat has
+    the analyst answer the founder's questions from the evidence, and an answer is a
+    fifty-token report: a number in it that is in no value it cites is an invented
+    figure, and the founder must not read it. This is the gate's own resolver, pool and
+    matcher over the same fact layer, with the founder's words pooled the way D62 pools
+    them. `founder_text` is everything the founder handed the model that is not in the
+    evidence (their messages, the passages they selected, their pinned notes, and the
+    costs the route asked the analyst to quote): a price the founder stated or a balance
+    the route stated is not a figure the model invented, and without this the analyst
+    could not repeat the founder's own number back to them.
+
+    Returns the numbers as written, in order, and nothing else: the caller decides what
+    to do with an answer that has any, and the offenders are logged, never shown.
+    """
+    handed: set = set()
+    if founder_text:
+        leaf_numbers(str(founder_text), 0, handed)
+    audit = audit_synthesis(text or "", _facts(result), _founder_numbers(result), handed)
+    return [raw for raw, _ in audit["offenders"]]
+
+
+def cited_paths(text: str, result: dict) -> list[str]:
+    """The key paths a piece of prose cites that resolve in the fact layer, in order,
+    once each. What the workshop stores beside an answer, so the page can link them."""
+    facts = _facts(result)
+    out: list[str] = []
+    for m in _CITE_RE.finditer(text or ""):
+        for path in m.group(1).split(","):
+            path = path.strip()
+            if path and path not in out and resolve_path(path, facts) is not None:
+                out.append(path)
+    return out
 
 
 def d62_synthesis_numbers_are_in_the_evidence_it_cites(r: dict, html: Optional[str]) -> Finding:

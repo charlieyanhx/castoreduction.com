@@ -157,10 +157,22 @@ class RunLedger:
         })
 
     def record_llm(self, model: str, *, cached: bool, in_tok: int = 0,
-                   out_tok: int = 0, ok: bool = True) -> Optional[dict]:
-        """Record one LLM call (which model produced the content; cache hit or fresh)."""
-        return self.append({"layer": "llm", "model": model or "?", "cached": cached,
-                            "in_tok": in_tok, "out_tok": out_tok, "ok": ok})
+                   out_tok: int = 0, ok: bool = True, cache_read: int = 0,
+                   cache_write: int = 0) -> Optional[dict]:
+        """Record one LLM call (which model produced the content; cache hit or fresh).
+
+        `cached` means this process answered from its own response cache and issued no
+        request. `cache_read` and `cache_write` are the provider's prompt cache on a
+        request that WAS issued, billed at their own rates; they ride the event only when
+        the call used the cache, so the shape of every other event is what it was.
+        """
+        ev = {"layer": "llm", "model": model or "?", "cached": cached,
+              "in_tok": in_tok, "out_tok": out_tok, "ok": ok}
+        if cache_read:
+            ev["cache_read"] = int(cache_read)
+        if cache_write:
+            ev["cache_write"] = int(cache_write)
+        return self.append(ev)
 
     # ---------- reading ----------
     def events(self) -> list[dict]:
@@ -189,7 +201,7 @@ class RunLedger:
         unpriced model is treated as free rather than raising — a new model id must
         not be able to break a finished run's accounting.
         """
-        from llm import DEFAULT_PRICING, PRICING
+        from llm import cost_usd
         usd = 0.0
         calls = cached_calls = in_tok = out_tok = 0
         by_model: dict[str, dict] = {}
@@ -201,8 +213,10 @@ class RunLedger:
                 cached_calls += 1
                 continue
             i, o = int(e.get("in_tok") or 0), int(e.get("out_tok") or 0)
-            price = PRICING.get(e.get("model") or "", DEFAULT_PRICING)
-            cost = (i / 1_000_000) * price["input"] + (o / 1_000_000) * price["output"]
+            # Priced by the one function llm.py prices with, so a prompt-cached call is
+            # costed at the cache rates here exactly as it was on the usage tally.
+            cost = cost_usd(e.get("model") or "", i, o,
+                            int(e.get("cache_read") or 0), int(e.get("cache_write") or 0))
             usd += cost
             in_tok += i
             out_tok += o
@@ -262,8 +276,9 @@ def record_tool(name: str, category: str, source: str, *, ok: bool, skeleton: bo
 
 
 def record_llm(model: str, *, cached: bool, in_tok: int = 0, out_tok: int = 0,
-               ok: bool = True) -> Optional[dict]:
-    return LEDGER.record_llm(model, cached=cached, in_tok=in_tok, out_tok=out_tok, ok=ok)
+               ok: bool = True, cache_read: int = 0, cache_write: int = 0) -> Optional[dict]:
+    return LEDGER.record_llm(model, cached=cached, in_tok=in_tok, out_tok=out_tok, ok=ok,
+                             cache_read=cache_read, cache_write=cache_write)
 
 
 def snapshot() -> list[dict]:

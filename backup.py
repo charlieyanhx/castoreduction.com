@@ -34,9 +34,11 @@ import time
 from pathlib import Path
 
 #: Every table worth counting in a report. Absent tables are reported as absent rather
-#: than crashing: entitlements only exists once someone has bought something.
+#: than crashing: entitlements only exists once someone has bought something, and the
+#: workshop pool (the credits a report's workshop spends, and its ledger) once a report
+#: has been given any.
 TABLES = ("jobs", "accounts", "entitlements", "iteration", "feedback",
-          "run_slots", "run_ledger", "login_failures")
+          "run_slots", "run_ledger", "login_failures", "workshop_pool", "workshop_ledger")
 
 #: --verify on a directory fails when the newest copy is older than this. One missed
 #: night is a finding: the agent that missed it said nothing, and this is where it shows.

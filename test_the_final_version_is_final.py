@@ -21,6 +21,12 @@ Measured 2026-08-29 against the live refine loop:
      bought and never spent.
 
 Each test below fails if its fix is reverted.
+
+SINCE THEN (owner decision, 2026-09-14): one workshop credit pool replaced the three packs.
+The reads on the way OUT still honour limits(), which is now the base budget on every
+report, and a pack of an old kind that arrives late lands in the pool converted rather
+than widening a cap. Part (3) below is rewritten to say that; parts (1) and (2) are
+untouched because nothing about settling or carrying changed.
 """
 from __future__ import annotations
 
@@ -108,12 +114,12 @@ class TestMarksReachTheNewReport(_TempDB):
         self.assertEqual(carried[0]["carried_from"], "v1")
 
     def test_a_carried_mark_is_answerable(self):
-        """draft_answers selects open annotations to write notes against. A mark that
+        """draft_answers selects open marks to write clarifications against. A mark that
         never arrives cannot be answered, which is why the new report said nothing."""
         self.it.add_annotation("v1", section="s", quote="q", comment="c")
         self.it.carry_forward("v1", "v2")
         st = self.it.get_state("v2")
-        answered = {n.get("annotation_id") for n in st["notes"]}
+        answered = {n.get("annotation_id") for n in st["clarifications"]}
         open_marks = [a for a in st["annotations"] if a["id"] not in answered]
         self.assertEqual(len(open_marks), 1)
 
@@ -139,37 +145,40 @@ class TestMarksReachTheNewReport(_TempDB):
 
 
 class TestBoughtCapacityIsHonoured(_TempDB):
-    """(3) All three packs."""
+    """(3) The reads on the way out honour limits(), and a late pack is not lost."""
 
     def _buy(self, job_id, kind):
         return self.it.grant(job_id, kind, packs=1, paid=True)
 
-    def test_every_bought_mark_reaches_the_brief(self):
-        self._buy("v1", "marks")                       # $2, five more
-        for i in range(10):
+    def test_every_mark_within_the_cap_reaches_the_brief(self):
+        """build_revision_brief slices marks[:limits()["marks"]], and limits() is the
+        base budget on every report now. Every mark the reader could make must ride."""
+        cap = self.it.limits(self.it.get_state("v1"))["marks"]
+        for i in range(cap):
             self.it.add_annotation("v1", section="s", quote=f"quote number {i}",
                                    comment=f"comment number {i}")
         brief = self.it.build_revision_brief("v1", "a coffee shop in Oakland" * 3)
-        for i in range(10):
+        for i in range(cap):
             self.assertIn(f"comment number {i}", brief,
-                          f"mark {i} was paid for and never reached the regeneration")
+                          f"mark {i} never reached the regeneration")
 
-    def test_every_bought_question_carries(self):
-        self._buy("v1", "questions")                   # $5, five more
-        for i in range(10):
+    def test_every_question_within_the_cap_carries(self):
+        cap = self.it.limits(self.it.get_state("v1"))["questions"]
+        for i in range(cap):
             self.it.add_question("v1", f"question number {i}?")
         self.it.carry_forward("v1", "v2")
         carried = {q["q"] for q in self.it.get_state("v2")["questions"]}
-        for i in range(10):
+        for i in range(cap):
             self.assertIn(f"question number {i}?", carried,
-                          f"question {i} was paid for and stranded on the old report")
+                          f"question {i} was stranded on the old report")
 
-    def test_the_rerun_pack_changes_the_verdict(self):
+    def test_a_late_pack_lands_in_the_pool_not_the_cap(self):
         """The route's own arithmetic: used vs limits()["reruns"].
 
-        A report that IS a revision has spent one cycle producing itself. Without a pack
-        that is the end; with one it is not. Before the fix limits() reported two reruns
-        and the route refused regardless, so the $5 was taken for nothing.
+        A report that IS a revision has spent one cycle producing itself, and that is
+        still the end of its included re-runs: a second re-run costs a report credit
+        under the pool design. A rerun pack that arrives late is not taken for nothing,
+        either: it is ten workshop credits, one rewrite, on that report.
         """
         def used(params, st):
             return ((1 if params.get("previous_job_id") else 0)
@@ -180,31 +189,39 @@ class TestBoughtCapacityIsHonoured(_TempDB):
         self.assertGreaterEqual(used(params, st), self.it.limits(st)["reruns"])
 
         st = self._buy("v2", "rerun")
-        self.assertEqual(self.it.limits(st)["reruns"], 2)
-        self.assertLess(used(params, st), self.it.limits(st)["reruns"],
-                        "the rerun pack was bought and is still unspendable")
+        self.assertEqual(self.it.limits(st)["reruns"], 1, "the cap does not widen")
+        self.assertEqual(self.it.balance("v2"), self.it.COST_REWRITE,
+                         "the $5 must land somewhere: one rewrite's worth")
+        for kind in ("marks", "questions"):
+            self._buy("v2", kind)
+        self.assertEqual(self.it.balance("v2"), self.it.COST_REWRITE + 5 + 5)
+        self.assertEqual(self.it.limits(self.it.get_state("v2")),
+                         {"questions": 5, "marks": 5, "reruns": 1})
 
     def test_an_unpaid_grant_is_still_refused(self):
         """The seam stays shut. Only billing.fulfill passes paid=True."""
         os.environ.pop("CASTOR_ALLOW_UNPAID_CREDITS", None)
-        with self.assertRaises(self.it.IterationError):
-            self.it.grant("v1", "marks", packs=1)
+        for kind in ("marks", "workshop"):
+            with self.assertRaises(self.it.IterationError):
+                self.it.grant("v1", kind, packs=1)
 
 
 class TestTheRouteAgrees(_TempDB):
     """The arithmetic above has to be the arithmetic post_revise actually runs."""
 
-    def test_post_revise_reads_the_bought_limit(self):
+    def test_post_revise_reads_the_same_rule_as_the_page(self):
         """ASSERTS THE BEHAVIOUR, NOT THE SPELLING.
 
         This read post_revise's source for the literal `limits(st)["reruns"]`. The property
-        it cares about is that a BOUGHT rerun is spendable, and that survived the rule
-        moving into iteration.reruns_left, where it is now shared with GET /credits so the
-        page and the endpoint cannot disagree. The substring did not survive, so a correct
-        refactor turned this red while the thing it protects was intact.
+        it cares about is that the endpoint and GET /credits never disagree about whether
+        a re-run is left, and that survived the rule moving into iteration.reruns_left.
+        The substring did not survive, so a correct refactor turned this red while the
+        thing it protects was intact.
 
-        A source-string assertion answers "is the code still written this way". This one
-        asks "does buying a regeneration let you run one", which is what the pack is for.
+        Under the pool design the included re-run is the only free one and a late rerun
+        pack reopens nothing (it is ten workshop credits instead), so the agreement being
+        pinned is: one included, then 402 on both sides, and the pack changes the pool
+        rather than the verdict.
         """
         import iteration
         import jobs
@@ -232,16 +249,20 @@ class TestTheRouteAgrees(_TempDB):
             return jid
 
         base = run()
+        self.assertEqual(c.get(f"/jobs/{base}/credits").json()["reruns_left"], 1)
         self.assertEqual(c.post(f"/jobs/{base}/revise").status_code, 200,
                          "the included regeneration must run")
+        self.assertEqual(c.get(f"/jobs/{base}/credits").json()["reruns_left"], 0)
         self.assertEqual(c.post(f"/jobs/{base}/revise").status_code, 402,
                          "and only once")
 
-        iteration.grant(base, "rerun", packs=1, paid=True)     # what the webhook does
-        self.assertEqual(c.post(f"/jobs/{base}/revise").status_code, 200,
-                         "a bought rerun must be spendable; that is the whole pack")
+        before = iteration.balance(base)
+        iteration.grant(base, "rerun", packs=1, paid=True)     # what a late webhook does
+        self.assertEqual(c.get(f"/jobs/{base}/credits").json()["reruns_left"], 0)
         self.assertEqual(c.post(f"/jobs/{base}/revise").status_code, 402,
-                         "a pack of one must not buy unlimited regenerations")
+                         "workshop credits do not buy a re-run; a report credit does")
+        self.assertEqual(iteration.balance(base), before + iteration.COST_REWRITE,
+                         "but the pack is not taken for nothing")
 
 
 if __name__ == "__main__":
