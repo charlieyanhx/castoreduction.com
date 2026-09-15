@@ -381,6 +381,55 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 </div>
 {% endif %}
 
+{# THE ANALYST'S REPORT COMES FIRST (owner, 2026-09-12: the report is the product; the
+   pipeline's own furniture, the verdict tile, the tables, the appendix, is the evidence
+   behind it and reads below). Only the degraded-run banner stands above it. #}
+{% if synthesis %}
+{# THE ANALYST'S REPORT IS THE FRONT HALF. One frontier-model pass over the whole fact
+   layer, rendered by report/render_synthesis.py: the prose is escaped before it is
+   converted, so nothing the model wrote is markup, and every [path] it cited is a link
+   to the Cited facts appendix, where the value sits under the path that names it. The
+   style lives here rather than in the head so a page without a synthesis carries no
+   trace of one. #}
+<style>
+.synthesis { margin: 24px 0 8px; }
+.synthesis h3 { margin-top: 28px; font-family: var(--serif); font-size: 16.5px; }
+.synthesis p { font-size: 11.5pt; }
+.synthesis table { width: 100%; margin: 14px 0; font-size: 10.5pt; }
+.synthesis th, .synthesis td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.synthesis thead th { border-bottom: 2px solid var(--ink); }
+.synthesis hr { border: none; border-top: 1px solid var(--line); margin: 26px 0; }
+.synthesis blockquote { margin: 14px 0; padding: 2px 0 2px 16px; border-left: 2px solid var(--line); color: var(--ink-soft); }
+.synthesis li { margin: 5px 0; color: var(--ink-soft); }
+a.cite { font-family: var(--mono); font-size: 8.5pt; color: var(--muted); white-space: nowrap; vertical-align: 1px; }
+a.cite::before { content: "["; } a.cite::after { content: "]"; }
+a.cite:hover { color: var(--accent); text-decoration: none; }
+.synthesis-provenance { margin: 18px 0 30px; padding-top: 10px; border-top: 1px solid var(--line);
+                        font-size: 9.5pt; color: var(--muted); letter-spacing: .02em; }
+.synthesis-provenance strong { color: var(--ink-soft); font-weight: 600; }
+.cited-facts { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 18px; }
+.cited-facts th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--ink); }
+.cited-facts th code { font-family: var(--mono); font-size: 9pt; font-weight: 400; letter-spacing: 0;
+                       text-transform: none; color: var(--muted); margin-left: 6px; }
+.cited-facts td { padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top;
+                  font-size: 9.5pt; overflow-wrap: anywhere; }
+.cited-facts td.path { width: 42%; font-family: var(--mono); color: var(--ink-soft); }
+.cited-facts td.value { color: var(--ink); }
+.cited-facts td.value.absent { color: var(--fail); font-style: italic; }
+.cited-facts tr:target td, .cited-facts:target th { background: #fdf6dc; }
+</style>
+<section class="synthesis" id="synthesis">
+{{ synthesis.html | safe }}
+</section>
+<p class="synthesis-provenance">
+  Written by <strong>{{ synthesis.provenance.model or 'an unnamed model' }}</strong>
+  {%- if synthesis.provenance.style %} in the <strong>{{ synthesis.provenance.style }}</strong> style{% endif %}
+  {%- if synthesis.provenance.usd %} for <strong>${{ synthesis.provenance.usd }}</strong>{% endif %}
+  {%- if synthesis.provenance.seconds %} in <strong>{{ synthesis.provenance.seconds }} seconds</strong>{% endif %}.
+  Every number links to its source: {{ synthesis.n_facts }} cited facts, each resolved in the Cited facts appendix.
+</p>
+{% endif %}
+
 <!-- VIABILITY HERO -->
 <div class="viability-hero">
   <div>
@@ -575,51 +624,7 @@ footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line);
 </div>
 
 <!-- EXECUTIVE SUMMARY -->
-{% if synthesis %}
-{# THE ANALYST'S REPORT IS THE FRONT HALF. One frontier-model pass over the whole fact
-   layer, rendered by report/render_synthesis.py: the prose is escaped before it is
-   converted, so nothing the model wrote is markup, and every [path] it cited is a link
-   to the Cited facts appendix, where the value sits under the path that names it. The
-   style lives here rather than in the head so a page without a synthesis carries no
-   trace of one. #}
-<style>
-.synthesis { margin: 24px 0 8px; }
-.synthesis h3 { margin-top: 28px; font-family: var(--serif); font-size: 16.5px; }
-.synthesis p { font-size: 11.5pt; }
-.synthesis table { width: 100%; margin: 14px 0; font-size: 10.5pt; }
-.synthesis th, .synthesis td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-.synthesis thead th { border-bottom: 2px solid var(--ink); }
-.synthesis hr { border: none; border-top: 1px solid var(--line); margin: 26px 0; }
-.synthesis blockquote { margin: 14px 0; padding: 2px 0 2px 16px; border-left: 2px solid var(--line); color: var(--ink-soft); }
-.synthesis li { margin: 5px 0; color: var(--ink-soft); }
-a.cite { font-family: var(--mono); font-size: 8.5pt; color: var(--muted); white-space: nowrap; vertical-align: 1px; }
-a.cite::before { content: "["; } a.cite::after { content: "]"; }
-a.cite:hover { color: var(--accent); text-decoration: none; }
-.synthesis-provenance { margin: 18px 0 30px; padding-top: 10px; border-top: 1px solid var(--line);
-                        font-size: 9.5pt; color: var(--muted); letter-spacing: .02em; }
-.synthesis-provenance strong { color: var(--ink-soft); font-weight: 600; }
-.cited-facts { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 18px; }
-.cited-facts th { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--ink); }
-.cited-facts th code { font-family: var(--mono); font-size: 9pt; font-weight: 400; letter-spacing: 0;
-                       text-transform: none; color: var(--muted); margin-left: 6px; }
-.cited-facts td { padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top;
-                  font-size: 9.5pt; overflow-wrap: anywhere; }
-.cited-facts td.path { width: 42%; font-family: var(--mono); color: var(--ink-soft); }
-.cited-facts td.value { color: var(--ink); }
-.cited-facts td.value.absent { color: var(--fail); font-style: italic; }
-.cited-facts tr:target td, .cited-facts:target th { background: #fdf6dc; }
-</style>
-<section class="synthesis" id="synthesis">
-{{ synthesis.html | safe }}
-</section>
-<p class="synthesis-provenance">
-  Written by <strong>{{ synthesis.provenance.model or 'an unnamed model' }}</strong>
-  {%- if synthesis.provenance.style %} in the <strong>{{ synthesis.provenance.style }}</strong> style{% endif %}
-  {%- if synthesis.provenance.usd %} for <strong>${{ synthesis.provenance.usd }}</strong>{% endif %}
-  {%- if synthesis.provenance.seconds %} in <strong>{{ synthesis.provenance.seconds }} seconds</strong>{% endif %}.
-  Every number links to its source: {{ synthesis.n_facts }} cited facts, each resolved in the Cited facts appendix.
-</p>
-{% endif %}{% if four_ps.executive_summary and not synthesis %}
+{% if four_ps.executive_summary and not synthesis %}
 <div class="exec-summary">
   <h2 id="executive-summary">Executive Summary</h2>
   {# Iter 42 (issue 1): summary now contains <strong> HTML, render with safe.

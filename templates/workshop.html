@@ -805,7 +805,9 @@
     html.classList.toggle("ws-open", !!yes);
     try { localStorage.setItem("ws-open", yes ? "1" : "0"); } catch (e) { /* remembered for this page only */ }
     const tog = document.querySelector(".ws-tog"); if (tog) tog.setAttribute("aria-expanded", String(!!yes));
-    if (yes) setTimeout(() => $("wsInput").focus({preventScroll: true}), 60);
+    // The box takes focus on a desktop; on a phone that would raise the keyboard over
+    // the sheet the founder just opened to read, so there they tap it themselves.
+    if (yes && window.innerWidth > 720) setTimeout(() => $("wsInput").focus({preventScroll: true}), 60);
   }
   $("wsClose").onclick = () => open(false);
   const tog = document.querySelector(".ws-tog");
