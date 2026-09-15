@@ -2512,9 +2512,10 @@ a.cite:hover { color: var(--accent); text-decoration: none; }
    back against a mark is iteration.clarifications. Both are the owner's private layer and
    neither reaches a public page: this whole block is inside the `not public` gate. #}
 {% if iteration.notes %}
-<h2 id="reader-notes">Reader Notes &amp; Clarifications</h2>
-<p style="color:#6b7280;font-size:10.5pt">Passages the reader highlighted on the first
-revision, each with the author's clarification. Notes marked <em>beyond this report's
+<h2 id="reader-notes">Founder's Notes</h2>
+<p style="color:#6b7280;font-size:10.5pt">Passages the founder marked in the workshop,
+with what they said about each; these steer the next rewrite. Where the analyst was asked
+to explain one, the note back is beside it. Notes marked <em>beyond this report's
 data</em> flag questions the underlying research did not examine.</p>
 {% for a in iteration.notes %}
 {% set note = (iteration.clarifications | selectattr('annotation_id', 'equalto', a.id) | list | first) %}
@@ -2533,8 +2534,8 @@ data</em> flag questions the underlying research did not examine.</p>
 {% endif %}
 {% if iteration.questions %}
 <h2 id="reader-qa">Questions &amp; Answers</h2>
-<p style="color:#6b7280;font-size:10.5pt">Asked by the reader after the first revision.
-Answers draw only on this report's own data; where they cannot, they say so.</p>
+<p style="color:#6b7280;font-size:10.5pt">Asked by the founder. Answers draw only on this
+report's own evidence; where they cannot, they say so.</p>
 {% for q in iteration.questions %}
 <div style="margin:14px 0;padding:13px 15px;border:1px solid #e5e7eb;border-radius:8px">
   <div style="font-weight:650;font-size:11pt">Q{{ loop.index }}. {{ q.q }}</div>

@@ -179,7 +179,7 @@ class TheOwnerKeepsTheirOwnNotes(_App):
         owner = self._client()
         jid = self._marked_up_report(owner)
         page = owner.get(f"/jobs/{jid}/report.html").text
-        self.assertEqual(page.count("Reader Notes"), 0,
+        self.assertEqual(page.count("Founder's Notes"), 0,
                          "the printed record duplicates the live section here")
 
     def test_publishing_does_not_take_the_notes_off_the_owner(self):
