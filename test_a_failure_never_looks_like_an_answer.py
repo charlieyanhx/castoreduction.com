@@ -37,7 +37,7 @@ HERE = Path(__file__).parent
 LIBRARY = HERE / "web" / "library.html"
 PROGRESS = HERE / "web" / "progress.html"
 REPORT = HERE / "templates" / "report.html"
-WORKSHOP = HERE / "templates" / "workshop.html"
+WORKSHOP = HERE / "web" / "workshop.js"
 
 
 class ThePublicLibraryDistinguishesEmptyFromBroken(unittest.TestCase):
@@ -125,8 +125,8 @@ class TakingItDownMeansItCameDown(unittest.TestCase):
 
 
 class EveryMutationOnTheReportSpeaks(unittest.TestCase):
-    """The four mutations moved into the workshop sidebar (templates/workshop.html) with
-    the refine layer; the rule moved with them. Every write the panel makes sits in a
+    """The four mutations moved into the workshop sidebar (web/workshop.js) with the
+    refine layer; the rule moved with them. Every write the panel makes sits in a
     try, and its catch says which action failed, in the founder's words, with the
     server's own sentence where that reads well."""
 

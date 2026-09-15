@@ -201,6 +201,25 @@ def account_js():
     return FileResponse(f, media_type="application/javascript", headers=_NO_CACHE)
 
 
+@router.get("/workshop.css")
+def workshop_css():
+    """The workshop sidebar's stylesheet. No-cache like every other asset."""
+    f = WEB_DIR / "workshop.css"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="workshop.css not found")
+    return FileResponse(f, media_type="text/css", headers=_NO_CACHE)
+
+
+@router.get("/workshop.js")
+def workshop_js():
+    """The workshop sidebar's behaviour; the page hands it its constants in
+    window.WORKSHOP. No-cache for the reason account.js is."""
+    f = WEB_DIR / "workshop.js"
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="workshop.js not found")
+    return FileResponse(f, media_type="application/javascript", headers=_NO_CACHE)
+
+
 @router.get("/castor-api.js")
 def castor_api_js():
     """The shared transport. Served from its own route, like account.js, so it carries the

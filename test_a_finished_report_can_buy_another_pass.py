@@ -230,6 +230,8 @@ class TheSidebarOffersIt(unittest.TestCase):
     def setUp(self):
         self.tpl = Path(__file__).parent.joinpath("templates/workshop.html").read_text(
             encoding="utf-8")
+        self.js = Path(__file__).parent.joinpath("web/workshop.js").read_text(
+            encoding="utf-8")
         self.page = Path(__file__).parent.joinpath("templates/report.html").read_text(
             encoding="utf-8")
 
@@ -243,7 +245,7 @@ class TheSidebarOffersIt(unittest.TestCase):
             self.assertIn(needle, self.tpl, needle)
 
     def test_the_two_states_are_named_from_the_server(self):
-        block = self.tpl[self.tpl.index("function paintRerun"):]
+        block = self.js[self.js.index("function paintRerun"):]
         self.assertIn("st.reruns_left", block[:600], "the page is told, it does not count")
         self.assertIn('" included"', block[:600])
         self.assertIn('"1 report credit"', block[:600])
@@ -251,17 +253,17 @@ class TheSidebarOffersIt(unittest.TestCase):
                       "and says how many report credits the account holds")
 
     def test_the_confirm_says_which_one_is_being_spent(self):
-        block = self.tpl[self.tpl.index('$("wsRerunGo").onclick'):]
+        block = self.js[self.js.index('$("wsRerunGo").onclick'):]
         self.assertIn("the re-run included with this report", block[:1600])
         self.assertIn("one report credit", block[:1600])
 
     def test_no_price_is_typed_into_the_page(self):
         """Costs, the pack and its price all ride GET /iteration; the page never states
         an amount of its own."""
-        self.assertNotIn("$5", self.tpl)
-        self.assertNotIn("30 credits", self.tpl)
-        self.assertIn("st.workshop.costs", self.tpl)
-        self.assertIn("st.workshop.pack", self.tpl)
+        self.assertNotIn("$5", self.tpl + self.js)
+        self.assertNotIn("30 credits", self.tpl + self.js)
+        self.assertIn("st.workshop.costs", self.js)
+        self.assertIn("st.workshop.pack", self.js)
 
 
 if __name__ == "__main__":

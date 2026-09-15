@@ -75,10 +75,12 @@ class TheMarkupMatchesTheScript(unittest.TestCase):
 
     def setUp(self):
         self.tpl = (_HERE / "templates" / "workshop.html").read_text(encoding="utf-8")
+        self.js = (_HERE / "web" / "workshop.js").read_text(encoding="utf-8")
+        self.css = (_HERE / "web" / "workshop.css").read_text(encoding="utf-8")
 
     def test_every_id_the_script_uses_exists(self):
-        script = self.tpl[self.tpl.index("<script>"):]
-        markup = self.tpl[:self.tpl.index("<script>")]
+        script = self.js
+        markup = self.tpl
         used = set(re.findall(r'\$\("(ws[A-Za-z0-9]+)"\)', script))
         self.assertGreater(len(used), 20)
         for id_ in sorted(used):
@@ -98,21 +100,32 @@ class TheMarkupMatchesTheScript(unittest.TestCase):
         """The costs, the pack and the balance ride GET /iteration. The page draws what it
         is told, so repricing a verb is a constant in iteration.py, not a redeploy."""
         for typed in ("$5", "30 credits", "10 credits", "· 10", "· 1<"):
-            self.assertNotIn(typed, self.tpl, typed)
+            self.assertNotIn(typed, self.tpl + self.js, typed)
         for read in ("st.workshop.costs", "st.workshop.pack", "st.workshop.balance",
                      "st.reruns_left", "billing.report_credits"):
-            self.assertIn(read, self.tpl, read)
+            self.assertIn(read, self.js, read)
+
+    def test_the_page_hands_the_script_its_constants(self):
+        """The script is a static file; the job id, the survey facts, the current style
+        and whether there is a written report at all come from the template."""
+        self.assertIn("window.WORKSHOP = {", self.tpl)
+        for key in ("job:", "facts:", "style:", "hasWriting:"):
+            self.assertIn(key, self.tpl, key)
+        self.assertIn('<script src="/workshop.js" defer>', self.tpl)
+        self.assertIn('<link rel="stylesheet" href="/workshop.css">', self.tpl)
+        self.assertIn("window.WORKSHOP", self.js)
 
     def test_the_sidebar_never_prints(self):
         self.assertIn('class="ws no-print"', self.tpl)
-        self.assertIn("@media print", self.tpl)
+        self.assertIn("@media print", self.css)
 
     def test_no_em_dashes(self):
-        self.assertNotIn(chr(0x2014), self.tpl)
-        self.assertNotIn(chr(0x2013), self.tpl)
+        for text in (self.tpl, self.js, self.css):
+            self.assertNotIn(chr(0x2014), text)
+            self.assertNotIn(chr(0x2013), text)
 
     def test_reduced_motion_is_honoured(self):
-        self.assertIn("prefers-reduced-motion", self.tpl)
+        self.assertIn("prefers-reduced-motion", self.css)
 
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed here")
@@ -121,16 +134,27 @@ class TheScriptsParse(unittest.TestCase):
     sees; the browser then loads a page with a dead sidebar. node --check is the cheapest
     guard there is."""
 
-    def test_every_inline_script_on_the_owner_page_parses(self):
+    def test_every_script_on_the_owner_page_parses(self):
         page = _render(annotate=1)
         scripts = re.findall(r"<script>(.*?)</script>", page, re.S)
         self.assertGreaterEqual(len(scripts), 2)
+        scripts.append((_HERE / "web" / "workshop.js").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory() as d:
             for i, js in enumerate(scripts):
                 f = Path(d) / f"s{i}.js"
                 f.write_text(js, encoding="utf-8")
                 r = subprocess.run(["node", "--check", str(f)], capture_output=True, text=True)
                 self.assertEqual(r.returncode, 0, f"script {i}: {r.stderr[:600]}")
+
+    def test_the_assets_are_served(self):
+        from fastapi.testclient import TestClient
+        import api
+        c = TestClient(api.app)
+        for path, kind in (("/workshop.js", "javascript"), ("/workshop.css", "css")):
+            r = c.get(path)
+            self.assertEqual(r.status_code, 200, path)
+            self.assertIn(kind, r.headers.get("content-type", ""), path)
+            self.assertIn("no-cache", r.headers.get("cache-control", ""), path)
 
 
 if __name__ == "__main__":
