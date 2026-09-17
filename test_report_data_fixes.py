@@ -924,6 +924,11 @@ class TestGeoCompetitorPromotion(unittest.TestCase):
     promoted to the canonical set — not LLM-guessed national brands. General + deterministic:
     gated on the scale classifier, skips (never guesses) on unknown category / no location."""
 
+    def setUp(self):
+        p = patch("local_competitor_search.search_local_competitors", return_value=[])
+        p.start()
+        self.addCleanup(p.stop)
+
     def _tools(self, names, lat=34.08):
         geo = Evidence("geocode_address", "geo", 1, payload={"lat": lat, "lng": -118.27})
         ne = Evidence("osm_named_competitors", "geo", len(names),

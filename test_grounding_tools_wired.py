@@ -114,9 +114,8 @@ class TestTheKeylessPathIsActuallyWired(unittest.TestCase):
             plan.extract_location("opening in the Mission District of San Francisco"),
             "the OSM competitor roster is still unreachable for this phrasing")
 
-    def test_geo_competitor_opps_requires_a_mapped_category(self):
-        """The fail-safe must survive: an unmapped category yields no roster rather than a
-        wrong-category one."""
+    def test_unknown_trade_without_source_evidence_has_no_invented_roster(self):
+        """An unfamiliar trade is searchable, but cannot invent unsupported rivals."""
         import plan
         got = plan.geo_competitor_opps(
             "a shop in the Mission District of San Francisco",

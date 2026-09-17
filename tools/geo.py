@@ -649,7 +649,8 @@ def _osm_competitor_record(el: dict) -> Optional[dict]:
         rec["domain"] = ""
     if desc:
         rec["description"] = desc
-    for k_osm, k_out in (("addr:street", "street"), ("opening_hours", "opening_hours"),
+    for k_osm, k_out in (("amenity", "amenity"), ("shop", "shop"), ("cuisine", "cuisine"),
+                         ("addr:street", "street"), ("opening_hours", "opening_hours"),
                          ("phone", "phone")):
         v = (tags.get(k_osm) or "").strip()
         if v:

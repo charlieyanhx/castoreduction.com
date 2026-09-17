@@ -1438,10 +1438,16 @@ by a model.</p>
    value rather than the model's: a well-funded B2B rival with no consumer review surface
    legitimately scores near zero. #}
 <p style="font-size:9.5pt;color:#6b7280;margin:0 0 8px">
+  {% if competitors | selectattr('geo_sourced') | list %}
+  Nearby venues are ranked by <strong>local relevance</strong>: 90 for direct offerings,
+  60 for adjacent offerings. These are evidence-based categories, not measured customer
+  overlap. Unscored venues lack a reliable assessment. Search and map coverage may be incomplete.
+  {% else %}
   The score is <strong>web momentum</strong> (0&ndash;100), computed from public signals only:
   search-trend slope, review volume and velocity, Reddit mentions, domain age, archive
   activity, social reach. A low score means a <em>thin public footprint</em>, not a weak
   competitor &mdash; and &mdash; means no public signal was gathered for that brand.
+  {% endif %}
 </p>
 <div class="competitors">
   {% for c in competitors[:6] %}
@@ -1453,9 +1459,11 @@ by a model.</p>
         <span style="display:inline-block;background:{{ rcolor }}22;color:{{ rcolor }};font-size:8pt;padding:2px 6px;border-radius:3px;margin-left:6px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">{{ c.relevance }}</span>
       {% endif %}
     </div>
-    <div class="score">{% if c.get('opportunity_score') is not none %}{{ c.opportunity_score }}{% elif c.get('geo_sourced') %}<span style="font-size:8pt;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.04em">nearby</span>{% else %}<span style="color:#9ca3af">—</span>{% endif %}</div>
+    <div class="score">{% if c.get('geo_sourced') and c.get('relevance_status') %}{% if c.get('local_relevance_score') is not none %}{{ c.local_relevance_score }}{% else %}<span style="font-size:8pt">unscored</span>{% endif %}{% elif c.get('opportunity_score') is not none %}{{ c.opportunity_score }}{% elif c.get('geo_sourced') %}<span style="font-size:8pt;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.04em">nearby</span>{% else %}<span style="color:#9ca3af">—</span>{% endif %}</div>
   </div>
   {% if c.thesis %}<div style="font-size:10pt;color:#4b5563;padding:0 14px 4px 50px">{{ c.thesis }}</div>{% endif %}
+  {% if c.geo_sourced and c.relevance_reason %}<div style="font-size:9pt;color:#6b7280;padding:0 14px 4px 50px">{{ c.relevance_reason }}</div>{% endif %}
+  {% if c.geo_sourced and c.source_url %}<div style="font-size:9pt;color:#6b7280;padding:0 14px 4px 50px"><a href="{{ c.source_url }}" target="_blank" rel="noopener noreferrer">Source</a>{% if c.location_evidence %} · {{ c.location_evidence }}{% endif %} · Location from search evidence; address not independently verified.</div>{% endif %}
   {% if c.firmographics and c.firmographics.sources %}
     {% set firm = c.firmographics %}
     {% set firm_parts = [] %}

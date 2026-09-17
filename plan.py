@@ -1555,8 +1555,9 @@ def geo_competitor_opps(description: str, profile: dict, market_scale: dict | No
     regex runs only when no location was passed. When the category has no OSM tag, or
     the OSM census is thin, the Overture same-category census covers (adoption #1):
     MEASURED (deddcd0f), 'taco stand' has no OSM tag, so this function returned [] and
-    D07 withheld a report while Overture knew 56 taquerias at the site. Fewer than 3
-    same-category venues still returns [] — never fabricate a roster."""
+    D07 withheld a report while Overture knew 56 taquerias at the site. Description-driven
+    web search runs independently of those category mappings. Small supported rosters
+    remain useful and are not discarded just for containing fewer than three venues."""
     ms = market_scale or {}
     is_physical = bool((ms.get("signals") or {}).get("is_physical")) or ms.get("scale") in ("hyperlocal", "regional")
     if not is_physical:
@@ -1572,30 +1573,51 @@ def geo_competitor_opps(description: str, profile: dict, market_scale: dict | No
     tag = _resolve_osm_tag(cat)
     try:
         from tools import get_tool
-        g = get_tool("geocode_address").fn(location)
-        if not (g.payload and g.payload.get("lat") is not None):
-            return []
-        _lat, _lng = g.payload["lat"], g.payload["lng"]
+        try:
+            g = get_tool("geocode_address").fn(location)
+            point = g.payload or {}
+        except Exception:
+            point = {}
+        _lat, _lng = point.get("lat"), point.get("lng")
         rows: list[dict] = []
-        if tag:
+        if tag and _lat is not None and _lng is not None:
             osm_key, osm_value = tag
-            ne = get_tool("osm_named_competitors").fn(
-                lat=_lat, lng=_lng, osm_key=osm_key, osm_value=osm_value, limit=limit)
-            if not ne.skeleton and ne.payload:
-                rows = [c for c in ne.payload if c.get("brand")]
-        if len(rows) < 3:
-            ov = get_tool("overture_places").fn(lat=_lat, lng=_lng, category=cat)
-            same = [] if ov.skeleton else ((ov.payload or {}).get("same_category") or [])
+            try:
+                ne = get_tool("osm_named_competitors").fn(
+                    lat=_lat, lng=_lng, osm_key=osm_key, osm_value=osm_value, limit=limit)
+                if not ne.skeleton and ne.payload:
+                    rows = [c for c in ne.payload if c.get("brand")]
+            except Exception as exc:
+                log.warning("[plan] map competitor source unavailable: %s", type(exc).__name__)
+        if len(rows) < 3 and _lat is not None and _lng is not None:
+            try:
+                ov = get_tool("overture_places").fn(lat=_lat, lng=_lng, category=cat)
+                same = [] if ov.skeleton else ((ov.payload or {}).get("same_category") or [])
+            except Exception as exc:
+                log.warning("[plan] fallback map source unavailable: %s", type(exc).__name__)
+                same = []
             seen = {str(r.get("brand") or "").lower() for r in rows}
             for s in same:
                 name = s.get("name")
                 if name and name.lower() not in seen:
                     rows.append({"brand": name, "name": name,
                                  "category": s.get("category"),
+                                 "alternate_categories": "; ".join(s.get("alternate") or []),
                                  "confidence": s.get("confidence"),
                                  "source": "Overture Maps places"})
-        if len(rows) < 3:
-            return []
+                    seen.add(name.lower())
+        # The founder's description drives discovery for every trade. Map category
+        # mappings supplement it; they must never decide whether a venture is searchable.
+        from local_competitor_search import search_local_competitors
+        extra = search_local_competitors(description, location, limit=limit)
+        seen = {str(r.get("brand") or "").casefold() for r in rows}
+        for r in extra:
+            key = r["brand"].casefold()
+            if key not in seen:
+                rows.append(r)
+                seen.add(key)
+        from geo_relevance import rank_geo_competitors
+        rows = rank_geo_competitors(rows, description, cat, limit=min(limit, 15))
         # Promote to the opps shape. No domain/signals (these are physical venues, not web
         # brands) — which is correct: downstream pricing then SKIPS web scraping instead of
         # mislabeling a competitor's bagged-goods/subscription price as a per-unit price.
@@ -1629,7 +1651,7 @@ def _promote_geo_competitors(result: dict, description: str, profile: dict, geo:
                 _step_done(result, "market_scale")
         geo_opps = geo_competitor_opps(description, profile, result.get("market_scale"),
                                        location=_venture_location(result, description))
-        if len(geo_opps) >= 3:
+        if geo_opps:
             opps = geo_opps
             disc.setdefault("synthesis", {})["ranked_opportunities"] = geo_opps
             disc["geo_sourced"] = True

@@ -76,6 +76,11 @@ _TAQUERIAS = [{"name": f"Taqueria {i}", "brand": f"Taqueria {i}",
 
 
 class TestOvertureFallbackInPromotion(unittest.TestCase):
+    def setUp(self):
+        p = patch("local_competitor_search.search_local_competitors", return_value=[])
+        p.start()
+        self.addCleanup(p.stop)
+
     def _opps(self, category="taco stand"):
         import plan as plan_mod
         ms = {"scale": "hyperlocal", "signals": {"is_physical": True}}
@@ -91,14 +96,14 @@ class TestOvertureFallbackInPromotion(unittest.TestCase):
         self.assertTrue(all(o.get("brand") for o in opps))
         self.assertEqual(opps[0]["rank"], 1)
 
-    def test_fewer_than_three_same_category_stays_empty(self):
+    def test_fewer_than_three_same_category_preserves_the_found_venues(self):
         import plan as plan_mod
         ms = {"scale": "hyperlocal", "signals": {"is_physical": True}}
         profile = {"category": "taco stand", "geography": "90024 ucla"}
         with patch("tools.get_tool", side_effect=_tool_fakes(_TAQUERIAS[:2])):
             opps = plan_mod.geo_competitor_opps(
                 "some prose", profile, ms, location="90024 ucla")
-        self.assertEqual(opps, [])
+        self.assertEqual([o["brand"] for o in opps], ["Taqueria 0", "Taqueria 1"])
 
     def test_the_passed_location_wins_over_prose(self):
         """The caller resolves location from the intake record; this function must not
