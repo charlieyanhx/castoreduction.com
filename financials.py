@@ -297,6 +297,34 @@ def project_three_year(
             "Advertising revenue (users × sessions × impressions × eCPM × fill-rate). "
             "Per-user drivers are operator-unknowns — see economics.needs_operator_input "
             "— so no user count is fabricated here.")
+    if model == "auction":
+        proj = _project_revenue_only(
+            som_mid, som_low, som_high, "auction",
+            "Auction revenue = expected hammer price × fee rate × lots per period. "
+            "Clearing price is discovered through bidding — the algorithm models expected "
+            "revenue from comparables, not a recommended price.")
+        proj["pricing_note"] = (
+            "Price is not set by the seller — it is discovered through bidding. "
+            "Revenue projections use expected clearing price from comparables.")
+        return proj
+    if model == "dynamic":
+        proj = _project_revenue_only(
+            som_mid, som_low, som_high, "dynamic",
+            "Dynamic yield revenue = capacity × utilization × average rate. "
+            "Price varies by demand, time, and inventory level.")
+        proj["pricing_note"] = (
+            "Price varies by demand and time — a single recommended price is not meaningful. "
+            "Revenue projections use the average expected yield per capacity unit.")
+        return proj
+    if model == "performance":
+        proj = _project_revenue_only(
+            som_mid, som_low, som_high, "performance",
+            "Performance/contingency revenue = avg outcome value × success fee % × win rate × "
+            "engagements per period. Revenue is zero until outcomes are achieved.")
+        proj["pricing_note"] = (
+            "Price is zero until outcome occurs — the algorithm cannot recommend a price. "
+            "Revenue projections use expected value: outcome value × fee % × win rate.")
+        return proj
 
     if model == "transactional" and economics and "error" not in economics:
         ppu = economics.get("price_per_unit") or optimal_price
@@ -424,6 +452,17 @@ _PLANNING_PERIOD = {
     "subscription": "month",
     "marketplace": "month",
     "ad_supported": "month",
+    # Extended model types
+    "hourly": "month",
+    "retainer": "month",
+    "consignment": "month",
+    "wholesale": "month",
+    "freemium": "month",
+    "razor_blades": "month",
+    "auction": "month",
+    "dynamic": "day",
+    "performance": "month",
+    "anchor_discount": "day",
 }
 _PERIODS_PER_YEAR = {"day": _DAYS_PER_YEAR, "month": 12.0}
 
@@ -432,7 +471,7 @@ _PERIODS_PER_YEAR = {"day": _DAYS_PER_YEAR, "month": 12.0}
 #: orders are flows. Only a flow has a legible daily version, so stocks are exempt from the
 #: magnitude test below rather than subjected to it: 689.7 seats/month is 23/day, and
 #: "23 seats/day" is not a smaller version of the same fact, it is a different and wrong one.
-_STOCK_KINDS = ("subscription", "ad_supported")
+_STOCK_KINDS = ("subscription", "ad_supported", "freemium", "retainer", "razor_blades")
 
 #: Units per day below which a daily rate stops being something an operator can act on.
 #: Far from both sides of the real distribution — a cafe runs 100+/day, a consultancy 0.06 —

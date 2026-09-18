@@ -791,6 +791,27 @@ def unit_for_model(biz_kind: str, description: str, profile: dict | None = None)
         return "booking"
     if biz_kind == "ad_supported":
         return "user"
+    # Extended model type unit nouns
+    if biz_kind == "hourly":
+        return "hour"
+    if biz_kind == "retainer":
+        return "retainer"
+    if biz_kind == "consignment":
+        return "consignment sale"
+    if biz_kind == "wholesale":
+        return "unit (wholesale)"
+    if biz_kind == "freemium":
+        return "paid user"
+    if biz_kind == "razor_blades":
+        return "customer"
+    if biz_kind == "auction":
+        return "lot"
+    if biz_kind == "dynamic":
+        return "booking"
+    if biz_kind == "performance":
+        return "placement"
+    if biz_kind == "anchor_discount":
+        return "unit"
     if not is_per_unit(biz_kind):
         return "unit"
     m = _UNIT_NOUN_RE.search(blob)

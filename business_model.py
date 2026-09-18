@@ -28,6 +28,18 @@ HYBRID = "hybrid"                 # one-time + recurring (e.g. hardware device +
 MARKETPLACE = "marketplace"       # take-rate / commission on third-party GMV
 AD_SUPPORTED = "ad_supported"     # free to user, monetized via advertising
 
+# Extended model types — each requires its own economics calculator.
+HOURLY        = "hourly"          # lawyers, consultants, studios — unit is time
+RETAINER      = "retainer"        # committed block of time/availability, billed regardless of use
+CONSIGNMENT   = "consignment"     # goods aren't yours; you sell and keep a cut (galleries, estate sales)
+WHOLESALE     = "wholesale"       # you're a B2B channel node; price set by retailer acceptance
+FREEMIUM      = "freemium"        # free tier + paid upgrade; economics driven by conversion rate
+RAZOR_BLADES  = "razor_blades"    # platform cheap/free, consumable expensive; blended LTV
+AUCTION       = "auction"         # price discovered through bidding; algorithm can't recommend price
+DYNAMIC       = "dynamic"         # price changes by demand/time/inventory (hotels, airlines, Uber surge)
+PERFORMANCE   = "performance"     # zero until outcome achieved, then pre-agreed share (law contingency)
+ANCHOR_DISCOUNT = "anchor_discount"  # high reference price, sell at discount; stated price is fiction
+
 # Kinds whose economics are per-unit (price × volume − costs) — they all route to
 # retail_unit_economics. Subscription, marketplace, ad-supported have their own bases.
 _PER_UNIT_KINDS = (TRANSACTIONAL, ECOMMERCE, SERVICES, HYBRID)
@@ -60,9 +72,53 @@ def venture_has_a_customer_price(kind: Optional[str]) -> bool:
 
 def is_per_unit(kind: Optional[str]) -> bool:
     """True if the model's revenue is price-per-unit × volume (transactional/ecommerce/
-    services/hybrid) → uses retail_unit_economics, not subscription CLV:CAC."""
+    services/hybrid) → uses retail_unit_economics, not subscription CLV:CAC.
+
+    The extended model types (HOURLY, RETAINER, CONSIGNMENT, WHOLESALE, FREEMIUM,
+    RAZOR_BLADES, AUCTION, DYNAMIC, PERFORMANCE, ANCHOR_DISCOUNT) all return False —
+    each has its own dedicated economics calculator."""
     return (kind or "") in _PER_UNIT_KINDS
 
+
+_HOURLY_KW = (
+    "per hour", "hourly rate", "$/hour", "billable hour", "time and materials",
+    "day rate", "per day", "equipment rental",
+)
+_RETAINER_KW = (
+    "monthly retainer", "on retainer", "availability fee", "committed hours",
+)
+_CONSIGNMENT_KW = (
+    "consignment", "we don't own the inventory", "sell for others", "estate sale",
+    "gallery commission", "take a cut of sales we don't own",
+)
+_WHOLESALE_KW = (
+    "wholesale", "sell to retailers", "distributor", "b2b channel", "wholesale price",
+    "sell to boutiques", "reseller",
+)
+_FREEMIUM_KW = (
+    "freemium", "free tier", "free plan", "free forever", "convert free users",
+    "paid upgrade",
+)
+_RAZOR_BLADES_KW = (
+    "razor and blades", "platform and consumable", "printer and ink",
+    "device and subscription", "hardware and recurring",
+)
+_AUCTION_KW = (
+    "auction", "bidding", "bid price", "discovered price", "clearing price",
+    "ebay model",
+)
+_DYNAMIC_KW = (
+    "dynamic pricing", "yield management", "surge pricing", "variable rate",
+    "demand-based pricing", "hotel pricing",
+)
+_PERFORMANCE_KW = (
+    "contingency", "performance fee", "outcome-based", "pay on results",
+    "commission on results", "success fee",
+)
+_ANCHOR_DISCOUNT_KW = (
+    "anchor price", "msrp and discount", "list price then discount", "rrp",
+    "mark-down from reference",
+)
 
 _SUBSCRIPTION_KW = (
     "subscription", "saas", "membership", " member", "per month", "/mo", "per seat",
@@ -195,12 +251,38 @@ def classify_business_model(profile: dict, market_scale: Optional[dict] = None) 
     # 1. Unambiguous models that must win even if the venture is (mis)tagged physical: a take-rate
     # marketplace, a free ad-supported product, or an explicit B2B services/agency. These keyword
     # sets are specific enough that a cafe/salon/gym never matches them.
+    # These run BEFORE the extended types because ad_supported + freemium ("free tier") and
+    # services + retainer can overlap — the tighter original signals take precedence.
     if has(_MARKETPLACE_KW) or _MARKETPLACE_RE.search(blob):
         return MARKETPLACE
     if has(_AD_KW) or _AD_RE.search(blob):
         return AD_SUPPORTED
     if has(_SERVICES_KW) or _SERVICES_RE.search(blob):
         return SERVICES
+
+    # 1b. Extended model types — checked after the original three unambiguous signals.
+    if has(_AUCTION_KW):
+        return AUCTION
+    if has(_DYNAMIC_KW):
+        return DYNAMIC
+    if has(_PERFORMANCE_KW):
+        return PERFORMANCE
+    if has(_RAZOR_BLADES_KW):
+        return RAZOR_BLADES
+    if has(_FREEMIUM_KW):
+        return FREEMIUM
+    if has(_CONSIGNMENT_KW):
+        return CONSIGNMENT
+    if has(_WHOLESALE_KW):
+        return WHOLESALE
+    if has(_ANCHOR_DISCOUNT_KW):
+        return ANCHOR_DISCOUNT
+    # "retainer" alone could match the services keyword list too; the services RE fires first
+    # for "done-for-you + retainer". Here we only catch standalone retainer billing.
+    if has(_RETAINER_KW):
+        return RETAINER
+    if has(_HOURLY_KW):
+        return HOURLY
 
     # 2. Physical premise serving local trade.
     if is_physical:
@@ -491,6 +573,337 @@ def retail_unit_economics(
     return out
 
 
+def hourly_economics(
+    hourly_rate: float,
+    utilization_pct: float,
+    weekly_capacity_hours: float,
+    monthly_fixed_cost: float,
+    variable_cost_rate: float = 0.0,
+    unit: str = "hour",
+) -> dict:
+    """Time-based (hourly/daily) unit economics — lawyers, consultants, studios."""
+    billable_hours_per_week = weekly_capacity_hours * (utilization_pct / 100)
+    billable_hours_per_month = billable_hours_per_week * 4.33
+    revenue_per_month = hourly_rate * billable_hours_per_month
+    contribution_margin_per_hour = hourly_rate * (1 - variable_cost_rate)
+    contribution_margin_pct = (1 - variable_cost_rate) * 100
+
+    if contribution_margin_per_hour > 0:
+        break_even_hours_per_month = monthly_fixed_cost / contribution_margin_per_hour
+        break_even_utilization_pct = (break_even_hours_per_month / (weekly_capacity_hours * 4.33)) * 100
+    else:
+        break_even_hours_per_month = 0.0
+        break_even_utilization_pct = 0.0
+
+    monthly_operating_profit = revenue_per_month - monthly_fixed_cost - (revenue_per_month * variable_cost_rate)
+
+    return {
+        "model": HOURLY,
+        "unit": unit,
+        "hourly_rate": hourly_rate,
+        "utilization_pct": utilization_pct,
+        "billable_hours_per_month": round(billable_hours_per_month, 1),
+        "revenue_at_utilization": round(revenue_per_month, 0),
+        "contribution_margin_per_hour": round(contribution_margin_per_hour, 2),
+        "contribution_margin_pct": round(contribution_margin_pct, 1),
+        "monthly_fixed_cost": monthly_fixed_cost,
+        "break_even_hours_per_month": math.ceil(break_even_hours_per_month),
+        "break_even_utilization_pct": round(break_even_utilization_pct, 1),
+        "monthly_operating_profit": round(monthly_operating_profit, 0),
+        "profitable_at_utilization": monthly_operating_profit > 0,
+    }
+
+
+def freemium_economics(
+    paid_arpu: float,
+    conversion_rate_pct: float,
+    variable_cost_per_paid_user: float,
+    monthly_fixed_cost: float,
+    free_to_paid_months: float = 6,
+    unit: str = "paid user",
+) -> dict:
+    """Freemium economics — free tier + paid upgrade, driven by conversion rate."""
+    conversion_rate = conversion_rate_pct / 100
+    margin_per_paid = paid_arpu - variable_cost_per_paid_user
+
+    if margin_per_paid > 0:
+        break_even_paid_users = math.ceil(monthly_fixed_cost / margin_per_paid)
+        break_even_total_users = math.ceil(break_even_paid_users / conversion_rate) if conversion_rate > 0 else None
+    else:
+        break_even_paid_users = None
+        break_even_total_users = None
+
+    return {
+        "model": FREEMIUM,
+        "unit": unit,
+        "paid_arpu": paid_arpu,
+        "conversion_rate_pct": conversion_rate_pct,
+        "free_to_paid_months": free_to_paid_months,
+        "margin_per_paid_user": round(margin_per_paid, 2),
+        "monthly_fixed_cost": monthly_fixed_cost,
+        "break_even_paid_users": break_even_paid_users,
+        "break_even_total_users": break_even_total_users,
+        "note": (
+            f"Break-even requires {break_even_paid_users} paying users "
+            f"({conversion_rate_pct}% of {break_even_total_users} total users)"
+            if break_even_paid_users else
+            "Cannot compute: margin per paid user \u2264 0"
+        ),
+    }
+
+
+def consignment_economics(
+    take_rate_pct: float,
+    avg_sale_value: float,
+    transaction_cost_rate: float,
+    monthly_fixed_cost: float,
+    unit: str = "consignment sale",
+) -> dict:
+    """Consignment economics — sell on behalf of others, keep a cut. No COGS."""
+    take_rate = take_rate_pct / 100
+    revenue_per_sale = avg_sale_value * take_rate
+    net_per_sale = revenue_per_sale * (1 - transaction_cost_rate)
+
+    if net_per_sale > 0:
+        break_even_sales_per_month = math.ceil(monthly_fixed_cost / net_per_sale)
+        break_even_gmv_per_month = break_even_sales_per_month * avg_sale_value
+    else:
+        break_even_sales_per_month = None
+        break_even_gmv_per_month = None
+
+    return {
+        "model": CONSIGNMENT,
+        "unit": unit,
+        "take_rate_pct": take_rate_pct,
+        "avg_sale_value": avg_sale_value,
+        "revenue_per_sale": round(revenue_per_sale, 2),
+        "net_per_sale": round(net_per_sale, 2),
+        "cogs": 0,
+        "contribution_margin_pct": 100 * (1 - transaction_cost_rate),
+        "monthly_fixed_cost": monthly_fixed_cost,
+        "break_even_sales_per_month": break_even_sales_per_month,
+        "break_even_gmv_per_month": round(break_even_gmv_per_month, 0) if break_even_gmv_per_month else None,
+        "note": "No cost of goods — inventory belongs to consignor. Margin is on take-rate only.",
+    }
+
+
+def wholesale_economics(
+    wholesale_price: float,
+    variable_cost_per_unit: float,
+    monthly_fixed_cost: float,
+    retail_price: Optional[float] = None,
+    unit: str = "unit (wholesale)",
+) -> dict:
+    """Wholesale economics — B2B channel; economics computed at wholesale price, not retail."""
+    margin_per_unit = wholesale_price - variable_cost_per_unit
+    margin_pct = (margin_per_unit / wholesale_price * 100) if wholesale_price else 0
+    break_even_units = math.ceil(monthly_fixed_cost / margin_per_unit) if margin_per_unit > 0 else None
+
+    retail_note = None
+    if retail_price and wholesale_price:
+        retailer_margin = round((1 - wholesale_price / retail_price) * 100)
+        retail_note = f"Retail price ${retail_price} — retailer takes {retailer_margin}% margin"
+
+    return {
+        "model": WHOLESALE,
+        "unit": unit,
+        "wholesale_price": wholesale_price,
+        "retail_price": retail_price,
+        "variable_cost_per_unit": variable_cost_per_unit,
+        "margin_per_unit": round(margin_per_unit, 2),
+        "margin_pct": round(margin_pct, 1),
+        "monthly_fixed_cost": monthly_fixed_cost,
+        "break_even_units_per_month": break_even_units,
+        "retail_note": retail_note,
+        "note": "Economics computed at wholesale price. End-consumer price is not the founder's price.",
+    }
+
+
+def razor_blades_economics(
+    hardware_price: float,
+    hardware_cost: float,
+    consumable_price: float,
+    consumable_cost: float,
+    consumables_per_year: float,
+    monthly_fixed_cost: float,
+    unit: str = "customer",
+) -> dict:
+    """Razor + blades economics — platform cheap/free, consumable expensive; blended LTV."""
+    hardware_margin = hardware_price - hardware_cost
+    consumable_margin_per_unit = consumable_price - consumable_cost
+    annual_consumable_margin = consumable_margin_per_unit * consumables_per_year
+    monthly_consumable_margin = annual_consumable_margin / 12
+
+    blended_3yr_ltv = hardware_margin + (annual_consumable_margin * 3)
+
+    if monthly_consumable_margin > 0:
+        break_even_customers = math.ceil(monthly_fixed_cost / monthly_consumable_margin)
+    else:
+        break_even_customers = None
+
+    return {
+        "model": RAZOR_BLADES,
+        "unit": unit,
+        "hardware_price": hardware_price,
+        "hardware_cost": hardware_cost,
+        "hardware_margin": round(hardware_margin, 2),
+        "hardware_margin_pct": round(hardware_margin / hardware_price * 100, 1) if hardware_price else 0,
+        "consumable_price": consumable_price,
+        "consumable_cost": consumable_cost,
+        "consumable_margin_per_unit": round(consumable_margin_per_unit, 2),
+        "consumables_per_year": consumables_per_year,
+        "annual_consumable_margin_per_customer": round(annual_consumable_margin, 2),
+        "monthly_consumable_margin_per_customer": round(monthly_consumable_margin, 2),
+        "blended_3yr_ltv": round(blended_3yr_ltv, 2),
+        "monthly_fixed_cost": monthly_fixed_cost,
+        "break_even_installed_base": break_even_customers,
+        "note": "Hardware margin may be negative (loss leader). Profitability depends on installed base \u00d7 consumable attach rate.",
+    }
+
+
+def dynamic_economics(
+    capacity_units: float,
+    avg_rate_usd: float,
+    avg_utilization_pct: float,
+    variable_cost_per_unit: float,
+    monthly_fixed_cost: float,
+    unit: str = "booking",
+) -> dict:
+    """Dynamic / yield pricing economics — hotels, airlines, Uber surge."""
+    utilization = avg_utilization_pct / 100
+    monthly_bookings = capacity_units * utilization * 30
+    monthly_revenue = monthly_bookings * avg_rate_usd
+    contribution_per_unit = avg_rate_usd - variable_cost_per_unit
+    monthly_contribution = monthly_bookings * contribution_per_unit
+    monthly_profit = monthly_contribution - monthly_fixed_cost
+
+    if contribution_per_unit > 0:
+        break_even_utilization_pct = (monthly_fixed_cost / (capacity_units * 30 * contribution_per_unit)) * 100
+    else:
+        break_even_utilization_pct = None
+
+    return {
+        "model": DYNAMIC,
+        "unit": unit,
+        "capacity_units": capacity_units,
+        "avg_rate_usd": avg_rate_usd,
+        "avg_utilization_pct": avg_utilization_pct,
+        "monthly_bookings": round(monthly_bookings, 1),
+        "monthly_revenue": round(monthly_revenue, 0),
+        "variable_cost_per_unit": variable_cost_per_unit,
+        "contribution_per_unit": round(contribution_per_unit, 2),
+        "monthly_contribution": round(monthly_contribution, 0),
+        "monthly_fixed_cost": monthly_fixed_cost,
+        "monthly_operating_profit": round(monthly_profit, 0),
+        "break_even_utilization_pct": round(break_even_utilization_pct, 1) if break_even_utilization_pct is not None else None,
+        "pricing_note": (
+            "Price shown is average yield \u2014 actual price varies by demand, time, and "
+            "inventory level. Model cannot recommend a single price; expected revenue per "
+            "capacity unit is the operative metric."
+        ),
+    }
+
+
+def performance_economics(
+    avg_outcome_value: float,
+    success_fee_pct: float,
+    win_rate_pct: float,
+    monthly_fixed_cost: float,
+    variable_cost_per_engagement: float = 0,
+    unit: str = "placement",
+) -> dict:
+    """Performance / contingency economics — zero until outcome, then pre-agreed share."""
+    success_fee = avg_outcome_value * (success_fee_pct / 100)
+    win_rate = win_rate_pct / 100
+    expected_revenue_per_engagement = success_fee * win_rate
+    expected_margin_per_engagement = expected_revenue_per_engagement - variable_cost_per_engagement
+
+    engagements_to_break_even = (
+        math.ceil(monthly_fixed_cost / expected_margin_per_engagement)
+        if expected_margin_per_engagement > 0 else None
+    )
+
+    return {
+        "model": PERFORMANCE,
+        "unit": unit,
+        "avg_outcome_value": avg_outcome_value,
+        "success_fee_pct": success_fee_pct,
+        "success_fee_per_win": round(success_fee, 2),
+        "win_rate_pct": win_rate_pct,
+        "expected_revenue_per_engagement": round(expected_revenue_per_engagement, 2),
+        "variable_cost_per_engagement": variable_cost_per_engagement,
+        "expected_margin_per_engagement": round(expected_margin_per_engagement, 2),
+        "monthly_fixed_cost": monthly_fixed_cost,
+        "engagements_to_break_even": engagements_to_break_even,
+        "note": (
+            f"Expected value model: {win_rate_pct}% win rate \u00d7 ${success_fee:,.0f} fee "
+            f"= ${expected_revenue_per_engagement:,.0f} expected revenue per engagement taken on."
+        ),
+        "pricing_note": (
+            "Price is zero until outcome \u2014 the algorithm cannot recommend a price. "
+            "The operative decision is which engagements to take, not what to charge."
+        ),
+    }
+
+
+def auction_economics(
+    avg_comparable_price: float,
+    auction_fee_pct: float,
+    seller_premium_pct: float,
+    monthly_fixed_cost: float,
+    unit: str = "lot",
+) -> dict:
+    """Auction economics — price discovered through bidding, not set by the seller."""
+    total_seller_rate = (auction_fee_pct + seller_premium_pct) / 100
+    expected_revenue_per_lot = avg_comparable_price * (1 - total_seller_rate)
+
+    return {
+        "model": AUCTION,
+        "unit": unit,
+        "avg_comparable_price": avg_comparable_price,
+        "auction_fee_pct": auction_fee_pct,
+        "seller_premium_pct": seller_premium_pct,
+        "expected_net_per_lot": round(expected_revenue_per_lot, 2),
+        "monthly_fixed_cost": monthly_fixed_cost,
+        "pricing_note": (
+            "Price is not set by the seller \u2014 it is discovered through bidding. "
+            "The algorithm models expected clearing price from comparables, not a "
+            "recommended price. Actual clearing price may vary significantly."
+        ),
+    }
+
+
+def anchor_discount_economics(
+    anchor_price: float,
+    sell_price: float,
+    variable_cost: float,
+    monthly_fixed_cost: float,
+    unit: str = "unit",
+) -> dict:
+    """Anchor + discount economics — high reference price, sell at discount."""
+    actual_margin = sell_price - variable_cost
+    actual_margin_pct = (actual_margin / sell_price * 100) if sell_price else 0
+    discount_pct = ((anchor_price - sell_price) / anchor_price * 100) if anchor_price else 0
+    break_even_units = math.ceil(monthly_fixed_cost / actual_margin) if actual_margin > 0 else None
+
+    return {
+        "model": ANCHOR_DISCOUNT,
+        "unit": unit,
+        "anchor_price": anchor_price,
+        "sell_price": sell_price,
+        "discount_pct": round(discount_pct, 1),
+        "variable_cost": variable_cost,
+        "margin_per_unit": round(actual_margin, 2),
+        "margin_pct": round(actual_margin_pct, 1),
+        "monthly_fixed_cost": monthly_fixed_cost,
+        "break_even_units_per_month": break_even_units,
+        "note": (
+            f"Economics computed on actual sell price ${sell_price}, not anchor ${anchor_price}. "
+            f"The {discount_pct:.0f}% discount is a positioning mechanic, not a cost."
+        ),
+    }
+
+
 def classify_with_confidence(profile: dict, market_scale: Optional[dict] = None) -> dict:
     """The kind, PLUS whether the brief actually said so.
 
@@ -535,7 +948,11 @@ def classify_with_confidence(profile: dict, market_scale: Optional[dict] = None)
         or _has(_SERVICES_KW) or _has(_ONETIME_KW) or _has(_PER_VISIT_KW)
         or _MARKETPLACE_RE.search(blob) or _AD_RE.search(blob)
         or _SERVICES_RE.search(blob) or _ONETIME_RE.search(blob)
-        or _RECURRING_RE.search(blob))
+        or _RECURRING_RE.search(blob)
+        or _has(_HOURLY_KW) or _has(_RETAINER_KW) or _has(_CONSIGNMENT_KW)
+        or _has(_WHOLESALE_KW) or _has(_FREEMIUM_KW) or _has(_RAZOR_BLADES_KW)
+        or _has(_AUCTION_KW) or _has(_DYNAMIC_KW) or _has(_PERFORMANCE_KW)
+        or _has(_ANCHOR_DISCOUNT_KW))
 
     ms = market_scale or {}
     if not explicit and ((ms.get("signals") or {}).get("is_physical")
@@ -552,3 +969,26 @@ def classify_with_confidence(profile: dict, market_scale: Optional[dict] = None)
             f"(pricing, unit economics, lifetime value, the volume ladder) rests on that "
             f"assumption. If it is wrong, say how you charge and the numbers change.")
     return {"kind": kind, "explicit": explicit, "disclosure": disclosure}
+
+
+def pricing_model_label(kind: str) -> str:
+    """Human-readable label for each pricing model type, for use in reports."""
+    return {
+        TRANSACTIONAL: "Per-unit (transactional)",
+        SUBSCRIPTION: "Subscription",
+        ECOMMERCE: "E-commerce (one-time)",
+        SERVICES: "Project / fixed-fee",
+        HYBRID: "Hybrid (one-time + recurring)",
+        MARKETPLACE: "Marketplace (take-rate on GMV)",
+        AD_SUPPORTED: "Ad-supported (free to user)",
+        HOURLY: "Time-based (hourly / daily)",
+        RETAINER: "Retainer",
+        CONSIGNMENT: "Consignment",
+        WHOLESALE: "Wholesale (B2B channel)",
+        FREEMIUM: "Freemium (free tier + paid upgrade)",
+        RAZOR_BLADES: "Razor + blades (platform + consumable)",
+        AUCTION: "Auction / discovered price",
+        DYNAMIC: "Dynamic / yield pricing",
+        PERFORMANCE: "Performance / contingency",
+        ANCHOR_DISCOUNT: "Anchor + discount",
+    }.get(kind, kind)

@@ -105,10 +105,25 @@ def run_financials_step(result: dict, profile: dict, *, psm_result: dict, biz_ki
             business_model=profile.get("business_model", ""),
             market_scale=_mkt_scale)
 
-    _fin_model = ("transactional" if is_per_unit(biz_kind)
-                 else biz_kind if biz_kind in ("marketplace", "ad_supported")
-                 else "subscription")
-    _needs_price = _fin_model not in ("marketplace", "ad_supported")
+    # Extended model routing:
+    # - HOURLY, DYNAMIC: capacity × utilization × rate → transactional projection shape
+    # - CONSIGNMENT, AUCTION, PERFORMANCE: expected revenue per transaction × volume → transactional shape
+    # - WHOLESALE: same math as transactional, labeled differently
+    # - FREEMIUM: paid users × arpu → subscription projection shape
+    # - RAZOR_BLADES: complex blended LTV → subscription projection shape (consumable recurring)
+    # - ANCHOR_DISCOUNT, RETAINER: identical math to transactional/subscription respectively
+    # - AUCTION, DYNAMIC, PERFORMANCE get a pricing_note disclosure; no fake recommendation
+    _REVENUE_ONLY_KINDS = ("marketplace", "ad_supported", "auction", "dynamic", "performance")
+    _TRANSACTIONAL_EQUIV = ("hourly", "consignment", "wholesale", "anchor_discount")
+    _SUBSCRIPTION_EQUIV = ("freemium", "razor_blades", "retainer")
+    _fin_model = (
+        "transactional" if (is_per_unit(biz_kind) or biz_kind in _TRANSACTIONAL_EQUIV)
+        else biz_kind if biz_kind in _REVENUE_ONLY_KINDS
+        else "subscription" if biz_kind in _SUBSCRIPTION_EQUIV
+        else biz_kind if biz_kind in ("marketplace", "ad_supported")
+        else "subscription"
+    )
+    _needs_price = _fin_model not in _REVENUE_ONLY_KINDS
     if som_mid and (optimal_price or not _needs_price):
         with step_scope("financials"):
             log.info("[plan] Step 10b: 3-year financial projections")

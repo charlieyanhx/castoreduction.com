@@ -127,6 +127,120 @@ def run_economics_step(result: dict, profile: dict, *, psm_result: dict, biz_kin
                     econ["cost_benchmark_note"] = _cost["benchmark_note"]
                 if _cost.get("sourced"):
                     econ["cost_sourced"] = True
+            elif biz_kind == "hourly" and _cost:
+                from business_model import hourly_economics
+                log.info("[plan] Step 10: hourly economics (%s)", unit_noun)
+                econ = hourly_economics(
+                    hourly_rate=float(profile.get("hourly_rate") or price_per_unit or 0),
+                    utilization_pct=float(profile.get("utilization_pct") or 70),
+                    weekly_capacity_hours=float(profile.get("weekly_capacity_hours") or 40),
+                    monthly_fixed_cost=_cost["monthly_fixed_cost"],
+                    unit=unit_noun,
+                )
+            elif biz_kind == "retainer" and _cost and opt:
+                from business_model import retail_unit_economics
+                log.info("[plan] Step 10: retainer economics (subscription-path, %s)", unit_noun)
+                # Retainer math is identical to subscription: committed monthly fee × clients.
+                # Route through the subscription CLV path using the retainer amount as monthly price.
+                from economics import full_economics
+                econ = full_economics(
+                    segment_summary=segment_summary,
+                    product_summary=profile.get("summary", ""),
+                    optimal_price_monthly=float(profile.get("retainer_amount") or opt),
+                    pricing_unit=unit_noun,
+                    competitor_prices=None,
+                )
+                econ["model"] = "retainer"
+                econ["note"] = (
+                    "Retainer economics: committed monthly fee per client. Break-even is in "
+                    "clients-at-retainer, not seat count. Included hours: "
+                    f"{profile.get('included_hours', 'not stated')}."
+                )
+            elif biz_kind == "consignment" and _cost:
+                from business_model import consignment_economics
+                log.info("[plan] Step 10: consignment economics (%s)", unit_noun)
+                econ = consignment_economics(
+                    take_rate_pct=float(profile.get("take_rate_pct") or 20),
+                    avg_sale_value=float(profile.get("avg_sale_value") or price_per_unit or 0),
+                    transaction_cost_rate=0.03,
+                    monthly_fixed_cost=_cost["monthly_fixed_cost"],
+                    unit=unit_noun,
+                )
+            elif biz_kind == "wholesale" and _cost:
+                from business_model import wholesale_economics
+                log.info("[plan] Step 10: wholesale economics (%s)", unit_noun)
+                econ = wholesale_economics(
+                    wholesale_price=float(profile.get("wholesale_price") or price_per_unit or 0),
+                    variable_cost_per_unit=_cost["variable_cost_per_customer"],
+                    monthly_fixed_cost=_cost["monthly_fixed_cost"],
+                    retail_price=profile.get("retail_price"),
+                    unit=unit_noun,
+                )
+            elif biz_kind == "freemium" and _cost:
+                from business_model import freemium_economics
+                log.info("[plan] Step 10: freemium economics (%s)", unit_noun)
+                econ = freemium_economics(
+                    paid_arpu=float(profile.get("paid_arpu") or opt or 0),
+                    conversion_rate_pct=float(profile.get("conversion_rate_pct") or 3),
+                    variable_cost_per_paid_user=_cost["variable_cost_per_customer"],
+                    monthly_fixed_cost=_cost["monthly_fixed_cost"],
+                    free_to_paid_months=float(profile.get("free_to_paid_months") or 6),
+                    unit=unit_noun,
+                )
+            elif biz_kind == "razor_blades" and _cost:
+                from business_model import razor_blades_economics
+                log.info("[plan] Step 10: razor+blades economics (%s)", unit_noun)
+                econ = razor_blades_economics(
+                    hardware_price=float(profile.get("hardware_price") or 0),
+                    hardware_cost=float(profile.get("hardware_cost") or 0),
+                    consumable_price=float(profile.get("consumable_price") or 0),
+                    consumable_cost=float(profile.get("consumable_cost") or 0),
+                    consumables_per_year=float(profile.get("consumables_per_year") or 12),
+                    monthly_fixed_cost=_cost["monthly_fixed_cost"],
+                    unit=unit_noun,
+                )
+            elif biz_kind == "dynamic" and _cost:
+                from business_model import dynamic_economics
+                log.info("[plan] Step 10: dynamic/yield economics (%s)", unit_noun)
+                econ = dynamic_economics(
+                    capacity_units=float(profile.get("capacity_units") or 1),
+                    avg_rate_usd=float(profile.get("avg_rate_usd") or price_per_unit or 0),
+                    avg_utilization_pct=float(profile.get("avg_utilization_pct") or 65),
+                    variable_cost_per_unit=_cost["variable_cost_per_customer"],
+                    monthly_fixed_cost=_cost["monthly_fixed_cost"],
+                    unit=unit_noun,
+                )
+            elif biz_kind == "performance" and _cost:
+                from business_model import performance_economics
+                log.info("[plan] Step 10: performance/contingency economics (%s)", unit_noun)
+                econ = performance_economics(
+                    avg_outcome_value=float(profile.get("avg_outcome_value") or 0),
+                    success_fee_pct=float(profile.get("success_fee_pct") or 20),
+                    win_rate_pct=float(profile.get("win_rate_pct") or 60),
+                    monthly_fixed_cost=_cost["monthly_fixed_cost"],
+                    variable_cost_per_engagement=_cost["variable_cost_per_customer"],
+                    unit=unit_noun,
+                )
+            elif biz_kind == "auction" and _cost:
+                from business_model import auction_economics
+                log.info("[plan] Step 10: auction economics (%s)", unit_noun)
+                econ = auction_economics(
+                    avg_comparable_price=float(profile.get("avg_comparable_price") or price_per_unit or 0),
+                    auction_fee_pct=float(profile.get("auction_fee_pct") or 10),
+                    seller_premium_pct=float(profile.get("seller_premium_pct") or 0),
+                    monthly_fixed_cost=_cost["monthly_fixed_cost"],
+                    unit=unit_noun,
+                )
+            elif biz_kind == "anchor_discount" and _cost and price_per_unit:
+                from business_model import anchor_discount_economics
+                log.info("[plan] Step 10: anchor+discount economics (%s)", unit_noun)
+                econ = anchor_discount_economics(
+                    anchor_price=float(profile.get("anchor_price") or price_per_unit * 1.5),
+                    sell_price=float(profile.get("sell_price") or price_per_unit),
+                    variable_cost=_cost["variable_cost_per_customer"],
+                    monthly_fixed_cost=_cost["monthly_fixed_cost"],
+                    unit=unit_noun,
+                )
             elif biz_kind == "subscription":
                 from economics import full_economics
                 log.info("[plan] Step 10: CLV + CAC + EVC economics (subscription)")
@@ -208,11 +322,13 @@ def run_economics_step(result: dict, profile: dict, *, psm_result: dict, biz_kin
 
 
 def ensure_nonpriced_economics(result: dict, biz_kind: str) -> None:
-    """cycle38: non-priced models (ad-supported, marketplace) often have no PSM optimal
-    price, so the priced block is skipped — but we still owe the reader an HONEST
-    economics object naming the real revenue basis (never a fabricated SaaS CLV:CAC,
-    and never silently blank)."""
-    if result.get("economics") or biz_kind not in ("ad_supported", "marketplace"):
+    """cycle38: non-priced models (ad-supported, marketplace, auction, dynamic, performance)
+    often have no PSM optimal price, so the priced block is skipped — but we still owe the
+    reader an HONEST economics object naming the real revenue basis (never a fabricated SaaS
+    CLV:CAC, and never silently blank)."""
+    if result.get("economics") or biz_kind not in (
+        "ad_supported", "marketplace", "auction", "dynamic", "performance"
+    ):
         return
     if biz_kind == "ad_supported":
         result["economics"] = {"model": "ad_supported",
@@ -220,6 +336,25 @@ def ensure_nonpriced_economics(result: dict, biz_kind: str) -> None:
             "needs_operator_input": ["eCPM", "fill rate", "sessions/MAU", "impressions/session", "cost-to-serve/user"],
             "note": "Free to the user — no subscriber price, so subscriber CLV:CAC does not apply. "
                     "Unit economics = ad revenue per active user minus cost-to-serve."}
+    elif biz_kind == "auction":
+        result["economics"] = {"model": "auction",
+            "revenue_basis": "auction fees on hammer price (platform revenue = hammer price × fee rate)",
+            "needs_operator_input": ["auction fee %", "seller premium %", "avg comparable price", "lots/period"],
+            "pricing_note": "Price is not set by the seller — it is discovered through bidding. "
+                            "The algorithm models expected clearing price from comparables, not a "
+                            "recommended price. Actual clearing price may vary significantly."}
+    elif biz_kind == "dynamic":
+        result["economics"] = {"model": "dynamic",
+            "revenue_basis": "capacity × utilization × average rate (yield management)",
+            "needs_operator_input": ["capacity units", "average rate", "average utilization %"],
+            "pricing_note": "Price varies by demand and time — a single recommended price is not meaningful. "
+                            "The operative metric is expected revenue per available capacity unit."}
+    elif biz_kind == "performance":
+        result["economics"] = {"model": "performance",
+            "revenue_basis": "success fee on outcome value (revenue = outcome value × fee % × win rate)",
+            "needs_operator_input": ["avg outcome value", "success fee %", "win rate %"],
+            "pricing_note": "Price is zero until outcome occurs — the algorithm cannot recommend a price. "
+                            "The operative decision is which engagements to take, not what to charge."}
     else:
         result["economics"] = {"model": "marketplace",
             "revenue_basis": "take-rate on third-party GMV (platform revenue = GMV × take-rate, not full GMV)",

@@ -300,6 +300,30 @@ except Exception:  # pragma: no cover — never let provenance break an import
         return lambda f: f
 
 
+# Models where Van Westendorp PSM does not apply — the seller either does not set a price
+# (auction, dynamic, performance) or the user pays nothing (ad_supported).
+MODELS_WITHOUT_PSM = {
+    "auction": "Price is discovered through bidding, not set by the seller. PSM simulation requires a seller-set price.",
+    "dynamic": "Price varies by demand and time. PSM assumes a fixed price point.",
+    "performance": "Price is zero until an outcome occurs. PSM simulation is not applicable.",
+    "ad_supported": "Product is free to the user. No customer price to simulate.",
+}
+
+
+def psm_or_disclosure(biz_kind: str, **psm_kwargs) -> dict:
+    """Run Van Westendorp PSM, or return a structured disclosure for models where it doesn't apply.
+
+    Models where a seller-set price does not exist (auction, dynamic, performance, ad_supported)
+    get a clear explanation rather than a fabricated price simulation."""
+    if biz_kind in MODELS_WITHOUT_PSM:
+        return {
+            "psm_unavailable": True,
+            "reason": MODELS_WITHOUT_PSM[biz_kind],
+            "model": biz_kind,
+        }
+    return simulate_van_westendorp(**psm_kwargs)
+
+
 @_records_production("pricing_benchmark")
 def build_benchmark_table(
     our_tiers: list[dict],
