@@ -67,6 +67,25 @@ external socket connections, and substitutes deterministic model responses. It e
 wiring and behavior, not external-source availability. See `conftest.py` for explicit
 live-test exceptions. Test counts change; use the suite output instead of a README count.
 
+One test drives the product in a real browser. `test_the_founder_path_in_a_real_browser.py`
+starts the stand-in server and, in headless Chromium, reads the report, asks the analyst,
+explains a selected passage, leaves a note, rewrites, runs out of credits and buys more,
+marks the report final, follows a new run from the progress page to its report, and opens
+it on a phone. It needs Playwright's Chromium (`.venv/bin/python -m playwright install
+chromium`) and skips, saying so, without it.
+
+### Work on the page without a key
+
+```bash
+.venv/bin/python scripts/dev_workshop_server.py        # then open http://127.0.0.1:8767/dev/claim
+```
+
+The real app on a throwaway database with one finished report and a stand-in analyst: every
+route, credit and gate is real, only the model is a stand-in. Type "invent" in a question to
+see an answer refused by the number audit, "fail" to see a failed turn refund, "slow" for a
+twelve-second answer. With `CASTOR_DEV_FAST_RUNS=1` a new report or a re-run hands back the
+fixture in two seconds instead of running the research.
+
 ### Exercise a capability without a report
 
 ```bash

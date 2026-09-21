@@ -15,6 +15,11 @@ Start it, open the URL it prints, and the browser's guest cookie owns the report
 first request to /dev/claim hands it over). Never run this on a public port.
 
     .venv/bin/python scripts/dev_workshop_server.py [port]
+
+With CASTOR_DEV_FAST_RUNS=1 a new report or a re-run does not run the research either:
+plan.run_plan hands back the same fixture after two seconds, so the survey, the progress
+page and the handoff to the report can be driven end to end in seconds (the browser test
+test_the_founder_path_in_a_real_browser.py starts this server that way).
 """
 from __future__ import annotations
 
@@ -133,13 +138,16 @@ def main() -> None:
     # the real pipeline on the real free chain (.env's Gemini or Groq key); only the
     # analyst is the stand-in. A process with no free key would run every step into
     # "No LLM API key found" ten minutes after the click, so it is refused at the door.
+    fast = os.environ.get("CASTOR_DEV_FAST_RUNS", "").strip().lower() in ("1", "true", "yes")
     import llm
     chain = [b for b in llm.fallback_chain() if b != "anthropic"]
-    if not chain:
+    if not chain and not fast:
         raise SystemExit("no free LLM backend is configured (GEMINI_API_KEY or GROQ_API_KEY "
                          "in .env); a re-run or a new report would fail on every step. "
                          "Start this with .venv/bin/python so .env is loaded.")
-    print(f"  pipeline models: {', '.join(chain)} (real); analyst: stand-in", flush=True)
+    print("  pipeline: the fixture, in two seconds (CASTOR_DEV_FAST_RUNS); analyst: stand-in"
+          if fast else f"  pipeline models: {', '.join(chain)} (real); analyst: stand-in",
+          flush=True)
 
     result = json.loads(FIXTURE.read_text(encoding="utf-8"))
     result["synthesis"] = {"markdown": REPORT.read_text(encoding="utf-8"),
@@ -164,9 +172,22 @@ def main() -> None:
         c.commit(); c.close()
         return RedirectResponse(f"/jobs/{jid}/report.html")
 
+    def fake_run_plan(description, *a, progress=None, **kw):
+        """The research, replaced by the fixture: the same finished report for any brief,
+        after a pause long enough for the progress page to be seen working."""
+        import copy
+        time.sleep(2)
+        out = copy.deepcopy(result)
+        out.pop("_stub", None)
+        return out
+
     print(f"\n  open  http://127.0.0.1:{PORT}/dev/claim\n", flush=True)
     with patch("anthropic.Anthropic", _FakeAnthropic):
-        uvicorn.run(api.app, host="127.0.0.1", port=PORT, log_level="warning")
+        if fast:
+            with patch("plan.run_plan", fake_run_plan):
+                uvicorn.run(api.app, host="127.0.0.1", port=PORT, log_level="warning")
+        else:
+            uvicorn.run(api.app, host="127.0.0.1", port=PORT, log_level="warning")
 
 
 if __name__ == "__main__":
