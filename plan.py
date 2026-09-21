@@ -16,7 +16,7 @@ Steps (spec mapping):
   10. Pricing framework                → pricing.compute_break_even
   11. Place analysis                   → place.analyze + place.recommend_place
   12. Validation gate                  → computed inline
-  13. 4Ps plan                         → four_ps.assemble_4ps
+  13. 4Ps plan                         → four_ps.assemble_4ps_split
   14. Viability score                  → four_ps.score_viability
 """
 from __future__ import annotations
@@ -56,7 +56,8 @@ from skills.sizing.osm_tags import (  # noqa: F401
 from skills.sizing.triangulation import (  # noqa: F401
     _fmt_tam_short, _renormalize_segmentation, _resync_sam_after_triangulation,
     _rewrite_tam_tokens, triangulate_sizing)
-from orchestrator.steps import (record_dropped_output, run_with_timeout as _run_with_timeout,
+from orchestrator.steps import (  # noqa: F401 — compatibility exports used by callers/tests
+                                record_dropped_output, run_with_timeout as _run_with_timeout,
                                 skip_step as _skip_step, step_done as _step_done)
 from orchestrator.steps.clustering import run_clustering_step
 from orchestrator.steps.competitors import run_discover_step
@@ -88,7 +89,6 @@ def _validation_gate(result: dict) -> dict:
     confidence = 1.0
 
     opps = (result.get("discover", {}).get("synthesis", {}) or {}).get("ranked_opportunities", [])
-    density = result.get("discover", {}).get("competitor_density") or 0
     if len(opps) < 3:
         flags.append(f"Only {len(opps)} competitors found — expand search")
         confidence -= 0.15
@@ -423,10 +423,6 @@ def gate_and_annotate_sizing(sizing: dict, scale_decision: dict | None) -> dict:
                         "unavailable. No market size is published rather than substituting "
                         "a national estimate for a trade area."]
     return out
-
-
-
-
 
 
 # cycle37: a per-TRANSACTION stated price ("$6 per drink", "$6/cup", "$15 a cut"). The monthly
@@ -1043,16 +1039,10 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
     return out
 
 
-
-
-
-
 # A full stop ends the location only when it ends a SENTENCE. "$5.50" and "St. Louis" both
 # contain one and neither is a boundary, so a bare split on "." is wrong in the other
 # direction — it would truncate a price-bearing description at the decimal and turn
 # "St. Louis, Missouri" into "St".
-
-
 
 
 # Map common physical categories to a REAL OSM (key, value) tag for competitor lookup.
@@ -1068,12 +1058,6 @@ def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
 # Realistic catchment radius (metres) by OSM value — a walk-in cafe draws from ~1.5km, a
 # destination restaurant ~3km, a drive-to gym ~5km. A flat 3km over-counted households (and
 # competitors) for grab-and-go venues, inflating the trade-area TAM. cycle38.
-
-
-
-
-
-
 
 
 def attach_consumer_research(result: dict, description: str, geo: str, profile: dict,
@@ -1957,18 +1941,6 @@ def assess_run_health(result: dict) -> dict:
     }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 def refine_pipeline_result(result: dict, description: str, geo: str, profile: dict,
                            opps: list[dict], max_rounds: int = 1) -> dict:
     """Generator-evaluator-refine pass over a finished pipeline result (opt-in).
@@ -2311,10 +2283,6 @@ def _finalize_run(result: dict, *, description: str, geo: str, _levers: dict,
     except Exception as e:
         log.debug("[plan] cogs unavailable: %s", e)
     return result
-
-
-
-
 
 
 def _stamp_report_style(result: dict, report_style: str | None,

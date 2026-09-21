@@ -15,9 +15,7 @@ it is refused at the door as well as at the socket. See url_guard.
 from __future__ import annotations
 
 import os
-import json as _json
 import threading
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
@@ -818,7 +816,6 @@ def post_plan(req: PlanRequest):
         # either way, and failing the run over its notification would be the tail wagging
         # the dog.
         _notify_owner(_owner, job_id, result)
-        return result
         return result
 
     jobs.run_async(job_id, work)

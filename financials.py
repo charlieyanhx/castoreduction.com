@@ -554,7 +554,7 @@ def planning_target(*, som_usd, price_per_unit, market_scale=None,
         "y1_fraction": y1,
         "basis": (f"base-case year 1 ({shape}): {y1:.0%} of the obtainable SOM "
                   f"(${som:,.0f})" + (f" at ${price:,.2f}" if price else "")
-                  + f", spread over the year"),
+                  + ", spread over the year"),
         "ramp_note": ramp_note,
     }
 

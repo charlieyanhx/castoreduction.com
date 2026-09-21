@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 import time as _time
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -199,8 +199,6 @@ def _withheld_page(job_id: str, blocking: list, remedies: list | None = None,
         "<a href=\"/\" style=\"display:inline-block;margin-top:.5rem;margin-left:.5rem;"
         "padding:.55rem 1rem;background:#1f2937;color:#fff;border-radius:8px;"
         "text-decoration:none\">Start a new report</a></p></div>")
-
-
 
 
 @router.get("/jobs")

@@ -415,7 +415,6 @@ def estimate_market_size(
                 return float(single)
             return None
         if isinstance(v, str):
-            import re as _re
             # strip $, B/M/K suffixes
             txt = v.replace("$", "").replace(",", "").strip()
             mult = 1

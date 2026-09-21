@@ -7,10 +7,8 @@ keep fixes localized here.
 from __future__ import annotations
 
 import json
-import re
 import time
 
-import requests
 from bs4 import BeautifulSoup
 
 import net as mrp_http
@@ -133,7 +131,7 @@ def trustpilot_momentum(domain: str) -> dict:
     Returns {} if the brand isn't on Trustpilot.
     """
     from collections import Counter
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     reviews = trustpilot_reviews(domain, max_pages=3)
     if not reviews:

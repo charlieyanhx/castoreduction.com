@@ -516,7 +516,7 @@ def _drain_pending(db: str) -> None:
         log.error("[jobs] draining the queue after a run failed: %s", e)
 
 
-def run_async(job_id: str, fn: Callable[[], dict], progress_fn: Callable | None = None) -> None:
+def run_async(job_id: str, fn: Callable[[], dict]) -> None:
     """
     Spawn a thread to run fn(), catch any error, update job state.
 

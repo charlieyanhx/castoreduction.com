@@ -33,7 +33,7 @@ is the outside world.
 from __future__ import annotations
 
 import math
-from typing import Any, Optional
+from typing import Optional
 
 import slots
 

@@ -19,7 +19,7 @@ def competitor_map_svg(clustering: dict, whitespace: dict | None = None,
     Output: SVG string ready to embed in HTML.
     """
     if not clustering or clustering.get("error"):
-        return f'<div style="color:#9ca3af;font-size:11pt">No competitor map (need ≥4 brands)</div>'
+        return '<div style="color:#9ca3af;font-size:11pt">No competitor map (need ≥4 brands)</div>'
 
     coords = clustering.get("coordinates", {})
     clusters = clustering.get("clusters", [])
@@ -108,10 +108,6 @@ def competitor_map_svg(clustering: dict, whitespace: dict | None = None,
     pc2_meta = axis_labels.get("pc2") or {}
     pc1_label = pc1_meta.get("label") or "PC1 (largest variance)"
     pc2_label = pc2_meta.get("label") or "PC2"
-    pc1_high = pc1_meta.get("high_meaning") or "high"
-    pc1_low = pc1_meta.get("low_meaning") or "low"
-    pc2_high = pc2_meta.get("high_meaning") or "high"
-    pc2_low = pc2_meta.get("low_meaning") or "low"
 
     cx_axis = (margin + (width - margin)) // 2  # x-axis center (vertical line)
     cy_axis = (margin + (height - margin)) // 2  # y-axis center (horizontal line)
@@ -167,7 +163,7 @@ def competitor_map_svg(clustering: dict, whitespace: dict | None = None,
     if len(clusters) > 1:
         legend_y = height - 5
         legend_x = margin
-        svg.append(f'<g font-size="9" fill="#4b5563">')
+        svg.append('<g font-size="9" fill="#4b5563">')
         for i, c in enumerate(clusters):
             color = cluster_color.get(c["id"], "#6b7280")
             cx = legend_x + i * 80
@@ -252,15 +248,3 @@ def segment_radar_svg(segment: dict, width: int = 360, height: int = 360) -> str
         parts.append(f'<text x="{lx:.1f}" y="{ly + 12:.1f}" text-anchor="{anchor}" font-size="9" fill="#6b7280">{v:.2f}</text>')
     parts.append('</svg>')
     return "\n".join(parts)
-
-
-def signal_bar_svg(label: str, value: float, max_value: float = 100,
-                   width: int = 300, color: str = "#3b82f6") -> str:
-    """Render a single horizontal bar — useful for inline metric viz."""
-    pct = max(0, min(100, (value / max_value) * 100))
-    return f'''<svg width="{width}" height="20" xmlns="http://www.w3.org/2000/svg">
-      <rect x="0" y="6" width="{width}" height="8" rx="4" fill="#e5e7eb"/>
-      <rect x="0" y="6" width="{width * pct / 100}" height="8" rx="4" fill="{color}"/>
-      <text x="0" y="-2" font-size="10" fill="#4b5563">{html_mod.escape(label)}</text>
-      <text x="{width}" y="-2" text-anchor="end" font-size="10" fill="#1f2937" font-weight="600">{value}</text>
-    </svg>'''

@@ -3,6 +3,15 @@
 __pycache__
 *.pyc
 .env
+.session_secret
+.transcripts/
+.claude/
+.bin/
+claude-code-main/
+jobs.db
+*.sqlite-wal
+*.sqlite-shm
+.ruff_cache/
 .cache.sqlite
 .jobs.sqlite
 .http_cache.sqlite

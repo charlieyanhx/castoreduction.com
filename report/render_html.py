@@ -30,7 +30,6 @@ from rendering import SafeUndefined, display_title
 import re
 
 import logging
-from datetime import datetime
 
 from core.section import for_the_reader
 from report.section_provenance import SECTION_SOURCES  # noqa: F401  (template may read it)
@@ -104,7 +103,6 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
 
     # Render competitor map SVG if clustering data exists
     from charts import competitor_map_svg
-    import charts
     from report.section_provenance import build_section_provenance
     clustering = r.get("clustering")
     whitespace = r.get("whitespace")
@@ -351,5 +349,3 @@ def render_report_html(result: dict, job_id: str = "", debug: int = 0,
         log.info("[report] sentence trace: %d/%d blocks attributed to a result path",
                  _trace_stats["matched"], _trace_stats["blocks"])
     return html
-
-

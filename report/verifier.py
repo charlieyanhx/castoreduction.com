@@ -162,7 +162,6 @@ def _reconcilable_figures(figures: list) -> list:
     living inside a verifier. Exposed as a function so a test can assert real reports are fully
     reconcilable rather than trusting the silence.
     """
-    from skills.sizing.validate import safe_eval_formula
     refs = _figure_refs(figures)
     unreconcilable = []
     for fig in figures or []:
@@ -207,7 +206,6 @@ def _check_formula_reconciliation(r: dict, html: Optional[str]):
     a citation. The ratio band is unchanged on purpose — it was never the problem, and widening
     it would have hidden the 6.7x case this check exists for.
     """
-    from skills.sizing.validate import safe_eval_formula
     figures = (r.get("market_sizing") or {}).get("figures") or []
     refs = _figure_refs(figures)
     out = []
@@ -348,15 +346,18 @@ def _llm_review(r: dict, html: Optional[str]) -> list[Finding]:
     not follow from its own evidence. This is where that lives — and why it is opt-in
     and never load-bearing.
     """
+    from context.blobs import json_blob
     from llm import call_json
-    fp = r.get("four_ps") or {}
-    prose = "\n\n".join(
-        f"[{p}] {(fp.get(p) or {}).get('narrative', '')}"
-        for p in ("product", "price", "place", "promotion") if isinstance(fp.get(p), dict))
-    sizing = (r.get("market_sizing") or {})
-    body = (f"SIZING: TAM {sizing.get('tam_usd')}, SAM {sizing.get('sam_usd')}, "
-            f"SOM {sizing.get('som_usd')}\nMODEL: {r.get('business_model_kind')}\n\n{prose}")
-    resp = call_json(system=_REVIEW_SYSTEM, user=body[:12000], max_tokens=1200) or {}
+    # Pass the actual nested evidence, not obsolete tam_usd/sam_usd/som_usd keys.
+    # Separate bounded JSON blocks keep a verbose section from hiding later inputs
+    # and preserve valid JSON instead of cutting through the last figure or claim.
+    sections = (("market_sizing", 4000), ("economics", 2000),
+                ("financials", 2500), ("price_reconciliation", 1500),
+                ("viability", 2000), ("four_ps", 6000))
+    body = "\n\n".join(
+        [f"BUSINESS MODEL: {r.get('business_model_kind')}"] +
+        [f"[{key}]\n{json_blob(r.get(key), limit)}" for key, limit in sections])
+    resp = call_json(system=_REVIEW_SYSTEM, user=body, max_tokens=1200) or {}
     out = []
     for f in (resp.get("findings") or []):
         if not isinstance(f, dict) or not f.get("detail"):
@@ -498,4 +499,3 @@ def reverify(result: dict, html: str | None = None, *, dry_run: bool = False,
     out["verification"] = fresh
     out["verification_history"] = history
     return out
-

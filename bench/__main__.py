@@ -270,7 +270,7 @@ def main() -> int:
     pl = sub.add_parser("list", help="what is registered")
     _filters(pl)
 
-    pd = sub.add_parser("doctor", help="which capabilities have no fixture arguments")
+    sub.add_parser("doctor", help="which capabilities have no fixture arguments")
 
     pc = sub.add_parser("call", help="run one capability with explicit arguments")
     pc.add_argument("name")

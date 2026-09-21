@@ -40,17 +40,12 @@ import taste
 
 def _decode(reviews=0, reddit=0, articles=0, hn=0, homepage=0):
     """Run decode_taste with the scrape layer stubbed to exact signal counts."""
-    # reddit_search too, not only the reddit_mentions shim: decode_taste switched to
-    # reddit_search (taste.py:252), so the shim patch left a LIVE Reddit call in the
-    # decode path. It passed for months on a requests_cache hit; in the 2026-08-12 suite
-    # run the cache missed, Reddit refused the connection, and five of these tests failed
-    # on transport — a hermetic test must inject the signal it claims to inject.
+    # Patch the active reddit_search seam. The retired reddit_mentions patch left a live
+    # call in the decode path and made the test depend on a requests-cache hit.
     with patch.object(taste, "trustpilot_reviews",
                       return_value=[{"text": "t"} for _ in range(reviews)]), \
          patch.object(taste, "reddit_search",
                       return_value=([{"text": "r"} for _ in range(reddit)], None)), \
-         patch.object(taste, "reddit_mentions",
-                      return_value=[{"text": "r"} for _ in range(reddit)]), \
          patch.object(taste, "search_review_articles",
                       return_value=[{"text": "a"} for _ in range(articles)]), \
          patch.object(taste, "hackernews_mentions",

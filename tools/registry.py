@@ -34,7 +34,7 @@ import functools
 import inspect
 import time
 import traceback
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from core import Evidence, Registry  # noqa: F401 — Evidence re-exported: `from tools import Evidence`
@@ -108,8 +108,6 @@ def _infer_concurrency(fn: Callable) -> str:
         if pattern in src:
             return "mutating"
     return "parallel_safe"
-
-
 
 
 # ---------------------------------------------------------------------------

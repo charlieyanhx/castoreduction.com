@@ -245,8 +245,6 @@ def cluster_competitors(
         if not members:
             continue
         centroid = X_2d[member_mask].mean(axis=0).tolist()
-        # Top TF-IDF terms for this cluster
-        cluster_avg = X[member_mask].mean(axis=0)
         clusters.append({
             "id": int(cluster_id),
             "members": members,

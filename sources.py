@@ -101,12 +101,6 @@ def google_trends_rising(category: str, geo: str = "US", timeframe: str = "today
 # ---------------------------------------------------------------------------
 # Brand → domain resolution via DuckDuckGo HTML (no API key, free)
 # ---------------------------------------------------------------------------
-def _head_ok(url: str, timeout: int = 8) -> bool:
-    try:
-        r = mrp_http.head(url, timeout=timeout, allow_redirects=True, max_retries=1)
-        return r.status_code < 400
-    except Exception:
-        return False
 
 
 # Parked / for-sale domain marketplace hosts (canonical list from research)

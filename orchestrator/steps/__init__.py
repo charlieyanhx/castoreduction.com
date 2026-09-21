@@ -8,7 +8,7 @@ plan.py re-exports `skip_step`/`step_done` under their old private names, which 
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Iterator, Optional
+from typing import Iterator
 
 
 @contextmanager

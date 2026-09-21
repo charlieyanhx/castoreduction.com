@@ -103,7 +103,7 @@ def within_judge_variance(prose: str, section_name: str, n_runs: int = 3, backen
 
 def cross_model_agreement(prose: str, section_name: str) -> dict:
     """Run all available backends on the same prose. Measure inter-model correlation."""
-    print(f"[cross-model] firing all available backends...", file=sys.stderr)
+    print("[cross-model] firing all available backends...", file=sys.stderr)
     results = {}
     for backend in BACKEND_DEFAULTS.keys():
         print(f"  {backend}...", file=sys.stderr)

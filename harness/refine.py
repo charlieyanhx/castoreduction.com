@@ -18,6 +18,7 @@ Discipline (mirrors the article):
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -75,8 +76,11 @@ def evaluate_refine(
         vals = [(scores.get(d) or {}).get("score", 0.0) for d in contract]
         return sum(vals) / len(vals) if vals else 0.0
 
-    scores = evaluate(artifact)
-    best_artifact, best_scores, best_total = artifact, scores, _total(scores)
+    # Evaluators and regenerators are injected code. Neither may mutate the retained
+    # artifact (including nested values) before a candidate has been accepted.
+    best_artifact = deepcopy(artifact)
+    scores = evaluate(deepcopy(best_artifact))
+    best_scores, best_total = deepcopy(scores), _total(scores)
     trajectory = [best_total]
     history = [{"round": 0, "total": best_total, "weak": _weak(scores, contract)}]
 
@@ -87,16 +91,21 @@ def evaluate_refine(
             break  # contract met
         rounds += 1
         try:
-            candidate = refine(best_artifact, weak, best_scores)
+            candidate = refine(deepcopy(best_artifact), weak, deepcopy(best_scores))
+            cand_scores = evaluate(deepcopy(candidate))
+            cand_total = _total(cand_scores)
         except Exception:
-            break  # refine failed → keep best so far
-        cand_scores = evaluate(candidate)
-        cand_total = _total(cand_scores)
+            break  # regeneration or evaluation failed → retain the last valid candidate
         trajectory.append(cand_total)
         history.append({"round": rounds, "total": cand_total,
                         "weak": _weak(cand_scores, contract), "refined": weak})
-        if cand_total > best_total:  # keep-the-best: only adopt genuine improvement
-            best_artifact, best_scores, best_total = candidate, cand_scores, cand_total
+        candidate_weak = _weak(cand_scores, contract)
+        # An aggregate quality gain cannot sacrifice a requirement already met.
+        # Conversely, meeting the complete contract wins even if the mean falls.
+        no_regression = set(candidate_weak).issubset(weak)
+        if no_regression and (not candidate_weak or cand_total > best_total):
+            best_artifact = deepcopy(candidate)
+            best_scores, best_total = deepcopy(cand_scores), cand_total
         else:
             break  # no improvement this round → stop (avoid churn/regression)
 

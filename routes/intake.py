@@ -13,7 +13,7 @@ confirmed brief.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from logger import get
 
@@ -27,12 +27,6 @@ router = APIRouter()
 class IntakeStartRequest(BaseModel):
     """Optional initial message — if provided, the LLM processes it as the first user turn."""
     initial_message: str | None = None
-
-
-class IntakeMessageRequest(BaseModel):
-    """One founder turn in the conversational intake."""
-    session_id: str
-    user_message: str = Field(..., min_length=1, max_length=4000)
 
 
 class IntakeEffortRequest(BaseModel):
@@ -251,7 +245,7 @@ def post_intake_confirm(session_id: str, body: dict | None = None):
     the model first heard. This is the cheapest possible moment to fix a wrong location:
     a sentence here against a whole report afterwards.
     """
-    from intake import confirmation_payload, intake_record, mark_confirmed
+    from intake import mark_confirmed
     s = _owned_session(session_id)
     # commit=false ASKS without SPENDING. The survey needs the assembled description and
     # the intake record BEFORE it posts /plan, but flagging the session confirmed is what

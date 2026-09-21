@@ -110,7 +110,10 @@ def score_tam(result: dict, ref_low: float, ref_mid: float, ref_high: float) -> 
     if m <= 0:
         return {"score": 0, "raw": m, "detail": "TAM ≤ 0"}
     log_m = math.log10(m)
-    log_band = (math.log10(ref_low) + math.log10(ref_high)) / 2
+    # The reference file supplies a reviewed midpoint; use it rather than silently
+    # replacing it with the geometric center of the low/high bounds.
+    center = ref_mid if isinstance(ref_mid, (int, float)) and ref_mid > 0 else (ref_low * ref_high) ** 0.5
+    log_band = math.log10(center)
     distance_oom = abs(log_m - log_band)
     score = max(0, round(100 - distance_oom * 50))
     return {
@@ -708,7 +711,7 @@ def render_report(grading: dict) -> str:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print(f"Usage: python -m benchmarks.score <path-or-url> [--case=NAME] [--with-prose]", file=sys.stderr)
+        print("Usage: python -m benchmarks.score <path-or-url> [--case=NAME] [--with-prose]", file=sys.stderr)
         print(f"  Available cases: {list_cases()}", file=sys.stderr)
         sys.exit(1)
     src = sys.argv[1]

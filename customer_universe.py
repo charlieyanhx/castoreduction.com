@@ -205,7 +205,6 @@ def _merge_prospects(method_lists: list[list[dict]], target_count: int) -> list[
     return collapse_near_dupes(flat, max_out=target_count * 2)
 
 
-
 # Domains that are never a prospect, however good the page title looks. A federal statistics
 # agency, an NGO data project, a think tank, a wiki and a trade publication are not companies
 # an operator can sell to — and the shipped Customer Universe listed all five as "real
@@ -745,7 +744,6 @@ def _crunchbase_wayback_search(query: str, max_results: int = 8) -> list[dict]:
     from scrape import search as _search
     from scrape.wayback import fetch_via_wayback
     from scrape import structured as _structured
-    from urllib.parse import urlparse
 
     out: list[dict] = []
     seen = set()
@@ -959,7 +957,7 @@ def _build_customer_universe_inner(
                     method_d = fut.result(timeout=30)
                     log.info(f"[cust_univ] method D found {len(method_d)} candidates")
                 except FutureTimeoutError:
-                    log.warning(f"[cust_univ] method D timed out (30s)")
+                    log.warning("[cust_univ] method D timed out (30s)")
                     fut.cancel()
         except Exception as e:
             log.warning(f"[cust_univ] method D failed: {e}")

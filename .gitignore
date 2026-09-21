@@ -41,4 +41,5 @@ docs/papers/*.out
 .jobs.sqlite-wal
 .jobs.sqlite-shm
 .pytest_cache/
+.ruff_cache/
 feedback-for-jane.*

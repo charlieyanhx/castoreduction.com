@@ -15,9 +15,6 @@ Nothing here defines a route, and nothing here imports api, so there is no cycle
 """
 from __future__ import annotations
 
-from pathlib import Path
-
-import jinja2
 
 # THE PROJECT ROOT, stated once and explicitly.
 #

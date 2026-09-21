@@ -50,8 +50,8 @@ import taste
 def _decode(reviews=0, reddit=0, articles=0, hn=0, homepage=0):
     with patch.object(taste, "trustpilot_reviews",
                       return_value=[{"text": "t"} for _ in range(reviews)]), \
-         patch.object(taste, "reddit_mentions",
-                      return_value=[{"text": "r"} for _ in range(reddit)]), \
+         patch.object(taste, "reddit_search",
+                      return_value=([{"text": "r"} for _ in range(reddit)], None)), \
          patch.object(taste, "search_review_articles",
                       return_value=[{"text": "a"} for _ in range(articles)]), \
          patch.object(taste, "hackernews_mentions",

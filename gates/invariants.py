@@ -12,13 +12,83 @@ against it. Append; do not tidy.
 from __future__ import annotations
 
 from gates.common import Invariant
-from gates.competitors import *   # noqa: F401,F403 — detectors referenced by the table below
-from gates.model import *         # noqa: F401,F403
-from gates.pricing import *       # noqa: F401,F403
-from gates.provenance import *    # noqa: F401,F403
-from gates.sizing import *        # noqa: F401,F403
-from gates.surface import *       # noqa: F401,F403
-from gates.synthesis import *     # noqa: F401,F403
+from gates.competitors import (
+    d07_geo_competitors,
+    d16_density_matches_ranked,
+    d19_no_off_category_direct_competitor,
+    d22_viability_reasoning_density_coherent,
+    d28_domain_identity_verified,
+    d30_differentiators_evidence_backed,
+    d33_competitor_counts_reconcile,
+    d34_roster_excludes_references,
+    d42_no_near_dupe_competitors,
+    d44_vertical_anchors_match_tags,
+    d46_ranked_score_is_pythons,
+    d51_momentum_count_measured_on_the_shown_roster,
+)
+from gates.model import (
+    d05_unit_no_monthly,
+    d06_html_no_saas_bleed,
+    d17_per_unit_not_on_subscription_fallback,
+)
+from gates.pricing import (
+    d08_profit_coherent,
+    d10_wtp_band_sane,
+    d13_benchmark_not_fabricated,
+    d18_wtp_price_reconciled,
+    d21_arpu_coherent_across_sections,
+    d24_withheld_profit_not_fabricated,
+    d26_pnl_cost_side_honest,
+    d31_benchmark_prices_coherent,
+    d32_wtp_aggregation_honest,
+    d37_viability_anchored_to_real_margin,
+    d39_price_reconcile_unit_honest,
+    d41_no_empty_price_per_customer,
+    d58_psm_tiers_disclose_their_own_range,
+    d61_volume_targets_match_the_ladder,
+)
+from gates.provenance import (
+    d11_currency_sources,
+    d12_provenance,
+    d25_provenance_chip_not_fabricated,
+    d47_trace_belongs_to_one_run,
+    d48_shipped_report_attributes_its_sections,
+    d53_no_fabricated_agency_citation,
+)
+from gates.sizing import (
+    d03_single_som,
+    d04_funnel_order,
+    d15_tam_coherent_across_sections,
+    d20_sam_self_consistent,
+    d23_at_som_matches_its_label,
+    d27_som_share_claims_possible,
+    d35_tam_method_divergence_disclosed,
+    d38_sam_slice_authoritative,
+    d40_hyperlocal_som_basis_honest,
+    d49_trade_area_matches_its_radius,
+    d50_no_publishable_sizing_without_numbers,
+    d52_chosen_sizing_skill_actually_ran,
+    d56_local_spend_is_grounded_or_says_it_is_not,
+    d57_market_supports_its_competitors,
+    d59_som_anchor_discloses_its_method,
+    d60_area_average_is_labelled,
+)
+from gates.surface import (
+    d01_complete,
+    d02_renders,
+    d09_publishable_gated,
+    d14_no_failed_sections,
+    d29_withhold_propagates,
+    d36_validation_warns_surfaced,
+    d43_no_dead_in_page_anchors,
+    d45_cannot_decode_notice_not_self_refuting,
+    d54_produced_output_reaches_the_report,
+    d55_report_is_complete_enough_to_have_been_checked,
+)
+from gates.synthesis import (
+    d62_synthesis_numbers_are_in_the_evidence_it_cites,
+    d63_synthesis_citations_resolve,
+)
 INVARIANTS: list[Invariant] = [
     Invariant("D01", "pipeline completes (>=12 steps)", "M2/M11 blank-or-degraded run", "fail", d01_complete),
     Invariant("D02", "report renders (>1KB HTML)", "M2 0-byte deliverable", "fail", d02_renders),

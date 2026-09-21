@@ -182,11 +182,21 @@ class TestTheScoreIsLabelledForWhatItMeasures(unittest.TestCase):
         self.assertIn("web-momentum score", src)
         self.assertIn("not a weak competitor", src)
 
-    def test_the_four_ps_prompt_labels_the_score(self):
-        import inspect
-
+    def test_the_active_four_ps_prompt_does_not_present_momentum_as_strength(self):
+        from unittest.mock import patch
         import four_ps
-        self.assertIn("web-momentum score", inspect.getsource(four_ps))
+
+        # The active split writer omits raw momentum scores. The old assertion searched
+        # the whole module and passed because an unused monolithic prompt labelled them.
+        with patch.object(four_ps, "_run_section", return_value={}) as section:
+            four_ps.assemble_4ps_split(
+                profile={}, competitors=[{"brand": "Rival", "domain": "rival.example",
+                                          "opportunity_score": 98.7654321}],
+                top_audience={}, max_diff={}, van_westendorp={}, place={})
+        self.assertEqual(section.call_count, 4)
+        prompts = "\n".join(call.args[1] for call in section.call_args_list)
+        self.assertIn("Rival", prompts)
+        self.assertNotIn("98.7654321", prompts)
 
     def test_the_markdown_render_labels_the_score(self):
         src = open("report/render_md.py", encoding="utf-8").read()

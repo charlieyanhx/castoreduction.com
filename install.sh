@@ -17,8 +17,8 @@ if [ ! -d .venv ]; then
 fi
 
 echo "▶ upgrading pip + installing requirements"
-.venv/bin/pip install -q -U pip
-.venv/bin/pip install -q -r requirements.txt
+.venv/bin/python -m pip install -q -U pip
+.venv/bin/python -m pip install -q -r requirements.txt
 
 if [ ! -f .env ]; then
   cp .env.example .env
@@ -30,9 +30,9 @@ echo "✓ install complete"
 echo ""
 echo "next steps:"
 echo "  edit .env and set ANTHROPIC_API_KEY"
-echo "  .venv/bin/python test_infra.py          # verify core (offline)"
-echo "  .venv/bin/python test_integration.py    # verify pipeline (offline)"
-echo "  .venv/bin/python test_api.py            # verify API (offline)"
+echo "  .venv/bin/python -m pip install -r requirements-dev.txt  # test and audit tools"
+echo "  ./test_all.sh -q                             # full offline suite"
+echo "  .venv/bin/python -m ruff check .              # production static checks"
 echo ""
 echo "run as CLI:"
 echo "  .venv/bin/python cli.py discover 'protein bars'"

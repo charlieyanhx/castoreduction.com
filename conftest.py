@@ -91,14 +91,8 @@ class NetworkUseInTest(OSError):
     were simply never given the chance to prove it. Retries are disabled below so taking
     the offline branch is instant rather than 14s of tenacity backoff.
 
-    Inherits BaseException, NOT Exception, and that is the whole point. Every layer
-    between the socket and the test catches broad Exception and converts it to None or a
-    skeleton (scrape.http returns None, llm._try_one_backend returns None and the chain
-    then sleeps through 0+3+8+15s of backoff). A guard those handlers can swallow does not
-    fail the test, it just makes it slow and silent. This one cannot be caught by accident.
-
-    The fix is almost never to allow it. It is to patch the seam the test meant to
-    exercise, which is usually llm.call_json or the tool/source function, not the socket.
+    Tests that need a successful source should patch the tool/source seam rather than
+    relying on this guard, which deliberately exercises the offline failure path.
     """
 
 

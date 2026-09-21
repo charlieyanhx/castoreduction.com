@@ -60,9 +60,11 @@ def main() -> int:
     out = PROJ / "out" / "live"
     out.mkdir(parents=True, exist_ok=True)
     (out / f"{name}.json").write_text(json.dumps({"result": result}, indent=1, default=str))
+    render_failed = False
     try:
         (out / f"{name}.html").write_text(render_report_html(result, job_id=name))
     except Exception as e:                                   # noqa: BLE001
+        render_failed = True
         print(f"[run_live] render failed: {e}", flush=True)
 
     v = (result.get("verification") or {}).get("summary") or {}
@@ -71,7 +73,12 @@ def main() -> int:
     print(f"[run_live] verification: {v}", flush=True)
     print(f"[run_live] llm exhaustion: {result.get('_llm_exhaustion') or 'none'}", flush=True)
     print(f"[run_live] dropped: {list((result.get('_dropped_outputs') or {}))}", flush=True)
-    return 0
+    # Preserve the diagnostic artifacts, but do not report a failed/withheld run as a
+    # successful smoke test. Missing verification is inconclusive, not a clean verdict.
+    verification = result.get("verification") or {}
+    return int(bool(result.get("error") or render_failed
+                    or verification.get("status") != "verified"
+                    or v.get("publishable") is not True))
 
 
 if __name__ == "__main__":

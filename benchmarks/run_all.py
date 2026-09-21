@@ -19,7 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from .score import (
-    list_cases, load_references, load_pipeline_result, grade, render_report,
+    list_cases, load_references, grade, render_report,
 )
 
 

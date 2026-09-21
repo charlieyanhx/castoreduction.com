@@ -59,7 +59,7 @@ def cmd_match(args):
     with open(args.profile) as f:
         profile = json.load(f)
     result = score_match(args.idea, profile)
-    _save(f"match", result)
+    _save("match", result)
     print("\n=== Match result ===")
     print(json.dumps(result, indent=2, default=str)[:3000])
 

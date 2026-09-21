@@ -17,9 +17,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from sources import (
-    trustpilot_reviews, reddit_mentions, reddit_search, hackernews_mentions,
-    validate_domain,
-    resolve_brand_domain
+    trustpilot_reviews, reddit_search, hackernews_mentions
 )
 import net as mrp_http
 from bs4 import BeautifulSoup

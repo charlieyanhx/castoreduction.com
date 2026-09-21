@@ -21,8 +21,10 @@ def _render_nav(**ctx):
     env = Environment(loader=FileSystemLoader("templates"), autoescape=True,
                       undefined=api.SafeUndefined)
     src = env.loader.get_source(env, "report.html")[0]
-    start = src.index("Jump to")
-    end = src.index("</div>", start)
+    # Include the branch condition: the first 'Jump to' now belongs to synthesis,
+    # whose evidence appendix intentionally has no standalone sensitivity section.
+    start = src.index("<!-- ITER 36: TABLE OF CONTENTS")
+    end = src.index("<!-- REPORT INTEGRITY", start)
     return env.from_string(src[start:end]).render(**ctx)
 
 

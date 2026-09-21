@@ -45,7 +45,12 @@ def _select(description: str, has_address: bool) -> tuple[list[str], str]:
               f"ROSTER:\n" + "\n".join(f"- {k}: {v}" for k, v in roster.items())),
         max_tokens=250,
     ) or {}
-    selected = [n for n in (raw.get("selected") or []) if n in roster]
+    raw = raw if isinstance(raw, dict) else {}
+    requested = raw.get("selected")
+    requested = requested if isinstance(requested, list) else []
+    # One task per specialist, preserving priority. Duplicate names used to dispatch
+    # paid work twice before the crew's result dictionary hid the extra invocation.
+    selected = list(dict.fromkeys(n for n in requested if isinstance(n, str) and n in roster))
     if not selected:  # degraded → default crew (everything applicable)
         selected = list(roster.keys())
     return selected, str(raw.get("rationale") or "default crew (no valid selection)")

@@ -1193,7 +1193,7 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
             raise RuntimeError(f"LLM JSON parse failed: {synthesis.get('_parse_error')}")
         # Also ensure it has the expected structure
         if not isinstance(synthesis, dict) or "ranked_opportunities" not in synthesis:
-            raise RuntimeError(f"LLM returned malformed synthesis: missing ranked_opportunities")
+            raise RuntimeError("LLM returned malformed synthesis: missing ranked_opportunities")
         # B4/D19: the LLM ranks/labels relevance itself and doesn't see off_category —
         # merge the W2-5 verdict back in by domain (fallback: brand name) so an
         # off-category domain can never present as "direct" or outrank on-category

@@ -330,61 +330,6 @@ def unit_economics_rubric(business_model_kind: str | None) -> str:
     )
 
 
-FOUR_PS_PROMPT = """You are writing a paid-grade 4Ps marketing plan for a new venture. Output goes into a McKinsey-style report. Follow these rules:
-
-1. Every claim must be grounded in observable signals (traffic momentum, real customer voice, competitor homepage scrape, PSM/Max-Diff outputs).
-2. Every recommendation must cite source evidence using numbered superscripts: ¹ ² ³ etc.
-3. Where data is thin, say so — do NOT fabricate conviction you don't have.
-4. Quote actual customer vocabulary in Promotion. Cite competitor channel data in Place. Reference Max-Diff rankings in Product. Reference PSM findings in Price.
-5. Each section should be 2-3 short paragraphs PLUS a "Key takeaways" bullet list at the end.
-
-COMPANY PROFILE:
-{profile}
-
-TOP COMPETITORS (from market research):
-{competitors}
-
-TARGET AUDIENCE (from decoded taste profile):
-{audience}
-
-TOP FEATURES (from Max-Diff simulation):
-{features}
-
-PRICING ANALYSIS (from Van Westendorp simulation):
-{pricing}
-
-CHANNEL STRATEGY (from Place analysis):
-{place}
-
-Return JSON with these sections:
-{{
-  "executive_summary": "3-5 bullet points capturing the most important findings. Each bullet ≤25 words. The 'so-what' a founder needs in 60 seconds.",
-  "product": {{
-    "narrative": "Product section as 2-3 short paragraphs. Use ¹² etc. citations.",
-    "key_takeaways": ["3-4 bullets, each ≤15 words"]
-  }},
-  "price": {{
-    "narrative": "Price section as 2-3 short paragraphs with citations.",
-    "key_takeaways": ["3-4 bullets"]
-  }},
-  "place": {{
-    "narrative": "Place section as 2-3 short paragraphs with citations.",
-    "key_takeaways": ["3-4 bullets"]
-  }},
-  "promotion": {{
-    "narrative": "Promotion section as 2-3 short paragraphs with citations.",
-    "key_takeaways": ["3-4 bullets"]
-  }},
-  "citations": [
-    {{"id": 1, "source": "Trustpilot reviews of Brand X", "claim": "Customers complain about Y"}},
-    {{"id": 2, "source": "Van Westendorp PSM simulation", "claim": "Optimal price point is $Z"}},
-    {{"id": 3, "source": "Wayback Machine", "claim": "Competitor X is updating site Y times/month"}}
-  ]
-}}
-
-Write in crisp declarative sentences. No fluff, no 'leveraging synergies'. Quote real phrases from the taste profile where impactful."""
-
-
 VIABILITY_PROMPT = """You are evaluating commercial viability with structured per-dimension scoring.
 
 DO NOT pick a single overall number. Instead, score each of the 5 dimensions
@@ -491,80 +436,6 @@ Return JSON (every score must be an integer 1-100; explain WHY for each):
 }}
 
 Anchor every score to the rubric. If two dimensions deserve the same score, give them the same; do not artificially spread."""
-
-
-def assemble_4ps(
-    profile: dict,
-    competitors: list[dict],
-    top_audience: dict,
-    max_diff: dict,
-    van_westendorp: dict,
-    place: dict,
-) -> dict:
-    """Synthesize the 4Ps marketing plan from all pipeline outputs."""
-
-    # Build compact blobs
-    profile_blob = json_blob({
-        "name": profile.get("name"),
-        "summary": profile.get("summary"),
-        "category": profile.get("category"),
-        "core_features": profile.get("core_features", [])[:8],
-        "target_pain_points": profile.get("target_pain_points", [])[:6],
-        "apparent_target_customer": profile.get("apparent_target_customer"),
-        "business_model": profile.get("business_model"),
-    }, 2000)
-
-    # web-momentum, not competitive strength — see the note in market_sizing's comp_blob.
-    competitors_blob = ("\n".join(
-        f"  - {c.get('brand')} ({c.get('domain')}) — web-momentum score "
-        f"{c.get('opportunity_score', '?')}: {c.get('thesis', '')[:120]}"
-        for c in competitors[:5]
-    ) + "\n  (score = public-signal momentum 0-100; low = thin public footprint,"
-        "\n   not a weak rival)")[:2000]
-
-    audience_blob = json_blob({
-        "brand": top_audience.get("brand"),
-        "confidence": top_audience.get("confidence"),
-        "purchase_motivation": top_audience.get("purchase_motivation"),
-        "celebrated": top_audience.get("emotional_triggers", {}).get("celebrated", [])[:5],
-        "complained": top_audience.get("emotional_triggers", {}).get("complained", [])[:5],
-        "life_context": top_audience.get("life_context", [])[:4],
-        "hook_angles": top_audience.get("hook_angles_that_would_work", [])[:3],
-    }, 2000)
-
-    features_blob = json_blob(max_diff.get("ranked_features", [])[:10], 1000)
-    # 1600, not 1000: the tier out-of-range annotations (#80) took this payload to a
-    # measured 1,228 characters, and the qualification on a tier is the part a buyer most
-    # needs. json_blob would now shrink it honestly rather than corrupt it, but shrinking
-    # a decision-critical payload when the budget is the arbitrary part is the wrong trade.
-    pricing_blob = json_blob({
-        "optimal_price_point": van_westendorp.get("optimal_price_point"),
-        "acceptable_range": van_westendorp.get("acceptable_range"),
-        "recommended_tiers": van_westendorp.get("recommended_tiers", []),
-    }, 1600)
-    place_blob = json_blob({
-        "primary_channel": place.get("primary_channel"),
-        "secondary_channels": place.get("secondary_channels", []),
-        "gtm_motion": place.get("gtm_motion"),
-        "whitespace_opportunity": place.get("whitespace_opportunity"),
-    }, 1000)
-
-    plan = call_json(
-        system="You write sharp, founder-grade marketing plans. No fluff.",
-        user=FOUR_PS_PROMPT.format(
-            profile=profile_blob,
-            competitors=competitors_blob,
-            audience=audience_blob,
-            features=features_blob,
-            pricing=pricing_blob,
-            place=place_blob,
-        ),
-        max_tokens=4000,
-    )
-    if "_parse_error" in plan:
-        return {"error": "4Ps synthesis returned malformed JSON", "_raw": plan.get("_raw", "")[:500]}
-    plan["citation_audit"] = _audit_citations(plan)
-    return plan
 
 
 #
@@ -1181,7 +1052,7 @@ def assemble_4ps_split(
                 log.warning("[4Ps split] %s failed: %s", name, e)
                 results[name] = {"narrative": f"({name} section timed out)", "key_takeaways": [], "citations": []}
 
-    # Assemble in the same shape as assemble_4ps so downstream (viability, report) stays unchanged
+    # Preserve the result contract consumed by viability and report rendering.
     all_citations = []
     for sect in ("product", "price", "place", "promotion"):
         for c in results.get(sect, {}).get("citations", []):

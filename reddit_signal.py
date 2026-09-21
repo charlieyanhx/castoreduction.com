@@ -21,7 +21,6 @@ Returns a dict suitable for both the report's Customer Voice section AND the
 4Ps Promotion section's evidence pool.
 """
 from __future__ import annotations
-import json
 import os
 import re
 import time

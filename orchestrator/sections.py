@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from core.section import (FAILED, FLAGGED, NOT_APPLICABLE, OK, SKIPPED, Section,
+from core.section import (FAILED, FLAGGED, NOT_APPLICABLE, SKIPPED, Section,
                           SectionResult, assemble, stale_reads, with_operator_note)
 from logger import get
 

@@ -26,7 +26,7 @@ Exit code: 0 if the selected gate passes, 1 otherwise (CI-able).
 # moved those addresses would be a rename wearing a refactor's clothes.
 from __future__ import annotations
 
-from gates.common import Finding, Invariant, not_applicable, _num
+from gates.common import Finding, Invariant, not_applicable, _num  # noqa: F401 — public exports
 from gates.sizing import (  # noqa: F401
     _MIN_TAM_PER_COMPETITOR_USD, _SAM_FIG_RE, _SOM_SHARE_RE, _TAM_FIG_RE, _sam_figures, _tam_figures, d03_single_som, d04_funnel_order, d15_tam_coherent_across_sections, d20_sam_self_consistent, d23_at_som_matches_its_label, d27_som_share_claims_possible, d35_tam_method_divergence_disclosed, d38_sam_slice_authoritative, d40_hyperlocal_som_basis_honest, d49_trade_area_matches_its_radius, d50_no_publishable_sizing_without_numbers, d52_chosen_sizing_skill_actually_ran, d56_local_spend_is_grounded_or_says_it_is_not, d57_market_supports_its_competitors, d59_som_anchor_discloses_its_method, d60_area_average_is_labelled,
 )

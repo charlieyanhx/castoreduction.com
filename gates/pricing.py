@@ -255,7 +255,6 @@ def d39_price_reconcile_unit_honest(r: dict, html: Optional[str]) -> Finding:
     venture's OWN unit, not a hardcoded '/mo' — an $18,500-per-project consultancy
     read '$18,500/mo'. FAIL when a per-unit venture's price_reconciliation note carries
     '/mo'. N/A for subscriptions (where /mo is correct) or no reconciliation."""
-    from business_model import is_per_unit
     recon = r.get("price_reconciliation") or {}
     note = recon.get("note")
     if not note:

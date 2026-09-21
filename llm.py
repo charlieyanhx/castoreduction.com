@@ -17,6 +17,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
+from typing import Optional
 
 from logger import get
 
@@ -241,8 +242,6 @@ def exhaustion_summary() -> dict:
                      "because the venture lacks signal.")}
 
 
-
-
 # Free-tier pacing. MEASURED on this machine: GROQ_API_KEY is empty, so the chain is
 # Gemini ALONE at 15 RPM with no second free provider to absorb a throttle — the interval
 # below is the entire rate budget, and the pipeline calls from ~8 ThreadPoolExecutor
@@ -447,7 +446,6 @@ def _call_groq(system: str, user: str, max_tokens: int, model: str,
     in_tok = getattr(resp.usage, "prompt_tokens", 0) or 0
     out_tok = getattr(resp.usage, "completion_tokens", 0) or 0
     return text, in_tok, out_tok
-
 
 
 # Recent non-transient backend failures, so an exhausted chain can say WHY (see

@@ -45,7 +45,7 @@ DEFAULT_CONTRACT = {
 
 def _render(report: dict) -> str:
     """Minimal text rendering of a report dict for the judge (keys it scores on)."""
-    import json
+    from context.blobs import json_blob
     ms = report.get("market_sizing") or {}
     slim = {
         "market_sizing": {k: ms.get(k) for k in ("tam", "sam", "som", "validation",
@@ -55,7 +55,7 @@ def _render(report: dict) -> str:
         "viability": report.get("viability"),
         "price_reconciliation": report.get("price_reconciliation"),
     }
-    return json.dumps(slim, default=str)[:12000]
+    return json_blob(slim, 12000)
 
 
 def refine_report(

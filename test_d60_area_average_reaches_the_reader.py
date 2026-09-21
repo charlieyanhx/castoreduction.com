@@ -194,7 +194,7 @@ class TestD53AcceptsAnAuditableDerivation(unittest.TestCase):
 
 
 class TestTheCountNeedsNoCommas(unittest.TestCase):
-    """MEASURED live (taco run bb08c5c3, 2026-08-20): the producer writes the count bare
+    r"""MEASURED live (taco run bb08c5c3, 2026-08-20): the producer writes the count bare
     ("9482 establishments") and the gate's regex demanded thousands separators
     (\d{1,3}(,\d{3})*) — so D60 withheld a report for missing a disclosure that sits in
     the very string its finding quoted. The gate accepts any digit run now; the producer

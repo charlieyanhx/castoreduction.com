@@ -203,7 +203,6 @@ def h07_transcript() -> tuple[Optional[bool], str]:
                 else "transcript module present but never attached to a run")
 
 
-
 # ------------------------------------------------------------------ P3 — scheduler / tiering
 def h09_read_write_split() -> tuple[Optional[bool], str]:
     """P3: every tool declares whether it is read-only.
@@ -334,7 +333,7 @@ def h19_uniform_envelope() -> tuple[Optional[bool], str]:
     offline and free. One envelope is what lets the scheduler, the gateway and the ledger
     treat any tool identically.
     """
-    from tools import TOOL_REGISTRY, Evidence
+    from tools import TOOL_REGISTRY
     import inspect
     bad = [m.name for m in TOOL_REGISTRY.values()
            if "Evidence" not in str(inspect.signature(m.fn).return_annotation)]

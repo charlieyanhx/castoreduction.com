@@ -892,7 +892,6 @@ _TURN_TEXT_CAP = 8000
 _QUOTE_CAP = 1200
 
 
-
 def add_turn(job_id: str, role: str, text: str, *, quote: Optional[str] = None,
              citations: Optional[list] = None, refused: bool = False,
              usd: float = 0.0) -> dict:
@@ -991,7 +990,6 @@ CHAT_KEY = "chat"
 NOTES_KEY = "notes"
 
 
-
 def begin_rewrite(job_id: str, now: Optional[int] = None) -> bool:
     """Claim the one rewrite a report may have running. False while another holds it.
 
@@ -1056,25 +1054,6 @@ def _founder_notes(st: dict) -> list[dict]:
         note = _as_note(n)
         key = (note["quote"], note["text"])
         if not note["text"] or key in seen:
-            continue
-        seen.add(key)
-        out.append(note)
-    return out
-
-
-def _workshop_notes(st: dict) -> list[dict]:
-    """The notes for re-edit only, minus any that repeat a mark: what the workshop added
-    beyond the marks, so the re-run's brief can list them after the marks it already
-    carries."""
-    marked = {(str(a.get("quote") or "").strip(), str(a.get("comment") or "").strip())
-              for a in st.get("annotations") or [] if isinstance(a, dict)}
-    out, seen = [], set()
-    for n in st.get(NOTES_KEY) or []:
-        if not is_founder_note(n):
-            continue
-        note = _as_note(n)
-        key = (note["quote"], note["text"])
-        if key in marked or key in seen:
             continue
         seen.add(key)
         out.append(note)
