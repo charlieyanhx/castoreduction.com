@@ -215,7 +215,7 @@ class TheFounderPath(_Browser):
 
     def test_08_the_re_run_asks_first_and_final_brings_the_share_offer(self):
         self.page.locator("#wsRerun summary").click()
-        self.assertIn("1 included", self.page.locator("#wsRerunHint").inner_text())
+        self.assertIn("20 credits", self.page.locator("#wsRerunHint").inner_text())
         self.page.locator("#wsRerunGo").click()
         self.assertIn("Start the re-run", self.page.locator("#wsRerunConfirm").inner_text())
         self.page.locator("#wsRerunConfirm [data-no]").click()

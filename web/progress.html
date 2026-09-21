@@ -374,11 +374,8 @@
         "it is one missing input rather than anything wrong with the venture."
       : "It is saved to your library, so this link keeps working and you can come back to it."));
     var a = el("a", "open", withheld ? "See what was withheld" : "Open the report");
-    // ?annotate=1 opens the report in REFINE MODE, which is where the reader can mark
-    // passages, ask their five questions, have them answered from the report's own data,
-    // and stamp a final version. All of that already exists (iteration.py, and the refine
-    // block in templates/report.html); it was simply never linked to, so every reader
-    // arrived at the read-only view and the whole layer sat unused.
+    // ?annotate=1 opens the report with the WORKSHOP: the sidebar where the founder asks
+    // the analyst, explains and notes passages, rewrites, re-runs, and marks it final.
     a.href = "/jobs/" + encodeURIComponent(jobId) + "/report.html?annotate=1";
     card.appendChild(a);
     card.appendChild(el("span", "second", "or press Enter"));

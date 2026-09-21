@@ -86,9 +86,10 @@ class TheNumbersTheOwnerDecided(_TempDB):
         self.assertEqual(it.COST_EXPLAIN, 1)
         self.assertEqual(it.COST_NOTE, 0)
         self.assertEqual(it.COST_REWRITE, 10)
+        self.assertEqual(it.COST_RERUN, 20)
         self.assertEqual(it.PACK_WORKSHOP, 30)
         self.assertEqual(it.PACK_WORKSHOP_USD, 5.0)
-        self.assertEqual(it.OLD_KIND_CREDITS, {"marks": 1, "questions": 1, "rerun": 10})
+        self.assertEqual(it.COSTS, {"turn": 1, "explain": 1, "note": 0, "rewrite": 10, "rerun": 20})
 
     def test_the_empty_state_carries_an_empty_pool(self):
         import iteration as it
@@ -202,74 +203,23 @@ class ThePoolSurvivesEveryOtherWriter(_TempDB):
     pool it read, whatever the pool did in between is overwritten. So the rule is: the pool
     a writer saves is the pool in the row at the moment of the save, never its own copy."""
 
-    def _answers(self, *ids):
-        return {"answers": [{"id": i, "a": "It draws on the sizing.", "based_on": ["sizing"],
-                             "grounded": True} for i in ids], "notes": []}
-
-    def test_a_pack_and_a_turn_landing_during_the_draft_are_not_lost(self):
-        """Endow 30. While draft_answers is inside its model call, a $5 workshop pack is
-        fulfilled and one turn is spent. The draft must save over neither: balance 59,
-        three ledger lines, and the entitlement row already says fulfilled so there is no
-        replay to fall back on. A question asked during the call survives too."""
-        import billing
-        import iteration as it
-        result = json.loads(FIXTURE.read_text())
-        it.endow("draft", paid=True)
-        it.add_question("draft", "why this segment?")
-        landed = {}
-
-        def model_call(**_kw):
-            """The seconds to a minute the model takes, and what lands in them."""
-            landed["pack"] = billing.fulfill(
-                _paid_event("workshop", "acct-1", "cs_mid_draft", job="draft"))
-            landed["turn"] = it.spend("draft", 1, "turn", ref="t1")
-            it.add_question("draft", "asked during the draft")
-            return self._answers(1)
-
-        with patch.object(it, "call_json", model_call):
-            st = it.draft_answers("draft", result)
-
-        self.assertTrue(landed["pack"]["granted"], landed["pack"])
-        self.assertTrue(landed["turn"])
-        self.assertEqual(it.balance("draft"), 30 + 30 - 1,
-                         "the draft's stale copy of the pool overwrote a paid pack")
-        whats = [l["what"] for l in it.get_state("draft")["workshop"]["ledger"]]
-        self.assertEqual(whats, ["included", "pack", "turn"])
-        self.assertFalse(billing.fulfill(
-            _paid_event("workshop", "acct-1", "cs_mid_draft", job="draft"))["granted"],
-            "the webhook cannot be replayed, so the pool has to have kept it the first time")
-        # the draft still did its own job, against the state as it is now
-        qs = {q["q"]: q for q in st["questions"]}
-        self.assertEqual(qs["why this segment?"]["a"], "It draws on the sizing.")
-        self.assertIsNone(qs["asked during the draft"]["a"],
-                          "a question asked during the call is kept, unanswered")
-        self.assertEqual(st["status"], "answered")
-        self.assertEqual(st["workshop"], it.get_state("draft")["workshop"],
-                         "what the writer returns is what it wrote")
-
     def test_every_writer_saves_the_pool_it_finds_not_the_one_it_read(self):
         """Each writer, one at a time: a pack lands right after its read and before its
         write. The writer's own change must land AND the pack must survive."""
         import iteration as it
-        for jid in ("with-q", "src", "to-answer", "w2"):
-            it.endow(jid, paid=False)           # a question is refused on an empty pool
-        it.add_question("with-q", "seed question?")
         it.add_annotation("with-a", section="s", quote="q", comment="c")
-        it.add_question("src", "carried?")
-        it.add_question("to-answer", "answer me?")
+        it.add_note("src", "s", "carried", "a note that carries")
         writers = {
             "add_annotation": ("w1", lambda j: it.add_annotation(
                 j, section="s", quote="q", comment="c")),
-            "add_question": ("w2", lambda j: it.add_question(j, "why?")),
-            "remove_question": ("with-q", lambda j: it.remove_question(j, 1)),
+            "add_note": ("w2", lambda j: it.add_note(j, "s", "q", "a note")),
             "remove_annotation": ("with-a", lambda j: it.remove_annotation(j, 1)),
-            "set_answer": ("to-answer", lambda j: it.set_answer(j, 1, "because")),
+            "add_turn": ("to-answer", lambda j: it.add_turn(j, "founder", "why?")),
             "set_input_edit": ("w3", lambda j: it.set_input_edit(j, "pricing", "$8")),
-            "spend_rerun": ("w4", lambda j: it.spend_rerun(j)),
+            "record_rewrite": ("w4", lambda j: it.record_rewrite(j, None, {"usd": 0.5})),
             "mark_revised": ("w5", lambda j: it.mark_revised(j, "w5-next")),
             "carry_forward": ("w6", lambda j: it.carry_forward("src", j)),
             "finalize": ("w7", lambda j: it.finalize(j)),
-            "settle": ("w8", lambda j: it.settle(j)),
         }
         real = it.get_state
         for name, (job, write) in writers.items():
@@ -288,21 +238,18 @@ class ThePoolSurvivesEveryOtherWriter(_TempDB):
                 with patch.object(it, "get_state", hooked):
                     write(job)
                 self.assertEqual(fired, [1], "the interleaving did not happen")
-                opened = it.INCLUDED_CREDITS_FREE if job in ("with-q", "src", "to-answer", "w2") else 0
-                self.assertEqual(it.balance(job), opened + 30,
+                self.assertEqual(it.balance(job), 30,
                                  f"{name} overwrote the pool with its stale copy")
         # and the writers did what they were asked
         self.assertEqual(len(it.get_state("w1")["annotations"]), 1)
-        self.assertEqual(len(it.get_state("w2")["questions"]), 1)
-        self.assertEqual(it.get_state("with-q")["questions"], [])
+        self.assertEqual(len(it.get_state("w2")["notes"]), 1)
         self.assertEqual(it.get_state("with-a")["annotations"], [])
-        self.assertEqual(it.get_state("to-answer")["questions"][0]["a"], "because")
+        self.assertEqual(it.get_state("to-answer")["chat"][0]["text"], "why?")
         self.assertEqual(it.get_state("w3")["input_edits"], {"pricing": "$8"})
-        self.assertEqual(it.get_state("w4")["reruns_used"], 1)
+        self.assertEqual(len(it.get_state("w4")["rewrites"]), 1)
         self.assertEqual(it.get_state("w5")["status"], "revised")
-        self.assertEqual(len(it.get_state("w6")["questions"]), 1)
+        self.assertEqual(len(it.get_state("w6")["notes"]), 1)
         self.assertEqual(it.get_state("w7")["status"], "final")
-        self.assertEqual(it.get_state("w8")["status"], "final")
 
     def test_a_stale_state_handed_to_save_cannot_touch_the_pool(self):
         """The mechanism itself, at the seam every writer goes through."""
@@ -316,100 +263,6 @@ class ThePoolSurvivesEveryOtherWriter(_TempDB):
         self.assertEqual(it.get_state("j")["status"], "final", "the writer's change lands")
         self.assertEqual(out["workshop"], it.get_state("j")["workshop"],
                          "and it is handed back the pool it actually wrote")
-
-    def test_the_conversion_on_first_read_does_not_convert_over_a_spend(self):
-        """get_state reads once outside the lock and, finding old counters, re-reads under
-        it before converting. A spend that lands between those two reads must survive."""
-        import iteration as it
-        st = it._empty()
-        st["extra"] = {"rerun": 1}
-        st["workshop"] = {"granted": 5, "spent": 0, "ledger": [
-            {"t": 0, "n": 5, "what": "pack", "ref": None}]}
-        it._save("old", st, pool=True)
-        real = it._read
-        fired = []
-
-        def hooked(job_id):
-            out = real(job_id)
-            if not fired:
-                fired.append(1)
-                with patch.object(it, "_read", real):
-                    self.assertTrue(it.spend("old", 2, "turn"))   # lands mid-migration
-            return out
-
-        with patch.object(it, "_read", hooked):
-            it.get_state("old")
-        self.assertEqual(it.balance("old"), 5 - 2 + 10)
-        self.assertEqual(it.get_state("old")["extra"], {})
-
-
-class AnOldReportConverts(_TempDB):
-    def test_one_of_each_old_pack_reads_as_twenty_credits(self):
-        """{questions: 5, marks: 5, rerun: 1} is one pack of each. 5 + 5 + 10."""
-        import iteration as it
-        st = it._empty()
-        st["extra"] = {"questions": 5, "marks": 5, "rerun": 1}
-        it._save("old", st)
-        read = it.get_state("old")
-        self.assertEqual(read["extra"], {}, "the counters must be emptied once converted")
-        self.assertEqual(it.balance("old"), 20)
-        whats = sorted(l["what"] for l in read["workshop"]["ledger"])
-        self.assertEqual(whats, ["migrated:marks", "migrated:questions", "migrated:rerun"])
-
-    def test_the_conversion_happens_once(self):
-        import iteration as it
-        st = it._empty()
-        st["extra"] = {"rerun": 1}
-        it._save("old", st)
-        for _ in range(3):
-            self.assertEqual(it.balance("old"), 10)
-        self.assertEqual(len(it.get_state("old")["workshop"]["ledger"]), 1)
-
-    def test_the_conversion_is_written_back(self):
-        """A read that converted must not have to convert again on the next read."""
-        import iteration as it
-        st = it._empty()
-        st["extra"] = {"marks": 5}
-        it._save("old", st)
-        it.get_state("old")
-        import jobs
-        c = jobs._conn()
-        raw = json.loads(c.execute("SELECT data_json FROM iteration WHERE job_id = ?",
-                                   ("old",)).fetchone()[0])
-        c.close()
-        self.assertEqual(raw["extra"], {})
-        self.assertEqual(raw["workshop"]["granted"], 5)
-
-    def test_migrate_old_counters_is_pure(self):
-        import iteration as it
-        st = it._empty()
-        st["extra"] = {"questions": 5}
-        out = it.migrate_old_counters(st)
-        self.assertIsNot(out, st)
-        self.assertEqual(st["extra"], {"questions": 5}, "the input is not mutated")
-        self.assertEqual(st["workshop"], {"granted": 0, "spent": 0, "ledger": []})
-        self.assertEqual(out["extra"], {})
-        self.assertEqual(out["workshop"]["granted"], 5)
-        clean = it._empty()
-        self.assertIs(it.migrate_old_counters(clean), clean,
-                      "nothing to convert comes back as the same object")
-
-    def test_a_late_grant_of_an_old_kind_lands_in_the_pool(self):
-        import iteration as it
-        it.grant("j", "rerun", packs=1, paid=True)
-        self.assertEqual(it.balance("j"), 10)
-        it.grant("j", "marks", packs=2, paid=True)
-        self.assertEqual(it.balance("j"), 20)
-        lim = it.limits(it.get_state("j"))
-        self.assertIsNone(lim["marks"], "marks are uncapped; the money lands in the pool")
-        self.assertEqual(lim["questions"], 20, "and the page's counter is the pool")
-
-    def test_the_workshop_pack_grants_thirty(self):
-        import iteration as it
-        it.grant("j", "workshop", packs=1, paid=True)
-        self.assertEqual(it.balance("j"), 30)
-        self.assertEqual(it.get_state("j")["workshop"]["ledger"][-1]["what"], "pack")
-
 
 class TheWebhook(_TempDB):
     def test_a_workshop_pack_credits_thirty_once(self):
@@ -427,15 +280,15 @@ class TheWebhook(_TempDB):
         self.assertFalse(replay["granted"])
         self.assertEqual(it.balance("job-A"), 30, "a replayed webhook credits nothing")
 
-    def test_a_late_webhook_for_an_old_kind_still_grants_converted(self):
+    def test_a_webhook_for_an_old_kind_grants_nothing(self):
+        """The three old packs are off the price list; a webhook naming one is recorded
+        as not granted, never as credits."""
         import billing
         import iteration as it
-        out = billing.fulfill(_paid_event("questions", "acct-1", "cs_q_1", job="job-A"))
-        self.assertTrue(out["granted"], out)
-        self.assertEqual(out["credits"], 5)
-        self.assertEqual(it.balance("job-A"), 5)
-        billing.fulfill(_paid_event("rerun", "acct-1", "cs_r_1", job="job-A"))
-        self.assertEqual(it.balance("job-A"), 15)
+        for kind in ("questions", "marks", "rerun"):
+            out = billing.fulfill(_paid_event(kind, "acct-1", f"cs_{kind}_1", job="job-A"))
+            self.assertFalse(out["granted"], out)
+        self.assertEqual(it.balance("job-A"), 0)
 
     def test_the_pack_is_for_one_report(self):
         import billing
@@ -452,8 +305,8 @@ class TheWebhook(_TempDB):
         self.assertEqual(billing.OFFERS["workshop"]["credits"], it.PACK_WORKSHOP)
         for old in ("marks", "questions", "rerun"):
             self.assertNotIn(old, billing.OFFERS, f"{old} must not be offered any more")
-            self.assertIn(old, billing.PRICE_ENV, f"{old} must still be fulfillable")
-            self.assertTrue(billing.is_job_kind(old))
+            self.assertNotIn(old, billing.PRICE_ENV, f"{old} must not be priced any more")
+            self.assertFalse(billing.is_job_kind(old))
 
     def test_a_checkout_for_the_pack_names_a_report(self):
         import billing
@@ -522,16 +375,23 @@ class TheRunOpensItsWorkshop(_App):
         self.assertEqual(it.balance(jid), 30)
         self.assertEqual(it.get_state(jid)["workshop"]["ledger"][0]["ref"], "paid")
 
-    def test_the_included_revision_of_a_paid_report_is_paid(self):
+    def test_a_re_run_opens_with_what_its_parent_had_left(self):
+        """One pool per lineage: the re-run costs COST_RERUN from the parent, the new
+        report is not endowed, and what the parent had left moves to it."""
         import billing
         import iteration as it
         self._sell()
         c = self._client()
         billing._record(self._owner(c), "report", 1, None, None)
         base = self._run(c)
+        self.assertEqual(it.balance(base), 30)
         r = c.post(f"/jobs/{base}/revise")
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(it.balance(r.json()["job_id"]), 30)
+        new = r.json()["job_id"]
+        self.assertEqual(it.balance(new), 30 - it.COST_RERUN)
+        self.assertEqual(it.balance(base), 0, "the parent's credits moved with the work")
+        whats = [l["what"] for l in it.get_state(new)["workshop"]["ledger"]]
+        self.assertEqual(whats, ["moved"], "no endowment of its own")
 
     def test_a_stub_clone_gets_the_endowment_of_its_kind(self):
         """CASTOR_STUB_REPORT replaces the research, not the tail around it."""
@@ -590,7 +450,7 @@ class TheWorkshopRoute(_App):
         self.assertEqual(body["granted"], 10)
         self.assertEqual(body["spent"], 1)
         self.assertEqual([l["what"] for l in body["ledger"]], ["included", "turn"])
-        self.assertEqual(body["costs"], {"turn": 1, "explain": 1, "note": 0, "rewrite": 10})
+        self.assertEqual(body["costs"], {"turn": 1, "explain": 1, "note": 0, "rewrite": 10, "rerun": 20})
         self.assertEqual(body["pack"], {"credits": 30, "usd": 5.0, "kind": "workshop"})
 
     def test_the_ledger_is_the_last_twenty(self):
@@ -611,16 +471,15 @@ class TheWorkshopRoute(_App):
         stranger = self._client()
         self.assertEqual(stranger.get(f"/jobs/{jid}/workshop").status_code, 404)
 
-    def test_the_old_credits_route_reports_the_pool(self):
+    def test_the_iteration_route_carries_the_pool(self):
         c = self._client()
         jid = self._run(c)
-        body = c.get(f"/jobs/{jid}/credits").json()
-        ws = body["workshop"]
+        ws = c.get(f"/jobs/{jid}/iteration").json()["workshop"]
         self.assertEqual((ws["balance"], ws["granted"], ws["spent"]), (10, 10, 0))
         self.assertEqual(ws["pack"], {"kind": "workshop", "credits": 30, "usd": 5.0})
-        self.assertEqual(ws["costs"]["rewrite"], 10)
-        self.assertEqual(body["prices_usd"]["workshop"], 5.0)
-        self.assertEqual(body["pack_sizes"]["workshop"], 30)
+        self.assertEqual(ws["costs"], {"turn": 1, "explain": 1, "note": 0, "rewrite": 10, "rerun": 20})
+        self.assertEqual(c.get(f"/jobs/{jid}/credits").status_code, 405,
+                         "the old counters route is gone; only the pack override posts here")
 
     def test_posting_a_pack_still_needs_a_payment(self):
         c = self._client()

@@ -205,11 +205,12 @@ class ARefusedRunGivesTheCreditBack(_App):
         self.assertIn("already running", r.json()["detail"])
 
 
-class TheIncludedRevisionIsNotASecondPurchase(_App):
-    def test_a_revision_does_not_spend_a_credit(self):
-        """It belongs to the report already paid for. Charging for it would be selling the
-        same report twice."""
+class AReRunIsNotASecondPurchase(_App):
+    def test_a_re_run_spends_the_parents_credits_not_a_report_credit(self):
+        """A re-run belongs to the report already paid for: it is paid from that report's
+        post-generation credits, and the account's report credits are not touched."""
         import billing
+        import iteration
         import jobs
         self._sell()
         c = self._client()
@@ -217,11 +218,29 @@ class TheIncludedRevisionIsNotASecondPurchase(_App):
         billing._record(owner, "report", 1, None, None)
         prev = jobs.create("plan", {"description": BRIEF}, owner_id=owner)
         jobs.update(prev, state="complete", result={"profile": {"name": "x"}})
+        iteration.endow(prev, paid=True)
         with patch.object(jobs, "run_async", lambda *a, **k: None):
             r = c.post("/plan", json={"description": BRIEF, "previous_job_id": prev})
-        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(billing.balance(owner, "report"), 1,
-                         "the included revision is not a second sale")
+                         "the re-run is not a second sale")
+        self.assertEqual(iteration.balance(prev), iteration.INCLUDED_CREDITS_PAID - iteration.COST_RERUN,
+                         "it was paid from the parent's pool")
+
+    def test_a_pool_that_cannot_pay_is_refused_with_the_price(self):
+        import iteration
+        import jobs
+        self._sell()
+        c = self._client()
+        owner = self._owner(c)
+        prev = jobs.create("plan", {"description": BRIEF}, owner_id=owner)
+        jobs.update(prev, state="complete", result={"profile": {"name": "x"}})
+        iteration.endow(prev, paid=False)             # ten credits: not a re-run's worth
+        with patch.object(jobs, "run_async", lambda *a, **k: None):
+            r = c.post("/plan", json={"description": BRIEF, "previous_job_id": prev})
+        self.assertEqual(r.status_code, 402, r.text)
+        self.assertIn("20 credits", r.json()["detail"])
+        self.assertIn("workshop pack", r.json()["detail"])
 
 
 if __name__ == "__main__":

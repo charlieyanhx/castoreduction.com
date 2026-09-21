@@ -48,9 +48,13 @@ Anthropic key and paid-backend opt-in. Other model calls use `llm.py` and its co
 backend/fallback policy. Missing or failed sections are recorded rather than presented as
 successful research.
 
-The workshop supports evidence-based questions, private notes, rewriting existing facts,
-rerunning corrected inputs, and finalizing a report for sharing. A rewrite does not perform
-fresh research. Ownership and purchase checks apply at the API, not only in the browser.
+The workshop supports evidence-based questions, private notes, rewriting the writing over
+the same facts, re-running the research from corrected inputs, and marking a report final
+for sharing. One pool of post-generation credits pays for all of it (a paid report opens
+with 30, a free one with 10; an answer or an explanation is 1, a note 0, a rewrite 10, a
+re-run 20; a pack of 30 is $5). A re-run's report is not endowed on its own: what the
+parent had left moves to it. A rewrite does not perform fresh research. Ownership and
+purchase checks apply at the API, not only in the browser.
 
 ## Test and inspect
 

@@ -242,12 +242,13 @@ class AnOldRecordReadsAsNotes(_TempDB):
         self.assertEqual([a["comment"] for a in st["annotations"]],
                          ["our rent is 7800", "justify this"])
 
-    def test_the_models_notes_back_become_clarifications(self):
+    def test_the_models_notes_back_are_dropped(self):
+        """The model's replies to marks belonged to a flow that is gone (the batch
+        answering pass); they are not the founder's notes and nothing reads them."""
         import iteration
         self._write_legacy()
         st = iteration.get_state("old")
-        self.assertEqual(len(st["clarifications"]), 1)
-        self.assertEqual(st["clarifications"][0]["annotation_id"], 1)
+        self.assertNotIn("clarifications", st)
         self.assertFalse(any("annotation_id" in n for n in st["notes"]),
                          "a model's note back is not one of the founder's notes")
 
@@ -260,10 +261,10 @@ class AnOldRecordReadsAsNotes(_TempDB):
         st = iteration.add_note("old", "Pricing", "", "say less about the $12 tier")
         self.assertEqual([n["id"] for n in st["notes"]], [1, 3, 4])
         self.assertEqual([n["kind"] for n in st["notes"]], ["mark", "mark", "note"])
-        self.assertEqual(len(st["clarifications"]), 1)
         self.assertEqual(len(iteration.get_state("old")["notes"]), 3)
 
-    def test_the_questions_are_untouched(self):
+    def test_the_questions_are_left_where_they_are(self):
+        """An old row's questions are read by nothing and rewritten by nothing."""
         import iteration
         self._write_legacy()
         self.assertEqual(iteration.get_state("old")["questions"][0]["q"], "why?")

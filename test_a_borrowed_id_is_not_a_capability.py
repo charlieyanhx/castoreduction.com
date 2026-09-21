@@ -97,9 +97,11 @@ class TestAPreviousJobIdMustBeYours(_App):
 
     def test_your_own_previous_job_still_works(self):
         """The fix must not break the one caller that legitimately sets this: post_revise."""
+        import iteration
         import jobs
         c = self._client()
         mine = jobs.create("plan", {"description": BRIEF}, owner_id=self._owner(c))
+        iteration.endow(mine, paid=True)            # a re-run is paid from the parent's pool
         with patch("plan.run_plan", return_value={"profile": {"name": "x"},
                                                   "_steps_completed": []}):
             r = c.post("/plan", json={"description": BRIEF, "previous_job_id": mine})
@@ -122,8 +124,8 @@ class TestCheckoutCannotNameSomeoneElsesReport(_App):
         victim, attacker = self._client(), self._client()
         vjob = jobs.create("plan", {"description": BRIEF}, owner_id=self._owner(victim))
         with patch.dict(os.environ, {"STRIPE_SECRET_KEY": "sk_test_x",
-                                     "STRIPE_PRICE_MARKS": "price_x"}):
-            r = attacker.post("/billing/checkout", json={"kind": "marks", "job_id": vjob})
+                                     "STRIPE_PRICE_WORKSHOP": "price_x"}):
+            r = attacker.post("/billing/checkout", json={"kind": "workshop", "job_id": vjob})
         self.assertEqual(r.status_code, 404,
                          "checkout accepted a job id the buyer does not own")
 

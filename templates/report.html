@@ -2550,52 +2550,20 @@ by a model.</p>
    the PDF and the trace view would otherwise carry no marks and no Q&A. So it is kept for
    exactly that case and dropped where the live sections already say it. #}
 {% if iteration and not public and not annotate %}
-{# ------------------------------------------------------------------ the refinement layer.
-   Reader marks and Q&A are DATA layered on the artifact (iteration.py) — the original
-   result is untouched and this block derives from the layer, so the PDF carries it too.
-   Provenance is printed on every answer: a hand-written answer and a model-drafted one
-   must never be indistinguishable. #}
-{# The founder's NOTES, marks and sidebar notes alike (iteration.notes); the model's note
-   back against a mark is iteration.clarifications. Both are the owner's private layer and
-   neither reaches a public page: this whole block is inside the `not public` gate. #}
+{# ------------------------------------------------------------- the founder's notes.
+   DATA layered on the artifact (iteration.py): the original result is untouched and this
+   block derives from the layer, so the PDF carries it too. The owner's private layer,
+   never a public page's: this whole block is inside the `not public` gate. #}
 {% if iteration.notes %}
 <h2 id="reader-notes">Founder's Notes</h2>
 <p style="color:#6b7280;font-size:10.5pt">Passages the founder marked in the workshop,
-with what they said about each; these steer the next rewrite. Where the analyst was asked
-to explain one, the note back is beside it. Notes marked <em>beyond this report's
-data</em> flag questions the underlying research did not examine.</p>
+with what they said about each; these steer the next rewrite and ride a re-run as
+corrections.</p>
 {% for a in iteration.notes %}
-{% set note = (iteration.clarifications | selectattr('annotation_id', 'equalto', a.id) | list | first) %}
 <div style="margin:12px 0;padding:12px 14px;border:1px solid #e5e7eb;border-left:3px solid #b45309;border-radius:8px">
   <div style="font-size:9.5pt;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em">{{ a.section }}</div>
   {% if a.quote %}<div style="font-size:10.5pt;margin:4px 0;padding-left:10px;border-left:2px solid #f3e2c4;color:#4b5563">“{{ a.quote }}”</div>{% endif %}
-  <div style="font-size:10.5pt"><strong>Reader:</strong> {{ a.comment }}</div>
-  {% if note %}
-  <div style="font-size:10.5pt;margin-top:6px"><strong>Clarification:</strong> {{ note.note }}
-    {% if note.based_on %}<span style="color:#6b7280;font-size:9.5pt"> — from {{ note.based_on|join(', ') }}</span>{% endif %}
-    {% if note.grounded is sameas false %}<span style="color:#b45309;font-size:9.5pt"> · beyond this report's data</span>{% endif %}
-  </div>
-  {% endif %}
-</div>
-{% endfor %}
-{% endif %}
-{% if iteration.questions %}
-<h2 id="reader-qa">Questions &amp; Answers</h2>
-<p style="color:#6b7280;font-size:10.5pt">Asked by the founder. Answers draw only on this
-report's own evidence; where they cannot, they say so.</p>
-{% for q in iteration.questions %}
-<div style="margin:14px 0;padding:13px 15px;border:1px solid #e5e7eb;border-radius:8px">
-  <div style="font-weight:650;font-size:11pt">Q{{ loop.index }}. {{ q.q }}</div>
-  {% if q.a %}
-  <div style="font-size:10.5pt;margin-top:6px;line-height:1.6">{{ q.a }}</div>
-  <div style="font-size:9pt;color:#9ca3af;margin-top:5px">
-    {% if q.a_origin == 'operator' %}answered by the operator{% elif q.a_origin == 'llm+operator' %}drafted from the report, edited by the operator{% else %}drafted from the report{% endif %}
-    {% if q.based_on %} · from {{ q.based_on|join(', ') }}{% endif %}
-    {% if q.grounded is sameas false %} · <span style="color:#b45309">beyond this report's data</span>{% endif %}
-  </div>
-  {% else %}
-  <div style="font-size:10.5pt;color:#b45309;margin-top:6px">Not yet answered.</div>
-  {% endif %}
+  <div style="font-size:10.5pt"><strong>Founder:</strong> {{ a.comment }}</div>
 </div>
 {% endfor %}
 {% endif %}

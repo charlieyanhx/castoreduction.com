@@ -1,10 +1,8 @@
 """routes/workshop.py, the working session after the report: the chat, the notes, the
 answering pass, the rewrite, and the pool that pays for them.
 
-Eight routes. Split out of routes/jobs.py when the answering pass (POST /iterate, the
-page's "answer from the report" button) became one workshop turn per open question: the
-sequence a turn runs (spend, call, record, refund on a raise) is written once here, in
-_turn, and POST /chat and POST /iterate are both callers of it.
+Seven routes. Split out of routes/jobs.py so the sequence a paid turn runs (spend, call,
+record, refund on a raise) is written once, in _turn.
 
 Identity stays in api.py for the reason routes/jobs.py gives at length: the tests hold
 the seam with `patch.object(api, "_current_owner", ...)`, so `_owned_job` here resolves
@@ -187,7 +185,6 @@ def _turn(job_id: str, j: dict, message: str, quote: str | None) -> dict:
                            cost, iteration.balance(job_id))
     st = iteration.get_state(job_id)
     costs = {**iteration.COSTS, "pack": iteration.WORKSHOP_PACK,
-             "reruns_left": iteration.reruns_left(job_id, params),
              "balance": iteration.balance(job_id)}
     try:
         out = workshop.answer(result, str(params.get("description") or ""),
@@ -249,50 +246,6 @@ def get_chat(job_id: str):
     _owned_job(job_id)                             # raises 404 for a stranger
     return {"job_id": job_id, "chat": iteration.chat_history(job_id),
             "balance": iteration.balance(job_id)}
-
-
-# --------------------------------------------------------------- the answering pass --
-@router.post("/jobs/{job_id}/iterate")
-def post_iterate(job_id: str):
-    """Answer every open question and explain every open mark, one workshop turn each.
-
-    THE PAGE'S BUTTON, ON THE POOL. "Answer from the report" used to be one free JSON
-    call that drafted every answer at once; it is now the same turn the sidebar makes,
-    once per open question and once per open mark, each paid for and each audited. Runs
-    in order until the pool cannot pay for the next one, then stops and writes why on
-    the record (workshop.stopped), so an unpaid question stays visibly open with its
-    reason beside it rather than blank. A raised call is 502 after its credit came back,
-    and whatever was answered before it stays answered.
-
-    Returns the iteration state the page reloads anyway.
-    """
-    import iteration
-    j = _owned_job(job_id)
-    st = opened_state(job_id)
-    todo = ([("q", q) for q in iteration.open_questions(st)]
-            + [("m", m) for m in iteration.open_marks(st)])
-    if not todo:
-        return iteration.finish_answering(job_id, None)
-    _ready_to_answer(j)
-    stopped = None
-    for i, (kind, item) in enumerate(todo):
-        try:
-            if kind == "q":
-                out = _turn(job_id, j, item["q"], None)
-                iteration.answer_question(job_id, item["id"], out["text"],
-                                          out["citations"], out["refused"])
-            else:
-                out = _turn(job_id, j, item["comment"], item.get("quote") or None)
-                iteration.explain_mark(job_id, item["id"], out["text"],
-                                       out["citations"], out["refused"])
-        except OutOfCredits as e:
-            left = len(todo) - i
-            stopped = (f"{e.balance} credits left, and each answer costs {e.cost}; "
-                       f"{left} open {'item stays' if left == 1 else 'items stay'} "
-                       f"unanswered. A workshop pack adds {iteration.PACK_WORKSHOP} "
-                       f"credits for ${iteration.PACK_WORKSHOP_USD:g}.")
-            break
-    return iteration.finish_answering(job_id, stopped)
 
 
 # ---------------------------------------------------------------------- the rewrite --

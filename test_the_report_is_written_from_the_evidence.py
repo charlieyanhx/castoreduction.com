@@ -613,9 +613,11 @@ class TestTheStyleSurvivesAResumeAndARevision(unittest.TestCase):
         from fastapi.testclient import TestClient
         client = TestClient(api.app)
         owner = client.get("/auth/me").json()["owner"]
+        import iteration
         job_id = jobs.create("plan", {"description": self.BRIEF, "report_style": "memo"},
                              owner_id=owner)
         jobs.update(job_id, state="done", result={"profile": {"name": "x"}})
+        iteration.endow(job_id, paid=True)          # a re-run is paid from the parent's pool
         with patch.object(jobs, "run_async", lambda *a, **k: None), \
              patch.object(quota, "claim_run_slot", return_value=None):
             r = client.post(f"/jobs/{job_id}/revise")

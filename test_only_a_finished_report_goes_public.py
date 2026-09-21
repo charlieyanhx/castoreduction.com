@@ -90,14 +90,14 @@ class ADraftCannotBePublished(_App):
         self.assertFalse(sharing.is_shared(jid))
         self.assertEqual(sharing.listing(), [])
 
-    def test_open_questions_are_exactly_the_case_this_protects(self):
+    def test_a_report_with_notes_pending_is_exactly_the_case_this_protects(self):
         """The concrete harm: a report whose author has said, in writing, that part of it
-        is wrong, published to strangers under their own name."""
+        is wrong, published to strangers under their own name. A note for the rewrite is
+        that statement; until the founder marks the report final, it stays private."""
         import iteration
         c = self._client()
         jid = self._report(c)
-        iteration.endow(jid, paid=False)        # a question is paid from the pool
-        iteration.add_question(jid, "Is the rent figure right? I think it is 7800.")
+        iteration.add_note(jid, "Economics", "rent $9,000", "Is the rent figure right? I think it is 7800.")
         r = c.post(f"/jobs/{jid}/share", json={"title": "Coffee shop"})
         self.assertEqual(r.status_code, 409)
 

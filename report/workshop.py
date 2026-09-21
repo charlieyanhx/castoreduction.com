@@ -117,13 +117,11 @@ def describe_costs(costs: Optional[dict]) -> str:
              f"- a note for re-edit: {c.get('note', 0)} credits",
              f"- a rewrite (wording, emphasis, inclusion; the facts unchanged): "
              f"{c.get('rewrite', 10)} credits, about 3 minutes",
-             "- a re-run (an input corrected; the facts recomputed): one is included "
-             "with the report, then it costs one report credit"]
+             f"- a re-run (an input corrected; the facts recomputed, a new report): "
+             f"{c.get('rerun', 20)} credits, about fifteen minutes"]
     if pack.get("credits") and pack.get("usd") is not None:
         lines.append(f"- more credits: a pack of {int(pack['credits'])} for "
                      f"${float(pack['usd']):g}")
-    if "reruns_left" in c:
-        lines.append(f"- re-runs still included with this report: {int(c['reruns_left'])}")
     if "balance" in c:
         lines.append(f"- the founder's balance now: {int(c['balance'])} credits")
     return "\n".join(lines)

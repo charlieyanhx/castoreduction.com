@@ -1,9 +1,10 @@
 """routes/jobs.py — everything addressed to a job that already exists.
 
-Twenty-eight routes: the job list and detail, the live event stream, the iteration loop
-(marks, questions, credits, finalize), and the four deliverables the buyer actually
-opens (report.html, report.pdf, the one-pager, the sentence trace). The workshop (the
-chat, the notes, the answering pass, the rewrite) is routes/workshop.py.
+Twenty-four routes: the job list and detail, the live event stream, the layer after the
+report (the state, the page's marks, the pack override, the input edits, the re-run, the
+final stamp), and the four deliverables the buyer actually opens (report.html,
+report.pdf, the one-pager, the sentence trace). The workshop (the chat, the notes, the
+rewrite) is routes/workshop.py.
 
 THE ONE THING TO UNDERSTAND HERE is the shim block below.
 
@@ -397,21 +398,15 @@ def post_regenerate_section(job_id: str, req: RegenSectionRequest):
 
 @router.get("/jobs/{job_id}/iteration")
 def get_iteration(job_id: str):
-    """The iteration state (notes, questions, answers) for one owned job, with the
-    workshop pool beside it and the page's counters derived from the pool.
-
-    "annotations" in it is a read view of the notes of kind "mark", kept for the page.
-    "workshop" is the pool as the page should read it (iteration.workshop_view) and
-    "limits" is what the page's "n of N" counters mean against that pool, so the page in
-    production keeps working on the pool until the sidebar replaces its counters.
-    """
+    """The layer after the report, for one owned job: the notes, the chat, the rewrites,
+    the input edits, the stamps, and the pool as the page should read it ("workshop":
+    balance, costs, the pack; see iteration.workshop_view). "annotations" is a read view
+    of the notes of kind "mark"."""
     if not _owned_job(job_id):
         raise HTTPException(status_code=404, detail="job not found")
     import iteration
-    j = _owned_job(job_id) or {}
     st = opened_state(job_id)
-    return {**st, "workshop": iteration.workshop_view(st), "limits": iteration.limits(st),
-            "reruns_left": iteration.reruns_left(job_id, j.get("params") or {})}
+    return {**st, "workshop": iteration.workshop_view(st)}
 
 
 @router.post("/jobs/{job_id}/annotations")
@@ -439,92 +434,25 @@ def delete_annotation(job_id: str, annotation_id: int):
     return iteration.remove_annotation(job_id, annotation_id)
 
 
-@router.post("/jobs/{job_id}/questions")
-def post_question(job_id: str, body: dict):
-    """Record a reviewer question against an owned job, to be answered before finalize."""
-    if not _owned_job(job_id):
-        raise HTTPException(status_code=404, detail="job not found")
-    import iteration
-    try:
-        return iteration.add_question(job_id, str((body or {}).get("q") or ""))
-    except iteration.IterationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-
-
-@router.delete("/jobs/{job_id}/questions/{question_id}")
-def delete_question(job_id: str, question_id: int):
-    """Remove one question from an owned job."""
-    if not _owned_job(job_id):
-        raise HTTPException(status_code=404, detail="job not found")
-    import iteration
-    return iteration.remove_question(job_id, question_id)
-
-
-@router.get("/jobs/{job_id}/credits")
-def get_credits(job_id: str):
-    """What this report's budgets are, what they cost to extend, and what is left.
-
-    KEPT FOR THE REPORT PAGE THROUGH THE TRANSITION. The caps and the old pack tables are
-    still here; the workshop pool rides beside them so a page reading either sees the
-    same credits. GET /workshop is the answer the sidebar reads."""
-    if not _owned_job(job_id):
-        raise HTTPException(status_code=404, detail="job not found")
-    import iteration
-    st = opened_state(job_id)
-    lim = iteration.limits(st)
-    j = _owned_job(job_id) or {}
-    return {"limits": lim,
-            "used": {"questions": len(st.get("questions") or []),
-                     "marks": len(st.get("annotations") or [])},
-            # THE SERVER DECIDES THIS, not the page. See iteration.reruns_left: the rule
-            # had two implementations that disagreed on a regenerated report.
-            "reruns_left": iteration.reruns_left(job_id, j.get("params") or {}),
-            "prices_usd": iteration.PACK_PRICES_USD,
-            "pack_sizes": iteration.PACK_SIZES,
-            "workshop": iteration.workshop_view(st)}
-
-
 @router.post("/jobs/{job_id}/credits")
 def post_credits(job_id: str, body: dict | None = None):
-    """Add a pack to this report. Every kind lands in the workshop pool now.
+    """Add a workshop pack to this report without a checkout: the operator override.
 
     THE PAYMENT SEAM, and it is deliberately shut. iteration.grant refuses unless the
-    operator has explicitly opened it for their own instance; billing.fulfill is the
-    only caller that grants on a settled payment. A 402 here means exactly that, not a
-    bug."""
+    operator has explicitly opened it for their own instance (CASTOR_ALLOW_UNPAID_CREDITS);
+    billing.fulfill is the only caller that grants on a settled payment. A 402 here means
+    exactly that, not a bug. One kind: "workshop"."""
     if not _owned_job(job_id):
         raise HTTPException(status_code=404, detail="job not found")
     import iteration
-    kind = str((body or {}).get("kind") or "")
+    kind = str((body or {}).get("kind") or "workshop")
     packs = max(1, int((body or {}).get("packs") or 1))
     try:
         st = iteration.grant(job_id, kind, packs)
     except iteration.IterationError as e:
-        raise HTTPException(status_code=402, detail=str(e))
-    added = iteration.pack_credits(kind) * packs
-    body = {"limits": iteration.limits(st), "extra": st.get("extra") or {},
-            "workshop": iteration.workshop_view(st), "credits_added": added}
-    if kind != "workshop":
-        # The response says what happened to a pack bought under the old counters, so a
-        # page that offered "5 more questions" can tell its reader what they now hold.
-        units = iteration.PACK_SIZES[kind] * packs
-        body["converted"] = {
-            "from": kind, "units": units, "credits": added,
-            "note": (f"a {kind} pack is {added} workshop credits now: one credit answers "
-                     f"a question or explains a mark, ten rewrite the report")}
-    return body
-
-
-@router.patch("/jobs/{job_id}/qa/{question_id}")
-def patch_answer(job_id: str, question_id: int, body: dict):
-    """Answer one outstanding question on an owned job."""
-    if not _owned_job(job_id):
-        raise HTTPException(status_code=404, detail="job not found")
-    import iteration
-    try:
-        return iteration.set_answer(job_id, question_id, str((body or {}).get("a") or ""))
-    except iteration.IterationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=402 if "checkout" in str(e) else 422, detail=str(e))
+    return {"workshop": iteration.workshop_view(st),
+            "credits_added": iteration.PACK_WORKSHOP * packs}
 
 
 @router.patch("/jobs/{job_id}/input-edits")
@@ -544,22 +472,20 @@ def patch_input_edit(job_id: str, body: dict | None = None):
 
 @router.post("/jobs/{job_id}/revise")
 def post_revise(job_id: str):
-    """Wave E: the ONE regeneration a report gets. Applies all three revision channels:
-    input edits and reader marks ride the amended brief; typed questions carry into the
-    new job's own Q&A to be answered against the NEW artifact. A report that already
-    revised, or that IS a revision, answers 402: pay for another cycle or take the
-    report as it is."""
+    """The RE-RUN: the research again from corrected inputs, as a new report.
+
+    The founder's notes and input edits ride the amended brief; the notes carry onto the
+    new report as a record. It costs COST_RERUN credits from this report's pool, and what
+    the pool has left moves to the new report (one pool per lineage), so a re-run never
+    mints credits. post_plan does the spending, because it is where the run is created
+    and refused; a pool that cannot pay answers 402 there with the pack offered.
+    """
     import iteration
     j = _owned_job(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
     params = j.get("params") or {}
     st = iteration.get_state(job_id)
-    # A RE-RUN PAST THE INCLUDED ONE IS A REPORT CREDIT, NOT A REFUSAL (owner decision,
-    # 2026-09-14). post_plan spends the included re-run (iteration.spend_rerun, the one
-    # rule for how many are left) or, failing that, a report credit, and answers 402 only
-    # when the founder holds neither. This route used to refuse here from its own count,
-    # which once disagreed with the page's; it no longer decides.
     description = str(params.get("description") or "")
     if len(description) < 30:
         raise HTTPException(status_code=422, detail="the original brief is missing")
@@ -581,13 +507,14 @@ def post_revise(job_id: str):
                                 report_style=params.get("report_style")))
     new_id = out["job_id"]
     iteration.carry_forward(job_id, new_id)
+    iteration.transfer_pool(job_id, new_id)
     iteration.mark_revised(job_id, new_id)
     return {"job_id": new_id, "revised_from": job_id}
 
 
 @router.post("/jobs/{job_id}/finalize")
 def post_finalize(job_id: str):
-    """Close the iteration loop on an owned job, freezing its annotations and answers."""
+    """The founder's word that the report is done: the library takes it from here."""
     if not _owned_job(job_id):
         raise HTTPException(status_code=404, detail="job not found")
     import iteration

@@ -506,20 +506,21 @@ class TestTheCreditsSurviveARace(_Workshop):
         self.assertEqual([t["text"] for t in iteration.get_state(jid)["chat"]], ["hello"])
 
     def test_two_requests_racing_for_the_last_rerun_cannot_both_win(self):
-        """spend_rerun promised this in its docstring before it was true."""
+        """A re-run is COST_RERUN credits from the pool, and two clicks racing for a pool
+        that covers one cannot both spend it."""
         import iteration
-        jid = self._report()
+        jid = self._report(credits=iteration.COST_RERUN)
         gate = threading.Event()
         wins: list[bool] = []
-        racers = [threading.Thread(target=lambda: wins.append(iteration.spend_rerun(jid)),
-                                   name="racer") for _ in range(2)]
+        racers = [threading.Thread(target=lambda: wins.append(
+            iteration.spend(jid, iteration.COST_RERUN, "rerun")), name="racer") for _ in range(2)]
         with patch.object(iteration, "get_state", self._slow_read_for("racer", gate, 0.15)):
             for t in racers:
                 t.start()
             for t in racers:
                 t.join(5)
         self.assertEqual(sorted(wins), [False, True], wins)
-        self.assertEqual(iteration.get_state(jid)["reruns_used"], 1)
+        self.assertEqual(iteration.balance(jid), 0)
 
 
 class TestTheTurnIsBilled(_Workshop):

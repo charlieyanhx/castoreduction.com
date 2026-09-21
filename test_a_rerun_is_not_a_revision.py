@@ -9,9 +9,8 @@ ONE VARIABLE WAS ANSWERING TWO QUESTIONS.
 
     previous_job_id = req.previous_job_id or find_previous_plan(req.description, ...)
 
-`req.previous_job_id` is a REVISION LINK. Only post_revise sets it, the reader has spent
-their one regeneration to get there, and it means: carry the marks and questions across,
-answer them against the new artifact, and settle the result as the final version.
+`req.previous_job_id` is a RE-RUN LINK. Only post_revise sets it, the parent's pool has
+paid for the run, and it means: carry the notes across onto the new report.
 
 `find_previous_plan` is a DELTA LOOKUP. It asks "have you run this exact description
 before, so we can show what moved" — a convenience for the numbers, inferred from text,
@@ -97,30 +96,25 @@ class ASecondRunOfTheSameWordsIsAFreshReport(_App):
         self.assertEqual(iteration.get_state(second).get("status"), "draft",
                          "a fresh run must arrive as a draft the reader can still work on")
 
-    def test_it_does_not_inherit_marks_and_questions(self):
+    def test_it_does_not_inherit_the_notes(self):
         import iteration
         c = self._client()
         first = self._run(c)
         iteration.add_annotation(first, section="Economics", quote="rent",
                                  comment="ours is 2200, not 5000")
-        iteration.add_question(first, "How many records a day to break even?")
         second = self._run(c)
         st = iteration.get_state(second)
-        self.assertEqual(st.get("annotations") or [], [])
-        self.assertEqual(st.get("questions") or [], [])
+        self.assertEqual(st.get("notes") or [], [])
 
-    def test_it_keeps_its_own_regeneration(self):
-        """params["previous_job_id"] is what post_revise counts as a spent cycle. Stamping
-        it on an incidental match refused the report the revision it was owed."""
+    def test_it_is_not_stamped_as_a_re_run(self):
+        """params["previous_job_id"] is the re-run link; an incidental match of the words
+        must not stamp it, or the fresh report reads as a re-run of the earlier one."""
         import jobs
         c = self._client()
         self._run(c)
         second = self._run(c)
         params = (jobs.get_unscoped(second) or {}).get("params") or {}
         self.assertIsNone(params.get("previous_job_id"))
-        r = c.post(f"/jobs/{second}/revise")
-        self.assertNotEqual(r.status_code, 402,
-                            "a fresh report must still have its included regeneration")
 
     def test_it_opens_its_own_workshop(self):
         """A fresh report is endowed as a fresh report: its own pool, untouched by what
@@ -146,31 +140,38 @@ class ASecondRunOfTheSameWordsIsAFreshReport(_App):
                          "a repeat run should still say what moved since last time")
 
 
-class AnExplicitRevisionStillBehavesLikeOne(_App):
-    def test_it_carries_the_marks_and_questions(self):
+class AnExplicitReRunStillBehavesLikeOne(_App):
+    def _paid_parent(self, c):
+        """A re-run is paid from the parent's pool, so the parent holds a re-run's worth."""
+        import iteration
+        first = self._run(c)
+        iteration.credit(first, iteration.COST_RERUN, "pack", paid=True)
+        return first
+
+    def test_it_carries_the_notes(self):
         import iteration
         c = self._client()
-        first = self._run(c)
+        first = self._paid_parent(c)
         iteration.add_annotation(first, section="Economics", quote="rent",
                                  comment="ours is 2200")
-        iteration.add_question(first, "How many records a day?")
         second = self._run(c, previous_job_id=first)
         st = iteration.get_state(second)
-        self.assertEqual(len(st.get("annotations") or []), 1)
-        self.assertEqual(len(st.get("questions") or []), 1)
+        self.assertEqual(len(st.get("notes") or []), 1)
+        self.assertEqual(st["notes"][0]["carried_from"], first)
 
-    def test_it_settles_as_the_final_version(self):
+    def test_it_arrives_as_a_draft_the_founder_keeps_working_on(self):
+        """No automatic final stamp: the re-run's report is where the workshop continues,
+        with the credits that moved to it."""
         import iteration
         c = self._client()
-        first = self._run(c)
-        iteration.add_question(first, "How many records a day?")
+        first = self._paid_parent(c)
         second = self._run(c, previous_job_id=first)
-        self.assertIn(iteration.get_state(second).get("status"), ("final", "answered"))
+        self.assertEqual(iteration.get_state(second).get("status"), "draft")
 
-    def test_it_is_stamped_as_a_revision(self):
+    def test_it_is_stamped_as_a_re_run(self):
         import jobs
         c = self._client()
-        first = self._run(c)
+        first = self._paid_parent(c)
         second = self._run(c, previous_job_id=first)
         params = (jobs.get_unscoped(second) or {}).get("params") or {}
         self.assertEqual(params.get("previous_job_id"), first)

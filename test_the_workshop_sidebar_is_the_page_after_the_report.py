@@ -102,7 +102,7 @@ class TheMarkupMatchesTheScript(unittest.TestCase):
         for typed in ("$5", "30 credits", "10 credits", "· 10", "· 1<"):
             self.assertNotIn(typed, self.tpl + self.js, typed)
         for read in ("st.workshop.costs", "st.workshop.pack", "st.workshop.balance",
-                     "st.reruns_left", "billing.report_credits"):
+                     'cost("rerun"'):
             self.assertIn(read, self.js, read)
 
     def test_the_page_hands_the_script_its_constants(self):

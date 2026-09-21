@@ -429,7 +429,7 @@ def _stub_run(description: str) -> dict | None:
     CASTOR_STUB_REPORT holds the job id of a completed report to clone. Set it and POST
     /plan answers in about a second instead of doing six minutes of live research.
     Everything either side stays real: the job row, the quota claim, the checkpoint, the
-    settle, the notification, the withhold check. Only the research is borrowed.
+    carried notes, the notification, the withhold check. Only the research is borrowed.
 
     IT ANNOUNCES ITSELF. The result carries `_stub: True` and the summary is replaced with
     the caller's own description, so a stubbed report cannot be mistaken for real work in
@@ -543,9 +543,8 @@ def post_plan(req: PlanRequest):
     # passes the link explicitly — its amended text would never match the lookup.
     # TWO DIFFERENT QUESTIONS, AND THEY WERE ONE VARIABLE.
     #
-    # `revision_of` is a REVISION LINK: post_revise sets it, the reader has spent their
-    # regeneration, and it means carry the marks and questions over, answer them, and
-    # settle the result as the final version.
+    # `revision_of` is a RE-RUN LINK: post_revise sets it, the parent's pool has paid for
+    # this run, and it means carry the notes over onto the new report.
     #
     # `delta_from` is a DELTA LOOKUP: "have you run this exact description before, so we
     # can show what moved". It is a convenience for the numbers and nothing more.
@@ -598,38 +597,29 @@ def post_plan(req: PlanRequest):
     # sell runs on, and it is still there underneath: `consume` returns False when the
     # balance is zero, so an instance that has never granted a credit behaves as it always
     # did.
-    #
-    # The included revision never spends one: it belongs to the report already paid for.
-    # previous_job_id is set only by post_revise, which has already refused a second cycle,
-    # so this cannot be used to mint unlimited runs by chaining.
     _paid_credit = False
     import billing
 
-    # THE ONE INCLUDED REVISION, AND ONLY ONE. previous_job_id skips both the credit and
-    # the daily count, because the revision belongs to the report already paid for. The
-    # ownership check above proves the job is yours and was never the point: nothing
-    # stopped you posting your OWN finished job id on every request, and each one was then
-    # a run that cost no credit and counted against no cap. One purchase became unlimited
-    # reports. iteration.limits() is the entitlement of record here — it is what the paid
-    # rerun packs widen — so the revision is free exactly as often as it was bought.
+    # A RE-RUN IS PAID FROM THE PARENT REPORT'S POOL (owner decision, 2026-09-21: one
+    # currency after the report). previous_job_id skips the report credit and the daily
+    # count because the parent's post-generation credits pay instead, COST_RERUN of them,
+    # spent here before the work like a first report's credit. The ownership check above
+    # proves the parent is yours; the pool is what stops one purchase from becoming
+    # unlimited research: a re-run spends it, and post_revise then moves what is left to
+    # the new report rather than opening it with credits of its own.
     _revision_of = req.previous_job_id or None
+    _rerun_spent = 0
     if _revision_of:
         import iteration as _it
-        if not _it.spend_rerun(_revision_of, (_parent or {}).get("params") or {}):
-            # THE INCLUDED RE-RUN IS SPENT, SO THIS ONE IS A REPORT CREDIT (owner
-            # decision, 2026-09-14: one re-run included, then a report credit; the rerun
-            # pack is gone). Consumed here, before the work, like a first report's.
-            if billing.consume(_owner, "report"):
-                _paid_credit = True
-                billing.record_spend(job_id, _owner)
-                log.info("[billing] re-run %s of %s paid for with a report credit",
-                         job_id[:8], _revision_of[:8])
-            else:
-                jobs.discard(job_id)
-                raise HTTPException(
-                    status_code=402,
-                    detail=("This report's included re-run has been used; another costs "
-                            "a report credit. Buy one and it runs straight away."))
+        if not _it.spend(_revision_of, _it.COST_RERUN, "rerun", ref=job_id):
+            jobs.discard(job_id)
+            left = _it.balance(_revision_of)
+            raise HTTPException(
+                status_code=402,
+                detail=(f"A re-run costs {_it.COST_RERUN} credits and this report has "
+                        f"{left}. A workshop pack adds {_it.PACK_WORKSHOP} for "
+                        f"${_it.PACK_WORKSHOP_USD:g}."))
+        _rerun_spent = _it.COST_RERUN
 
     if not _revision_of and billing.consume(_owner, "report"):
         _paid_credit = True
@@ -671,33 +661,31 @@ def post_plan(req: PlanRequest):
             # put a phantom "Did not finish" in the founder's library for a report that
             # never started, next to a message telling them to try again tomorrow. The row
             # exists only so the quota slot could name it; nothing was attempted.
-            if _paid_credit:
-                # a re-run paid with a report credit above: the credit goes back too
-                billing.credit_back(_owner, "report", "refused before the run began")
-                _paid_credit = False
+            if _rerun_spent:
+                # the parent's credits, taken above for a run that never began
+                import iteration as _it
+                _it.refund(_revision_of, _rerun_spent, "rerun refund: refused before the run began")
             jobs.discard(job_id)
             raise HTTPException(status_code=429, detail=str(e))
 
     # THE WORKSHOP OPENS WITH THE REPORT. A paid report includes thirty workshop credits,
     # one off the free allowance includes ten, and this is the one place the run's kind
     # is known for certain: the credit was just spent, or the allowance was just
-    # claimed. A revision run inherits its parent's kind, because the included re-run of
-    # a paid report is that paid report's own. The stub path is covered too: it replaces
-    # the research, not this. endow() is idempotent, so the resumer and a retried submit
-    # cannot double it.
-    _open_the_workshop(job_id, paid=_paid_credit or _paid_for(_revision_of))
+    # claimed. A RE-RUN OPENS WITH NOTHING: its lineage has one pool, and post_revise
+    # moves what the parent had left onto it (iteration.transfer_pool). The stub path is
+    # covered too: it replaces the research, not this. endow() is idempotent, so the
+    # resumer and a retried submit cannot double it.
+    if not _revision_of:
+        _open_the_workshop(job_id, paid=_paid_credit)
 
     def work(progress=None):
         """Run the full plan, forwarding progress so the job can checkpoint as it goes."""
         # THE STUB REPLACES THE RESEARCH, NOT THE TAIL THAT FOLLOWS IT.
         #
         # This used to `return stub` outright, which skipped every line below: the delta
-        # link, carry_forward, draft_answers, the refund check and the notification. So a
-        # regeneration run under the stub carried the reader's questions across and left
-        # them all unanswered — the exact "Not yet answered" failure the comment further
-        # down says it exists to prevent — and the stub's own docstring claimed the
-        # opposite ("everything either side stays real"). It was true of the intent and
-        # false of the code.
+        # link, carry_forward, the refund check and the notification, while the stub's
+        # own docstring claimed the opposite ("everything either side stays real"). It
+        # was true of the intent and false of the code.
         #
         # Now the stub only supplies `result` and execution continues, so what is being
         # tested is the real pipeline around a borrowed report.
@@ -768,40 +756,16 @@ def post_plan(req: PlanRequest):
                 except Exception as e:
                     log.warning(f"delta computation failed: {e}")
 
-        # A CARRIED QUESTION MUST GET ANSWERED. carry_forward deliberately copies the
-        # reader's questions across UNANSWERED so they can be grounded in the new
-        # artifact rather than the old one, and draft_answers is what grounds them. Its
-        # only caller used to be the "answer my questions" button, so when that button
-        # went the carried questions simply sat blank: the regenerated report published a
-        # Q&A section reading "Not yet answered", and finalize refuses on exactly that.
-        # The answer belongs to the run that can answer it, not to a button someone has
-        # to remember to press. carry_forward also brings the MARKS over, so the new
-        # report can show what the reader flagged and what came back on it.
+        # THE NOTES CARRY ONTO THE NEW REPORT. post_revise also carries, but it does so
+        # AFTER post_plan has already started this thread, so on a fast run we arrive here
+        # first. carry_forward is idempotent: whoever gets there first wins. Never fail
+        # the run over it: the report is the product, the notes are a record.
         if revision_of and not result.get("error"):
             import iteration as _iter
             try:
-                # Carry first, and only then draft. post_revise also carries, but it does
-                # so AFTER post_plan has already started this thread, so on a fast run we
-                # arrive here before the questions exist. carry_forward is idempotent,
-                # so whichever side gets there first wins and the other is a no-op.
                 _iter.carry_forward(revision_of, job_id)
-                if (_iter.get_state(job_id).get("questions") or []):
-                    _iter.draft_answers(job_id, result)
             except Exception as e:                       # noqa: BLE001
-                # Never fail the run over its Q&A: the report is the product, the
-                # answers are an addition, and an unanswered question is visible and
-                # honest where a lost report is neither.
-                log.warning("[api] drafting carried answers failed for %s: %s", job_id, e)
-            # SETTLE OUTSIDE THAT try, ON PURPOSE. A regenerated report is the final
-            # version whether or not its Q&A came back, and settling is what makes the
-            # page say so: the v2 stamp on the cover, the marking furniture put away, and
-            # the feedback survey — which is gated on the report being finished — finally
-            # shown. Leaving it at "answered" because drafting failed would punish the
-            # reader twice for one model timeout.
-            try:
-                _iter.settle(job_id)
-            except Exception as e:                       # noqa: BLE001
-                log.warning("[api] could not settle %s: %s", job_id, e)
+                log.warning("[api] carrying the notes onto %s failed: %s", job_id, e)
 
         # A CREDIT BUYS A REPORT, NOT AN ATTEMPT. The spend happens before the work,
         # which is right — six minutes of metered research on an unpaid promise is the

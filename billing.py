@@ -45,12 +45,6 @@ PRICE_ENV = {
     "bundle5": "STRIPE_PRICE_BUNDLE5",
     "bundle10": "STRIPE_PRICE_BUNDLE10",
     "workshop": "STRIPE_PRICE_WORKSHOP",
-    # THE OLD REFINEMENT PACKS. Not offered any more, but their price ids stay named so a
-    # checkout session opened under them can still be fulfilled when its webhook lands;
-    # the credits arrive converted into the workshop pool (iteration.grant).
-    "marks": "STRIPE_PRICE_MARKS",
-    "questions": "STRIPE_PRICE_QUESTIONS",
-    "rerun": "STRIPE_PRICE_RERUN",
 }
 
 #: What a purchase is WORTH, as (credit kind, how many). The thing bought and the thing
@@ -84,15 +78,11 @@ OFFERS = {
 #: report's workshop the same open tab.
 ACCOUNT_KINDS = ("report", "bundle5", "bundle10")
 JOB_KINDS = ("workshop",)
-#: The three kinds the workshop pool replaced. A webhook for one of them may still arrive,
-#: late, for a session opened before the change, and it must grant what it was worth. They
-#: are accepted here and converted by iteration.grant; they are not in OFFERS.
-LEGACY_JOB_KINDS = ("marks", "questions", "rerun")
 
 
 def is_job_kind(kind: str) -> bool:
-    """Is this bought for one report rather than for the account? Old kinds included."""
-    return kind in JOB_KINDS or kind in LEGACY_JOB_KINDS
+    """Is this bought for one report rather than for the account?"""
+    return kind in JOB_KINDS
 
 #: Stripe's own tolerance for webhook timestamps. Older than this and it is a replay of a
 #: capture, not a delivery.
@@ -853,13 +843,7 @@ def fulfill(event: dict) -> dict:
         return {"granted": False, "reason": "already fulfilled"}
     try:
         import iteration
-        if kind in JOB_KINDS:
-            iteration.credit(job_id, count, "pack", paid=True, ref=session_id)
-        else:
-            # An old kind, bought before the pool existed. grant() converts it at the
-            # published rate and logs that it did.
-            count = iteration.PACK_SIZES[kind] * iteration.OLD_KIND_CREDITS[kind]
-            iteration.grant(job_id, kind, packs=1, paid=True)
+        iteration.credit(job_id, count, "pack", paid=True, ref=session_id)
     except Exception as e:                                   # noqa: BLE001
         # The row is written, so the payment is recorded and will not be granted twice.
         # Surfacing the failure beats pretending it worked.

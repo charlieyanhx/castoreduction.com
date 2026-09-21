@@ -43,3 +43,7 @@ docs/papers/*.out
 .pytest_cache/
 .ruff_cache/
 feedback-for-jane.*
+
+# the testing account on the live instance (see scripts/live_smoke.py)
+.testaccount
+.env.bak-*

@@ -12,13 +12,10 @@ It does. market_sizing.tam.method_top_down.calculation reads, verbatim:
 
 TWO SEPARATE LOSSES OF THE FOUNDER'S OWN CONTEXT, one in each direction.
 
-  ANSWERING. _digest handed the model `json.dumps(result)[:14000]`. MEASURED on a real
-  report: 280,162 characters of result, 14,000 forwarded — five per cent — sliced
-  mid-structure so it was not even parseable JSON. Four of thirty-eight sections survived,
-  and only because `discover` is a long list of competitors sitting near the front that ate
-  the budget before the analysis was reached. market_sizing, economics, financials,
-  pricing, validation, viability: all absent. The model was honest about a context nobody
-  gave it, and its honesty read as the report having no method.
+  ANSWERING. The old batch answerer handed the model `json.dumps(result)[:14000]`: five
+  per cent of a real report, sliced mid-structure. That answerer is gone; the workshop
+  chat hands the analyst the whole fact layer as a cached prefix (report/workshop.py,
+  tested in test_the_workshop_chat_answers_from_the_evidence.py).
 
   REVISING. add_annotation stores quote[:400] and comment[:1000]. build_revision_brief
   forwarded quote[:80] and comment[:200], so four fifths of a founder's correction was
@@ -72,57 +69,6 @@ def _fat_report() -> dict:
         "validation": {"checks": ["census", "psm"]},
         "viability": {"viability_score": 7},
     }
-
-
-class TheAnswererSeesTheWholeReport(unittest.TestCase):
-    def setUp(self):
-        import iteration
-        self.iteration = iteration
-        self.result = _fat_report()
-        self.digest = iteration._digest(self.result)
-
-    def test_the_sizing_method_reaches_it(self):
-        """The reported failure, as a rule. This is the section the question was about."""
-        self.assertIn("market_sizing", self.digest)
-        self.assertIn("$7B market x 50% US x 45% share", self.digest,
-                      "the formula the reader asked for must be in the model's context")
-
-    def test_every_visible_section_survives(self):
-        """Not 'most'. A question can be about any of them, and a section that did not
-        make the cut is one the product will deny having."""
-        for key in ("profile", "market_sizing", "economics", "financials",
-                    "pricing", "validation", "viability", "discover"):
-            self.assertIn(f'"{key}"', self.digest, key)
-
-    def test_a_fat_evidence_list_does_not_starve_the_analysis(self):
-        """The exact mechanism of the bug: `discover` came first and ate everything."""
-        d = json.loads(self.digest)
-        self.assertIn("market_sizing", d)
-        self.assertLess(len(d["discover"]["competitors"]), 120,
-                        "the long list is what should shrink")
-
-    def test_it_is_valid_json(self):
-        """A model handed an object cut mid-structure has to guess where it was cut."""
-        json.loads(self.digest)
-
-    def test_a_shortened_list_says_it_was_shortened(self):
-        """Otherwise three of forty competitors reads as a complete competitive landscape,
-        and the report claims something the evidence never said."""
-        d = json.loads(self.digest)
-        tail = d["discover"]["competitors"][-1]
-        self.assertIn("more not shown", json.dumps(tail))
-
-    def test_internal_bookkeeping_is_still_dropped(self):
-        self.assertNotIn("_trace", self.digest)
-
-    def test_it_stays_within_its_budget(self):
-        self.assertLessEqual(len(self.digest), 60000)
-
-    def test_a_small_report_is_handed_over_nearly_whole(self):
-        """The tightening is a response to size, not a tax on every report."""
-        small = {"profile": {"name": "x"}, "market_sizing": {"tam": {"value_usd": 1}}}
-        d = json.loads(self.iteration._digest(small))
-        self.assertEqual(d, small)
 
 
 class TheNextRunGetsTheWholeCorrection(unittest.TestCase):

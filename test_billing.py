@@ -50,7 +50,7 @@ class _Billing(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self._prev = {k: os.environ.get(k) for k in
                       ("JOBS_DB_PATH", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
-                       "STRIPE_PRICE_REPORT", "STRIPE_PRICE_WORKSHOP", "STRIPE_PRICE_MARKS",
+                       "STRIPE_PRICE_REPORT", "STRIPE_PRICE_WORKSHOP",
                        "CASTOR_ALLOW_UNPAID_CREDITS")}
         os.environ["JOBS_DB_PATH"] = os.path.join(self._tmp.name, "jobs.sqlite")
         os.environ["STRIPE_WEBHOOK_SECRET"] = SECRET
@@ -150,19 +150,13 @@ class TestFulfilment(_Billing):
         self.assertEqual(iteration.balance("job-A"), iteration.PACK_WORKSHOP)
         self.assertEqual(iteration.balance("job-B"), 0)
 
-    def test_a_late_pack_of_an_old_kind_is_converted_not_lost(self):
-        """A webhook for a marks pack bought before the pool existed still grants what it
-        was worth: five marks are five workshop credits. The cap it used to widen is not
-        widened; the money lands in the pool."""
+    def test_a_webhook_for_a_kind_nobody_sells_grants_nothing(self):
+        """The three old packs (marks, questions, rerun) are gone from the price list; a
+        webhook naming one is recorded as not granted rather than minting credits."""
         import billing, iteration
-        base = iteration.limits(iteration.get_state("job-A"))
-        billing.fulfill(_session_event(kind="marks", job="job-A", session_id="cs_old"))
-        credits = iteration.PACK_ANNOTATIONS * iteration.OLD_KIND_CREDITS["marks"]
-        self.assertEqual(iteration.balance("job-A"), credits)
-        lim = iteration.limits(iteration.get_state("job-A"))
-        self.assertIsNone(lim["marks"], "marks are uncapped; nothing to widen")
-        self.assertEqual(lim["questions"], base["questions"] + credits,
-                         "the page's counter is the pool, so it shows the five")
+        out = billing.fulfill(_session_event(kind="marks", job="job-A", session_id="cs_old"))
+        self.assertFalse(out.get("granted"))
+        self.assertEqual(iteration.balance("job-A"), 0)
 
 
 class TestNothingIsFreeWithoutPayment(_Billing):
@@ -182,10 +176,8 @@ class TestNothingIsFreeWithoutPayment(_Billing):
         import billing
         os.environ["STRIPE_SECRET_KEY"] = "sk_test_x"
         os.environ["STRIPE_PRICE_WORKSHOP"] = "price_x"
-        os.environ["STRIPE_PRICE_MARKS"] = "price_x"
-        for kind in ("workshop", "marks"):        # the pack, and an old kind still priced
-            with self.assertRaises(billing.BillingError):
-                billing.create_checkout(kind, "acct-1", "http://s", "http://c")
+        with self.assertRaises(billing.BillingError):
+            billing.create_checkout("workshop", "acct-1", "http://s", "http://c")
 
 
 class TestTheEndpoint(_Billing):

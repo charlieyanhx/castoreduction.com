@@ -87,12 +87,13 @@
       const p = pack();
       $("wsOffer").innerHTML = "<b>Out of workshop credits.</b> A pack adds <b>" + esc(p.credits) +
         " credits</b>" + (typeof p.usd === "number" ? " for <b>" + money(p.usd) + "</b>" : "") +
-        ": " + Math.floor(p.credits / Math.max(1, turn)) + " answers, or " + Math.floor(p.credits / Math.max(1, rw)) +
-        " rewrites." + '<div><button class="ws-btn" type="button" id="wsBuy">Add ' + esc(p.credits) +
+        ": " + Math.floor(p.credits / Math.max(1, turn)) + " answers, " + Math.floor(p.credits / Math.max(1, rw)) +
+        " rewrites, or " + Math.floor(p.credits / Math.max(1, cost("rerun", 20))) + " re-run." + '<div><button class="ws-btn" type="button" id="wsBuy">Add ' + esc(p.credits) +
         " credits" + (typeof p.usd === "number" ? " · " + money(p.usd) : "") + "</button></div>";
       $("wsBuy").onclick = buy;
     }
     $("wsSend").disabled = busy || (!noting && short);
+    if (st) paintRerunPrice();
   }
 
   /* ---- the conversation -------------------------------------------------------------- */
@@ -439,7 +440,7 @@
       $("wsRewrite").disabled = true;
       $("wsRewriteHint").textContent = st.status === "final" ? "This report is final." : "This report was superseded by its re-run.";
       $("wsRerunGo").disabled = true;
-      $("wsRerunCost").textContent = st.status === "final" ? "This report is final." : "Already re-run; open the new report.";
+      $("wsRerunCost").textContent = st.status === "final" ? "This report is final." : "Already re-run; the new report has the credits.";
     }
     document.dispatchEvent(new CustomEvent("ws:state", {detail: st}));
   }
@@ -450,17 +451,23 @@
     catch (e) { say(e.status === 422 ? e.message : explain(e, "Marking it final")); }
   };
 
-  /* ---- re-run --------------------------------------------------------------------------- */
+  /* ---- re-run ---------------------------------------------------------------------------
+     THE RESEARCH AGAIN, from corrected inputs, as a new report. Priced from the pool like
+     everything else (st.workshop.costs.rerun); what the pool has left moves to the new
+     report, so the founder keeps working there with the same credits. */
   const label = (f) => f.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+  function paintRerunPrice() {
+    const price = cost("rerun", 20);
+    const short = bal() < price;
+    $("wsRerunHint").textContent = price + " credits";
+    $("wsRerunCost").textContent = short
+      ? "Needs " + price + " credits; you have " + bal() + "."
+      : "Costs " + price + " credits. What is left in the pool moves to the new report.";
+    $("wsRerunGo").disabled = busy || short || settled();
+    $("wsRerunGo").textContent = "Re-run · " + price;
+  }
   function paintRerun() {
-    const left = (st && typeof st.reruns_left === "number") ? st.reruns_left : 1;
-    const credits = (billing && typeof billing.report_credits === "number") ? billing.report_credits : null;
-    $("wsRerunHint").textContent = left > 0 ? left + " included" : "1 report credit";
-    $("wsRerunCost").textContent = left > 0
-      ? "One re-run is included with this report."
-      : (credits === null ? "After the included one, a re-run costs one report credit."
-         : credits > 0 ? "Costs one report credit; you have " + credits + "."
-         : "Costs one report credit; you have none.");
+    paintRerunPrice();
     const edits = (st && st.input_edits) || {};
     const fields = Object.keys(FACTS || {});
     $("wsFixes").innerHTML = fields.length ? fields.map((f) =>
@@ -475,20 +482,15 @@
         catch (e) { say(explain(e, "That correction")); }
       };
     });
-    const settled = st && (st.status === "revised" || st.revised_to);
-    $("wsRerunGo").disabled = !!settled && left <= 0 && !(credits > 0);
-    $("wsRerunGo").textContent = left > 0 || credits === null || credits > 0 ? "Re-run" : "Buy a report credit";
   }
 
   $("wsRerunGo").onclick = async () => {
-    const left = (st && typeof st.reruns_left === "number") ? st.reruns_left : 1;
-    const credits = (billing && typeof billing.report_credits === "number") ? billing.report_credits : null;
-    if (left <= 0 && credits === 0) { await checkout("report"); return; }
+    const price = cost("rerun", 20);
     const box = $("wsRerunConfirm");
     const notes = ((st && st.notes) || []).length, edits = Object.keys((st && st.input_edits) || {}).length;
     box.innerHTML = '<div class="ws-confirm">This starts a new run with ' + edits + " corrected input" + (edits === 1 ? "" : "s") +
-      " and " + notes + " note" + (notes === 1 ? "" : "s") + " as corrections. About ten minutes, and it is " +
-      (left > 0 ? "the re-run included with this report." : "one report credit.") +
+      " and " + notes + " note" + (notes === 1 ? "" : "s") + " as corrections. About fifteen minutes, " + price +
+      " credits from this report's pool; the " + Math.max(0, bal() - price) + " left move to the new report." +
       '<div class="ws-row"><button class="ws-btn quiet" type="button" data-no>Not yet</button>' +
       '<button class="ws-btn" type="button" data-yes>Start the re-run</button></div></div>';
     box.querySelector("[data-no]").onclick = () => { box.innerHTML = ""; };
@@ -499,7 +501,8 @@
         location.href = "/progress.html?job=" + encodeURIComponent(r.job_id || JOB);
       } catch (err) {
         box.innerHTML = "";
-        say(err.status === 402 ? (err.message || "This report has used its included re-run; another costs a report credit.") : explain(err, "The re-run"));
+        if (err.status === 402 && err.data && typeof err.data.balance === "number") { st.workshop.balance = err.data.balance; paintBalance(); }
+        say(err.status === 402 ? (err.message || "A re-run costs " + price + " credits.") : explain(err, "The re-run"));
       }
     };
   };
@@ -573,7 +576,6 @@
       // POST /credits carries the view; a bare pool is normalised the same way
       out.workshop = Object.assign({}, st.workshop, body.workshop, {balance: Math.max(0, (body.workshop.granted || 0) - (body.workshop.spent || 0))});
     }
-    if (typeof body.reruns_left !== "number" && st && typeof st.reruns_left === "number") out.reruns_left = st.reruns_left;
     return out;
   }
   function paintAll() { paintBalance(); paintTurns(); paintNotes(); paintRewrite(); paintRerun(); paintFinal(); }
