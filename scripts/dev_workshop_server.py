@@ -39,6 +39,15 @@ BRIEF = ("An independent specialty coffee shop with a small roastery, opening on
          "site in the Mission District of San Francisco, twelve hundred square feet, "
          "espresso around $5.50.")
 
+# .env FIRST, THEN THE OVERRIDES. api loads .env without overriding what is set, so a
+# switch popped here and loaded there came straight back; loading it ourselves first
+# makes every line below the final word.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(ROOT / ".env")
+except ImportError:
+    raise SystemExit("python-dotenv is not installed here; start this with "
+                     ".venv/bin/python so .env and the app's packages are available")
 os.environ["JOBS_DB_PATH"] = os.path.join(tempfile.mkdtemp(prefix="castor-dev-"), "dev.sqlite")
 os.environ["CASTOR_DAILY_RUNS"] = "50"
 os.environ["ANTHROPIC_API_KEY"] = "sk-test-fake"
@@ -119,6 +128,19 @@ def main() -> None:
     import jobs
 
     jobs._reset_for_tests()
+
+    # SAY WHAT THE MODELS ARE, ONCE, HERE. A re-run or a new report from this server runs
+    # the real pipeline on the real free chain (.env's Gemini or Groq key); only the
+    # analyst is the stand-in. A process with no free key would run every step into
+    # "No LLM API key found" ten minutes after the click, so it is refused at the door.
+    import llm
+    chain = [b for b in llm.fallback_chain() if b != "anthropic"]
+    if not chain:
+        raise SystemExit("no free LLM backend is configured (GEMINI_API_KEY or GROQ_API_KEY "
+                         "in .env); a re-run or a new report would fail on every step. "
+                         "Start this with .venv/bin/python so .env is loaded.")
+    print(f"  pipeline models: {', '.join(chain)} (real); analyst: stand-in", flush=True)
+
     result = json.loads(FIXTURE.read_text(encoding="utf-8"))
     result["synthesis"] = {"markdown": REPORT.read_text(encoding="utf-8"),
                            "model": "claude-opus-5", "style": "full",
