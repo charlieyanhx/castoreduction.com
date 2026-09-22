@@ -229,6 +229,8 @@ def survey(page) -> str:
                 arg=headline(page), timeout=120_000)
         except Exception:                                    # noqa: BLE001
             pass
+        if re.search(r"/progress\.html", page.url):
+            return ""                       # launched: an account with a credit is not gated
         err = page.locator("#err").inner_text().strip()
         if err and err != err_before:
             log("survey refused", error=err[:200])

@@ -102,25 +102,47 @@ def record_dropped_output(result: dict, key: str, reason: str) -> None:
 
 
 def run_with_timeout(fn, *args, timeout_s: int = 180, label: str = "", **kwargs):
-    """Run a step with a hard timeout. Returns {} on timeout or error, logs warning.
+    """Run a step with a hard timeout. Returns {"error": ...} on timeout or error.
 
-    Moved from plan.py with the personas extraction — steps need it, and steps cannot
+    THE TIMEOUT USED TO WAIT FOR THE STEP ANYWAY. This ran the step inside
+    `with ThreadPoolExecutor(...) as pool`, and leaving that block is pool.shutdown(wait=True):
+    on a timeout the caller was handed {"error": "timed out"} only once the abandoned call
+    had finished on its own. MEASURED 2026-09-21 (job 0b5902b3, the machine at load 200):
+    three trustpilot_momentum calls of 723 seconds each under a 180-second step timeout,
+    eight steps in 57 minutes, no step ever reporting a timeout. The pool is shut down
+    without waiting now. A Python thread cannot be killed, so the late call still runs to
+    its end in the background and is logged when it does; the run moves on at the
+    deadline, which is what a deadline is. Tools that spend the time (browser scrapes,
+    domain probes) must bound themselves too; this is the floor under them.
+
+    Moved from plan.py with the personas extraction: steps need it, and steps cannot
     import plan. plan.py re-imports it under the old _run_with_timeout name.
     """
+    import time as _time
     from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
     from logger import get
     log = get("plan")
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(fn, *args, **kwargs)
-        try:
-            return future.result(timeout=timeout_s)
-        except FutureTimeoutError:
-            log.warning(f"[plan] {label} exceeded {timeout_s}s timeout — returning partial")
-            return {"error": f"timed out after {timeout_s}s"}
-        except Exception as e:
-            # Log full traceback so future debugging isn't blind
-            import traceback
-            log.warning(f"[plan] {label} failed: {type(e).__name__}: {e}")
-            log.debug(traceback.format_exc())
-            return {"error": f"{type(e).__name__}: {e}"}
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"step-{label or 'anon'}")
+    t0 = _time.time()
+    future = pool.submit(fn, *args, **kwargs)
+    try:
+        out = future.result(timeout=timeout_s)
+        pool.shutdown(wait=False)
+        return out
+    except FutureTimeoutError:
+        log.warning(f"[plan] {label} exceeded {timeout_s}s timeout: returning partial; "
+                    f"the call keeps running in the background")
+        pool.shutdown(wait=False, cancel_futures=True)
+        future.add_done_callback(
+            lambda f: log.warning(f"[plan] {label} finished {_time.time() - t0:.0f}s after it "
+                                  f"started, {_time.time() - t0 - timeout_s:.0f}s past its timeout"
+                                  + ("; it raised" if f.exception() else "")))
+        return {"error": f"timed out after {timeout_s}s"}
+    except Exception as e:
+        # Log full traceback so future debugging isn't blind
+        import traceback
+        pool.shutdown(wait=False)
+        log.warning(f"[plan] {label} failed: {type(e).__name__}: {e}")
+        log.debug(traceback.format_exc())
+        return {"error": f"{type(e).__name__}: {e}"}

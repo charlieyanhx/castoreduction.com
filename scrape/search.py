@@ -25,10 +25,12 @@ from logger import get
 log = get("scrape.search")
 
 # Curated list of public SearXNG instances. Hit them in order; bail on first 200.
+# search.brave4u.com stopped resolving (every call in a 2026-09-21 run was refused with
+# "nodename nor servname provided") and is off the list: a host that does not resolve is a
+# DNS wait per query on a run that has none to spare.
 SEARXNG_INSTANCES = (
     "https://searx.be",
     "https://searx.tiekoetter.com",
-    "https://search.brave4u.com",
 )
 
 
