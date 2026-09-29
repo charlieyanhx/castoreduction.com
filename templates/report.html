@@ -560,15 +560,17 @@ by a model.</p>
     {% if section_provenance %}<a href="#provenance">Provenance</a>{% endif %}
     <a href="#cited-facts">Cited facts</a>
     <a href="#methodology">Methodology</a>
-    <a href="#citations">Citations</a>
+    {% if four_ps.citations %}<a href="#citations">Citations</a>{% endif %}
   </div>
 </div>
 {% else %}
 <div class="no-print" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px;margin:16px 0;font-size:10pt">
   <strong style="text-transform:uppercase;letter-spacing:.05em;color:#4b5563;font-size:9pt">Jump to</strong>
   <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:10px 16px;color:#2563eb">
-    {% if synthesis %}<a href="#synthesis" style="color:inherit">Analyst report</a>{% else %}<a href="#executive-summary" style="color:inherit">Executive summary</a>{% endif %} ·
-    <a href="#differentiators" style="color:inherit">Differentiators</a> ·
+    {% if synthesis %}<a href="#synthesis" style="color:inherit">Analyst report</a> ·
+    {% elif four_ps.executive_summary %}<a href="#executive-summary" style="color:inherit">Executive summary</a> ·
+    {% endif %}
+    {% if differentiators and not synthesis %}<a href="#differentiators" style="color:inherit">Differentiators</a> ·{% endif %}
     {# R4 rank 24: each of these SECTIONS renders conditionally, but the nav links used
        to render unconditionally: dead in-page anchors on 16/16 reports. Guard every
        conditional link with the SAME condition its section uses. #}
@@ -584,8 +586,8 @@ by a model.</p>
     {# Guarded with the same condition as the section itself; D43 fails any in-page
        anchor whose target id is absent. #}
     {% if section_provenance %}<a href="#provenance" style="color:inherit">Provenance</a> ·{% endif %}{% if synthesis %} <a href="#cited-facts" style="color:inherit">Cited facts</a> ·{% endif %}
-    <a href="#methodology" style="color:inherit">Methodology</a> ·
-    <a href="#citations" style="color:inherit">Citations</a>
+    <a href="#methodology" style="color:inherit">Methodology</a>{% if four_ps.citations %} ·
+    <a href="#citations" style="color:inherit">Citations</a>{% endif %}
   </div>
 </div>
 {% endif %}

@@ -32,11 +32,21 @@ class TestNavGuards(unittest.TestCase):
     def test_empty_context_drops_conditional_links(self):
         html = _render_nav()
         for dead in ("#sensitivity", "#audiences", "#customer-universe",
-                     "#segment-ranking", "#features", "#macro-anchors"):
+                     "#segment-ranking", "#features", "#macro-anchors",
+                     # 2026-09-22: three more links that this file's own docstring
+                     # already covered and the template had not applied. #citations
+                     # renders on `four_ps.citations`, #executive-summary on
+                     # `four_ps.executive_summary and not synthesis`, #differentiators
+                     # on `differentiators and not synthesis`, and all three linked
+                     # unconditionally. Job dbda8897 was WITHHELD ENTIRELY over the
+                     # first two: D62 withheld the synthesis, the sections that hang
+                     # off it stopped rendering, D43 saw dead anchors and blocked the
+                     # report, and the credit was refunded.
+                     "#citations", "#executive-summary", "#differentiators"):
             self.assertNotIn(f'href="{dead}"', html, f"{dead} link should be hidden")
         # unconditional links stay
         self.assertIn('href="#pricing"', html)
-        self.assertIn('href="#citations"', html)
+        self.assertIn('href="#methodology"', html)
 
     def test_present_sections_keep_their_links(self):
         html = _render_nav(
@@ -45,9 +55,14 @@ class TestNavGuards(unittest.TestCase):
             customer_universe={"count": 5},
             segment_ranking={"top_5": [{}]},
             economics={"sensitivity": {"churn_sensitivity": [{}]}},
-            market_sizing={"macro_anchors": {"series": [{}]}})
+            market_sizing={"macro_anchors": {"series": [{}]}},
+            four_ps={"citations": [{}], "executive_summary": "Product: a shop."},
+            differentiators={"differentiators": [{}]})
         for live in ("#audiences", "#features", "#customer-universe",
-                     "#segment-ranking", "#sensitivity", "#macro-anchors"):
+                     "#segment-ranking", "#sensitivity", "#macro-anchors",
+                     # A guard that only ever hides is a deleted link. These three come
+                     # back the moment their section renders.
+                     "#citations", "#executive-summary", "#differentiators"):
             self.assertIn(f'href="{live}"', html, f"{live} link should be present")
 
 
