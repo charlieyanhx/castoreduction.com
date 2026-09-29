@@ -548,13 +548,21 @@ class TestTheTurnIsBilled(_Workshop):
         self.assertAlmostEqual(iteration.chat_history(jid)[1]["usd"], slot["usd"], places=4)
 
     def test_a_call_with_no_cache_leaves_the_ledger_event_as_it_was(self):
-        """The writer's receipt and every existing ledger event keep their shape."""
+        """The writer's receipt and every existing ledger event keep their shape.
+
+        duration_s rides every llm event since 2026-09-22 so a run can say how much of
+        itself was the model. The cache fields are still the ones that appear only when
+        the call used the cache, which is what this test is really guarding.
+        """
         from persistence import ledger
         jid = self._report()
         self._post(jid, {"message": "Anything?"}, _Writer(_message(cache_read=0)))
         [event] = [e for e in ledger.snapshot() if e.get("layer") == "llm"]
         self.assertEqual(sorted(event), sorted(
-            ["layer", "model", "cached", "in_tok", "out_tok", "ok", "step", "t", "run_id"]))
+            ["layer", "model", "cached", "in_tok", "out_tok", "ok", "duration_s",
+             "step", "t", "run_id"]))
+        self.assertNotIn("cache_read", event)
+        self.assertNotIn("cache_write", event)
 
 
 class TestTheTurnsAreBuiltForTheModel(unittest.TestCase):

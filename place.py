@@ -15,7 +15,9 @@ Channel signals we detect from homepage HTML:
 from __future__ import annotations
 import re
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
+
+from persistence.ledger import StepPool
 
 import net as mrp_http
 from llm import call_json
@@ -91,7 +93,7 @@ def analyze_competitor_channels(domains: list[str]) -> dict:
     per_domain: dict[str, list[str]] = {}
     aggregate: Counter = Counter()
 
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    with StepPool(max_workers=6) as pool:
         futures = [pool.submit(_fetch_one, d) for d in domains[:10]]
         for fut in as_completed(futures, timeout=30):
             try:

@@ -415,7 +415,8 @@ def call_long_text(system: str, user: str, max_tokens: int = 32000,
     try:
         import provenance as _trace
         _trace.record_llm(model, cached=False, in_tok=in_tok, out_tok=out_tok,
-                          cache_read=cache_read, cache_write=cache_write)
+                          cache_read=cache_read, cache_write=cache_write,
+                          duration=time.time() - t0)
     except Exception:
         pass
     log.info("call_long_text [%s] %d->%d tok (cache read %d, write %d), %.1fs, stop=%s",
@@ -646,7 +647,8 @@ def _chain_text(system: str, user: str, max_tokens: int,
             usage.add(model_used, in_tok, out_tok)
             try:
                 import provenance as _trace
-                _trace.record_llm(model_used, cached=False, in_tok=in_tok, out_tok=out_tok)
+                _trace.record_llm(model_used, cached=False, in_tok=in_tok, out_tok=out_tok,
+                                  duration=time.time() - t0)
             except Exception:
                 pass
             log.debug("call_json [%s/%s] %d→%d tok, %.1fs",

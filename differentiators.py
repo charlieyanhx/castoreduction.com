@@ -335,7 +335,7 @@ def extract_differentiators(
     # Iter 40: split into 5 dimension-specific sub-prompts run in parallel.
     # Each returns 0-2 differentiators ON ITS DIMENSION. Total expected: 3-7
     # entries instead of the LLM's "be conservative" 1-entry shrug.
-    from concurrent.futures import ThreadPoolExecutor
+    from persistence.ledger import StepPool
 
     def _one_dimension(key_label):
         key, brief = key_label
@@ -384,7 +384,7 @@ def extract_differentiators(
 
     all_diffs: list[dict] = []
     per_dim: dict[str, list[dict]] = {}
-    with ThreadPoolExecutor(max_workers=5) as pool:
+    with StepPool(max_workers=5) as pool:
         for key, entries in pool.map(_one_dimension, DIMENSION_PROMPTS.items()):
             per_dim[key] = entries
             all_diffs.extend(entries)

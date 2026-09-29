@@ -14,7 +14,9 @@ Returns price ranges and median per competitor — enough signal for PSM anchori
 """
 from __future__ import annotations
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
+
+from persistence.ledger import StepPool
 from statistics import median
 
 import net as mrp_http
@@ -214,7 +216,7 @@ def gather_competitor_prices(domains: list[str], max_workers: int = 4,
     relevance: no embeddings / no text) never excludes.
     """
     per_domain: list[dict] = []
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+    with StepPool(max_workers=max_workers) as pool:
         futures = {pool.submit(scrape_brand_prices, d): d for d in domains[:8]}
         for fut in as_completed(futures, timeout=60):
             try:

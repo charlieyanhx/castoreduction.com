@@ -25,6 +25,7 @@ Event layers:
 from __future__ import annotations
 
 import contextvars
+from concurrent.futures import ThreadPoolExecutor
 import threading
 import time
 from typing import Any, Optional
@@ -41,6 +42,23 @@ def set_step(name: Optional[str]) -> None:
 
 def current_step() -> Optional[str]:
     return _step.get()
+
+
+class StepPool(ThreadPoolExecutor):
+    """A thread pool whose workers keep the step label of the thread that submitted.
+
+    ContextVars do not cross into worker threads. Every tool that runs inside a fan-out
+    therefore recorded `step: None`, and the run could say a step took thirteen minutes
+    but not which step spent them: on 2026-09-22 a real run showed 235 validate_domain
+    calls, most of them unattributed. Each submit carries a copy of the submitting
+    thread's context, which costs one dict copy per task and makes the attribution true.
+
+    `map` goes through `submit`, so it is covered too. Use this anywhere the pipeline
+    fans tool calls out across threads.
+    """
+
+    def submit(self, fn, /, *args, **kwargs):
+        return super().submit(contextvars.copy_context().run, fn, *args, **kwargs)
 
 
 def summarize(payload: Any, cost_meta: Optional[dict] = None, limit: int = 90) -> str:
@@ -158,16 +176,23 @@ class RunLedger:
 
     def record_llm(self, model: str, *, cached: bool, in_tok: int = 0,
                    out_tok: int = 0, ok: bool = True, cache_read: int = 0,
-                   cache_write: int = 0) -> Optional[dict]:
+                   cache_write: int = 0, duration: float = 0.0) -> Optional[dict]:
         """Record one LLM call (which model produced the content; cache hit or fresh).
 
         `cached` means this process answered from its own response cache and issued no
         request. `cache_read` and `cache_write` are the provider's prompt cache on a
         request that WAS issued, billed at their own rates; they ride the event only when
         the call used the cache, so the shape of every other event is what it was.
+
+        `duration` is wall time for the request, the same field name tool events carry,
+        so a diagnostic can ask "how much of this run was the model and how much was the
+        tools" and get an answer. Without it every llm event reads as instant and the
+        model half of a run is invisible; a cache hit really is ~0 because no request
+        was issued.
         """
         ev = {"layer": "llm", "model": model or "?", "cached": cached,
-              "in_tok": in_tok, "out_tok": out_tok, "ok": ok}
+              "in_tok": in_tok, "out_tok": out_tok, "ok": ok,
+              "duration_s": float(duration)}
         if cache_read:
             ev["cache_read"] = int(cache_read)
         if cache_write:
@@ -276,9 +301,11 @@ def record_tool(name: str, category: str, source: str, *, ok: bool, skeleton: bo
 
 
 def record_llm(model: str, *, cached: bool, in_tok: int = 0, out_tok: int = 0,
-               ok: bool = True, cache_read: int = 0, cache_write: int = 0) -> Optional[dict]:
+               ok: bool = True, cache_read: int = 0, cache_write: int = 0,
+               duration: float = 0.0) -> Optional[dict]:
     return LEDGER.record_llm(model, cached=cached, in_tok=in_tok, out_tok=out_tok, ok=ok,
-                             cache_read=cache_read, cache_write=cache_write)
+                             cache_read=cache_read, cache_write=cache_write,
+                             duration=duration)
 
 
 def snapshot() -> list[dict]:

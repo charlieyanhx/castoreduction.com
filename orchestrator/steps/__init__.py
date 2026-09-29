@@ -119,11 +119,16 @@ def run_with_timeout(fn, *args, timeout_s: int = 180, label: str = "", **kwargs)
     import plan. plan.py re-imports it under the old _run_with_timeout name.
     """
     import time as _time
-    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+    from concurrent.futures import TimeoutError as FutureTimeoutError
 
     from logger import get
+    from persistence.ledger import StepPool
+
     log = get("plan")
-    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"step-{label or 'anon'}")
+    # StepPool, not a bare ThreadPoolExecutor: the step label is a ContextVar and those
+    # do not cross into worker threads, so every tool the step called recorded step=None
+    # and a slow run could not say which step spent the minutes.
+    pool = StepPool(max_workers=1, thread_name_prefix=f"step-{label or 'anon'}")
     t0 = _time.time()
     future = pool.submit(fn, *args, **kwargs)
     try:
