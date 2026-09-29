@@ -656,18 +656,34 @@ def _filter_by_homepage(
     those below indirect_drop_threshold are dropped (unless operator-seeded).
     Unscored candidates (fetch + LLM both failed) are kept and passed through.
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from concurrent.futures import as_completed
+    from persistence.ledger import StepPool
 
-    # Resolve domains for candidates that don't have one
-    for c in candidates:
-        if not c.get("domain"):
+    # Resolve domains for candidates that don't have one.
+    #
+    # This was a plain for-loop sitting in front of the pool below: one probe at a time,
+    # each of them a network round trip that can run for most of a minute. MEASURED
+    # 2026-09-22 (job dbda8897, a quiet machine): 71 probe_domain_patterns calls, 7.5
+    # minutes summed, slowest 46.9s, while the tool layer showed under one call in flight
+    # for most of that stretch. The pool is six lines further down; the probes belong in
+    # it. Each probe is an independent lookup of one name, so there is nothing to order.
+    #
+    # The probe runs in the worker and the candidate dict is written here, on one thread,
+    # so no candidate is mutated from two places.
+    needs_domain = [c for c in candidates if not c.get("domain")]
+    if needs_domain:
+        from sources import probe_domain_patterns as _probe
+
+        def _resolve(c: dict) -> tuple[dict, object]:
             try:
-                from sources import probe_domain_patterns as _probe
-                result = _probe(c["name"])
+                return c, _probe(c["name"])
+            except Exception:
+                return c, None
+
+        with StepPool(max_workers=6) as pool:
+            for c, result in pool.map(_resolve, needs_domain):
                 if result and isinstance(result, dict):
                     c["domain"] = result.get("domain")
-            except Exception:
-                pass
 
     # Fetch snippets in parallel
     fetchable = [c for c in candidates if c.get("domain")]
@@ -676,7 +692,7 @@ def _filter_by_homepage(
     def _fetch(c: dict) -> tuple[str, str | None]:
         return c["domain"], _fetch_homepage_snippet(c["domain"])
 
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    with StepPool(max_workers=6) as pool:
         futures = {pool.submit(_fetch, c): c for c in fetchable}
         for future in as_completed(futures):
             try:
@@ -1111,7 +1127,8 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
     # Per-host rate limiting in scrape.http protects against hammering one
     # host even when concurrency rises.
     log.info(f"[discover] step 3/5: gather signals for {len(candidates)} brands (parallel)")
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from concurrent.futures import as_completed
+    from persistence.ledger import StepPool
 
     def _enrich_one(brand: dict) -> dict:
         try:
@@ -1123,7 +1140,7 @@ def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category
             return {"brand": brand.get("name"), "error": str(e)}
 
     enriched = [None] * len(candidates)  # type: ignore
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with StepPool(max_workers=4) as pool:
         future_to_idx = {pool.submit(_enrich_one, b): i for i, b in enumerate(candidates)}
         done_count = 0
         for fut in as_completed(future_to_idx):
