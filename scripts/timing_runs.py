@@ -94,9 +94,14 @@ def counts(events: dict) -> dict:
 ATTACH = sys.argv[sys.argv.index("--attach") + 1] if "--attach" in sys.argv else None
 
 
-def one_run(page, i: int, slug: str, brief: str, full_workshop: bool) -> dict:
+def one_run(page, i: int, slug: str, brief: str, full_workshop: bool,
+            carry: dict | None = None) -> dict:
     smoke.BRIEF = brief
-    rec: dict = {"run": i + 1, "slug": slug, "brief": brief}
+    # `carry` is the caller's own dict. Filling it in place is what lets main() keep the
+    # measurements when a later phase raises: a run that reached "complete" and cost a
+    # dollar must not be recorded as nothing but a TimeoutError.
+    rec: dict = carry if carry is not None else {}
+    rec.update({"run": i + 1, "slug": slug, "brief": brief})
     t0 = time.time()
     if i == 0 and ATTACH:
         # a run already going (a harness that broke after the launch): follow it
@@ -134,8 +139,27 @@ def one_run(page, i: int, slug: str, brief: str, full_workshop: bool) -> dict:
     if not page.locator("a.open").count():
         rec["workshop"] = "not reached: the run did not finish"
         return rec
-    # the workshop, for real
-    page.locator("a.open").click()
+    # the workshop, for real.
+    #
+    # A REPORT CAN BE WITHHELD AND STILL BE A FINISHED RUN. The report endpoint answers
+    # 409 with the withholding page when the verifier found a blocking finding, and that
+    # page has no sidebar. MEASURED 2026-09-22 (run 1, job dbda8897): the harness clicked
+    # through, waited the full 60s for #ws, raised, and main() threw away a record that
+    # already held the state, the pipeline seconds, the cost and every step duration. A
+    # withheld run is a result, not an absence of one: it is recorded and the workshop is
+    # skipped, because there is no workshop on that page to measure.
+    with page.expect_navigation() as _nav:
+        page.locator("a.open").click()
+    _status = getattr(_nav.value, "status", None)
+    if _status == 409:
+        rec["withheld"] = {"status": _status,
+                           "reasons": [t.inner_text()[:200]
+                                       for t in page.locator(".finding, .withheld li").all()[:8]]}
+        rec["workshop"] = "not reached: the report was withheld by its own checks"
+        smoke.log("report withheld", run=i + 1, job=job, reasons=len(rec["withheld"]["reasons"]))
+        rec["report_url"] = f"{BASE}/jobs/{job}/report.html"
+        rec["total_wall_seconds"] = round(time.time() - t0, 1)
+        return rec
     page.wait_for_selector("#ws", timeout=60_000)
     page.wait_for_function('/^\\d+$/.test(document.getElementById("wsBalN").textContent)')
     turns = []
@@ -235,11 +259,18 @@ def main():
         smoke.log("timing runs start", base=BASE, runs=RUNS, report_credits=credits, out=str(OUT))
         for i, (slug, brief) in enumerate(BRIEFS[:RUNS]):
             smoke.log("run begins", run=i + 1, slug=slug)
+            carried: dict = {}
             try:
-                rec = one_run(page, i, slug, brief, full_workshop=(i == 0))
+                rec = one_run(page, i, slug, brief, full_workshop=(i == 0), carry=carried)
             except Exception as e:                               # noqa: BLE001
-                rec = {"run": i + 1, "slug": slug, "error": f"{type(e).__name__}: {str(e)[:300]}"}
-                smoke.log("run broke", run=i + 1, error=rec["error"][:160])
+                # Keep whatever the run already measured. The pipeline numbers are final
+                # long before the workshop phase runs, and losing them to a browser
+                # timeout costs the whole run: 36 minutes and a dollar for a record that
+                # says nothing but "TimeoutError".
+                rec = {**carried, "run": i + 1, "slug": slug,
+                       "error": f"{type(e).__name__}: {str(e)[:300]}"}
+                smoke.log("run broke", run=i + 1, error=rec["error"][:160],
+                          kept=sorted(k for k in carried if carried[k] is not None)[:8])
                 try:
                     page.screenshot(path=str(OUT / f"run{i+1}-{slug}-broke.png"))
                 except Exception:                                # noqa: BLE001
