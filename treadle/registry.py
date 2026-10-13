@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import importlib
 
-from core.registry import DuplicateRegistration, Registry
+from treadle.core.registry import DuplicateRegistration, Registry
 
 from .spec import ReportType
 

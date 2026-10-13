@@ -51,7 +51,7 @@ _FRAME_FILES = {
     "paths.py", "rendering.py",
 }
 _FRAME_DIRS = (
-    "core/", "tools/registry", "skills/registry", "agents/registry", "capabilities/",
+    "core/", "treadle/", "tools/registry", "skills/registry", "agents/registry", "capabilities/",
     "harness/", "persistence/", "entry/", "context/", "config/", "model/", "routes/",
     "scrape/", "report/citation", "report/verifier", "report/trace",
     "report/section_provenance", "report/render_html", "report/render_md",
@@ -183,7 +183,8 @@ class TestTheBoundaryHolds(unittest.TestCase):
         repo_roots = {m.split(".")[0] for m in mods}
         bad = []
         for m, p in mods.items():
-            if not p.as_posix().startswith("core/"):
+            # The floor moved to treadle/core/; core/ is now its alias and may name it.
+            if not p.as_posix().startswith(("core/", "treadle/core/")):
                 continue
             tree = ast.parse(p.read_text())
             for n in ast.walk(tree):
@@ -191,7 +192,8 @@ class TestTheBoundaryHolds(unittest.TestCase):
                          else [n.module or ""] if isinstance(n, ast.ImportFrom) else [])
                 for nm in names:
                     root = nm.split(".")[0]
-                    if root in repo_roots and root != "core":
+                    if root in repo_roots and root != "core" and not (
+                            nm == "treadle.core" or nm.startswith("treadle.core.")):
                         bad.append(f"{m} imports {nm}")
         self.assertEqual(bad, [], "core/ must depend on the standard library alone")
 

@@ -24,7 +24,7 @@ import unittest
 
 #: Lowest first. A module may import its own layer or anything to its LEFT, never right.
 LAYERS: list[tuple[str, list[str]]] = [
-    ("frame",   ["core"]),
+    ("frame",   ["core", "treadle"]),
     ("tooling", ["tools", "scrape", "sources", "net", "cache", "url_guard",
                  "paths", "rendering"]),
     ("harness", ["harness"]),
@@ -103,7 +103,7 @@ class TestTheArrowsPointOneWay(unittest.TestCase):
         """core/ is the floor. Its row in the dependency matrix is all zeros, which is
         what let a whole second report type be built on it in
         test_the_frame_builds_a_report_it_has_never_seen.py."""
-        for f in _files(["core"]):
+        for f in _files(["core", "treadle/core"]):
             tree = ast.parse(f.read_text())
             for node in ast.walk(tree):
                 mods = ([a.name for a in node.names] if isinstance(node, ast.Import)

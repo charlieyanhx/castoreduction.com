@@ -8,7 +8,7 @@ answer) on a domain that shares nothing with market research.
 """
 from __future__ import annotations
 
-from core.section import Section
+from treadle.core.section import Section
 from treadle import ReportType, register
 
 #: A day of walking. A route longer than this is not a walking route.

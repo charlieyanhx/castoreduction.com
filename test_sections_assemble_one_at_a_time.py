@@ -376,7 +376,7 @@ class TestTheAssemblerIsFrameCode(unittest.TestCase):
 
         import sys
 
-        tree = ast.parse(pathlib.Path("core/section.py").read_text())
+        tree = ast.parse(pathlib.Path("treadle/core/section.py").read_text())
         imported = []
         for n in ast.walk(tree):
             if isinstance(n, ast.Import):
@@ -389,7 +389,7 @@ class TestTheAssemblerIsFrameCode(unittest.TestCase):
         # which is a test that costs edits without catching anything.
         outside = [m for m in imported
                    if m.split(".")[0] not in sys.stdlib_module_names]
-        self.assertEqual(outside, [], "core/section.py reached outside the standard library")
+        self.assertEqual(outside, [], "treadle/core/section.py reached outside the standard library")
 
 
 if __name__ == "__main__":

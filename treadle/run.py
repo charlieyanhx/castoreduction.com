@@ -11,7 +11,7 @@ import copy
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from core.section import FAILED, assemble, stale_reads, summarise
+from treadle.core.section import FAILED, assemble, stale_reads, summarise
 
 from .registry import get
 

@@ -34,6 +34,10 @@ BASE_FILE = ROOT / "docs" / "treadle" / "BASE"
 FRAME_FILES = frozenset({
     "llm.py", "logger.py", "cache.py", "net.py", "errors.py", "jobs.py", "url_guard.py",
     "provenance.py", "paths.py", "rendering.py",
+    # Tests that guard the ENGINE's own boundary, not product behaviour. Moving the frame
+    # into treadle/ has to teach them where the frame now lives (decided 2026-10-13).
+    "test_the_frame_does_not_import_the_soul.py", "test_the_layers_only_point_downward.py",
+    "test_sections_assemble_one_at_a_time.py",
 })
 FRAME_PREFIXES = (
     "core/", "capabilities/", "harness/", "persistence/", "entry/", "context/", "model/",

@@ -1,16 +1,10 @@
-"""core/ — the frame's contracts, importable without the domain.
+"""Moved to treadle/core/. This package stays so every existing import keeps working.
 
-Everything in here is true of any report this harness could produce: an Evidence envelope
-around one I/O call, and a Registry of named capabilities. Nothing here knows what a
-market, a competitor or a TAM is.
-
-THE RULE: core imports the standard library and nothing else in this repo. The soul may
-depend on the frame; the frame may never depend on the soul. That direction is enforced by
-test_the_frame_does_not_import_the_soul.py rather than left to good intentions.
+It is a real package rather than an alias of treadle.core: aliasing the PACKAGE would make
+`import core.section` load treadle/core/section.py a second time under a second name, and
+two copies of Section would no longer recognise each other. Each submodule here aliases
+its counterpart instead (see core/section.py).
 """
-from __future__ import annotations
-
-from core.evidence import Evidence
-from core.registry import DuplicateRegistration, Registry
+from treadle.core import DuplicateRegistration, Evidence, Registry
 
 __all__ = ["Evidence", "Registry", "DuplicateRegistration"]
