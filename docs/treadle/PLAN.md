@@ -32,7 +32,7 @@ project ends and both stand down.
 | 0 | Golden baseline and product guard | both witnesses green (done) |
 | 1 | `ReportType` registry; market research registered by an adapter around `run_plan` | a second pack (travel guide) runs through the same registry (done) |
 | 2 | Carve `treadle/` as an installable package; re-export shims at old paths | clean venv installs it and runs a pack written outside the repo, no Castor module imported (done: `scripts/treadle_standalone_check.py`) |
-| 3 | `FactStore`: every value carries source, tier and writer; reads are recorded | travel guide: every figure in its report resolves to a fact with a tier |
+| 3 | `FactStore`: every value carries source, tier and writer; reads are recorded | travel guide: every figure in its report resolves to a fact with a tier (done: `treadle/facts.py`) |
 | 4 | Survey derived from section inputs (`ask` / `find` / `assume`, load-bearing first) | travel guide's survey asks only what its plan cannot run without |
 | 5 | Service: CLI, HTTP and MCP; survey and result as JSON | an external script drives survey to report with the Castor app not running |
 | 7 | Per-pack eval corpus and scorecard in CI | an engine change ships only if no pack regresses |
@@ -59,3 +59,10 @@ Estimate: 4 to 5 focused weeks; standalone after phase 2, about 2 weeks.
   `gates/runner`) and the three registries inside `tools/`, `skills/`, `agents/`. They
   live inside domain packages, so each needs its own look; the standalone engine runs
   without them today.
+- Phase 3 records provenance per section key, not per leaf: a figure's tier is the tier
+  of the section that wrote it. Two gaps it made visible, both for phase 4: (1) a pack
+  that reads the brief by closure (the travel guide's food-trip check) shows the brief
+  with no readers, because the store only sees declared reads; section inputs must be
+  declared to be traced. (2) A computed value inherits nothing from its inputs' tiers
+  yet: a budget computed from inferred restaurant picks reads as `computed`. The survey
+  work should surface the weakest input behind each figure.

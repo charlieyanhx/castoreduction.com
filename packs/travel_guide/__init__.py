@@ -2,7 +2,8 @@
 
 A city guide: neighbourhoods, a walking route that depends on them, seasonal advice,
 restaurants only when the trip is a food trip, and a budget that reads two of the others.
-The content is deliberately canned. What this pack exercises is the ENGINE (ordering
+The content is deliberately canned, and declared so (origin="simulated", which the
+FactStore records as inferred). What this pack exercises is the ENGINE (ordering
 derived from declarations, bounded reads, per-section checks, not-applicable as an
 answer) on a domain that shares nothing with market research.
 """
@@ -63,16 +64,17 @@ def sections(brief: dict) -> list[Section]:
                 f"{'/'.join(interests) or 'general'} trip, which did not ask for restaurants")
 
     return [
-        Section(key="neighbourhoods", produce=_neighbourhoods, label="Where to stay"),
+        Section(key="neighbourhoods", produce=_neighbourhoods, label="Where to stay",
+                origin="simulated"),
         Section(key="walking_route", produce=_walking_route, consumes=("neighbourhoods",),
-                label="A day on foot",
+                label="A day on foot", origin="computed",
                 invariants=(("walkable", _route_is_walkable),
                             ("stops_are_described", _stops_are_described))),
-        Section(key="seasonal", produce=_seasonal, label="When to go"),
-        Section(key="restaurants", produce=_restaurants, label="Where to eat",
+        Section(key="seasonal", produce=_seasonal, label="When to go", origin="simulated"),
+        Section(key="restaurants", produce=_restaurants, label="Where to eat", origin="simulated",
                 inapplicable=not_a_food_trip),
         Section(key="budget", produce=_budget, consumes=("neighbourhoods",),
-                optional=("restaurants",), label="What it costs"),
+                optional=("restaurants",), label="What it costs", origin="computed"),
     ]
 
 
