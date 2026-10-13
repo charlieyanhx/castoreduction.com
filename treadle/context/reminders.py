@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from logger import get
+from treadle.logger import get
 
 log = get("reminders")
 

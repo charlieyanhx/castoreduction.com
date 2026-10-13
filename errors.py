@@ -1,49 +1,10 @@
+"""Moved to treadle/errors.py. This name stays so every existing import keeps working.
+
+An ALIAS, not a copy: `errors` and `treadle.errors` are the same module object, so module
+state is shared and a patch through either name reaches every caller.
 """
-Error taxonomy. Every module raises one of these so callers can branch
-cleanly on "retry vs skip vs abort".
+import sys
 
-Hierarchy:
-  MRPError
-  ├── TransientError   — worth retrying (network, rate limit)
-  ├── PermanentError   — will not succeed on retry (4xx, parse failure)
-  │   ├── DataError    — structured data was wrong/missing
-  │   └── AuthError    — missing/invalid credentials
-  └── ConfigError      — setup problem (missing env var, bad file)
+from treadle import errors as _moved
 
-Catch `MRPError` at top-level for user-facing messages;
-catch specific subclasses in retry loops.
-"""
-from __future__ import annotations
-
-
-class MRPError(Exception):
-    """Base for all Castor errors."""
-
-    def to_dict(self) -> dict:
-        """The error as a JSON-able dict, carrying its class so a caller can branch on the kind
-        rather than on the message text.
-        """
-        return {
-            "error_class": self.__class__.__name__,
-            "message": str(self),
-        }
-
-
-class TransientError(MRPError):
-    """Network blip, rate limit, temporary 5xx. Retry with backoff."""
-
-
-class PermanentError(MRPError):
-    """4xx, parse failure, or logic error. Don't retry — fix the cause."""
-
-
-class DataError(PermanentError):
-    """Structured data was malformed, missing a required field, or empty."""
-
-
-class AuthError(PermanentError):
-    """Missing/invalid API key or token."""
-
-
-class ConfigError(MRPError):
-    """Setup problem — missing env var, bad file path, unsupported version."""
+sys.modules[__name__] = _moved
