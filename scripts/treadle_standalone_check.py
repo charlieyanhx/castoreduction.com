@@ -64,7 +64,13 @@ def main() -> int:
     try:
         _run([sys.executable, "-m", "venv", str(work / "venv")], work, "create venv")
         py = work / "venv" / "bin" / "python"
-        _run([str(py), "-m", "pip", "install", "-q", str(ROOT)], work, "pip install")
+        # Build from a copy holding only what the package is made of. Installing from the
+        # repo itself leaves build/ and treadle.egg-info/ behind in the working tree.
+        src = work / "src"
+        shutil.copytree(ROOT / "treadle", src / "treadle",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copy2(ROOT / "pyproject.toml", src / "pyproject.toml")
+        _run([str(py), "-m", "pip", "install", "-q", str(src)], work, "pip install")
 
         pack = (ROOT / "packs" / "travel_guide" / "__init__.py").read_text()
         pack = pack.replace('key="travel_guide"', 'key="standalone_guide"')
