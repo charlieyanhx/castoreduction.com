@@ -51,8 +51,8 @@ def _default_registry() -> Registry:
     and the frame could not be used for anything else. Every entry point below takes
     `registry=` so a caller can supply its own; this is only the default.
     """
-    from tools import TOOL_REGISTRY
-    return TOOL_REGISTRY
+    from treadle.defaults import default_tool_registry
+    return default_tool_registry()
 
 log = get("harness.agent")
 

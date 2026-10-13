@@ -1,0 +1,30 @@
+# Treadle: the report engine, installable on its own. See docs/treadle/PLAN.md.
+#
+# This file packages ONLY treadle/. Castor itself is not a package and is not built from
+# here: it installs from requirements.txt (install.sh, Dockerfile), and ruff.toml and
+# pytest.ini take precedence over this file for linting and tests.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "treadle"
+version = "0.1.0"
+description = "A report engine: survey, agents, and gated, citation-backed writing for any report type."
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "tenacity>=8.0",
+    "json-repair>=0.25",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.39"]
+groq = ["groq>=0.9"]
+gemini = ["google-genai>=1.0"]
+all = ["anthropic>=0.39", "groq>=0.9", "google-genai>=1.0"]
+
+[tool.setuptools.packages.find]
+include = ["treadle", "treadle.*"]

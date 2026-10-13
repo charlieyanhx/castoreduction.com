@@ -380,7 +380,17 @@ def _refund_buried(buried: list[tuple[str, str]]) -> None:
     refund is its own try, because money that could not be returned must be logged loudly
     and must not stop the next row from being looked at, or the server from coming up.
     """
-    from billing import refund_for_job
+    try:
+        from billing import refund_for_job
+    except ModuleNotFoundError as e:
+        # Outside Castor there is no billing, so nothing was charged and nothing is owed.
+        # Only the module being ABSENT is answered here: a billing module whose own import
+        # fails is money that cannot be returned, and must fail loudly as before.
+        if e.name != "billing":
+            raise
+        log.warning("[startup] no billing module; %d buried run(s) not refunded",
+                    len(buried))
+        return
     for jid, reason in buried:
         try:
             if refund_for_job(jid, reason):

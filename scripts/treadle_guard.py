@@ -53,10 +53,13 @@ TREADLE_PREFIXES = (
     "treadle/", "packs/", "test_treadle_", "scripts/treadle_", "docs/treadle/",
     "tests/treadle/",
 )
+#: Treadle's package definition. It packages only treadle/; Castor installs from
+#: requirements.txt and never reads it.
+TREADLE_FILES = frozenset({"pyproject.toml"})
 
 
 def allowed(path: str) -> bool:
-    return (path in FRAME_FILES
+    return (path in FRAME_FILES or path in TREADLE_FILES
             or path.startswith(FRAME_PREFIXES)
             or path.startswith(TREADLE_PREFIXES))
 

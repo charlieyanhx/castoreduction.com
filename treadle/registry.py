@@ -34,10 +34,25 @@ def get(key: str) -> ReportType:
 
 
 def load_pack(name: str) -> None:
-    """Import a pack so it registers itself. `name` is a pack under packs/ or a dotted
-    module path. Loading the same pack twice is a no-op, not a duplicate: Python imports a
-    module once, and the registration lives at its module scope."""
-    importlib.import_module(name if "." in name else f"{PACKS_PACKAGE}.{name}")
+    """Import a pack so it registers itself.
+
+    `name` is a dotted module path, or a bare name: `packs.<name>` when that exists (the
+    packs that ship beside the engine), otherwise the module `<name>` itself, which is how
+    a pack written outside this repo is loaded. Loading the same pack twice is a no-op,
+    not a duplicate: Python imports a module once, and the registration lives at its
+    module scope.
+    """
+    if "." in name:
+        importlib.import_module(name)
+        return
+    try:
+        importlib.import_module(f"{PACKS_PACKAGE}.{name}")
+    except ModuleNotFoundError as e:
+        # Only "there is no such shipped pack" falls through. A shipped pack whose own
+        # import fails is a broken pack and must say so, not quietly load something else.
+        if e.name not in (PACKS_PACKAGE, f"{PACKS_PACKAGE}.{name}"):
+            raise
+        importlib.import_module(name)
 
 
 __all__ = ["REPORT_TYPES", "DuplicateRegistration", "register", "get", "load_pack"]

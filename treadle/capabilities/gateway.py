@@ -234,8 +234,8 @@ class Gateway:
         Validation binds against the ORIGINAL function: @tool's wrapper is
         (*args, **kwargs), which accepts anything and would defeat the whole check.
         """
-        from tools import TOOL_REGISTRY
-        meta = TOOL_REGISTRY.get(name)
+        from treadle.defaults import default_tool_registry
+        meta = default_tool_registry().get(name)
         if meta is None:
             return _refuse(name, "no such tool", "unknown_tool")
         target = getattr(meta.fn, "__wrapped_fn__", meta.fn)
