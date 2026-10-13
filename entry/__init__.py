@@ -1,5 +1,6 @@
-"""entry/ — the edges where a run meets the outside world (Wave 3).
+"""Moved to treadle/entry/. This package stays so every existing import keeps working.
 
-  hooks.py  HookBus: fan-out of run events to N independent subscribers
-            (transcript writer, live streaming, future metrics/logging).
+A real package rather than an alias, for the reason given in core/__init__.py: each
+submodule aliases its counterpart, so nothing is ever loaded twice under two names.
 """
+from treadle.entry import *  # noqa: F401,F403

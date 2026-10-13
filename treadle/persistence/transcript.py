@@ -218,7 +218,7 @@ def attach(run_id: str):
     None and changes nothing, so the two entrypoints cannot fight over the ledger or write
     two transcripts for one run."""
     try:
-        from entry import hooks as _hooks
+        from treadle.entry import hooks as _hooks
         from treadle.persistence.ledger import LEDGER
 
         current = LEDGER.run_id or ""
@@ -248,7 +248,7 @@ def detach(handle) -> None:
         return
     writer, token = handle
     try:
-        from entry import hooks as _hooks
+        from treadle.entry import hooks as _hooks
         from treadle.persistence.ledger import LEDGER
         _hooks.BUS.unsubscribe(token)
         LEDGER.set_sink(None)

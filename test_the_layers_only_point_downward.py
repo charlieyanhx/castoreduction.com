@@ -24,7 +24,7 @@ import unittest
 
 #: Lowest first. A module may import its own layer or anything to its LEFT, never right.
 LAYERS: list[tuple[str, list[str]]] = [
-    ("frame",   ["core", "treadle"]),
+    ("frame",   ["core", "treadle/core"]),
     ("tooling", ["tools", "scrape", "sources", "net", "cache", "url_guard",
                  "paths", "rendering"]),
     ("harness", ["harness"]),
@@ -48,7 +48,12 @@ _ALLOWED = {
 
 
 def _layer_of(module: str) -> str | None:
-    return HEADS.get(module.split(".")[0])
+    # A package moved into treadle/ keeps the layer it had before the move: treadle.core
+    # is the floor exactly as core/ was, and a package that had no layer still has none.
+    parts = module.split(".")
+    if parts[0] == "treadle" and len(parts) > 1:
+        return HEADS.get(f"treadle/{parts[1]}")
+    return HEADS.get(parts[0])
 
 
 def _files(heads: list[str]) -> list[pathlib.Path]:

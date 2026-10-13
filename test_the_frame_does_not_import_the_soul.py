@@ -80,7 +80,7 @@ _KNOWN = {
     "report.render_html",
     # Deferred only (call-time): these resolve the domain's default tool set inside a
     # function and accept an injected registry instead. Listed for honesty, not debt.
-    "harness.agent", "capabilities.gateway",
+    "harness.agent", "treadle.capabilities.gateway",
 }
 
 
