@@ -82,7 +82,7 @@ class TestEveryVariableIsDocumented(unittest.TestCase):
         """The guard that keeps this true. Any new env var in the app layer must be
         written down in the same change that reads it."""
         read = set()
-        for p in ["api.py", "auth.py", "billing.py", "mailer.py", "quota.py", "jobs.py",
+        for p in ["api.py", "auth.py", "billing.py", "mailer.py", "quota.py", "treadle/jobs.py",
                   "iteration.py", "intake.py", "feedback.py"] + \
                  [str(x) for x in Path("routes").glob("*.py")]:
             src = Path(p).read_text()

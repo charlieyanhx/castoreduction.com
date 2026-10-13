@@ -226,7 +226,7 @@ class RunLedger:
         unpriced model is treated as free rather than raising — a new model id must
         not be able to break a finished run's accounting.
         """
-        from llm import cost_usd
+        from treadle.llm import cost_usd
         usd = 0.0
         calls = cached_calls = in_tok = out_tok = 0
         by_model: dict[str, dict] = {}

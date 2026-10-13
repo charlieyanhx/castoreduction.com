@@ -38,6 +38,9 @@ FRAME_FILES = frozenset({
     # into treadle/ has to teach them where the frame now lives (decided 2026-10-13).
     "test_the_frame_does_not_import_the_soul.py", "test_the_layers_only_point_downward.py",
     "test_sections_assemble_one_at_a_time.py",
+    # Read engine source by path; taught to follow a moved module to its new home so their
+    # checks stay on the real code (decided 2026-10-13).
+    "harness_gates.py", "test_pasting_the_keys_is_enough.py",
 })
 FRAME_PREFIXES = (
     "core/", "capabilities/", "harness/", "persistence/", "entry/", "context/", "model/",

@@ -59,9 +59,15 @@ def _module_exists(name: str) -> bool:
 def _src(relpath: str) -> Optional[str]:
     p = os.path.join(REPO, relpath)
     try:
-        return open(p, encoding="utf-8").read()
+        text = open(p, encoding="utf-8").read()
     except OSError:
         return None
+    # A module that moved into treadle/ leaves a one-line alias at its old path. The code
+    # these checks are about lives at the new path, so read that; scanning the alias would
+    # pass every "is X absent" check without looking at anything.
+    if text.startswith('"""Moved to treadle/'):
+        return _src(os.path.join("treadle", relpath))
+    return text
 
 
 def _ast(relpath: str) -> Optional[ast.AST]:

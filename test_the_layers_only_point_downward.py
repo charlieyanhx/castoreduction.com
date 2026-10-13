@@ -24,7 +24,7 @@ import unittest
 
 #: Lowest first. A module may import its own layer or anything to its LEFT, never right.
 LAYERS: list[tuple[str, list[str]]] = [
-    ("frame",   ["core", "treadle/core"]),
+    ("frame",   ["core"]),
     ("tooling", ["tools", "scrape", "sources", "net", "cache", "url_guard",
                  "paths", "rendering"]),
     ("harness", ["harness"]),
@@ -48,22 +48,24 @@ _ALLOWED = {
 
 
 def _layer_of(module: str) -> str | None:
-    # A package moved into treadle/ keeps the layer it had before the move: treadle.core
-    # is the floor exactly as core/ was, and a package that had no layer still has none.
+    # A module moved into treadle/ keeps the layer it had before the move: treadle.core
+    # is the floor exactly as core was, treadle.net is tooling exactly as net was, and a
+    # package that had no layer still has none.
     parts = module.split(".")
     if parts[0] == "treadle" and len(parts) > 1:
-        return HEADS.get(f"treadle/{parts[1]}")
+        return HEADS.get(parts[1])
     return HEADS.get(parts[0])
 
 
 def _files(heads: list[str]) -> list[pathlib.Path]:
     out: list[pathlib.Path] = []
     for head in heads:
-        p = pathlib.Path(head)
-        if p.is_dir():
-            out += [f for f in p.rglob("*.py") if "__pycache__" not in str(f)]
-        elif pathlib.Path(head + ".py").exists():
-            out.append(pathlib.Path(head + ".py"))
+        # The old path holds an alias once a module moves; its code is under treadle/.
+        for p in (pathlib.Path(head), pathlib.Path("treadle") / head):
+            if p.is_dir():
+                out += [f for f in p.rglob("*.py") if "__pycache__" not in str(f)]
+            elif p.with_name(p.name + ".py").exists():
+                out.append(p.with_name(p.name + ".py"))
     return out
 
 
