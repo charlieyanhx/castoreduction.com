@@ -1,8 +1,5 @@
-"""persistence/ — durable run state (Wave 3).
+"""Moved to treadle/persistence/. This package stays so every existing import keeps working.
 
-  ledger.py     append-only RunLedger: the ordered record of what a run DID
-  transcript.py per-run JSONL serialization of the ledger (replay → identical state)
-
-provenance.py is a thin view/shim over ledger, so the existing Data-Provenance panel
-and the D12 gate keep working unchanged.
+A real package rather than an alias, for the reason given in core/__init__.py: each
+submodule aliases its counterpart, so nothing is ever loaded twice under two names.
 """
