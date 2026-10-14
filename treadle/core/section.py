@@ -51,7 +51,7 @@ import copy
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable, Mapping, Optional
 
 # A section's outcome, mirroring the verifier's three states so a reader is never shown
 # silence where a verdict belongs. See report/verifier.unverified for the same reasoning.
@@ -89,6 +89,10 @@ class Section:
     those as "declared input absent" is true and misleading: a founder reads it as
     something that broke. `inapplicable` is the third answer, alongside "produced" and
     "could not produce".
+
+    `decided_by` NAMES WHAT `inapplicable` READS. A rule closed over the brief is a read
+    nobody can see. Declared, the rule gets a copy of exactly those keys, they order the
+    plan, and every verdict records them as reads.
     """
     key: str                                     # result key this writes
     produce: Callable[[dict], Any]               # (bounded context) -> payload
@@ -97,10 +101,12 @@ class Section:
     label: str = ""                              # human name, for the trust panel
     origin: str = ""                             # computed / llm / fetched / simulated
     invariants: tuple = ()                       # (name, fn(payload) -> str|None)
-    #: Why this section does not apply to THIS report, or None when it does.
-    #: Bound at declaration time, so it closes over the run-scoped facts (business model,
-    #: effort level) that decide applicability and are not themselves sections.
-    inapplicable: Optional[Callable[[], Optional[str]]] = None
+    #: Why this section does not apply to THIS report, or None when it does. With no
+    #: `decided_by` it takes no arguments and closes over run-scoped facts (business model,
+    #: effort level); with `decided_by` it is called with {key: deep copy} of those keys.
+    inapplicable: Optional[Callable[..., Optional[str]]] = None
+    #: The keys `inapplicable` decides on. A rule is never asked while one is absent.
+    decided_by: tuple[str, ...] = ()
 
     def context(self, result: dict) -> dict:
         """Exactly the declared inputs, in sorted key order, as a DEEP COPY.
@@ -127,18 +133,23 @@ class Section:
         Optional does not mean unordered. If customer_universe is going to be produced at
         all, viability must run after it -- otherwise viability reads an empty dict and
         reports "not measured" about a section that was about to exist, which is run14's
-        bug wearing an honest-looking label."""
-        return tuple(sorted(set(self.consumes) | set(self.optional)))
+        bug wearing an honest-looking label. A key a rule decides on is an edge too."""
+        return tuple(sorted(set(self.consumes) | set(self.optional) | set(self.decided_by)))
 
-    def missing(self, result: dict) -> list[str]:
+    def missing(self, result: Mapping, inputs: Iterable[str] = ()) -> list[str]:
         """REQUIRED inputs that are absent or empty. Empty counts: a section cannot
         narrate from a key that exists and holds nothing.
 
         `optional` is deliberately not consulted. A section that knows how to say "not
         measured" about an input is not blocked by that input going missing -- that is the
         difference between an enrichment and a dependency, and collapsing the two skips
-        sections that are perfectly able to run."""
-        return [k for k in sorted(self.consumes) if not result.get(k)]
+        sections that are perfectly able to run.
+
+        Two kinds of key count by PRESENCE instead: a key the rule decides on, and a
+        declared input (`inputs`), where 0 or [] is an answer a person gave."""
+        by_presence = set(self.decided_by) | (set(self.consumes) & set(inputs))
+        empty = {k for k in self.consumes if k not in by_presence and not result.get(k)}
+        return sorted(empty | {k for k in by_presence if k not in result})
 
 
 @dataclass
@@ -213,58 +224,24 @@ def plan(sections: Iterable[Section]) -> list[Section]:
 
 
 def assemble(sections: Iterable[Section], result: dict,
-             on_section: Optional[Callable[[SectionResult], None]] = None,
-             ) -> list[SectionResult]:
+             on_section: Optional[Callable[[SectionResult], None]] = None, *,
+             inputs: Iterable[str] = ()) -> list[SectionResult]:
     """Produce each section in dependency order, verifying it as it lands.
 
     Mutates `result` in place, which is what every existing caller already holds.
     `on_section` is called after each one, so a caller can stream progress without this
-    module knowing what a UI is.
+    module knowing what a UI is. `inputs` names the keys that are declared inputs: present
+    counts as given, even when the value is 0 or empty.
 
     NOTHING HERE RAISES for a section-level problem. A producer that throws, an input that
     never arrived, an invariant that fails: each is recorded and assembly continues. The
     only exception is a dependency cycle, which is a bug in the declaration rather than a
     fact about this run.
     """
+    given = frozenset(inputs)
     out: list[SectionResult] = []
     for section in plan(sections):
-        # APPLICABILITY IS ASKED FIRST. A section that was never going to exist for this
-        # report has no missing inputs to report and no producer to run; checking `missing`
-        # ahead of this would answer a question nobody asked, in words that read like a
-        # malfunction.
-        why_not = _inapplicable(section)
-        if why_not:
-            sr = SectionResult(section.key, NOT_APPLICABLE, why_not, label=section.label)
-        elif (missing := section.missing(result)):
-            sr = SectionResult(section.key, SKIPPED,
-                               f"declared input(s) absent or empty: {', '.join(missing)}",
-                               label=section.label)
-        else:
-            try:
-                ctx = section.context(result)
-                before = copy.deepcopy(ctx)
-                reads = {k: digest(v) for k, v in ctx.items()}
-                payload = section.produce(ctx)
-                result[section.key] = payload
-                findings = [msg for name, check in section.invariants
-                            if (msg := _run_check(name, check, payload))]
-                # SAY SO WHEN A PRODUCER TRIED TO WRITE UPSTREAM. The copy already makes
-                # the write harmless, but a silent no-op is its own trap: the author sees
-                # working code whose effect vanishes. Reported as a finding so the
-                # intended-but-impossible mutation is visible at the section that tried it.
-                if ctx != before:
-                    changed = sorted(k for k in ctx if ctx.get(k) != before.get(k))
-                    findings.append(
-                        f"context_is_read_only: producer mutated its inputs "
-                        f"({', '.join(changed)}); the change was discarded — a section may "
-                        f"only write its own key")
-                sr = SectionResult(section.key,
-                                   FLAGGED if findings else OK,
-                                   f"{len(findings)} invariant(s) failed" if findings else "",
-                                   findings, reads, label=section.label)
-            except Exception as e:                           # noqa: BLE001
-                sr = SectionResult(section.key, FAILED, f"{type(e).__name__}: {e}"[:300],
-                                   label=section.label)
+        sr = _assemble_one(section, result, given)
         out.append(sr)
         if on_section is not None:
             try:
@@ -274,16 +251,71 @@ def assemble(sections: Iterable[Section], result: dict,
     return out
 
 
-def _inapplicable(section: Section) -> str:
+def _assemble_one(section: Section, result: dict, given: frozenset) -> SectionResult:
+    # APPLICABILITY IS ASKED FIRST. A section that was never going to exist for this
+    # report has no missing inputs to report and no producer to run; checking `missing`
+    # ahead of this would answer a question nobody asked, in words that read like a
+    # malfunction. The keys a rule decides on are reads on EVERY verdict, so the record
+    # shows who read `interests` even where restaurants does not apply.
+    decided = {k: digest(result[k]) for k in section.decided_by if k in result}
+    why_not = why_inapplicable(section, result)
+    if why_not:
+        return SectionResult(section.key, NOT_APPLICABLE, why_not, reads=decided,
+                             label=section.label)
+    missing = section.missing(result, given)
+    if missing:
+        return SectionResult(section.key, SKIPPED,
+                             f"declared input(s) absent or empty: {', '.join(missing)}",
+                             reads=decided, label=section.label)
+    return _produce(section, result, decided)
+
+
+def _produce(section: Section, result: dict, decided: dict) -> SectionResult:
+    """Run the producer on its bounded context and check what it wrote. An exception is
+    this section's FAILED verdict, never the report's."""
+    try:
+        ctx = section.context(result)
+        before = copy.deepcopy(ctx)
+        reads = {**decided, **{k: digest(v) for k, v in ctx.items()}}
+        payload = section.produce(ctx)
+        result[section.key] = payload
+        findings = [msg for name, check in section.invariants
+                    if (msg := _run_check(name, check, payload))]
+        # SAY SO WHEN A PRODUCER TRIED TO WRITE UPSTREAM. The copy already makes the write
+        # harmless, but a silent no-op is its own trap: the author sees working code whose
+        # effect vanishes. Reported as a finding so the intended-but-impossible mutation is
+        # visible at the section that tried it.
+        if ctx != before:
+            changed = sorted(k for k in ctx if ctx.get(k) != before.get(k))
+            findings.append(f"context_is_read_only: producer mutated its inputs "
+                            f"({', '.join(changed)}); the change was discarded; a section "
+                            f"may only write its own key")
+        return SectionResult(section.key, FLAGGED if findings else OK,
+                             f"{len(findings)} invariant(s) failed" if findings else "",
+                             findings, reads, label=section.label)
+    except Exception as e:                                   # noqa: BLE001
+        # The rule was asked and said the section applies, so what decided it was read.
+        return SectionResult(section.key, FAILED, f"{type(e).__name__}: {e}"[:300],
+                             reads=decided, label=section.label)
+
+
+def why_inapplicable(section: Section, result: Mapping) -> str:
     """The section's own reason for not applying here, or "".
+
+    A rule with `decided_by` is handed a deep copy of exactly those keys and is never asked
+    while one is absent: "no data" must not read as "does not apply", so the section goes
+    on to SKIP and name the key. A rule without it takes no arguments, as it always has.
 
     A predicate that raises must not decide the report: an exception here means the
     applicability rule is broken, and the safe reading of a broken rule is that the
     section DOES apply, so the producer runs and any real problem surfaces as itself.
     """
-    if section.inapplicable is None:
+    if section.inapplicable is None or any(k not in result for k in section.decided_by):
         return ""
     try:
+        if section.decided_by:
+            return section.inapplicable(
+                {k: copy.deepcopy(result[k]) for k in section.decided_by}) or ""
         return section.inapplicable() or ""
     except Exception:                                        # noqa: BLE001
         return ""

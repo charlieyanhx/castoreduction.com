@@ -24,8 +24,9 @@ from core.section import FAILED, NOT_APPLICABLE, OK, Section
 from treadle import ReportType, run_report
 from treadle.registry import REPORT_TYPES, load_pack
 
-FOOD_TRIP = {"city": "Lisbon", "days": 3, "interests": ["food", "architecture"]}
-BUSINESS_TRIP = {"city": "Lisbon", "days": 1, "interests": ["meetings"]}
+FOOD_TRIP = {"city": "Lisbon", "days": 3, "interests": ["food", "architecture"],
+             "diet": "none", "currency": "EUR"}
+BUSINESS_TRIP = {"city": "Lisbon", "days": 1, "interests": ["meetings"], "currency": "EUR"}
 
 
 class AReportTypeIsWellFormed(unittest.TestCase):
@@ -39,7 +40,7 @@ class AReportTypeIsWellFormed(unittest.TestCase):
                        runner=lambda b, progress=None: {})
 
     def test_the_key_is_a_slug(self):
-        for bad in ("", "Has Space", "UPPER", "dash-ed"):
+        for bad in ("", "Has Space", "UPPER", "dash-ed", "travel_guide\n"):
             with self.assertRaises(ValueError, msg=bad):
                 ReportType(key=bad, label="x", sections=lambda b: [])
 

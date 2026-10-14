@@ -33,7 +33,7 @@ project ends and both stand down.
 | 1 | `ReportType` registry; market research registered by an adapter around `run_plan` | a second pack (travel guide) runs through the same registry (done) |
 | 2 | Carve `treadle/` as an installable package; re-export shims at old paths | clean venv installs it and runs a pack written outside the repo, no Castor module imported (done: `scripts/treadle_standalone_check.py`) |
 | 3 | `FactStore`: every value carries source, tier and writer; reads are recorded | travel guide: every figure in its report resolves to a fact with a tier (done: `treadle/facts.py`) |
-| 4 | Survey derived from section inputs (`ask` / `find` / `assume`, load-bearing first) | travel guide's survey asks only what its plan cannot run without |
+| 4 | Survey derived from section inputs (`ask` / `find` / `assume`, load-bearing first) | travel guide's survey asks only what its plan cannot run without (done: `test_treadle_survey_asks_only_what_the_plan_needs.py`) |
 | 5 | Service: CLI, HTTP and MCP; survey and result as JSON | an external script drives survey to report with the Castor app not running |
 | 7 | Per-pack eval corpus and scorecard in CI | an engine change ships only if no pack regresses |
 
@@ -66,3 +66,23 @@ Estimate: 4 to 5 focused weeks; standalone after phase 2, about 2 weeks.
   declared to be traced. (2) A computed value inherits nothing from its inputs' tiers
   yet: a budget computed from inferred restaurant picks reads as `computed`. The survey
   work should surface the weakest input behind each figure.
+- Phase 4 closed both phase-3 gaps. Sections name outside values in `consumes`,
+  `optional` and the new `decided_by`, so every read of an input (and the brief) is traced;
+  every fact carries `rests_on` and `weakest_from`, the weakest tier beneath it. Reports
+  carry `disclosures` (one sentence per input read that no person stated) and
+  `open_inputs`. The survey lives in `treadle/survey/` (engine, demand, question, entry,
+  finding, unfound, session, disclose); the spec it was built from was produced by a
+  three-design judge panel and each step was verified independently.
+- Carried to phase 5 (the wire): sessions are unsigned and `from_dict` cannot prove who
+  answered, so a served survey keeps sessions server-side or signs them; `answer()` cannot
+  tell a person from an agent, so STATED means "someone called answer()" until callers
+  are authenticated; a finder loop keyed on `Input.look_for` is not built; questions are a
+  third event shape (`treadle.survey/1`) to version beside progress events; an unknown
+  report key raises the registry's KeyError, not a SurveyError code.
+- Known limits, recorded rather than fixed: fingerprints compare spelling (NYC and
+  New York disagree); a finding loaded from JSON is not re-capped by its basis' tier; two
+  disagreeing finders never raise a dispute between themselves; each survey call
+  re-derives the plan, which is trivial at 5 sections and worth caching at Castor's 25;
+  legacy zero-argument `inapplicable` closures are opaque to the survey, so only
+  `decided_by` rules are guaranteed never to be asked about early; `period_choices`
+  (Castor's recurring-price period) waits for Castor to adopt the survey.

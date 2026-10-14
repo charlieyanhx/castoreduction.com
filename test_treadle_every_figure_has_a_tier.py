@@ -26,7 +26,8 @@ from treadle import facts as F
 from treadle.core.section import FAILED, Section
 from treadle.registry import REPORT_TYPES
 
-FOOD_TRIP = {"city": "Lisbon", "days": 3, "interests": ["food"]}
+FOOD_TRIP = {"city": "Lisbon", "days": 3, "interests": ["food"], "diet": "none",
+             "currency": "EUR"}
 
 
 class AFactStoreIsADictThatRemembers(unittest.TestCase):
@@ -100,7 +101,8 @@ class EveryFigureInTheGuideTracesToATieredFact(unittest.TestCase):
     def test_a_computed_section_names_what_it_was_computed_from(self):
         budget = self.report.facts["budget"]
         self.assertEqual(budget["tier"], F.COMPUTED)
-        self.assertEqual(budget["derived_from"], ["neighbourhoods", "restaurants"])
+        self.assertEqual(budget["derived_from"],
+                         ["currency", "days", "neighbourhoods", "restaurants", "travellers"])
 
     def test_a_fact_knows_who_read_it(self):
         self.assertEqual(self.report.facts["neighbourhoods"]["read_by"],

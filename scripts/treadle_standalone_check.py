@@ -37,7 +37,8 @@ PROBE = textwrap.dedent('''
     assert "castor-advisories" not in treadle.__file__, treadle.__file__
     treadle.load_pack("guide_pack")
     report = treadle.run_report("standalone_guide",
-                                {"city": "Porto", "days": 2, "interests": ["food"]})
+                                {"city": "Porto", "days": 2, "interests": ["food"],
+                                 "diet": "none", "currency": "EUR"})
     assert report.ok, report.sections
     statuses = {s["key"]: s["status"] for s in report.sections["sections"]}
     assert set(statuses.values()) == {"ok"}, statuses

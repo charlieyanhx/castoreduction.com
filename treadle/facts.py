@@ -16,6 +16,12 @@ them, so a producer's context and the final result are exactly what they were.
 THE ONE RULE. A weaker source may not replace a stronger one. Writing an inferred value
 over a stated one raises TierConflict and leaves the stated value in place; inside
 assembly that fails the offending section, with the reason on the page.
+
+A VALUE IS NO STRONGER THAN WHAT IT WAS BUILT FROM. A tier says who wrote a value, and a
+budget computed by code from canned picks was written by code. Read alone, `computed`
+would vouch for numbers that rest on content the pack made up. So once assembly is linked,
+every fact also carries `rests_on`, the weakest tier anywhere beneath it, and the keys
+that hold it, which is what a page names when it says what a figure rests on.
 """
 from __future__ import annotations
 
@@ -33,11 +39,25 @@ INFERRED = "inferred"    # a model's judgement, or canned content
 #: Strongest first. A write may not move a key down this list.
 TIERS = (STATED, FILED, OBSERVED, COMPUTED, INFERRED)
 _RANK = {t: len(TIERS) - i for i, t in enumerate(TIERS)}
+#: rests_on only, never a write: something beneath was written with no tier. It ranks
+#: below inferred because a gap in the record must never read as strength.
+UNTIERED = "untiered"
 
 #: core.section.Section.origin -> tier. `simulated` is content the pack supplied rather
 #: than found, which is as weak as a model's guess for the purpose of what outranks what.
 _ORIGIN_TIERS = {"computed": COMPUTED, "llm": INFERRED, "fetched": OBSERVED,
                  "simulated": INFERRED}
+
+
+def rank(tier: Optional[str]) -> int:
+    """How strong a tier is; higher is stronger. None and UNTIERED rank below inferred."""
+    return _RANK.get(tier or "", 0)
+
+
+def weakest(tiers: Iterable[Optional[str]]) -> Optional[str]:
+    """The weakest of `tiers`, a missing tier (None) weakest of all; None when empty."""
+    seen = [t or UNTIERED for t in tiers]
+    return min(seen, key=rank) if seen else None
 
 
 def tier_for_origin(origin: str) -> Optional[str]:
@@ -59,10 +79,17 @@ class Fact:
     #: them). Empty for a value nothing was derived from, such as the brief.
     derived_from: tuple[str, ...] = ()
     read_by: tuple[str, ...] = ()
+    #: The weakest tier this value depends on, ITSELF INCLUDED, over everything it was
+    #: derived from, all the way down. A budget computed from canned picks: tier computed,
+    #: rests_on inferred. Set by FactStore.link; None before it runs.
+    rests_on: Optional[str] = None
+    #: The keys holding that tier: what a page names ("rests on travellers, an assumption").
+    weakest_from: tuple[str, ...] = ()
 
     def as_dict(self) -> dict:
         return {"tier": self.tier, "source": self.source, "written_by": self.written_by,
-                "derived_from": list(self.derived_from), "read_by": list(self.read_by)}
+                "derived_from": list(self.derived_from), "read_by": list(self.read_by),
+                "rests_on": self.rests_on, "weakest_from": list(self.weakest_from)}
 
 
 @dataclass(frozen=True)
@@ -111,7 +138,7 @@ class FactStore(MutableMapping):
         if tier is not None and tier not in TIERS:
             raise ValueError(f"unknown tier {tier!r} (one of {', '.join(TIERS)})")
         held = self._facts.get(key)
-        if held is not None and held.tier and _RANK[held.tier] > _RANK.get(tier, 0):
+        if held is not None and held.tier and rank(held.tier) > rank(tier):
             raise TierConflict(
                 f"{writer or 'a writer'} tried to replace {key!r}, which is {held.tier} "
                 f"({held.source or held.written_by}), with a {tier or 'untiered'} value; "
@@ -121,7 +148,8 @@ class FactStore(MutableMapping):
 
     def link(self, reads: dict[str, Iterable[str]]) -> None:
         """Record, after assembly, what each section read: {section key: keys it read}.
-        Sets derived_from on the section's own fact and read_by on each fact it read."""
+        Sets derived_from on the section's own fact and read_by on each fact it read,
+        then gives every fact rests_on and weakest_from."""
         readers: dict[str, set[str]] = {}
         for section, inputs in reads.items():
             inputs = sorted(inputs)
@@ -133,6 +161,30 @@ class FactStore(MutableMapping):
         for k, who in readers.items():
             if k in self._facts:
                 self._facts[k] = replace(self._facts[k], read_by=tuple(sorted(who)))
+        self._settle()
+
+    def _settle(self) -> None:
+        """rests_on and weakest_from for every fact, from scratch, so a second link (after
+        a stronger rewrite) lifts whatever rested on the weaker value."""
+        for key in list(self._facts):
+            chain = self._beneath(key)
+            floor = weakest(self._facts[k].tier for k in chain)
+            holders = tuple(sorted(k for k in chain if rank(self._facts[k].tier) == rank(floor)))
+            self._facts[key] = replace(self._facts[key], rests_on=floor, weakest_from=holders)
+
+    def _beneath(self, key: str) -> set[str]:
+        """`key` and everything it was derived from, all the way down.
+
+        A walk with a seen-set rather than memoised recursion. plan() refuses cycles, but
+        link() takes any mapping, and a memo filled while a cycle guard cut the walk short
+        would hand a truncated closure to every later key, settling by dict order."""
+        seen, todo = {key}, [key]
+        while todo:
+            for parent in self._facts[todo.pop()].derived_from:
+                if parent in self._facts and parent not in seen:
+                    seen.add(parent)
+                    todo.append(parent)
+        return seen
 
     # ------------------------------------------------------------------- reading
     def fact(self, key: str) -> Fact:
