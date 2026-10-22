@@ -45,6 +45,14 @@ includes owned HTML/PDF delivery, honest partial outcomes, and blocking purchase
 unsupported workshop actions. Historical report delivery and legacy interrupted-job
 recovery remain compatible; the legacy research implementation itself is unchanged.
 
+On 2026-10-22 the user approved aligning the product suite with that route. `/plan`
+now checks the Treadle config after the paywall and quota, and undoes the credit, slot
+and job when it answers 503. A free attempt still counts toward the daily cap, because
+quota has no inverse for its ledger. Product tests that start a run use conftest's
+`treadle_stand_in`, and tests that assumed revisions or re-runs through `/plan` expect
+409. The files are listed in `APPROVED_TREADLE_ONLY_TEST_FILES`. The server's `.env`
+sets `TREADLE_PREP_MODEL`; `.env.example` documents it.
+
 ## Phases
 
 | # | Phase | Done when |

@@ -31,11 +31,15 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pytest
+
 
 BRIEF = ("A tiny record shop on Hawthorne in Portland selling used vinyl, about 400 "
          "square feet, most records between 8 and 30 dollars.")
 
 
+# Every report now runs on Treadle; the stand-in finishes the run without the research.
+@pytest.mark.usefixtures("treadle_stand_in")
 class _App(unittest.TestCase):
     def setUp(self):
         self._old = {k: os.environ.get(k) for k in
@@ -68,12 +72,9 @@ class _App(unittest.TestCase):
     def _run(self, c, **body):
         """POST /plan, run its worker synchronously, and hand back the job id."""
         import jobs
-        import plan as _plan
         captured = {}
         with patch.object(jobs, "run_async",
-                          lambda j, fn, **k: captured.update(job=j, work=fn)), \
-             patch.object(_plan, "run_plan",
-                          lambda *a, **k: {"profile": {"name": "A record shop"}}):
+                          lambda j, fn, **k: captured.update(job=j, work=fn)):
             r = c.post("/plan", json={"description": BRIEF, **body})
         self.assertEqual(r.status_code, 200, r.text)
         jid = r.json()["job_id"]
@@ -116,6 +117,7 @@ class ASecondRunOfTheSameWordsIsAFreshReport(_App):
         params = (jobs.get_unscoped(second) or {}).get("params") or {}
         self.assertIsNone(params.get("previous_job_id"))
 
+    @unittest.skip("Treadle reports open no workshop pool yet; restore when they do")
     def test_it_opens_its_own_workshop(self):
         """A fresh report is endowed as a fresh report: its own pool, untouched by what
         the earlier run spent. Under the old counters this was the regeneration being
@@ -128,6 +130,8 @@ class ASecondRunOfTheSameWordsIsAFreshReport(_App):
         self.assertEqual(iteration.balance(second), iteration.INCLUDED_CREDITS_FREE)
         self.assertEqual(iteration.balance(first), iteration.INCLUDED_CREDITS_FREE - 4)
 
+    @unittest.skip("Treadle reports do not compute deltas against a previous run yet; "
+                   "restore when they do")
     def test_the_deltas_still_fire(self):
         """The lookup is not removed, only narrowed: comparing against your own previous
         run of the same brief is the whole reason it exists."""
@@ -141,6 +145,10 @@ class ASecondRunOfTheSameWordsIsAFreshReport(_App):
 
 
 class AnExplicitReRunStillBehavesLikeOne(_App):
+    # Treadle has no revisions yet. An explicit re-run through /plan is refused with 409
+    # before anything is created or spent; the tests of what a re-run carries wait for
+    # revisions to return.
+
     def _paid_parent(self, c):
         """A re-run is paid from the parent's pool, so the parent holds a re-run's worth."""
         import iteration
@@ -148,6 +156,7 @@ class AnExplicitReRunStillBehavesLikeOne(_App):
         iteration.credit(first, iteration.COST_RERUN, "pack", paid=True)
         return first
 
+    @unittest.skip("Treadle revisions are not available yet (409); restore when they are")
     def test_it_carries_the_notes(self):
         import iteration
         c = self._client()
@@ -159,6 +168,7 @@ class AnExplicitReRunStillBehavesLikeOne(_App):
         self.assertEqual(len(st.get("notes") or []), 1)
         self.assertEqual(st["notes"][0]["carried_from"], first)
 
+    @unittest.skip("Treadle revisions are not available yet (409); restore when they are")
     def test_it_arrives_as_a_draft_the_founder_keeps_working_on(self):
         """No automatic final stamp: the re-run's report is where the workshop continues,
         with the credits that moved to it."""
@@ -168,6 +178,7 @@ class AnExplicitReRunStillBehavesLikeOne(_App):
         second = self._run(c, previous_job_id=first)
         self.assertEqual(iteration.get_state(second).get("status"), "draft")
 
+    @unittest.skip("Treadle revisions are not available yet (409); restore when they are")
     def test_it_is_stamped_as_a_re_run(self):
         import jobs
         c = self._client()
@@ -175,6 +186,25 @@ class AnExplicitReRunStillBehavesLikeOne(_App):
         second = self._run(c, previous_job_id=first)
         params = (jobs.get_unscoped(second) or {}).get("params") or {}
         self.assertEqual(params.get("previous_job_id"), first)
+
+    def test_it_is_refused_until_treadle_has_revisions(self):
+        """Today's contract: your own report as previous_job_id is a 409, and the parent
+        keeps its notes and its credits while no new report is made."""
+        import iteration
+        import jobs
+        c = self._client()
+        first = self._paid_parent(c)
+        iteration.add_annotation(first, section="Economics", quote="rent",
+                                 comment="ours is 2200")
+        owner = c.get("/auth/me").json()["owner"]
+        made = len(jobs.list_recent(limit=50, owner_id=owner))
+        held = iteration.balance(first)
+        r = c.post("/plan", json={"description": BRIEF, "previous_job_id": first})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(len(jobs.list_recent(limit=50, owner_id=owner)), made)
+        self.assertEqual(iteration.balance(first), held)
+        self.assertEqual(len(iteration.get_state(first).get("notes") or []), 1)
+        self.assertEqual(iteration.get_state(first).get("status"), "draft")
 
 
 if __name__ == "__main__":

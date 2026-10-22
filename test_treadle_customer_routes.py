@@ -75,15 +75,27 @@ def test_unavailable_prep_and_invalid_selection_do_not_create_or_charge(client, 
     def unavailable():
         raise ValueError("Set TREADLE_PREP_MODEL")
     monkeypatch.setattr(pipeline, "validate_customer_pipeline_config", unavailable)
+    owner = client.get("/auth/me").json()["owner"]
+    billing._record(owner, "report", 1, None, None)
+    # The config is checked after the paywall and quota, so a paid attempt spends its
+    # credit and must get it back, and must not keep the slot.
+    for _ in range(2):
+        assert client.post("/plan", json={"description": DESCRIPTION}).status_code == 503
+    assert billing.balance(owner, "report") == 1
+    monkeypatch.setattr(pipeline, "validate_customer_pipeline_config", lambda: None)
+    monkeypatch.setattr(pipeline, "run_customer_pipeline", Mock(return_value={
+        "_pipeline": "treadle", "_treadle_status": "complete"}))
+    started = client.post("/plan", json={"description": DESCRIPTION})
+    assert started.status_code == 200, started.text
+    monkeypatch.setattr(pipeline, "validate_customer_pipeline_config", unavailable)
     charge = Mock(side_effect=AssertionError("Invalid request charged"))
     monkeypatch.setattr(billing, "consume", charge)
-    assert client.post("/plan", json={"description": DESCRIPTION}).status_code == 503
     assert client.post("/plan", json={"description": DESCRIPTION,
                                       "pipeline": "anything"}).status_code == 422
     for invalid in ({"pipeline": "legacy"}, {"report_style": "memo"},
                     {"report_style": "operating"}):
         assert client.post("/plan", json={"description": DESCRIPTION, **invalid}).status_code == 422
-    assert client.get("/jobs").json() == []
+    assert [row["id"] for row in client.get("/jobs").json()] == [started.json()["job_id"]]
     charge.assert_not_called()
 
 

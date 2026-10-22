@@ -31,11 +31,17 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pytest
+
 
 BRIEF = ("An independent specialty coffee shop on NW 23rd Avenue in Portland, Oregon, "
          "serving espresso and pour-over at about $6 a drink, with roughly 15 seats.")
 
 
+# A run that cannot START proves nothing about who paid for it. The stand-in passes the
+# Treadle config check a test session has no credentials for, so every launch below
+# reaches the spend it is about instead of stopping at a 503.
+@pytest.mark.usefixtures("treadle_stand_in")
 class _App(unittest.TestCase):
     def setUp(self):
         self._old = {k: os.environ.get(k) for k in
@@ -206,9 +212,15 @@ class ARefusedRunGivesTheCreditBack(_App):
 
 
 class AReRunIsNotASecondPurchase(_App):
+    """There is no re-run through /plan any more, so there is nothing to sell twice.
+
+    Treadle has no revisions yet. A previous_job_id the caller owns is refused with 409
+    before anything happens: no report credit, no pool credit, no job, no slot. One the
+    caller does not own is 404, so the refusal does not confirm somebody else's report
+    exists."""
+
     def test_a_re_run_spends_the_parents_credits_not_a_report_credit(self):
-        """A re-run belongs to the report already paid for: it is paid from that report's
-        post-generation credits, and the account's report credits are not touched."""
+        """It spends neither now. The refusal comes before the meter does."""
         import billing
         import iteration
         import jobs
@@ -219,15 +231,21 @@ class AReRunIsNotASecondPurchase(_App):
         prev = jobs.create("plan", {"description": BRIEF}, owner_id=owner)
         jobs.update(prev, state="complete", result={"profile": {"name": "x"}})
         iteration.endow(prev, paid=True)
+        before_rows = len(jobs.list_recent(limit=100, owner_id=owner))
         with patch.object(jobs, "run_async", lambda *a, **k: None):
             r = c.post("/plan", json={"description": BRIEF, "previous_job_id": prev})
-        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("revisions are not available", r.json()["detail"])
         self.assertEqual(billing.balance(owner, "report"), 1,
-                         "the re-run is not a second sale")
-        self.assertEqual(iteration.balance(prev), iteration.INCLUDED_CREDITS_PAID - iteration.COST_RERUN,
-                         "it was paid from the parent's pool")
+                         "a refused re-run is not a sale")
+        self.assertEqual(iteration.balance(prev), iteration.INCLUDED_CREDITS_PAID,
+                         "nor is it paid from the parent's pool")
+        self.assertEqual(len(jobs.list_recent(limit=100, owner_id=owner)), before_rows,
+                         "a refused re-run leaves no job behind")
 
     def test_a_pool_that_cannot_pay_is_refused_with_the_price(self):
+        """It used to be 402 with the price of a re-run. Quoting a price for something that
+        cannot be bought would be selling nothing, so it is the same 409 as any re-run."""
         import iteration
         import jobs
         self._sell()
@@ -238,9 +256,25 @@ class AReRunIsNotASecondPurchase(_App):
         iteration.endow(prev, paid=False)             # ten credits: not a re-run's worth
         with patch.object(jobs, "run_async", lambda *a, **k: None):
             r = c.post("/plan", json={"description": BRIEF, "previous_job_id": prev})
-        self.assertEqual(r.status_code, 402, r.text)
-        self.assertIn("20 credits", r.json()["detail"])
-        self.assertIn("workshop pack", r.json()["detail"])
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertNotIn("workshop pack", r.json()["detail"])
+        self.assertEqual(iteration.balance(prev), iteration.INCLUDED_CREDITS_FREE)
+
+    def test_somebody_elses_report_is_not_found(self):
+        """Ownership is checked before the 409, so a stranger cannot learn the id exists."""
+        import billing
+        import jobs
+        self._sell()
+        c = self._client()
+        owner = self._owner(c)
+        billing._record(owner, "report", 1, None, None)
+        theirs = jobs.create("plan", {"description": BRIEF}, owner_id="someone-else")
+        jobs.update(theirs, state="complete", result={"profile": {"name": "x"}})
+        with patch.object(jobs, "run_async", lambda *a, **k: None):
+            r = c.post("/plan", json={"description": BRIEF, "previous_job_id": theirs})
+        self.assertEqual(r.status_code, 404, r.text)
+        self.assertEqual(billing.balance(owner, "report"), 1,
+                         "a refused re-run is not a sale")
 
 
 if __name__ == "__main__":

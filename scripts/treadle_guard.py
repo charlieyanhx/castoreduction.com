@@ -53,6 +53,8 @@ FRAME_PREFIXES = (
 TREADLE_PREFIXES = (
     "treadle/", "packs/", "test_treadle_", "scripts/treadle_", "docs/treadle/",
     "tests/treadle/",
+    # The bounded business-object prototype that PREP grew from, and its tests.
+    "experiments/business_object_trial/", "test_business_object_",
 )
 #: Treadle's package definition. It packages only treadle/; Castor installs from
 #: requirements.txt and never reads it.
@@ -86,10 +88,33 @@ APPROVED_CONNECTION_FILES = frozenset({
     "test_a_resumed_run_is_still_a_paid_run.py",
 })
 
+# On 2026-10-22 the user approved making the suite agree with the Treadle-only route:
+# product tests that start a run now ask conftest for a Treadle stand-in, and tests that
+# assumed revisions or re-runs through /plan now expect the 409 that replaced them.
+APPROVED_TREADLE_ONLY_TEST_FILES = frozenset({
+    "conftest.py",
+    "test_a_borrowed_id_is_not_a_capability.py",
+    "test_a_crashed_run_gives_the_credit_back.py",
+    "test_a_credit_is_spent_before_the_free_run.py",
+    "test_a_re_run_is_paid_from_the_pool.py",
+    "test_a_refusal_costs_the_founder_nothing.py",
+    "test_a_report_has_one_workshop_credit_pool.py",
+    "test_a_rerun_is_not_a_revision.py",
+    "test_a_test_purchase_is_never_a_real_one.py",
+    "test_billing.py",
+    "test_intake_record_rides_the_run.py",
+    "test_job_isolation.py",
+    "test_login_screen.py",
+    "test_run_quota.py",
+    "test_the_paywall_holds_without_a_browser.py",
+    "test_the_report_is_written_from_the_evidence.py",
+    "test_the_side_doors_are_metered_too.py",
+})
+
 
 def allowed(path: str) -> bool:
     return (path in FRAME_FILES or path in TREADLE_FILES or path in APPROVED_SURVEY_FILES
-            or path in APPROVED_CONNECTION_FILES
+            or path in APPROVED_CONNECTION_FILES or path in APPROVED_TREADLE_ONLY_TEST_FILES
             or path.startswith(FRAME_PREFIXES)
             or path.startswith(TREADLE_PREFIXES))
 

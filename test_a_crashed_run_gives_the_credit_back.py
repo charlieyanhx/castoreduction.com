@@ -32,11 +32,16 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pytest
+
 
 BRIEF = ("An independent specialty coffee shop on NW 23rd Avenue in Portland, Oregon, "
          "serving espresso and pour-over at about $6 a drink, with roughly 15 seats.")
 
 
+# The run is Treadle's now. The stand-in passes the config check that a test session
+# cannot, and each test patches the run itself to make it crash or come back empty.
+@pytest.mark.usefixtures("treadle_stand_in")
 class _App(unittest.TestCase):
     def setUp(self):
         self._old = {k: os.environ.get(k) for k in
@@ -68,14 +73,14 @@ class _App(unittest.TestCase):
     def _paid_run(self, plan_behaviour, paid=True):
         """A buyer with one credit, whose pipeline does `plan_behaviour`.
 
-        post_plan does `from plan import run_plan` at call time and the worker closes over
-        that local, so the patch has to be on `plan.run_plan` and has to be in place
-        BEFORE the POST. Returns the worker, to be run synchronously so the test can see
-        what it did rather than racing a thread.
+        post_plan imports run_customer_pipeline from Treadle's customer_pipeline at call
+        time and the worker closes over that local, so the patch has to be on the module
+        and has to be in place BEFORE the POST. Returns the worker, to be run
+        synchronously so the test can see what it did rather than racing a thread.
         """
         import billing
         import jobs
-        import plan as _plan
+        from packs.market_research_next import customer_pipeline
 
         c = self._client()
         owner = c.get("/auth/me").json()["owner"]
@@ -87,7 +92,7 @@ class _App(unittest.TestCase):
             captured["work"] = fn
             captured["job_id"] = job_id
         with patch.object(jobs, "run_async", _capture), \
-             patch.object(_plan, "run_plan", plan_behaviour):
+             patch.object(customer_pipeline, "run_customer_pipeline", plan_behaviour):
             r = c.post("/plan", json={"description": BRIEF})
         self.assertEqual(r.status_code, 200)
         if paid:
@@ -132,8 +137,10 @@ class ARaisingPipelineRefunds(_App):
         import billing
         self.assertEqual(billing.balance(owner, "report"), 1)
         import jobs
-        import plan as _plan
-        with patch.object(_plan, "run_plan", lambda *a, **k: {"profile": {"name": "ok"}}), \
+        from packs.market_research_next import customer_pipeline
+        with patch.object(customer_pipeline, "run_customer_pipeline",
+                          lambda *a, **k: {"_pipeline": "treadle",
+                                           "_treadle_status": "complete"}), \
              patch.object(jobs, "run_async", lambda *a, **k: None):
             r2 = c.post("/plan", json={"description": BRIEF})
         self.assertEqual(r2.status_code, 200,
@@ -170,7 +177,8 @@ class TheReturnedErrorPathStillWorks(_App):
         """The whole point of charging. A good report is not refunded."""
         import billing
         def good(*a, **k):
-            return {"profile": {"name": "A coffee shop"}, "viability": {"viability_score": 7}}
+            return {"_pipeline": "treadle", "_treadle_status": "complete",
+                    "profile": {"name": "A coffee shop"}}
 
         c, owner, cap = self._paid_run(good)
         cap["work"]()

@@ -12,9 +12,11 @@ WHAT THIS FILE HOLDS. The writer is a Section like any other: it declares what i
 it runs last because it reads everything, a failed write is a failed section and never a
 failed run, and each of the three reasons it does not apply is stated on the page, under
 the section's own name and without the operator's variable. The cost lands in the run's
-ledger under the writer's own model. And the founder's style choice travels from POST
-/plan to the system prompt, with an unknown style refused at the door rather than
-discovered six minutes and a paid run later, and survives a resume and a revision.
+ledger under the writer's own model. A style on the intake record reaches the system
+prompt and survives a resume. POST /plan no longer lets the founder pick one: every new
+report is a Treadle run in the "full" style, and any other style is refused at the door
+rather than discovered six minutes and a paid run later. Revisions are refused (409)
+until Treadle has them, so no style is carried into one.
 
 Nothing here touches the network: the Anthropic client is patched at the constructor
 call_long_text makes, which is the same seam test_llm_determinism uses.
@@ -31,6 +33,7 @@ from unittest.mock import patch
 
 import anthropic
 import httpx
+import pytest
 
 from core.section import (FAILED, FLAGGED, NOT_APPLICABLE, OK, SKIPPED, Section,
                           for_the_reader, plan, with_operator_note)
@@ -425,6 +428,12 @@ class TestAMissingSpineSkipsTheReport(unittest.TestCase):
         self.assertEqual(sr.status, OK, sr.reason)
 
 
+#: Where POST /plan dispatches every new report. Patched by name because the route imports
+#: it at call time.
+_TREADLE_RUN = "packs.market_research_next.customer_pipeline.run_customer_pipeline"
+
+
+@pytest.mark.usefixtures("treadle_stand_in")
 class TestTheFounderPicksTheStyle(unittest.TestCase):
     def test_the_memo_instruction_reaches_the_system_prompt(self):
         res = _fixture()
@@ -465,11 +474,33 @@ class TestTheFounderPicksTheStyle(unittest.TestCase):
         self.assertIn("report_style", r.text)
         self.assertEqual(started, [], "an unknown style started a run")
 
-    def test_a_known_style_is_accepted_and_none_is_the_default(self):
+    def test_full_is_the_only_style_and_the_default(self):
+        """CHANGED with the move to Treadle: the pack has one report format, so the request
+        no longer offers memo or operating. An explicit null is still accepted, because
+        old clients sent it to mean "the default"; the route runs it as full."""
         import api
-        self.assertEqual(api.PlanRequest(description="x" * 40, report_style="memo")
-                         .report_style, "memo")
-        self.assertIsNone(api.PlanRequest(description="x" * 40).report_style)
+        from pydantic import ValidationError
+        self.assertEqual(api.PlanRequest(description="x" * 40).report_style, "full")
+        self.assertEqual(api.PlanRequest(description="x" * 40, report_style="full")
+                         .report_style, "full")
+        self.assertIsNone(api.PlanRequest(description="x" * 40, report_style=None)
+                          .report_style)
+        for retired in ("memo", "operating"):
+            with self.assertRaises(ValidationError, msg=retired):
+                api.PlanRequest(description="x" * 40, report_style=retired)
+
+    def test_a_retired_style_is_a_422_at_the_door(self):
+        """A client still offering memo hears so at submit time, and nothing starts."""
+        import api
+        import jobs
+        from fastapi.testclient import TestClient
+        started = []
+        with patch.object(jobs, "run_async", side_effect=lambda *a, **k: started.append(a)):
+            r = TestClient(api.app).post("/plan", json={
+                "description": _VENTURE, "report_style": "memo"})
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertIn("report_style", r.text)
+        self.assertEqual(started, [], "a retired style started a run")
 
     def test_the_choice_rides_the_run_on_the_intake_record(self):
         import inspect
@@ -506,10 +537,32 @@ class TestTheFounderPicksTheStyle(unittest.TestCase):
         plan._stamp_report_style(res, None, seed_style=None)
         self.assertNotIn("intake", res, "nothing anywhere writes nothing")
 
-    def test_the_endpoint_passes_it_through(self):
-        import inspect
+    def test_the_endpoint_runs_every_report_in_the_full_style(self):
+        """Whatever the request said, null included, the Treadle run is told "full" and the
+        job records "full", so the library never shows a style the report was not."""
+        import api
+        import jobs
+        from fastapi.testclient import TestClient
         from routes import research
-        self.assertIn("report_style=req.report_style", inspect.getsource(research.post_plan))
+        # Its own job store, so earlier tests in the session cannot spend this guest's
+        # daily runs (quota keeps its ledger in the same file).
+        db = os.path.join(tempfile.mkdtemp(), "jobs.sqlite")
+        for sent in ("full", None):
+            captured = {}
+            with patch.dict(os.environ, {"JOBS_DB_PATH": db}), \
+                 patch.object(jobs, "run_async",
+                              side_effect=lambda j, fn, **k: captured.update(job=j, work=fn)), \
+                 patch(_TREADLE_RUN, return_value={"_pipeline": "treadle",
+                                                   "_treadle_status": "complete"}) as run:
+                r = TestClient(api.app).post("/plan", json={
+                    "description": _VENTURE, "report_style": sent})
+                self.assertEqual(r.status_code, 200, r.text)
+                with patch.object(research, "_notify_owner", lambda *a: None):
+                    captured["work"]()
+                params = jobs.get(captured["job"], owner_id=None)["params"] or {}
+            run.assert_called_once()
+            self.assertEqual(run.call_args.kwargs.get("report_style"), "full", sent)
+            self.assertEqual(params.get("report_style"), "full", sent)
 
 
 class TestTheStyleSurvivesAResumeAndARevision(unittest.TestCase):
@@ -605,6 +658,7 @@ class TestTheStyleSurvivesAResumeAndARevision(unittest.TestCase):
         self.assertEqual(got.get("report_style"), "memo")
         self.assertEqual(got.get("intake"), params["intake"])
 
+    @unittest.skip("Treadle revisions are not available yet (409); restore when they are")
     def test_a_revision_keeps_the_style_of_the_report_it_amends(self):
         """One regeneration per report, in the shape the founder asked for the first time."""
         import api
@@ -627,6 +681,30 @@ class TestTheStyleSurvivesAResumeAndARevision(unittest.TestCase):
         new_params = jobs.get(new_id, owner_id=None)["params"] or {}
         self.assertEqual(new_params.get("report_style"), "memo")
         self.assertEqual(new_params.get("previous_job_id"), job_id)
+
+    def test_a_revision_of_a_memo_is_refused_before_anything_is_rebuilt(self):
+        """What a revision does today. A memo cannot come back as a full report, because
+        the revision is refused before a request is rebuilt from the old job's params:
+        no new job, no run started."""
+        import api
+        import jobs
+        from fastapi.testclient import TestClient
+        client = TestClient(api.app)
+        owner = client.get("/auth/me").json()["owner"]
+        job_id = jobs.create("plan", {"description": self.BRIEF, "report_style": "memo"},
+                             owner_id=owner)
+        jobs.update(job_id, state="done", result={"profile": {"name": "x"}})
+        before = {j["id"] for j in jobs.list_recent(owner_id=owner)}
+        started = []
+        with patch.object(jobs, "run_async", side_effect=lambda *a, **k: started.append(a)):
+            r = client.post(f"/jobs/{job_id}/revise")
+            via_plan = client.post("/plan", json={"description": self.BRIEF,
+                                                  "previous_job_id": job_id})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(via_plan.status_code, 409, via_plan.text)
+        self.assertEqual(started, [], "a refused revision started a run")
+        self.assertEqual({j["id"] for j in jobs.list_recent(owner_id=owner)}, before,
+                         "a refused revision left a job behind")
 
 
 class TestTheSectionRunsLast(unittest.TestCase):

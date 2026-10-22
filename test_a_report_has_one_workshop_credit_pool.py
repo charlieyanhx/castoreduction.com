@@ -36,6 +36,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 
 BRIEF = ("A neighbourhood wine bar in Sellwood, Portland, thirty seats, glasses about "
          "fourteen dollars.")
@@ -321,8 +323,12 @@ class TheWebhook(_TempDB):
         self.assertIn("STRIPE_PRICE_WORKSHOP=", body)
 
 
+@pytest.mark.usefixtures("treadle_stand_in")
 class _App(_TempDB):
-    """Drives POST /plan without six minutes of research."""
+    """Drives POST /plan without six minutes of research. Every report now runs on
+    Treadle, so the stand-in finishes the run; Treadle reports open no workshop pool yet,
+    and the workshop routes answer 409 for them. The route tests below therefore stand up
+    a legacy report directly, which is what still carries a pool."""
 
     def _client(self):
         from fastapi.testclient import TestClient
@@ -342,11 +348,8 @@ class _App(_TempDB):
 
     def _run(self, c, **body):
         import jobs
-        import plan as _plan
         cap = {}
-        with patch.object(jobs, "run_async", lambda j, fn, **k: cap.update(work=fn)), \
-             patch.object(_plan, "run_plan",
-                          lambda *a, **k: {"profile": {"name": "A wine bar"}}):
+        with patch.object(jobs, "run_async", lambda j, fn, **k: cap.update(work=fn)):
             r = c.post("/plan", json={"description": BRIEF, **body})
         self.assertEqual(r.status_code, 200, r.text)
         jid = r.json()["job_id"]
@@ -355,8 +358,50 @@ class _App(_TempDB):
         jobs.update(jid, state="complete", result=produced)
         return jid
 
+    def _legacy_report(self, c, result=None) -> str:
+        """A finished pre-Treadle report, endowed the way a free-allowance run was."""
+        import iteration as it
+        import jobs
+        jid = jobs.create("plan", {"description": BRIEF}, owner_id=self._owner(c))
+        jobs.update(jid, state="complete", result=result or {"profile": {"name": "A wine bar"}})
+        it.endow(jid, paid=False)
+        return jid
+
+
+NO_POOL = "Treadle reports open no workshop pool yet; restore when they do"
+
 
 class TheRunOpensItsWorkshop(_App):
+    def test_a_treadle_run_opens_no_workshop_yet(self):
+        """Today's contract, paid or free: the run spends the report credit, endows no
+        pool, and the workshop answers 409 rather than reading the report as legacy."""
+        import billing
+        import iteration as it
+        self._sell()
+        c = self._client()
+        billing._record(self._owner(c), "report", 1, None, None)
+        jid = self._run(c)
+        self.assertEqual(billing.balance(self._owner(c), "report"), 0, "the credit paid")
+        self.assertEqual(it.balance(jid), 0)
+        self.assertEqual(it.get_state(jid)["workshop"]["ledger"], [])
+        self.assertEqual(c.get(f"/jobs/{jid}/workshop").status_code, 409)
+        self.assertEqual(c.get(f"/jobs/{jid}/iteration").status_code, 409)
+
+    def test_the_stub_switch_no_longer_skips_the_pipeline(self):
+        """CASTOR_STUB_REPORT used to clone a stored report in place of the research. A
+        Treadle run goes through the pipeline whatever it says."""
+        import jobs
+        c = self._client()
+        src = self._run(c)
+        os.environ["CASTOR_STUB_REPORT"] = src
+        with patch("packs.market_research_next.customer_pipeline.run_customer_pipeline",
+                   return_value={"_pipeline": "treadle", "_treadle_status": "complete",
+                                 "marker": "ran"}) as run:
+            jid = self._run(c)
+        run.assert_called_once()
+        self.assertEqual((jobs.get_unscoped(jid)["result"] or {}).get("marker"), "ran")
+
+    @unittest.skip(NO_POOL)
     def test_a_free_allowance_run_opens_with_ten(self):
         import iteration as it
         c = self._client()
@@ -364,6 +409,7 @@ class TheRunOpensItsWorkshop(_App):
         self.assertEqual(it.balance(jid), 10)
         self.assertEqual(it.get_state(jid)["workshop"]["ledger"][0]["ref"], "free")
 
+    @unittest.skip(NO_POOL)
     def test_a_credit_paid_run_opens_with_thirty(self):
         import billing
         import iteration as it
@@ -375,6 +421,7 @@ class TheRunOpensItsWorkshop(_App):
         self.assertEqual(it.balance(jid), 30)
         self.assertEqual(it.get_state(jid)["workshop"]["ledger"][0]["ref"], "paid")
 
+    @unittest.skip("Treadle revisions are not available yet (409); restore when they are")
     def test_a_re_run_opens_with_what_its_parent_had_left(self):
         """One pool per lineage: the re-run costs COST_RERUN from the parent, the new
         report is not endowed, and what the parent had left moves to it."""
@@ -393,6 +440,7 @@ class TheRunOpensItsWorkshop(_App):
         whats = [l["what"] for l in it.get_state(new)["workshop"]["ledger"]]
         self.assertEqual(whats, ["moved"], "no endowment of its own")
 
+    @unittest.skip(NO_POOL)
     def test_a_stub_clone_gets_the_endowment_of_its_kind(self):
         """CASTOR_STUB_REPORT replaces the research, not the tail around it."""
         import iteration as it
@@ -433,7 +481,7 @@ class TheRunOpensItsWorkshop(_App):
         import jobs
         result = json.loads(FIXTURE.read_text())
         c = self._client()
-        jid = self._run(c)
+        jid = self._legacy_report(c)
         jobs.update(jid, state="complete", result=result)
         self.assertEqual(it.balance(jid), 10)
         self.assertIn("balance", c.get(f"/jobs/{jid}/workshop").json())
@@ -443,7 +491,7 @@ class TheWorkshopRoute(_App):
     def test_the_owner_gets_the_shape(self):
         import iteration as it
         c = self._client()
-        jid = self._run(c)
+        jid = self._legacy_report(c)
         it.spend(jid, 1, "turn", ref="t1")
         body = c.get(f"/jobs/{jid}/workshop").json()
         self.assertEqual(body["balance"], 9)
@@ -456,7 +504,7 @@ class TheWorkshopRoute(_App):
     def test_the_ledger_is_the_last_twenty(self):
         import iteration as it
         c = self._client()
-        jid = self._run(c)
+        jid = self._legacy_report(c)
         it.credit(jid, 30, "pack", paid=True)
         for i in range(30):
             it.spend(jid, 1, "turn", ref=f"t{i}")
@@ -467,13 +515,13 @@ class TheWorkshopRoute(_App):
 
     def test_a_stranger_gets_404(self):
         c = self._client()
-        jid = self._run(c)
+        jid = self._legacy_report(c)
         stranger = self._client()
         self.assertEqual(stranger.get(f"/jobs/{jid}/workshop").status_code, 404)
 
     def test_the_iteration_route_carries_the_pool(self):
         c = self._client()
-        jid = self._run(c)
+        jid = self._legacy_report(c)
         ws = c.get(f"/jobs/{jid}/iteration").json()["workshop"]
         self.assertEqual((ws["balance"], ws["granted"], ws["spent"]), (10, 10, 0))
         self.assertEqual(ws["pack"], {"kind": "workshop", "credits": 30, "usd": 5.0})
@@ -483,7 +531,7 @@ class TheWorkshopRoute(_App):
 
     def test_posting_a_pack_still_needs_a_payment(self):
         c = self._client()
-        jid = self._run(c)
+        jid = self._legacy_report(c)
         r = c.post(f"/jobs/{jid}/credits", json={"kind": "workshop"})
         self.assertEqual(r.status_code, 402)
         os.environ["CASTOR_ALLOW_UNPAID_CREDITS"] = "1"

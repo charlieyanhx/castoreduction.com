@@ -25,6 +25,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pytest
+
 
 class _Env(unittest.TestCase):
     ENDPOINTS = (
@@ -150,6 +152,9 @@ class TheSlotIsGivenBack(_Env):
         quota.claim_run_slot(owner, job_id="next", count_daily=False)
 
 
+# POST /plan runs on Treadle, which needs credentials a test session does not hold. The
+# stand-in lets a paid report start so the allowance it should not touch can be watched.
+@pytest.mark.usefixtures("treadle_stand_in")
 class TheProductItselfIsUnaffected(_Env):
     def test_a_paid_report_does_not_spend_the_free_allowance(self):
         """A credit-holder must not be capped by a limit meant for free auxiliary work."""

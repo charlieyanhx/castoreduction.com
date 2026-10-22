@@ -66,6 +66,11 @@ class _TempDB(unittest.TestCase):
 
 
 class TheReRunIsPricedFromThePool(_TempDB):
+    # Reports run on Treadle now, and Treadle has no revisions yet: /revise answers 409 for
+    # the owner and 404 for anyone else, before it touches the pool, the quota or the
+    # account. The pool tests below wait for revisions to return; the two that can say
+    # something true about the refusal say it.
+
     def test_the_price_is_twenty_and_nothing_is_included(self):
         it = self.iteration
         self.assertEqual(it.COST_RERUN, 20)
@@ -74,6 +79,7 @@ class TheReRunIsPricedFromThePool(_TempDB):
                      "PACK_RERUN", "OLD_KIND_CREDITS", "add_question", "draft_answers", "settle"):
             self.assertFalse(hasattr(it, gone), f"iteration.{gone} still exists")
 
+    @unittest.skip("Treadle revisions are not available yet (409); restore when they are")
     def test_a_re_run_spends_twenty_from_the_parent_and_moves_the_rest(self):
         import jobs
         c = self._client()
@@ -109,6 +115,7 @@ class TheReRunIsPricedFromThePool(_TempDB):
         st = self.iteration.get_state(parent)
         self.assertEqual((st["status"], st["revised_to"]), ("revised", new))
 
+    @unittest.skip("Treadle revisions are not available yet (409); restore when they are")
     def test_a_pool_that_cannot_pay_is_refused_with_the_pack_in_the_sentence(self):
         c = self._client()
         parent = self._report(paid=False)               # ten credits
@@ -122,6 +129,7 @@ class TheReRunIsPricedFromThePool(_TempDB):
         self.assertEqual(self.iteration.balance(parent), 10, "nothing was taken")
         self.assertEqual(self.iteration.get_state(parent)["status"], "draft")
 
+    @unittest.skip("Treadle revisions are not available yet (409); restore when they are")
     def test_a_second_re_run_of_the_parent_finds_the_pool_gone(self):
         """The credits moved to the new report, so the parent cannot run again; the new
         report can, if it holds enough."""
@@ -142,24 +150,44 @@ class TheReRunIsPricedFromThePool(_TempDB):
             self.assertEqual(self.iteration.balance(third.json()["job_id"]), 0)
 
     def test_a_refused_slot_gives_the_credits_back(self):
-        """The credit is taken before the run; a run refused by the quota gives it back."""
+        """The credit used to be taken before the run and given back on a refused slot.
+        Today the refusal comes first: no slot is asked for and the pool is never touched."""
         import quota
         c = self._client()
         parent = self._report(paid=True)
-        with patch.object(quota, "claim_run_slot", side_effect=quota.QuotaExceeded("busy")):
+        with patch.object(quota, "claim_run_slot",
+                          side_effect=quota.QuotaExceeded("busy")) as claim:
             r = c.post(f"/jobs/{parent}/revise")
-        self.assertEqual(r.status_code, 429, r.text)
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("revisions are not available", r.json()["detail"])
+        claim.assert_not_called()
         self.assertEqual(self.iteration.balance(parent), 30)
+        self.assertEqual(self.iteration.get_state(parent)["status"], "draft")
 
     def test_the_re_run_does_not_touch_the_accounts_report_credits(self):
         import billing
+        import jobs
         c = self._client()
         billing._record(self.owner, "report", 1, None, None)
         parent = self._report(paid=True)
-        with patch("plan.run_plan", return_value={"profile": {"name": "x"}, "_steps_completed": []}):
-            r = c.post(f"/jobs/{parent}/revise")
-        self.assertEqual(r.status_code, 200, r.text)
+        made = len(jobs.list_recent(limit=50, owner_id=self.owner))
+        r = c.post(f"/jobs/{parent}/revise")
+        self.assertEqual(r.status_code, 409, r.text)
         self.assertEqual(billing.balance(self.owner, "report"), 1)
+        self.assertEqual(self.iteration.balance(parent), 30)
+        self.assertEqual(len(jobs.list_recent(limit=50, owner_id=self.owner)), made,
+                         "a refused re-run created a job")
+
+    def test_a_stranger_cannot_learn_a_re_run_is_refused(self):
+        """Ownership is still checked first: someone else's report answers 404, not 409."""
+        from fastapi.testclient import TestClient
+
+        import api
+        self._client()                                   # the owner of the report
+        parent = self._report(paid=True)
+        r = TestClient(api.app).post(f"/jobs/{parent}/revise")
+        self.assertEqual(r.status_code, 404, r.text)
+        self.assertEqual(self.iteration.balance(parent), 30)
 
 
 class TheInputEditsAndTheBrief(_TempDB):

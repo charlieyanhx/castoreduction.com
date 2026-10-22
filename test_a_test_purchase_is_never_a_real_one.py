@@ -28,6 +28,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pytest
+
 
 class _Env(unittest.TestCase):
     KEYS = ("STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_PRICE_REPORT",
@@ -108,6 +110,9 @@ class ItCannotBeReachedOnAnInstanceThatCanCharge(_Env):
                          "nothing is granted without a signed webhook")
 
 
+# The run at the end of the journey is Treadle's, which checks for credentials a test
+# session does not hold. The stand-in lets the bought credit reach the run it pays for.
+@pytest.mark.usefixtures("treadle_stand_in")
 class InTestModeThePurchaseActuallyCompletes(_Env):
     def setUp(self):
         super().setUp()

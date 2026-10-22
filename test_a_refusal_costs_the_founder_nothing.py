@@ -23,6 +23,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 
 class _App(unittest.TestCase):
     BRIEF = ("A specialty coffee shop on NW 23rd in Portland, about 15 seats, "
@@ -115,6 +117,9 @@ class TestAskingDoesNotSpendTheDraft(_App):
                       "survey.js spends the interview before the run is accepted again")
 
 
+# The stand-in passes Treadle's config check, so the 429 below is the quota's refusal and
+# not one that merely happens to come first.
+@pytest.mark.usefixtures("treadle_stand_in")
 class TestARefusalLeavesNoPhantomJob(_App):
     def _exhaust(self, owner):
         """Seed the ledger under the key the ROUTE will read. A guest is counted by
@@ -135,9 +140,11 @@ class TestARefusalLeavesNoPhantomJob(_App):
         owner = c.get("/auth/me").json()["owner"]
         self._exhaust(owner)
         before = len(jobs.list_recent(limit=100, owner_id=owner))
-        with patch("plan.run_plan", return_value={"_steps_completed": []}):
+        with patch("packs.market_research_next.customer_pipeline.run_customer_pipeline"
+                   ) as run:
             r = c.post("/plan", json={"description": self.BRIEF})
         self.assertEqual(r.status_code, 429, r.text)
+        run.assert_not_called()
         self.assertEqual(len(jobs.list_recent(limit=100, owner_id=owner)), before,
                          "a refused run left a 'Did not finish' row in the library")
 

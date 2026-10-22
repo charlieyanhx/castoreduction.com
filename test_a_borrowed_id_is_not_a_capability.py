@@ -31,6 +31,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pytest
+
 
 class _App(unittest.TestCase):
     def setUp(self):
@@ -62,6 +64,7 @@ BRIEF = ("An independent specialty coffee shop on NW 23rd Avenue in Portland, Or
          "serving espresso and pour-over at about $6 a drink, with roughly 15 seats.")
 
 
+@pytest.mark.usefixtures("treadle_stand_in")
 class TestAPreviousJobIdMustBeYours(_App):
     def test_a_strangers_private_notes_do_not_follow_their_job_id(self):
         """The leak, end to end."""
@@ -73,10 +76,7 @@ class TestAPreviousJobIdMustBeYours(_App):
         iteration.add_annotation(vjob, section="Economics", quote="fixed cost $5,000/mo",
                                  comment="our actual rent is 7800, do not publish this")
 
-        with patch("plan.run_plan", return_value={"profile": {"name": "x"},
-                                                  "_steps_completed": []}):
-            r = attacker.post("/plan", json={"description": BRIEF,
-                                             "previous_job_id": vjob})
+        r = attacker.post("/plan", json={"description": BRIEF, "previous_job_id": vjob})
         self.assertEqual(r.status_code, 404,
                          "a stranger's job id was accepted as a previous run")
 
@@ -89,24 +89,33 @@ class TestAPreviousJobIdMustBeYours(_App):
 
     def test_an_invented_id_cannot_switch_off_the_daily_cap(self):
         """count_daily=not bool(req.previous_job_id), on the client's word alone."""
-        with patch("plan.run_plan", return_value={"profile": {"name": "x"},
-                                                  "_steps_completed": []}):
-            r = self._client().post("/plan", json={
-                "description": BRIEF, "previous_job_id": "not-a-real-job-id"})
+        r = self._client().post("/plan", json={
+            "description": BRIEF, "previous_job_id": "not-a-real-job-id"})
         self.assertEqual(r.status_code, 404)
 
     def test_your_own_previous_job_still_works(self):
-        """The fix must not break the one caller that legitimately sets this: post_revise."""
+        """Your own id passes the ownership check and then meets 409: Treadle has no
+        revisions yet. The point is that the check let it through and nothing was spent."""
+        import billing
         import iteration
         import jobs
+        import quota
         c = self._client()
-        mine = jobs.create("plan", {"description": BRIEF}, owner_id=self._owner(c))
-        iteration.endow(mine, paid=True)            # a re-run is paid from the parent's pool
-        with patch("plan.run_plan", return_value={"profile": {"name": "x"},
-                                                  "_steps_completed": []}):
-            r = c.post("/plan", json={"description": BRIEF, "previous_job_id": mine})
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json()["previous_job_id"], mine)
+        me = self._owner(c)
+        mine = jobs.create("plan", {"description": BRIEF}, owner_id=me)
+        iteration.endow(mine, paid=True)
+        billing._record(me, "report", 1, "cs_test_own_rerun", None)
+        before_jobs = len(jobs.list_recent(limit=50, owner_id=me))
+        before_runs = quota.runs_today(me)
+
+        r = c.post("/plan", json={"description": BRIEF, "previous_job_id": mine})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("revisions are not available", r.json()["detail"])
+        self.assertEqual(billing.balance(me, "report"), 1, "a refused revision spent a credit")
+        self.assertEqual(len(jobs.list_recent(limit=50, owner_id=me)), before_jobs,
+                         "a refused revision created a job")
+        self.assertEqual(quota.runs_today(me), before_runs,
+                         "a refused revision used a daily run")
 
     def test_the_carry_is_reached_only_through_the_check(self):
         """A source guard: the validation and the carry must not drift apart again."""
@@ -114,7 +123,7 @@ class TestAPreviousJobIdMustBeYours(_App):
 
         import routes.research as rr
         src = inspect.getsource(rr.post_plan)
-        self.assertIn("jobs.get(req.previous_job_id, owner_id=_owner)", src,
+        self.assertIn("jobs.get(req.previous_job_id, owner_id=owner)", src,
                       "post_plan stopped proving the caller owns previous_job_id")
 
 

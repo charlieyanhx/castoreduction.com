@@ -28,6 +28,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pytest
+
 
 class _ApiBase(unittest.TestCase):
     def setUp(self):
@@ -75,6 +77,7 @@ class _ApiBase(unittest.TestCase):
                           else "http://testserver")
 
 
+@pytest.mark.usefixtures("treadle_stand_in")
 class TestProductionNeverBucketsStrangersTogether(_ApiBase):
     """The defect: one shared owner id for every unauthenticated production visitor."""
 
@@ -112,12 +115,11 @@ class TestProductionNeverBucketsStrangersTogether(_ApiBase):
         test_a_guest_is_a_real_visitor.py::TestTheDailyCapSurvivesACookieWipe, which is
         where that protection is actually asserted.
 
-        run_plan is patched: this asserts who is let through, not what the pipeline does.
+        The Treadle run is stood in for (conftest's treadle_stand_in on this class): this
+        asserts who is let through, not what the pipeline does.
         """
         with patch.dict(os.environ, {"CASTOR_ENV": "production",
-                                     "SESSION_SECRET": "test-secret-for-this-case"}), \
-             patch("plan.run_plan", return_value={"profile": {"name": "x"},
-                                                  "_steps_completed": []}):
+                                     "SESSION_SECRET": "test-secret-for-this-case"}):
             r = self._client(tls=True).post("/plan", json={
                 "description": "An independent specialty coffee shop in the Mission "
                                "District of San Francisco at $5.50 per drink."})

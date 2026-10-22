@@ -192,3 +192,23 @@ def _no_live_llm(request):
         yield
     finally:
         llm._BACKENDS.update(_REAL_BACKENDS)
+
+
+# ------------------------------------------------------- a Treadle run without a provider
+# POST /plan dispatches every new report into Treadle, which checks its PREP model and
+# Anthropic access before it starts. A test session holds no credentials (see above), so
+# a test that needs a run to START, to watch the paywall, quota or ledger around it, asks
+# for this fixture. The fixture's value is the stand-in, so a test can read its calls or
+# give it a side_effect. Treadle's own route tests patch these names themselves.
+TREADLE_STAND_IN_RESULT = {"_pipeline": "treadle", "_treadle_status": "complete"}
+
+
+@_pytest.fixture
+def treadle_stand_in(monkeypatch):
+    from unittest.mock import Mock
+
+    from packs.market_research_next import customer_pipeline
+    run = Mock(return_value=dict(TREADLE_STAND_IN_RESULT))
+    monkeypatch.setattr(customer_pipeline, "validate_customer_pipeline_config", lambda: None)
+    monkeypatch.setattr(customer_pipeline, "run_customer_pipeline", run)
+    return run

@@ -533,10 +533,6 @@ def post_plan(req: PlanRequest):
         raise HTTPException(
             status_code=409,
             detail="Treadle revisions are not available yet. Start a new report.")
-    try:
-        validate_customer_pipeline_config()
-    except ValueError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     params = req.model_dump()
     params["report_style"] = "full"
@@ -568,6 +564,18 @@ def post_plan(req: PlanRequest):
         except quota.QuotaExceeded as exc:
             jobs.discard(job_id)
             raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+    # Checked after the paywall and quota so a caller hears 402 or 429 first; undone the
+    # way a quota refusal is. A free attempt still counts toward the daily cap here,
+    # because quota has no inverse for its ledger.
+    try:
+        validate_customer_pipeline_config()
+    except ValueError as exc:
+        quota.release_run_slot(owner)
+        if paid_credit:
+            billing.credit_back(owner, "report", "the server cannot run reports")
+        jobs.discard(job_id)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     def work(progress=None):
         """Checkpoint research, release the slot, and refund failed paid runs."""

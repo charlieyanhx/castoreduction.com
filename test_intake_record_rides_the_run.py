@@ -10,7 +10,8 @@ recorded nowhere, and gates could not reach any of it (audit of 2026-08-19).
 The contract these tests pin:
 1. intake.intake_record(session) builds a structured record: confirmed facts, declared
    unknowns, and the warnings that were on screen at confirm time.
-2. POST /plan accepts it and hands it to run_plan; run_plan stamps result["intake"].
+2. POST /plan accepts it and hands it to the Treadle run (run_customer_pipeline);
+   run_plan, where it still runs, stamps result["intake"].
 3. A founder-confirmed geography is AUTHORITATIVE: the profile step must not let the
    LLM's re-extraction override it.
 4. No record → exactly today's behavior (old clients, old artifacts, corpus runs).
@@ -19,6 +20,8 @@ from __future__ import annotations
 
 import unittest
 from unittest.mock import patch
+
+import pytest
 
 import intake
 from intake_tree import UNKNOWN
@@ -69,22 +72,24 @@ class TestIntakeRecordStructure(unittest.TestCase):
         self.assertTrue(rec["confirmed"])
 
 
+@pytest.mark.usefixtures("treadle_stand_in")
 class TestPlanThreading(unittest.TestCase):
     def test_plan_request_accepts_and_forwards_the_record(self):
-        """POST /plan with an intake record → run_plan receives it verbatim and the
-        job's params retain it. Backward compatible: the field is optional."""
+        """POST /plan with an intake record → the Treadle run receives it verbatim and
+        the job's params retain it. Backward compatible: the field is optional."""
         from fastapi.testclient import TestClient
         import api as api_mod
 
         captured = {}
 
-        def fake_run_plan(description, **kw):
+        def fake_run(description, **kw):
             captured.update(kw)
-            return {"profile": {"name": "x"}, "_steps_completed": []}
+            return {"_pipeline": "treadle", "_treadle_status": "complete"}
 
         rec = {"confirmed": True, "facts": {"geography": "Los Angeles, CA"},
                "unknowns": ["expected_volume"], "warnings_shown": []}
-        with patch("plan.run_plan", side_effect=fake_run_plan):
+        with patch("packs.market_research_next.customer_pipeline.run_customer_pipeline",
+                   side_effect=fake_run):
             client = TestClient(api_mod.app)
             r = client.post("/plan", json={
                 "description": "A specialty coffee cafe in Los Angeles for commuters.",

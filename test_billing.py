@@ -19,6 +19,8 @@ import tempfile
 import time
 import unittest
 
+import pytest
+
 
 SECRET = "whsec_test_secret_value"
 
@@ -211,6 +213,11 @@ if __name__ == "__main__":
     unittest.main()
 
 
+#: What POST /plan starts. Patched by name so a refusal can show the run never began.
+TREADLE_RUN = "packs.market_research_next.customer_pipeline.run_customer_pipeline"
+
+
+@pytest.mark.usefixtures("treadle_stand_in")
 class TestThePaywallOnTheRun(_Billing):
     """Running out of free runs becomes a purchase, but only once a price exists."""
 
@@ -254,11 +261,12 @@ class TestThePaywallOnTheRun(_Billing):
         os.environ.pop("STRIPE_SECRET_KEY", None)
         client = self._client()
         self._exhaust_free_runs(self._visitor(client))
-        with patch("plan.run_plan", side_effect=lambda description, **k: {"profile": {}}):
+        with patch(TREADLE_RUN) as run:
             r = client.post("/plan", json={
                 "description": "A specialty coffee shop in Portland for local residents.",
                 "operator_weights": {}})
         self.assertEqual(r.status_code, 429)
+        run.assert_not_called()
 
     def test_with_a_price_and_a_credit_the_run_starts(self):
         import billing
@@ -272,7 +280,10 @@ class TestThePaywallOnTheRun(_Billing):
         # and this client is a guest with its own id rather than the shared legacy one.
         billing.fulfill(_session_event(account=buyer, session_id="cs_run"))
         self.assertEqual(billing.balance(buyer, "report"), 1)
-        with patch("plan.run_plan", side_effect=lambda description, **k: {"profile": {}}):
+        # A delivered result, because the worker really runs on its thread here and a
+        # result it cannot read as delivered would be refunded under the assertion below.
+        with patch(TREADLE_RUN, return_value={"_pipeline": "treadle",
+                                              "_treadle_status": "complete"}):
             r = client.post("/plan", json={
                 "description": "A specialty coffee shop in Portland for local residents.",
                 "operator_weights": {}})
@@ -293,11 +304,12 @@ class TestThePaywallOnTheRun(_Billing):
         os.environ["STRIPE_PRICE_REPORT"] = "price_report"
         client = self._client()
         self._exhaust_free_runs(self._visitor(client))
-        with patch("plan.run_plan", side_effect=lambda description, **k: {"profile": {}}):
+        with patch(TREADLE_RUN) as run:
             r = client.post("/plan", json={
                 "description": "A specialty coffee shop in Portland for local residents.",
                 "operator_weights": {}})
         self.assertEqual(r.status_code, 402)
+        run.assert_not_called()
 
     def test_it_refuses_with_the_free_allowance_still_untouched(self):
         """The stronger property, and the one the old ordering could not have.
@@ -310,12 +322,13 @@ class TestThePaywallOnTheRun(_Billing):
         os.environ["STRIPE_PRICE_REPORT"] = "price_report"
         client = self._client()
         self.assertGreater(client.get("/billing/status").json()["free_runs_left"], 0)
-        with patch("plan.run_plan", side_effect=lambda description, **k: {"profile": {}}):
+        with patch(TREADLE_RUN) as run:
             r = client.post("/plan", json={
                 "description": "A specialty coffee shop in Portland for local residents.",
                 "operator_weights": {}})
         self.assertEqual(r.status_code, 402,
                          "a paywalled instance must not give the run away for free")
+        run.assert_not_called()
 
     def test_a_credit_never_buys_past_the_concurrency_limit(self):
         """Money buys allowance, not a second simultaneous run: that limit is about what
@@ -333,10 +346,11 @@ class TestThePaywallOnTheRun(_Billing):
         jid = jobs.create("plan", {"description": "x"}, owner_id=buyer)
         jobs.update(jid, state="running")
         quota.claim_run_slot(buyer, job_id=jid)                  # one already in flight
-        with patch("plan.run_plan", side_effect=lambda description, **k: {"profile": {}}):
+        with patch(TREADLE_RUN) as run:
             r = client.post("/plan", json={
                 "description": "A specialty coffee shop in Portland for local residents.",
                 "operator_weights": {}})
         self.assertEqual(r.status_code, 429)
         self.assertEqual(billing.balance(buyer, "report"), 1,
                          "a refused run must not silently eat the credit")
+        run.assert_not_called()
