@@ -64,6 +64,10 @@ PRICING = {
     # 2026-09-12, one Opus pass over a 141 KB fact layer was $0.50.
     "claude-opus-5": {"input": 5.00, "output": 25.00},
     "claude-sonnet-5": {"input": 2.00, "output": 10.00},
+    # Treadle's PREP model (TREADLE_PREP_MODEL). Unlisted, it priced at zero and every
+    # live run's receipt read $0.00. Its cache reads list at $0.20, half what
+    # CACHE_READ_FACTOR derives, so a cached call here is slightly overstated.
+    "claude-opus-5-5": {"input": 4.00, "output": 20.00},
     # Groq free tier
     "llama-3.3-70b-versatile": {"input": 0.0, "output": 0.0},
     "llama-3.1-8b-instant": {"input": 0.0, "output": 0.0},

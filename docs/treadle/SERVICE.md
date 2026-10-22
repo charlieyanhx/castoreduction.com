@@ -58,8 +58,9 @@ unresolved review issue), `failed`, `interrupted`.
  "detail": {"reason": "", "findings": [], "reads": {"place": "d8ae..."}, "label": "Where to sit"}}
 ```
 
-A sections pack writes a `section` event per section verdict, again on each correction
-round. A runner pack's partial results become `checkpoint` events with
+A sections pack writes a `section` event per section verdict as that section finishes
+(the bounded workflow delivers it from its own thread, so a watcher never waits for the
+round), and again on each correction round. A runner pack's partial results become `checkpoint` events with
 `detail: {"keys": [...], "steps_completed": [...]}`. Partial results are named, never
 copied. Events are appended to a file because a pack may run sections in isolated
 processes, which receive the sink pickled. Read them with `after=N`; the response's

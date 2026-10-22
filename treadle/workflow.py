@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import copy
 import json
+import queue
+import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, field, replace
@@ -345,9 +347,11 @@ class _BoundedExecution:
     Only finite JSON enters the result mapping. Flagged and malformed outputs are held
     back, so a dependent cannot consume them before a successful correction. Producer,
     applicability, contract and invariant code all share the task's process deadline.
-    Progress callbacks run after each round's workers settle, in separate processes with
-    at most one second each. Delivery cannot delay worker polling. Callback side effects
-    in parent memory therefore do not propagate in this execution mode.
+    Progress is delivered as each section settles, by a courier thread, in separate
+    processes with at most one second each. The coordinator only hands a verdict over, so
+    delivery cannot delay worker polling, and a watcher sees a section when it finishes
+    rather than when its round does. Callback side effects in parent memory therefore do
+    not propagate in this execution mode.
     """
 
     def __init__(self, workflow: DeterministicWorkflow, ordered: list[Section],
@@ -369,12 +373,19 @@ class _BoundedExecution:
         self.history: list[dict] = []
         self.attempts: list[dict] = []
         self.progress: list[dict] = []
-        self.notifications: list[SectionResult] = []
+        self.outbox: queue.Queue[Optional[SectionResult]] = queue.Queue()
+        self.courier: Optional[threading.Thread] = None
         self.stop_reason = ""
         self.abort_issue: Optional[ReviewIssue] = None
         self.round = 0
 
     def execute(self) -> ExecutionResult:
+        try:
+            return self._execute()
+        finally:
+            self._stop_courier()
+
+    def _execute(self) -> ExecutionResult:
         active = set(self.keys)
         issues: tuple[ReviewIssue, ...] = ()
         while True:
@@ -451,12 +462,38 @@ class _BoundedExecution:
                                   reason=f"commit failed: {type(exc).__name__}")
         self.verdicts[section.key] = verdict
         if self.on_section is not None:
-            self.notifications.append(verdict)
+            self._send(verdict)
+
+    def _send(self, verdict: SectionResult) -> None:
+        """Hand a settled verdict to the courier; the coordinator never waits on delivery."""
+        if self.courier is None:
+            self.courier = threading.Thread(target=self._deliver, name="treadle-progress",
+                                            daemon=True)
+            self.courier.start()
+        self.outbox.put(verdict)
+
+    def _deliver(self) -> None:
+        """The courier: one verdict at a time, in the order the sections settled."""
+        while True:
+            verdict = self.outbox.get()
+            try:
+                if verdict is None:
+                    return
+                self._progress(verdict)
+            finally:
+                self.outbox.task_done()
 
     def _flush_progress(self) -> None:
-        notifications, self.notifications = self.notifications, []
-        for verdict in notifications:
-            self._progress(verdict)
+        """Wait for everything handed over so far, each delivery bounded to one second, so
+        a round's progress record is whole before it is reviewed."""
+        if self.courier is not None:
+            self.outbox.join()
+
+    def _stop_courier(self) -> None:
+        if self.courier is not None:
+            self.outbox.put(None)
+            self.courier.join()
+            self.courier = None
 
     def _progress(self, verdict: SectionResult) -> None:
         if (self.on_section is None or self.abort_issue is not None

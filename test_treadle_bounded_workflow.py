@@ -171,6 +171,26 @@ class BoundedScheduling(unittest.TestCase):
         self.assertEqual([item["status"] for item in outcome.usage["progress_callbacks"]],
                          ["ok", "ok"])
 
+    def test_a_section_is_reported_when_it_finishes_not_when_its_round_does(self):
+        from treadle.service.events import EventLog, read_events
+
+        def slow(_context):
+            time.sleep(1.5)
+            return {"value": 2}
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "events.jsonl"
+            outcome = DeterministicWorkflow(limits=limits(), max_workers=2).execute(
+                [Section("fast", constant), Section("slow", slow)], {},
+                on_section=EventLog(str(path), "run"))
+            events = {e["section"]: e for e in read_events(path)}
+        self.assertEqual(outcome.stop_reason, "completed")
+        self.assertEqual(set(events), {"fast", "slow"})
+        # The fast section is delivered while the slow one is still running.
+        self.assertLess(events["fast"]["at"], events["slow"]["at"] - 1.0)
+        self.assertEqual([item["status"] for item in outcome.usage["progress_callbacks"]],
+                         ["ok", "ok"])
+
     def test_json_unsupported_output_cannot_commit(self):
         result = {}
         outcome = DeterministicWorkflow(limits=limits(), max_correction_rounds=0).execute([
