@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import threading
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
@@ -75,8 +76,9 @@ class OperatorWeights(BaseModel):
 
 
 class PlanRequest(BaseModel):
-    """Full spec pipeline: paste a company description, get a 4Ps plan + viability."""
+    """Start a Treadle full analysis from a business description and survey."""
     description: str = Field(..., min_length=30)
+    pipeline: Literal["treadle"] = "treadle"
     geo: str = "US"
     max_candidates: int = 20  # iter 36: bumped from 8 (spec step 3b says 50; we aim for 30 after filters)
     operator_weights: OperatorWeights = Field(default_factory=OperatorWeights)
@@ -94,21 +96,9 @@ class PlanRequest(BaseModel):
     # Wave E: an explicit delta link for revision runs, whose amended description
     # would never match find_previous_plan's exact-text lookup.
     previous_job_id: str | None = None
-    # The shape of the analyst report (report.synthesis.STYLES: memo, full, operating).
-    # None means the default; anything else is checked at the door, because a style the
-    # writer does not know would otherwise be discovered six minutes and one paid run
-    # later, as a FAILED section on a report the founder has already waited for.
-    report_style: str | None = None
-
-    @field_validator("report_style")
-    @classmethod
-    def _style_is_one_the_writer_knows(cls, v: str | None) -> str | None:
-        if v is None:
-            return None
-        from report.synthesis import STYLES
-        if v not in STYLES:
-            raise ValueError(f"unknown report_style {v!r}; one of {', '.join(sorted(STYLES))}")
-        return v
+    # The current Treadle pack has one fixed report format. Keep explicit null
+    # compatible with clients that previously used it to request the default.
+    report_style: Literal["full"] | None = "full"
 
 
 class CrewRequest(BaseModel):
@@ -303,6 +293,18 @@ def _start_unattended() -> int:
         seed = row.get("result") or None
         owner = row.get("owner_id") or _jobs.LEGACY_OWNER
         description = str(params.get("description") or "")
+        if params.get("pipeline") == "treadle":
+            # The bounded scheduler cannot restore its consumed budgets yet. Never
+            # restart it from zero or dispatch its checkpoint to the legacy runner.
+            import billing as _billing
+            message = ("Treadle was interrupted. Saved progress remains available; "
+                       "start a new report explicitly to run research again.")
+            preserved = dict(seed or {})
+            preserved.update(_pipeline="treadle", _treadle_status="incomplete",
+                             error=message)
+            _jobs.update(job_id, state="error", result=preserved, error=message)
+            _billing.refund_for_job(job_id, "Treadle interrupted before completion")
+            continue
         if len(description) < 30:
             continue
         try:
@@ -407,7 +409,7 @@ def _refund_if_nothing_was_delivered(owner_id: str, job_id: str, result: dict) -
         reason = ""
         if (result or {}).get("error"):
             reason = "run errored"
-        else:
+        elif (result or {}).get("_pipeline") != "treadle":
             from report.verifier import blocking_findings
             if blocking_findings(result or {}):
                 reason = "report withheld by its own checks"
@@ -499,7 +501,8 @@ def _notify_owner(owner_id: str, job_id: str, result: dict) -> None:
         withheld = False
         try:
             from report.verifier import blocking_findings
-            withheld = bool(blocking_findings(result or {}))
+            if (result or {}).get("_pipeline") != "treadle":
+                withheld = bool(blocking_findings(result or {}))
         except Exception:                                    # noqa: BLE001
             pass
         if (result or {}).get("error"):
@@ -514,276 +517,85 @@ def _notify_owner(owner_id: str, job_id: str, result: dict) -> None:
 
 @router.post("/plan")
 def post_plan(req: PlanRequest):
-    """The full spec pipeline: description → 4Ps plan + viability score."""
-    from api import _client_ip, _current_owner
-    from plan import run_plan
-    from history import find_previous_plan
-
-    # Bound once, here: the worker closure below runs on a background thread where no
-    # request context exists, so the owner must be captured at submit time.
-    _owner = _current_owner()
-
-    # A CLIENT-SUPPLIED previous_job_id IS A CAPABILITY, SO IT IS CHECKED HERE, ONCE.
-    #
-    # It did two privileged things on nothing but the caller's word. It turned the daily
-    # cap off (count_daily below), so any stranger got unlimited ~6-minute runs by posting
-    # a made-up id. And it was handed to iteration.carry_forward further down with no
-    # owner check at all, which copied the NAMED JOB'S private reader notes and questions
-    # into this report — up to 1000 characters of free text per mark, which is exactly
-    # where a founder types the real number they did not want published. The delta lookup
-    # twenty lines below was already scoped, with a comment explaining this precise risk;
-    # the carry was not. Only post_revise legitimately sets this field, and it has already
-    # proved ownership via _owned_job, so an unowned id here is a mistake or an attack.
-    # 404 rather than 403, matching _owned_job, so the field cannot enumerate job ids.
-    _parent = jobs.get(req.previous_job_id, owner_id=_owner) if req.previous_job_id else None
-    if req.previous_job_id and not _parent:
-        raise HTTPException(status_code=404, detail="job not found")
-
-    # Look for previous run of same description (for delta tracking). A revision run
-    # passes the link explicitly — its amended text would never match the lookup.
-    # TWO DIFFERENT QUESTIONS, AND THEY WERE ONE VARIABLE.
-    #
-    # `revision_of` is a RE-RUN LINK: post_revise sets it, the parent's pool has paid for
-    # this run, and it means carry the notes over onto the new report.
-    #
-    # `delta_from` is a DELTA LOOKUP: "have you run this exact description before, so we
-    # can show what moved". It is a convenience for the numbers and nothing more.
-    #
-    # Collapsing them meant running the same description twice made the SECOND report a
-    # revision of the first, without anyone asking: it arrived already `final`, carrying
-    # marks and questions from a report the founder had not said it superseded, with its
-    # refine controls put away and its own regeneration already counted as spent. A fresh
-    # run is a fresh report.
-    #
-    # SCOPED, separately: unscoped, find_previous_plan returned ANY owner's job with the
-    # same description, and that answer reached carry_forward.
-    revision_of = req.previous_job_id or None
-    delta_from = revision_of or find_previous_plan(req.description, owner_id=_owner)
-    previous_job_id = delta_from
-
-    # Add previous_job_id to params so the worker can include it in result
-    params = req.model_dump()
-    if revision_of:
-        # ONLY AN EXPLICIT REVISION IS STAMPED. post_revise reads this field back to decide
-        # whether a report has already spent its regeneration, so writing it for an
-        # incidental description match made a plain re-run count as a revision and refused
-        # that report the regeneration it was owed.
-        params["previous_job_id"] = revision_of
-    if delta_from:
-        log.info("plan job compares against %s for delta tracking", delta_from[:8])
-
-    job_id = jobs.create("plan", params, owner_id=_owner)
-
-    # The cost gate. A report is ~6 minutes and ~39 LLM calls, so POST /plan is the abuse
-    # surface — and on the shared free chain one busy account degrades everyone's runs.
-    # Claimed AFTER the row exists so the slot can name its job and be freed by that job
-    # reaching a terminal state, rather than depending on release alone.
-    # The ONE included revision does not spend a daily run: it belongs to the report the
-    # reader already has. previous_job_id is set only by post_revise, which has already
-    # refused a second cycle, so this cannot be used to mint unlimited runs by chaining.
-    # Concurrency still applies, because that is about the machine, not the entitlement.
-    # THE PAYWALL. A CREDIT IS SPENT FIRST, before the free daily allowance is touched.
-    #
-    # THE BUG THIS FIXES, and it made the whole paywall decorative. Credits used to be a
-    # FALLBACK: the free allowance was consumed first and a credit only paid for a run
-    # once the daily cap refused one. So a founder who bought the $99 five-pack ran on the
-    # free allowance, never touched what they had paid for, and their five credits sat
-    # there unspent. They had bought nothing they did not already have. Meanwhile the
-    # survey's gate was telling every buyer that a report costs a credit.
-    #
-    # Spending the credit first is also what makes the gate honest, because the gate asks
-    # exactly one question (`api._needs_purchase`: does this owner hold a credit?) and this
-    # is the code that answers it. The free allowance is what an instance with nothing to
-    # sell runs on, and it is still there underneath: `consume` returns False when the
-    # balance is zero, so an instance that has never granted a credit behaves as it always
-    # did.
-    _paid_credit = False
+    """Start the recursive business PREP and bounded Treadle report workflow."""
+    from api import _client_ip, _current_owner, paywall_off
     import billing
+    from packs.market_research_next.customer_pipeline import (
+        run_customer_pipeline, validate_customer_pipeline_config,
+    )
 
-    # A RE-RUN IS PAID FROM THE PARENT REPORT'S POOL (owner decision, 2026-09-21: one
-    # currency after the report). previous_job_id skips the report credit and the daily
-    # count because the parent's post-generation credits pay instead, COST_RERUN of them,
-    # spent here before the work like a first report's credit. The ownership check above
-    # proves the parent is yours; the pool is what stops one purchase from becoming
-    # unlimited research: a re-run spends it, and post_revise then moves what is left to
-    # the new report rather than opening it with credits of its own.
-    _revision_of = req.previous_job_id or None
-    _rerun_spent = 0
-    if _revision_of:
-        import iteration as _it
-        if not _it.spend(_revision_of, _it.COST_RERUN, "rerun", ref=job_id):
-            jobs.discard(job_id)
-            left = _it.balance(_revision_of)
-            raise HTTPException(
-                status_code=402,
-                detail=(f"A re-run costs {_it.COST_RERUN} credits and this report has "
-                        f"{left}. A workshop pack adds {_it.PACK_WORKSHOP} for "
-                        f"${_it.PACK_WORKSHOP_USD:g}."))
-        _rerun_spent = _it.COST_RERUN
+    # Capture request ownership before dispatching a background worker. A revision
+    # reference still requires ownership before we disclose that revisions are disabled.
+    owner = _current_owner()
+    if req.previous_job_id:
+        if not jobs.get(req.previous_job_id, owner_id=owner):
+            raise HTTPException(status_code=404, detail="job not found")
+        raise HTTPException(
+            status_code=409,
+            detail="Treadle revisions are not available yet. Start a new report.")
+    try:
+        validate_customer_pipeline_config()
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    if not _revision_of and billing.consume(_owner, "report"):
-        _paid_credit = True
-        # LEDGERED, so a worker in a LATER process (the startup resumer) can still tell
-        # this run was bought and refund it if it delivers nothing.
-        billing.record_spend(job_id, _owner)
+    params = req.model_dump()
+    params["report_style"] = "full"
+    job_id = jobs.create("plan", params, owner_id=owner)
+
+    # Spend a report credit before the free allowance, and record who paid so an
+    # interrupted worker can refund it. Every new report counts as a fresh report;
+    # legacy revision pools and workshop endowments do not apply to this workflow.
+    paid_credit = billing.consume(owner, "report")
+    if paid_credit:
+        billing.record_spend(job_id, owner)
         try:
-            # count_daily=False: a paid run is not a free one. Concurrency still applies,
-            # because that limit is about the machine rather than the entitlement.
-            quota.claim_run_slot(_owner, job_id=job_id, count_daily=False,
+            quota.claim_run_slot(owner, job_id=job_id, count_daily=False,
                                  client_ip=_client_ip())
-        except quota.QuotaExceeded as e:
-            # PUT IT BACK. The credit was already spent one line above, and refusing the
-            # run without returning it charged a founder for a report that never started.
-            billing.credit_back(_owner, "report", "refused before the run began")
-            _paid_credit = False
+        except quota.QuotaExceeded as exc:
+            billing.credit_back(owner, "report", "refused before the run began")
             jobs.discard(job_id)
-            raise HTTPException(status_code=429, detail=str(e))
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
         log.info("[billing] run %s paid for with a report credit", job_id[:8])
     else:
-        # NOTHING PAID FOR. On an instance that can sell, that is a refusal, not a free
-        # run: the gate the browser draws was only ever a drawing, and this endpoint
-        # served `curl` a $29 report off the free daily allowance, CASTOR_DAILY_RUNS times
-        # a day, per cookie. The allowance is what an instance with NO processor runs on,
-        # which is what the guard below now says. 402 rather than 429, because the answer
-        # is a price and not a wait.
-        from api import paywall_off
-        if not _revision_of and billing.configured() and not paywall_off():
+        if billing.configured() and not paywall_off():
             jobs.discard(job_id)
             raise HTTPException(
                 status_code=402,
                 detail="This report needs a credit. Buy one and it runs straight away.")
         try:
-            quota.claim_run_slot(_owner, job_id=job_id,
-                                 count_daily=not bool(req.previous_job_id),
+            quota.claim_run_slot(owner, job_id=job_id, count_daily=True,
                                  client_ip=_client_ip())
-        except quota.QuotaExceeded as e:
-            # DELETE, NOT ERROR. A refusal is not a run that failed: marking it errored
-            # put a phantom "Did not finish" in the founder's library for a report that
-            # never started, next to a message telling them to try again tomorrow. The row
-            # exists only so the quota slot could name it; nothing was attempted.
-            if _rerun_spent:
-                # the parent's credits, taken above for a run that never began
-                import iteration as _it
-                _it.refund(_revision_of, _rerun_spent, "rerun refund: refused before the run began")
+        except quota.QuotaExceeded as exc:
             jobs.discard(job_id)
-            raise HTTPException(status_code=429, detail=str(e))
-
-    # THE WORKSHOP OPENS WITH THE REPORT. A paid report includes thirty workshop credits,
-    # one off the free allowance includes ten, and this is the one place the run's kind
-    # is known for certain: the credit was just spent, or the allowance was just
-    # claimed. A RE-RUN OPENS WITH NOTHING: its lineage has one pool, and post_revise
-    # moves what the parent had left onto it (iteration.transfer_pool). The stub path is
-    # covered too: it replaces the research, not this. endow() is idempotent, so the
-    # resumer and a retried submit cannot double it.
-    if not _revision_of:
-        _open_the_workshop(job_id, paid=_paid_credit)
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
 
     def work(progress=None):
-        """Run the full plan, forwarding progress so the job can checkpoint as it goes."""
-        # THE STUB REPLACES THE RESEARCH, NOT THE TAIL THAT FOLLOWS IT.
-        #
-        # This used to `return stub` outright, which skipped every line below: the delta
-        # link, carry_forward, the refund check and the notification, while the stub's
-        # own docstring claimed the opposite ("everything either side stays real"). It
-        # was true of the intent and false of the code.
-        #
-        # Now the stub only supplies `result` and execution continues, so what is being
-        # tested is the real pipeline around a borrowed report.
-        stub = _stub_run(req.description)
-        if stub is not None:
-            result = stub
-            if progress:
-                progress(stub)
-            quota.release_run_slot(_owner)
-        else:
-            result = _run_the_pipeline(progress)
-        return _finish(result)
-
-    def _run_the_pipeline(progress):
-        """The six minutes of real research, with its slot released whatever happens."""
+        """Checkpoint research, release the slot, and refund failed paid runs."""
         try:
-            result = run_plan(
-                description=req.description,
-                geo=req.geo,
-                max_candidates=req.max_candidates,
+            result = run_customer_pipeline(
+                req.description, intake=req.intake, report_style="full",
+                # The old API's US default is not a customer-stated geography.
+                geo=req.geo if "geo" in req.model_fields_set else None,
                 progress=progress,
-                operator_weights=req.operator_weights.model_dump(),
-                refine=req.refine,
-                effort=req.effort,
-                intake=req.intake,
-                report_style=req.report_style,
             )
         except BaseException:
-            # A CRASH IS THE COMMONEST WAY TO DELIVER NOTHING, and it was the one case
-            # that kept the money. The refund below lives after this block, so an
-            # exception leaving here skipped it: the buyer's credit was spent, run_async
-            # wrote state=error, and they were left with "Did not finish" on a report they
-            # had paid for. Twenty-seven steps over live network calls do not raise
-            # exotically; they raise on Tuesdays.
-            #
-            # Refund, then re-raise unchanged. Swallowing it would hide the failure from
-            # run_async, and a failure nobody is told about is worse than a paid one.
-            if _paid_credit:
+            if paid_credit:
                 try:
-                    billing.refund_for_job(
-                        job_id, "the run failed before producing a report")
-                except Exception as e:                   # noqa: BLE001
+                    billing.refund_for_job(job_id, "the run failed before producing a report")
+                except Exception as exc:                 # noqa: BLE001
                     log.error("[billing] could not refund %s after a crashed run: %s",
-                              job_id[:8], e)
+                              job_id[:8], exc)
             raise
         finally:
-            # finally, not the happy path: a run that raised would otherwise hold its
-            # concurrency slot until the hour sweep, locking the account out of the
-            # product because one report crashed.
-            quota.release_run_slot(_owner)
-        return result
+            quota.release_run_slot(owner)
 
-    def _finish(result):
-        """Everything a finished report needs after the research: the delta link, the
-        reader's carried questions answered against the NEW artifact, the refund when
-        nothing was delivered, and the notification. Shared by the real run and the stub,
-        because these are the parts a stubbed run exists to exercise."""
-        # Embed previous_job_id + computed deltas in the final result
-        if previous_job_id and not result.get("error"):
-            from history import compute_deltas
-            # USER-SUPPLIED id: resuming from someone else's job would inherit their
-            # data into this report. Scoped.
-            prev_job = jobs.get(previous_job_id, owner_id=_owner)
-            if prev_job and prev_job.get("result"):
-                result["_previous_job_id"] = previous_job_id
-                try:
-                    result["_deltas_vs_previous"] = compute_deltas(result, prev_job["result"])
-                except Exception as e:
-                    log.warning(f"delta computation failed: {e}")
-
-        # THE NOTES CARRY ONTO THE NEW REPORT. post_revise also carries, but it does so
-        # AFTER post_plan has already started this thread, so on a fast run we arrive here
-        # first. carry_forward is idempotent: whoever gets there first wins. Never fail
-        # the run over it: the report is the product, the notes are a record.
-        if revision_of and not result.get("error"):
-            import iteration as _iter
-            try:
-                _iter.carry_forward(revision_of, job_id)
-            except Exception as e:                       # noqa: BLE001
-                log.warning("[api] carrying the notes onto %s failed: %s", job_id, e)
-
-        # A CREDIT BUYS A REPORT, NOT AN ATTEMPT. The spend happens before the work,
-        # which is right — six minutes of metered research on an unpaid promise is the
-        # worse trade — but that made a failed or withheld run a silent loss for someone
-        # who paid. `_paid_credit` was set at submit time and then never read again.
-        if _paid_credit:
-            _refund_if_nothing_was_delivered(_owner, job_id, result)
-
-        # TELL THEM IT FINISHED. Six minutes is longer than anyone watches a tab, and the
-        # progress page only helps someone who kept it open. A guest who never bought
-        # anything has no address, and a send that fails is a log line: the report exists
-        # either way, and failing the run over its notification would be the tail wagging
-        # the dog.
-        _notify_owner(_owner, job_id, result)
+        if paid_credit:
+            _refund_if_nothing_was_delivered(owner, job_id, result)
+        _notify_owner(owner, job_id, result)
         return result
 
     jobs.run_async(job_id, work)
-    return {"job_id": job_id, "previous_job_id": previous_job_id}
+    return {"job_id": job_id, "previous_job_id": None}
 
 
 @router.post("/full")

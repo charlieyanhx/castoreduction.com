@@ -1,33 +1,4 @@
-"""A cafe and a satellite company should share almost no questions — and today they share all.
-
-THE REVIEW THAT LED HERE. Intake asks every venture the same 4 required + 4 nice-to-have
-fields, then a generic LLM picks the next question each turn. The only branch in the whole
-flow is one site-marker check. Meanwhile the pipeline classifies every venture into seven
-money-kinds and five market scales, and each cell's ARITHMETIC consumes different facts:
-
-    a cafe's ladder needs seats and a ticket price      (capacity: the C13 class)
-    a SaaS ladder needs per-seat-or-per-company         (the 100-seats/month stock defect)
-    a marketplace needs the take rate                   (the C10 guard, built and never fed)
-    a chain needs its location count                    (size_regional, wired and starving)
-    a free product must never be asked for a price      (C7: a price deck on a free product)
-
-Those classifiers run AFTER the founder is gone. This module runs them DURING the
-conversation and lets their output pick the next question — the tree is code, the LLM only
-extracts fields from answers. Three design rules, each earned by a shipped defect:
-
-  1. THE FOUNDER NEVER SEES THE TAXONOMY. Questions are plain language with concrete
-     anchors ("pay monthly like Netflix, or per project like a contractor?"). The orbital
-     brief answered "business model" with "Undetermined" — our word, their confusion.
-  2. LOW CONFIDENCE FORKS OUT LOUD. When the kind classifier is unsure, the tree asks the
-     disambiguating question instead of guessing. "Undetermined" silently became
-     subscription and an entire seat-priced report followed.
-  3. "NOT SURE" IS AN ANSWER. It marks the field as an assumption the report must disclose,
-     rather than forcing fake precision.
-
-Wiring honesty (the C10 lesson — a fact nobody consumes is collection theatre): capacity,
-take_rate, locations_count and named_competitors have existing consumers. Facts that ride
-the synthesized description are labelled so in the pack itself.
-"""
+"""Classification is retained for research while the visible survey stays fixed."""
 from __future__ import annotations
 
 import unittest
@@ -104,45 +75,20 @@ class TestClassificationRunsDuringIntake(unittest.TestCase):
         self.assertIn("like", q.lower(), "no concrete anchors (e.g. 'like Netflix')")
 
 
-class TestThePacksDiverge(unittest.TestCase):
-    def test_a_cafe_and_a_saas_share_no_kind_questions(self):
-        cafe_fields = {q["field"] for q in plan_questions(CAFE, classify_turn(CAFE))}
-        saas_fields = {q["field"] for q in plan_questions(SAAS, classify_turn(SAAS))}
-        kind_only_cafe = cafe_fields - {q["field"] for q in CORE_PACK}
-        kind_only_saas = saas_fields - {q["field"] for q in CORE_PACK}
-        self.assertTrue(kind_only_cafe and kind_only_saas)
-        self.assertFalse(kind_only_cafe & kind_only_saas,
-                         f"shared kind questions: {kind_only_cafe & kind_only_saas}")
+class TestTheSameQuestionsForEveryBusiness(unittest.TestCase):
+    def test_classification_does_not_change_the_approved_questions(self):
+        plans = [plan_questions(ex, classify_turn(ex)) for ex in
+                 (CAFE, SAAS, MARKETPLACE, ORBITAL)]
+        for plan in plans:
+            self.assertEqual(plan, plans[0])
+            self.assertEqual(len(plan), 14)
 
-    def test_the_cafe_is_asked_capacity_and_never_seats_per_company(self):
-        fields = {q["field"] for q in plan_questions(CAFE, classify_turn(CAFE))}
-        self.assertIn("capacity", fields)
-        self.assertNotIn("pricing_unit_scope", fields)
-
-    def test_the_saas_is_asked_the_seat_question_and_never_capacity(self):
-        fields = {q["field"] for q in plan_questions(SAAS, classify_turn(SAAS))}
-        self.assertIn("pricing_unit_scope", fields, "the 100-seats/month defect question")
-        self.assertNotIn("capacity", fields)
-
-    def test_the_marketplace_is_asked_its_take(self):
-        fields = {q["field"] for q in plan_questions(MARKETPLACE, classify_turn(MARKETPLACE))}
-        self.assertIn("take_rate", fields, "the input the C10 guard never received")
-
-    def test_a_physical_venue_is_asked_for_cross_streets(self):
-        fields = {q["field"] for q in plan_questions(CAFE, classify_turn(CAFE))}
-        self.assertIn("site", fields)
-
-    def test_a_digital_venture_is_never_asked_for_cross_streets_or_rent(self):
-        fields = {q["field"] for q in plan_questions(SAAS, classify_turn(SAAS))}
-        self.assertFalse({"site", "rent_estimate"} & fields)
-
-    def test_everyone_gets_the_core_founder_only_facts(self):
-        for ex in (CAFE, SAAS, MARKETPLACE):
-            fields = {q["field"] for q in plan_questions(ex, classify_turn(ex))}
-            for core in ("status_quo", "monthly_cost_estimate", "customer_evidence",
-                         "named_competitors"):
-                with self.subTest(core=core):
-                    self.assertIn(core, fields)
+    def test_no_fork_or_legacy_kind_specific_questions_are_inserted(self):
+        fields = {q["field"] for q in plan_questions(ORBITAL, classify_turn(ORBITAL))}
+        self.assertFalse(fields & {"kind_fork", "capacity", "avg_ticket", "pricing_unit_scope",
+                                   "take_rate", "local_anchor", "real_traction", "regulatory"})
+        self.assertTrue({"business_model", "service_capacity", "unit_economics", "constraints"}
+                        <= fields)
 
 
 class TestQuestionsSpeakFounder(unittest.TestCase):
@@ -214,74 +160,21 @@ class TestNextQuestionAndNotSure(unittest.TestCase):
     def test_the_fork_comes_before_any_kind_question(self):
         """No point asking seat-vs-company before knowing whether seats exist."""
         q = next_question(dict(ORBITAL), classify_turn(ORBITAL))
-        self.assertEqual(q["field"], "kind_fork")
+        self.assertEqual(q["field"], "status_quo")
 
 
-class TestModifierPacks(unittest.TestCase):
-    def test_non_us_gets_the_local_data_question(self):
-        ex = dict(CAFE); ex["geography"] = "Lisbon, Portugal"
-        fields = {q["field"] for q in plan_questions(ex, classify_turn(ex))}
-        self.assertIn("local_anchor", fields, "the Lisbon-bakery disclosure question")
+class TestExistingAnswersAndUncertainty(unittest.TestCase):
+    def test_expansion_and_regulation_do_not_add_questions(self):
+        ex = dict(CAFE, product="A chain of five clinics in Canada.", stage="launched")
+        plan = plan_questions(ex, classify_turn(ex))
+        self.assertEqual(len(plan), 14)
+        self.assertEqual(plan[-1]["field"], "constraints")
 
-    def test_us_does_not(self):
-        fields = {q["field"] for q in plan_questions(CAFE, classify_turn(CAFE))}
-        self.assertNotIn("local_anchor", fields)
-
-    def test_launched_ventures_are_asked_for_real_numbers(self):
-        ex = dict(SAAS); ex["stage"] = "launched last year, growing"
-        fields = {q["field"] for q in plan_questions(ex, classify_turn(ex))}
-        self.assertIn("real_traction", fields)
-
-    def test_an_idea_stage_venture_is_not_asked_for_revenue_it_cannot_have(self):
-        ex = dict(SAAS); ex["stage"] = "just an idea"
-        fields = {q["field"] for q in plan_questions(ex, classify_turn(ex))}
-        self.assertNotIn("real_traction", fields)
-
-    def test_a_regulated_smell_adds_the_licence_question(self):
-        fields = {q["field"] for q in plan_questions(ORBITAL, classify_turn(ORBITAL))}
-        self.assertIn("regulatory", fields, "the FAA/FCC section was model-recalled")
-
-    def test_a_chain_is_asked_how_many_locations(self):
-        ex = dict(CAFE)
-        ex["product"] = "A chain of five specialty coffee shops across Portland."
-        fields = {q["field"] for q in plan_questions(ex, classify_turn(ex))}
-        self.assertIn("locations_count", fields)
+    def test_answered_fields_are_skipped_by_chat_but_present_on_form(self):
+        ex = dict(CAFE, status_quo="The existing chain", monthly_cost_estimate={"unknown": True})
+        self.assertEqual(next_question(ex, classify_turn(ex))["field"], "customer_evidence")
+        self.assertEqual(plan_questions(ex, classify_turn(ex))[0]["field"], "status_quo")
 
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class TestAGivenAnswerIsNotReAsked(unittest.TestCase):
-    """The extractor files "$6.50 a drink" under the generic `pricing`; re-asking the
-    kind-specific price question reads as not listening — the opposite of rigour."""
-
-    def test_a_priced_cafe_is_not_asked_its_ticket(self):
-        ex = dict(CAFE); ex["pricing"] = "$6.50 per drink"
-        q = next_question(ex, classify_turn(ex))
-        self.assertNotEqual(q and q["field"], "avg_ticket")
-
-    def test_a_figureless_price_does_not_satisfy_it(self):
-        """MEASURED shape: 'Pay per drink' fills the slot and moves no number."""
-        ex = dict(CAFE); ex["pricing"] = "pay per drink"
-        fields = []
-        q = next_question(ex, classify_turn(ex))
-        while q and q["field"] not in fields:
-            fields.append(q["field"])
-            mark_unknown(ex, q["field"])
-            q = next_question(ex, classify_turn(ex))
-        self.assertIn("avg_ticket", fields)
-
-    def test_a_site_precise_geography_skips_the_site_question(self):
-        ex = dict(CAFE); ex["geography"] = "NW 23rd and Lovejoy, Portland, OR"
-        fields = []
-        q = next_question(ex, classify_turn(ex))
-        while q and q["field"] not in fields:
-            fields.append(q["field"])
-            mark_unknown(ex, q["field"])
-            q = next_question(ex, classify_turn(ex))
-        self.assertNotIn("site", fields)
-
-    def test_a_city_geography_does_not(self):
-        fields = [q["field"] for q in plan_questions(CAFE, classify_turn(CAFE))]
-        self.assertIn("site", fields)

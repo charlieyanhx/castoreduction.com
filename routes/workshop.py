@@ -114,8 +114,11 @@ def get_workshop(job_id: str):
     the sidebar never types a price, and repricing a verb is a constant here rather than
     a redeploy of the page. The ledger is the last twenty lines, newest last: enough to
     show where the credits went, not the whole history on every poll."""
-    if not _owned_job(job_id):
+    job = _owned_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="job not found")
+    from routes.jobs import _require_legacy_report
+    _require_legacy_report(job, "Workshop credits")
     import iteration
     st = opened_state(job_id)
     ledger = list(((st.get("workshop") or {}).get("ledger")) or [])
@@ -147,6 +150,9 @@ def _ready_to_answer(j: dict) -> dict:
         raise HTTPException(status_code=409,
                             detail=f"the workshop needs a finished report: {_why}")
     result = j.get("result") or {}
+    if result.get("_pipeline") == "treadle" or (j.get("params") or {}).get("pipeline") == "treadle":
+        raise HTTPException(status_code=409,
+                            detail="Workshop actions are not available for Treadle reports yet.")
     if not result:
         # `complete` with nothing stored: halt_reason reads state and result.error and
         # this is neither, but an empty evidence layer is not a report to talk about.
@@ -275,6 +281,9 @@ def post_rewrite(job_id: str, req: RewriteRequest | None = None):
     import iteration
     from report.synthesis import DEFAULT_STYLE, STYLES
     result = j.get("result") or {}
+    if result.get("_pipeline") == "treadle" or (j.get("params") or {}).get("pipeline") == "treadle":
+        raise HTTPException(status_code=409,
+                            detail="Workshop actions are not available for Treadle reports yet.")
     if result.get("_stub"):
         raise HTTPException(
             status_code=409,

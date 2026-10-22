@@ -7,7 +7,8 @@ broken the rule even if every render happens to come out the same.
 
 Everything changed since the Treadle base commit must be one of:
   * a frame module Treadle is allowed to move or edit (FRAME below), or
-  * a new Treadle path (treadle/, packs/, test_treadle_*, scripts/treadle_*, ...).
+  * a new Treadle path (treadle/, packs/, test_treadle_*, scripts/treadle_*, ...), or
+  * an explicitly approved product revision listed below.
 
 FRAME IS NARROWER THAN THE FRAME TEST'S LIST, ON PURPOSE. test_the_frame_does_not_import_
 the_soul.py counts billing, auth, quota, feedback, history, iteration, the routes, api and
@@ -57,9 +58,38 @@ TREADLE_PREFIXES = (
 #: requirements.txt and never reads it.
 TREADLE_FILES = frozenset({"pyproject.toml"})
 
+# The user explicitly requested replacing the customer survey on 2026-10-20.
+# This narrow exception admits that product work and its regression tests while
+# preserving the boundary around research execution, billing, auth, and other routes.
+# See docs/treadle/SURVEY_REVISION_2026-10.md; the golden report baseline is unchanged.
+APPROVED_SURVEY_FILES = frozenset({
+    "survey_questions.py", "intake.py", "intake_tree.py", "routes/intake.py",
+    "web/survey.js", "web/survey.html",
+    # The new cost paragraph must not turn its first component into a sourced total.
+    "pricing.py",
+    "test_revised_survey.py", "test_revised_survey_browser.py",
+    "test_a_typed_answer_is_not_re_extracted.py",
+    "test_founder_words_outrank_the_extractor.py",
+    "test_the_founder_picks_the_report_style.py",
+    "test_the_free_screen_is_free.py",
+    "test_the_intake_asks_the_trees_question.py",
+    "test_the_next_question_depends_on_the_business.py",
+    "test_the_survey_becomes_a_form.py",
+})
+
+# The user subsequently requested connecting the customer survey to Treadle.
+# The later Treadle-only request also updates the submit-time ledger tests.
+# Historical report rendering and the legacy implementation remain unchanged.
+APPROVED_CONNECTION_FILES = frozenset({
+    "routes/research.py", "routes/jobs.py", "routes/workshop.py", "web/progress.html",
+    "api.py",  # refuse purchases of workshop actions unavailable for this pipeline
+    "test_a_resumed_run_is_still_a_paid_run.py",
+})
+
 
 def allowed(path: str) -> bool:
-    return (path in FRAME_FILES or path in TREADLE_FILES
+    return (path in FRAME_FILES or path in TREADLE_FILES or path in APPROVED_SURVEY_FILES
+            or path in APPROVED_CONNECTION_FILES
             or path.startswith(FRAME_PREFIXES)
             or path.startswith(TREADLE_PREFIXES))
 

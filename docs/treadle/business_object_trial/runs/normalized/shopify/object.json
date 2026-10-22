@@ -1,0 +1,688 @@
+{
+  "version": "business-object-trial/v1",
+  "company_alias": "Company C",
+  "root": {
+    "id": "company",
+    "kind": "company",
+    "label": "Company C",
+    "statement_ids": [
+      "S-S01"
+    ],
+    "children": [
+      {
+        "id": "single_reporting_segment",
+        "kind": "reported_segment",
+        "label": "One reporting segment",
+        "statement_ids": [
+          "S-S01"
+        ],
+        "children": [
+          {
+            "id": "subscription_solutions_revenue",
+            "kind": "revenue_stream",
+            "label": "Subscription solutions revenue (company-earned fees)",
+            "statement_ids": [
+              "S-S01",
+              "S-S04",
+              "S-S11"
+            ],
+            "children": []
+          },
+          {
+            "id": "merchant_solutions_revenue",
+            "kind": "revenue_stream",
+            "label": "Merchant solutions revenue (company-earned fees)",
+            "statement_ids": [
+              "S-S01",
+              "S-S05",
+              "S-S06",
+              "S-S11"
+            ],
+            "children": [
+              {
+                "id": "payment_processing_fees",
+                "kind": "revenue_stream",
+                "label": "Payment-processing fees from integrated merchant payment service",
+                "statement_ids": [
+                  "S-S05"
+                ],
+                "children": []
+              },
+              {
+                "id": "currency_conversion_fees",
+                "kind": "revenue_stream",
+                "label": "Currency-conversion fees from integrated merchant payment service",
+                "statement_ids": [
+                  "S-S05"
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "offline_revenue",
+            "kind": "revenue_stream",
+            "label": "Offline revenue spanning physical-commerce payment services, point-of-sale subscriptions and hardware",
+            "statement_ids": [
+              "S-S09"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "offerings_group",
+        "kind": "group",
+        "label": "[inferred grouping] Offerings",
+        "statement_ids": [],
+        "children": [
+          {
+            "id": "commerce_platform",
+            "kind": "offering",
+            "label": "Commerce platform for selling across online storefronts and physical retail locations",
+            "statement_ids": [
+              "S-S02"
+            ],
+            "children": []
+          },
+          {
+            "id": "subscription_solutions_group",
+            "kind": "group",
+            "label": "[inferred grouping] Subscription solutions offerings",
+            "statement_ids": [],
+            "children": [
+              {
+                "id": "platform_subscription_plans",
+                "kind": "offering",
+                "label": "Platform subscription plans from entry level through enterprise, with more functionality and support for larger merchants",
+                "statement_ids": [
+                  "S-S03",
+                  "S-S04"
+                ],
+                "children": [
+                  {
+                    "id": "higher_tier_plan",
+                    "kind": "offering",
+                    "label": "Higher-tier subscription plan",
+                    "statement_ids": [
+                      "S-S12"
+                    ],
+                    "children": [
+                      {
+                        "id": "b2b_selling_feature",
+                        "kind": "offering",
+                        "label": "Business-to-business selling feature available on higher-tier plan",
+                        "statement_ids": [
+                          "S-S12"
+                        ],
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "premium_pos_subscription",
+                "kind": "offering",
+                "label": "Premium point-of-sale subscription",
+                "statement_ids": [
+                  "S-S04"
+                ],
+                "children": []
+              },
+              {
+                "id": "apps",
+                "kind": "offering",
+                "label": "Apps",
+                "statement_ids": [
+                  "S-S04"
+                ],
+                "children": []
+              },
+              {
+                "id": "themes",
+                "kind": "offering",
+                "label": "Themes",
+                "statement_ids": [
+                  "S-S04"
+                ],
+                "children": []
+              },
+              {
+                "id": "domain_registration",
+                "kind": "offering",
+                "label": "Domain registration",
+                "statement_ids": [
+                  "S-S04"
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "merchant_solutions_group",
+            "kind": "group",
+            "label": "[inferred grouping] Merchant solutions offerings",
+            "statement_ids": [],
+            "children": [
+              {
+                "id": "merchant_payment_service",
+                "kind": "offering",
+                "label": "Integrated merchant payment service",
+                "statement_ids": [
+                  "S-S05"
+                ],
+                "children": []
+              },
+              {
+                "id": "physical_commerce_payment_services",
+                "kind": "offering",
+                "label": "Payment services for physical commerce",
+                "statement_ids": [
+                  "S-S09"
+                ],
+                "children": []
+              },
+              {
+                "id": "lending_services",
+                "kind": "offering",
+                "label": "Lending services",
+                "statement_ids": [
+                  "S-S06"
+                ],
+                "children": []
+              },
+              {
+                "id": "shipping_label_sales",
+                "kind": "offering",
+                "label": "Shipping-label sales",
+                "statement_ids": [
+                  "S-S06"
+                ],
+                "children": []
+              },
+              {
+                "id": "pos_hardware_sales",
+                "kind": "offering",
+                "label": "Point-of-sale hardware sales",
+                "statement_ids": [
+                  "S-S06",
+                  "S-S09"
+                ],
+                "children": []
+              },
+              {
+                "id": "advertising_offerings",
+                "kind": "offering",
+                "label": "Advertising offerings",
+                "statement_ids": [
+                  "S-S06"
+                ],
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "integrated_back_end",
+        "kind": "capability",
+        "label": "Integrated back end supporting inventory, transactions and buyer relationships across merchant sales channels",
+        "statement_ids": [
+          "S-S07"
+        ],
+        "children": []
+      },
+      {
+        "id": "gross_merchandise_volume",
+        "kind": "metric",
+        "label": "Gross Merchandise Volume: orders facilitated through the platform, net of refunds, including shipping, handling, duty and VAT (merchant sales activity, not company revenue)",
+        "statement_ids": [
+          "S-S10",
+          "S-S11"
+        ],
+        "children": []
+      },
+      {
+        "id": "actors_group",
+        "kind": "group",
+        "label": "[inferred grouping] Customers, users and partners",
+        "statement_ids": [],
+        "children": [
+          {
+            "id": "merchants",
+            "kind": "customer",
+            "label": "Merchants, from entry-level businesses through enterprise",
+            "statement_ids": [
+              "S-S02",
+              "S-S03"
+            ],
+            "children": []
+          },
+          {
+            "id": "buyers",
+            "kind": "user",
+            "label": "Buyers who purchase from merchants",
+            "statement_ids": [
+              "S-S02",
+              "S-S08"
+            ],
+            "children": []
+          },
+          {
+            "id": "app_developers",
+            "kind": "partner",
+            "label": "App developers extending the platform for merchants",
+            "statement_ids": [
+              "S-S08"
+            ],
+            "children": []
+          },
+          {
+            "id": "theme_designers",
+            "kind": "partner",
+            "label": "Theme designers extending the platform for merchants",
+            "statement_ids": [
+              "S-S08"
+            ],
+            "children": []
+          },
+          {
+            "id": "service_partners",
+            "kind": "partner",
+            "label": "Service partners extending the platform for merchants",
+            "statement_ids": [
+              "S-S08"
+            ],
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "relationships": [
+    {
+      "from": "commerce_platform",
+      "to": "merchants",
+      "kind": "serves",
+      "statement_ids": [
+        "S-S02"
+      ]
+    },
+    {
+      "from": "merchants",
+      "to": "commerce_platform",
+      "kind": "uses",
+      "statement_ids": [
+        "S-S02"
+      ]
+    },
+    {
+      "from": "merchants",
+      "to": "buyers",
+      "kind": "serves",
+      "statement_ids": [
+        "S-S02"
+      ]
+    },
+    {
+      "from": "commerce_platform",
+      "to": "integrated_back_end",
+      "kind": "uses",
+      "statement_ids": [
+        "S-S07"
+      ]
+    },
+    {
+      "from": "platform_subscription_plans",
+      "to": "merchants",
+      "kind": "serves",
+      "statement_ids": [
+        "S-S03"
+      ]
+    },
+    {
+      "from": "b2b_selling_feature",
+      "to": "merchants",
+      "kind": "serves",
+      "statement_ids": [
+        "S-S12"
+      ]
+    },
+    {
+      "from": "platform_subscription_plans",
+      "to": "subscription_solutions_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "S-S04"
+      ]
+    },
+    {
+      "from": "premium_pos_subscription",
+      "to": "subscription_solutions_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "S-S04"
+      ]
+    },
+    {
+      "from": "apps",
+      "to": "subscription_solutions_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "S-S04"
+      ]
+    },
+    {
+      "from": "themes",
+      "to": "subscription_solutions_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "S-S04"
+      ]
+    },
+    {
+      "from": "domain_registration",
+      "to": "subscription_solutions_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "S-S04"
+      ]
+    },
+    {
+      "from": "merchant_payment_service",
+      "to": "payment_processing_fees",
+      "kind": "generates",
+      "statement_ids": [
+        "S-S05"
+      ]
+    },
+    {
+      "from": "merchant_payment_service",
+      "to": "currency_conversion_fees",
+      "kind": "generates",
+      "statement_ids": [
+        "S-S05"
+      ]
+    },
+    {
+      "from": "lending_services",
+      "to": "merchant_solutions_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "S-S06"
+      ]
+    },
+    {
+      "from": "shipping_label_sales",
+      "to": "merchant_solutions_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "S-S06"
+      ]
+    },
+    {
+      "from": "pos_hardware_sales",
+      "to": "merchant_solutions_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "S-S06"
+      ]
+    },
+    {
+      "from": "advertising_offerings",
+      "to": "merchant_solutions_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "S-S06"
+      ]
+    },
+    {
+      "from": "physical_commerce_payment_services",
+      "to": "offline_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "S-S09"
+      ]
+    },
+    {
+      "from": "premium_pos_subscription",
+      "to": "offline_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "S-S09"
+      ]
+    },
+    {
+      "from": "pos_hardware_sales",
+      "to": "offline_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "S-S09"
+      ]
+    },
+    {
+      "from": "gross_merchandise_volume",
+      "to": "commerce_platform",
+      "kind": "measures",
+      "statement_ids": [
+        "S-S10"
+      ]
+    },
+    {
+      "from": "app_developers",
+      "to": "merchants",
+      "kind": "serves",
+      "statement_ids": [
+        "S-S08"
+      ]
+    },
+    {
+      "from": "theme_designers",
+      "to": "merchants",
+      "kind": "serves",
+      "statement_ids": [
+        "S-S08"
+      ]
+    },
+    {
+      "from": "service_partners",
+      "to": "merchants",
+      "kind": "serves",
+      "statement_ids": [
+        "S-S08"
+      ]
+    }
+  ],
+  "missing_details": [
+    {
+      "id": "q_payer_of_fees",
+      "node_id": "merchants",
+      "detail": "Whether merchants are the parties paying subscription and merchant-solution fees",
+      "question": "Which parties pay the subscription fees and the payment-processing and currency-conversion fees?"
+    },
+    {
+      "id": "q_fee_mechanism",
+      "node_id": "payment_processing_fees",
+      "detail": "How payment-processing fees are calculated (e.g., percentage of transaction value or fixed amount)",
+      "question": "How are payment-processing and currency-conversion fees calculated, and do they relate to Gross Merchandise Volume?"
+    },
+    {
+      "id": "q_revenue_split",
+      "node_id": "single_reporting_segment",
+      "detail": "Revenue amounts and split between subscription and merchant solutions",
+      "question": "What revenue did subscription solutions and merchant solutions each generate in the latest period?"
+    },
+    {
+      "id": "q_subscription_pricing",
+      "node_id": "platform_subscription_plans",
+      "detail": "Plan tiers and pricing",
+      "question": "What are the subscription plan tiers and their prices?"
+    },
+    {
+      "id": "q_physical_payments_relation",
+      "node_id": "physical_commerce_payment_services",
+      "detail": "Relationship between physical-commerce payment services and the integrated merchant payment service",
+      "question": "Are the payment services for physical commerce part of the integrated merchant payment service or a separate offering?"
+    },
+    {
+      "id": "q_gmv_value",
+      "node_id": "gross_merchandise_volume",
+      "detail": "Reported Gross Merchandise Volume amount and trend",
+      "question": "What was Gross Merchandise Volume in the latest period and how has it changed?"
+    },
+    {
+      "id": "q_market_size",
+      "node_id": "merchants",
+      "detail": "Size of the addressable merchant market",
+      "question": "How large is the addressable market of merchants and commerce spend the company targets?"
+    },
+    {
+      "id": "q_merchant_count",
+      "node_id": "merchants",
+      "detail": "Number and mix of merchants by size",
+      "question": "How many merchants use the platform and how are they distributed from entry level to enterprise?"
+    },
+    {
+      "id": "q_partner_economics",
+      "node_id": "app_developers",
+      "detail": "Economic relationship with app developers, theme designers and service partners",
+      "question": "Do partners pay or receive any revenue share from the company for apps, themes or services?"
+    },
+    {
+      "id": "q_differentiators",
+      "node_id": "integrated_back_end",
+      "detail": "Stated differentiators versus alternatives",
+      "question": "What capabilities does the company consider differentiating versus alternative commerce solutions?"
+    },
+    {
+      "id": "q_competitors",
+      "node_id": "commerce_platform",
+      "detail": "Competitors and competitive positioning",
+      "question": "Which competitors does the company face and how does it position against them?"
+    },
+    {
+      "id": "q_customer_feedback",
+      "node_id": "merchants",
+      "detail": "Merchant feedback, satisfaction or retention data",
+      "question": "What feedback, satisfaction or retention data exists from merchants?"
+    },
+    {
+      "id": "q_buyer_experience",
+      "node_id": "buyers",
+      "detail": "How buyers interact with the platform and their feedback",
+      "question": "How do buyers experience the platform and what feedback do they provide?"
+    }
+  ],
+  "report_projections": [
+    {
+      "section": "summary",
+      "node_ids": [
+        "company",
+        "single_reporting_segment",
+        "commerce_platform",
+        "subscription_solutions_revenue",
+        "merchant_solutions_revenue",
+        "merchants"
+      ],
+      "missing_detail_ids": []
+    },
+    {
+      "section": "target_personas",
+      "node_ids": [
+        "merchants",
+        "buyers",
+        "app_developers",
+        "theme_designers",
+        "service_partners"
+      ],
+      "missing_detail_ids": [
+        "q_merchant_count",
+        "q_payer_of_fees"
+      ]
+    },
+    {
+      "section": "multi_perspective",
+      "node_ids": [
+        "merchants",
+        "buyers",
+        "app_developers",
+        "theme_designers",
+        "service_partners",
+        "commerce_platform"
+      ],
+      "missing_detail_ids": [
+        "q_partner_economics",
+        "q_buyer_experience"
+      ]
+    },
+    {
+      "section": "market_size",
+      "node_ids": [
+        "gross_merchandise_volume",
+        "merchants"
+      ],
+      "missing_detail_ids": [
+        "q_market_size",
+        "q_gmv_value",
+        "q_merchant_count"
+      ]
+    },
+    {
+      "section": "revenue",
+      "node_ids": [
+        "subscription_solutions_revenue",
+        "merchant_solutions_revenue",
+        "payment_processing_fees",
+        "currency_conversion_fees",
+        "offline_revenue",
+        "platform_subscription_plans",
+        "premium_pos_subscription",
+        "apps",
+        "themes",
+        "domain_registration",
+        "merchant_payment_service",
+        "physical_commerce_payment_services",
+        "lending_services",
+        "shipping_label_sales",
+        "pos_hardware_sales",
+        "advertising_offerings",
+        "gross_merchandise_volume"
+      ],
+      "missing_detail_ids": [
+        "q_revenue_split",
+        "q_fee_mechanism",
+        "q_subscription_pricing",
+        "q_payer_of_fees",
+        "q_physical_payments_relation"
+      ]
+    },
+    {
+      "section": "differentiators",
+      "node_ids": [
+        "integrated_back_end",
+        "commerce_platform",
+        "b2b_selling_feature",
+        "higher_tier_plan"
+      ],
+      "missing_detail_ids": [
+        "q_differentiators"
+      ]
+    },
+    {
+      "section": "competitive_landscape",
+      "node_ids": [],
+      "missing_detail_ids": [
+        "q_competitors"
+      ]
+    },
+    {
+      "section": "customer_voice",
+      "node_ids": [],
+      "missing_detail_ids": [
+        "q_customer_feedback",
+        "q_buyer_experience"
+      ]
+    }
+  ]
+}

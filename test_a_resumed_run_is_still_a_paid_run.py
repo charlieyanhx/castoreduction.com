@@ -74,7 +74,8 @@ class TheSpendOutlivesTheProcessThatMadeIt(_Env):
         c = self._client()
         owner = c.get("/auth/me").json()["owner"]
         billing._record(owner, "report", 1, None, None)
-        with patch.object(jobs, "run_async", lambda *a, **k: None):
+        with patch.object(jobs, "run_async", lambda *a, **k: None), \
+             patch("packs.market_research_next.customer_pipeline.validate_customer_pipeline_config"):
             r = c.post("/plan", json={"description": BRIEF})
         jid = r.json()["job_id"]
         self.assertEqual(billing.paid_owner(jid), owner)
@@ -86,7 +87,8 @@ class TheSpendOutlivesTheProcessThatMadeIt(_Env):
         for k in ("STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"):
             os.environ.pop(k, None)
         c = self._client()
-        with patch.object(jobs, "run_async", lambda *a, **k: None):
+        with patch.object(jobs, "run_async", lambda *a, **k: None), \
+             patch("packs.market_research_next.customer_pipeline.validate_customer_pipeline_config"):
             r = c.post("/plan", json={"description": BRIEF})
         self.assertIsNone(billing.paid_owner(r.json()["job_id"]))
 

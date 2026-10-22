@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from treadle.core.section import FAILED, assemble, stale_reads, summarise
 from treadle.facts import STATED, FactStore, tier_for_origin
@@ -25,6 +25,9 @@ from .registry import get
 from .spec import ReportType
 from .survey import REQUESTER, Entry, Survey, check_plan
 from .survey.disclose import disclosures
+
+if TYPE_CHECKING:
+    from .workflow import Workflow
 
 
 @dataclass(frozen=True)
@@ -47,23 +50,35 @@ class Report:
     #: Fields whose question was still blocking when the run started, in asking order.
     #: () for packs without inputs and for runner packs.
     open_inputs: tuple[str, ...] = ()
+    #: Execution rounds and unresolved review findings from a selectable workflow.
+    #: None on the original serial path and on legacy runner packs.
+    execution: Optional[dict] = None
 
     @property
     def ok(self) -> bool:
-        """Produced, with no section failed and no error returned. Flagged, skipped and
-        not-applicable sections are answers the report carries, not failures of the run."""
+        """Produced, with no section failure, error, or unresolved workflow issue.
+
+        The original serial path permits flagged/skipped/not-applicable answers;
+        workflows can surface flags as unresolved review issues.
+        """
         if self.result.get("error"):
+            return False
+        if self.execution and self.execution.get("issues"):
             return False
         return not (self.sections and self.sections.get(FAILED))
 
 
 def run_report(key: str, brief: Optional[dict] = None, *, survey: Optional[Survey] = None,
-               progress: Optional[Callable] = None) -> Report:
+               progress: Optional[Callable] = None,
+               workflow: Optional[Workflow] = None) -> Report:
     """The one door. A runner pack is dispatched exactly as before. A sections pack is
     assembled; when it declares inputs, every input becomes its own fact, read through the
     plan. `survey` is a finished or partial Survey of `key`; without one, the brief is the
     survey's only answers and nothing is asked."""
     report_type = get(key)
+    strategy = workflow if workflow is not None else report_type.workflow
+    if strategy is not None and report_type.runner is not None:
+        raise ValueError(f"{key} runs itself; a workflow requires a sections pack")
     if survey is not None and brief is not None:
         raise ValueError(f"run_report takes a brief or a survey of {key}, not both")
     if survey is not None and survey.key != key:
@@ -81,11 +96,11 @@ def run_report(key: str, brief: Optional[dict] = None, *, survey: Optional[Surve
         return Report(key, report_type.runner(brief, **kwargs) or {}, None)
     if report_type.inputs and survey is None:
         survey = Survey.start(key, brief)
-    return _assemble(report_type, brief, survey, progress)
+    return _assemble(report_type, brief, survey, progress, strategy)
 
 
 def _assemble(rt: ReportType, brief: dict, survey: Optional[Survey],
-              progress: Optional[Callable]) -> Report:
+              progress: Optional[Callable], workflow: Optional[Workflow] = None) -> Report:
     """Write every input as its own fact, then the sections over them, then link the two.
     A pack without inputs has no survey and takes exactly the path it always took."""
     entries = survey.run_entries() if survey is not None else {}
@@ -103,8 +118,15 @@ def _assemble(rt: ReportType, brief: dict, survey: Optional[Survey],
         store.declare(s.key, tier=tier_for_origin(s.origin),
                       source=f"section: {s.label or s.key}")
     # A tuple of names, never a bare string, which would count by presence letter by letter.
-    verdicts = assemble(sections, store, on_section=progress,
-                        inputs=tuple(i.field for i in rt.inputs))
+    execution = None
+    if workflow is None:
+        verdicts = assemble(sections, store, on_section=progress,
+                            inputs=tuple(i.field for i in rt.inputs))
+    else:
+        outcome = workflow.execute(sections, store, on_section=progress,
+                                   inputs=tuple(i.field for i in rt.inputs))
+        verdicts = outcome.verdicts
+        execution = outcome.as_dict()
     # An entry's basis is what it was taken from (the brief, or a finding's from_fields),
     # so the brief names the inputs it supplied and a finding rests on what it was found from.
     store.link({**{n: e.basis for n, e in entries.items() if e.basis},
@@ -112,7 +134,7 @@ def _assemble(rt: ReportType, brief: dict, survey: Optional[Survey],
     result, facts = store.values_dict(), store.as_dict()
     told = disclosures(survey, facts, sections, verdicts) if survey is not None else ()
     return Report(rt.key, result, summarise(verdicts), tuple(stale_reads(verdicts, result)),
-                  facts=facts, disclosures=told, open_inputs=open_inputs)
+                  facts=facts, disclosures=told, open_inputs=open_inputs, execution=execution)
 
 
 def _plan_values(rt: ReportType, brief: dict, entries: dict[str, Entry]) -> dict:

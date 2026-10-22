@@ -77,6 +77,70 @@ def halt_reason(job):
     return impl(job)
 
 
+def _is_treadle(job: dict) -> bool:
+    """Identify the selected path even before its first progress checkpoint."""
+    return ((job.get("params") or {}).get("pipeline") == "treadle"
+            or (job.get("result") or {}).get("_pipeline") == "treadle")
+
+
+def _require_legacy_report(job: dict, operation: str) -> None:
+    """Legacy mutations must never reinterpret a Treadle report as legacy input."""
+    if _is_treadle(job):
+        raise HTTPException(status_code=409, detail=(
+            f"{operation} is not yet supported for Treadle reports. "
+            "You can open or download the report, or start a new survey."))
+
+
+def _treadle_report_available(job: dict) -> bool:
+    """An ended run may retain useful sections despite an incomplete verdict."""
+    result = job.get("result") or {}
+    if (job.get("state") not in ("complete", "error", "orphaned")
+            or result.get("_treadle_status") not in ("complete", "incomplete")):
+        return False
+    from packs.market_research_next.customer_pipeline import customer_report
+    from packs.market_research_next import REPORT_ORDER
+
+    try:
+        report = customer_report(result)
+    except (TypeError, ValueError):
+        return False
+    return (isinstance(report.result, dict)
+            and any(isinstance(report.result.get(key), dict) for key in REPORT_ORDER))
+
+
+def _treadle_job_fields(job: dict) -> dict:
+    result = job.get("result") or {}
+    available = _treadle_report_available(job)
+    status = result.get("_treadle_status") or job.get("state")
+    return {"pipeline": "treadle", "report_status": status,
+            "report_available": available,
+            "report_url": f"/jobs/{job['id']}/report.html" if available else None}
+
+
+def _treadle_report_html(job: dict, *, navigation: bool = True) -> str:
+    """One renderer for the owned browser view and PDF, with no legacy workshop."""
+    from html import escape
+    from packs.market_research_next.customer_pipeline import render_customer_report
+
+    page = render_customer_report(job.get("result") or {})
+    if navigation:
+        job_id = escape(str(job["id"]), quote=True)
+        nav = (f'<nav class="no-print"><a href="/jobs/{job_id}/report.pdf">'
+               'Download PDF</a> · <a href="/dashboard.html">My reports</a></nav>')
+        page = page.replace("<body>", "<body>" + nav, 1)
+    return page
+
+
+def _treadle_unavailable_html(job: dict) -> str:
+    from html import escape
+
+    error = str(job.get("error") or "No usable report sections were produced.")
+    return ("<!doctype html><html lang='en'><meta charset='utf-8'>"
+            "<title>Report unavailable</title><body><h1>This run didn't finish</h1>"
+            f"<p>{escape(error)}</p><p><a href='/survey'>Start a new report</a></p>"
+            "</body></html>")
+
+
 class RegenSectionRequest(BaseModel):
     """Regenerate one 4Ps section with operator steering."""
     section: str = Field(..., pattern="^(product|price|place|promotion)$")
@@ -222,6 +286,15 @@ def get_jobs(limit: int = 50):
                 or profile.get("summary") or "")
         if desc:
             j["params_title"] = (desc[:48] + "…") if len(desc) > 48 else desc
+        if _is_treadle(full):
+            j.update(_treadle_job_fields(full))
+            report = (result.get("_treadle") or {}).get("result") or {}
+            summary = (report.get("summary") or {}).get("narrative") or ""
+            j["idea_name"] = j.get("params_title") or "Venture research report"
+            j["idea_summary"] = str(summary)[:240]
+            j["publishable"] = (j["report_status"] == "complete"
+                                and j["report_available"])
+            continue
         if j.get("state") == "complete" and j.get("kind") == "plan":
             v = result.get("viability") or {}
             j["viability_score"] = v.get("viability_score")
@@ -265,6 +338,8 @@ def get_job(job_id: str):
     if (j.get("state") == "complete" and not j.get("error")
             and (_err := (j.get("result") or {}).get("error"))):
         j = {**j, "error": str(_err), "state": "error"}
+    if _is_treadle(j):
+        j = {**j, **_treadle_job_fields(j)}
     return j
 
 
@@ -328,6 +403,7 @@ def post_regenerate_section(job_id: str, req: RegenSectionRequest):
     job = _owned_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
+    _require_legacy_report(job, "Section regeneration")
     if job.get("kind") != "plan":
         raise HTTPException(status_code=400, detail=f"can only regenerate sections of plan jobs, got '{job.get('kind')}'")
     if (_why := halt_reason(job)):
@@ -402,8 +478,10 @@ def get_iteration(job_id: str):
     the input edits, the stamps, and the pool as the page should read it ("workshop":
     balance, costs, the pack; see iteration.workshop_view). "annotations" is a read view
     of the notes of kind "mark"."""
-    if not _owned_job(job_id):
+    job = _owned_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="job not found")
+    _require_legacy_report(job, "The report workshop")
     import iteration
     st = opened_state(job_id)
     return {**st, "workshop": iteration.workshop_view(st)}
@@ -442,8 +520,10 @@ def post_credits(job_id: str, body: dict | None = None):
     operator has explicitly opened it for their own instance (CASTOR_ALLOW_UNPAID_CREDITS);
     billing.fulfill is the only caller that grants on a settled payment. A 402 here means
     exactly that, not a bug. One kind: "workshop"."""
-    if not _owned_job(job_id):
+    job = _owned_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="job not found")
+    _require_legacy_report(job, "Workshop credits")
     import iteration
     kind = str((body or {}).get("kind") or "workshop")
     packs = max(1, int((body or {}).get("packs") or 1))
@@ -472,44 +552,14 @@ def patch_input_edit(job_id: str, body: dict | None = None):
 
 @router.post("/jobs/{job_id}/revise")
 def post_revise(job_id: str):
-    """The RE-RUN: the research again from corrected inputs, as a new report.
-
-    The founder's notes and input edits ride the amended brief; the notes carry onto the
-    new report as a record. It costs COST_RERUN credits from this report's pool, and what
-    the pool has left moves to the new report (one pool per lineage), so a re-run never
-    mints credits. post_plan does the spending, because it is where the run is created
-    and refused; a pool that cannot pay answers 402 there with the pack offered.
-    """
-    import iteration
-    j = _owned_job(job_id)
-    if not j:
+    """Reject legacy full-report reruns until Treadle supports revisions."""
+    if not _owned_job(job_id):
         raise HTTPException(status_code=404, detail="job not found")
-    params = j.get("params") or {}
-    st = iteration.get_state(job_id)
-    description = str(params.get("description") or "")
-    if len(description) < 30:
-        raise HTTPException(status_code=422, detail="the original brief is missing")
-    amended = iteration.build_revision_brief(job_id, description)
-    # The intake record follows the edits: a corrected fact is a confirmed fact, and a
-    # correction resolves the field's unknown if it had one.
-    rec = params.get("intake")
-    edits = st.get("input_edits") or {}
-    if isinstance(rec, dict) and edits:
-        rec = dict(rec, facts=dict(rec.get("facts") or {}, **edits),
-                   unknowns=[u for u in (rec.get("unknowns") or []) if u not in edits])
-    from api import OperatorWeights, PlanRequest, post_plan   # call-time: see module docstring
-    # A REVISION IS THE SAME REPORT, AMENDED. The founder who asked for a memo and then
-    # corrected a fact gets the memo back, not the default full report; the style is a
-    # request field like the rest of `params` and travels with them.
-    out = post_plan(PlanRequest(description=amended, intake=rec,
-                                previous_job_id=job_id,
-                                operator_weights=OperatorWeights(),
-                                report_style=params.get("report_style")))
-    new_id = out["job_id"]
-    iteration.carry_forward(job_id, new_id)
-    iteration.transfer_pool(job_id, new_id)
-    iteration.mark_revised(job_id, new_id)
-    return {"job_id": new_id, "revised_from": job_id}
+    # Old reports may store memo/operating formats and legacy workshop credits.
+    # Refuse before rebuilding their request or touching any of those entitlements.
+    raise HTTPException(
+        status_code=409,
+        detail="Treadle revisions are not available yet. Start a new report.")
 
 
 @router.post("/jobs/{job_id}/finalize")
@@ -551,6 +601,7 @@ def get_job_onepager(job_id: str):
     j = _owned_job(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
+    _require_legacy_report(j, "One-page summaries")
     if (_why := halt_reason(j)):
         raise HTTPException(status_code=409, detail=f"job produced no report: {_why}")
     if j["kind"] != "plan":
@@ -623,6 +674,7 @@ def get_job_trace(job_id: str):
     own append-only ledger, so it reports what happened rather than what was intended.
     """
     j = _owned_job(job_id)
+    _require_legacy_report(j, "Source tracing")
     if (_why := halt_reason(j)):
         raise HTTPException(status_code=404, detail=f"no report to trace: {_why}")
     r = j.get("result") or {}
@@ -804,6 +856,11 @@ def get_job_report_html(job_id: str, debug: int = 0, force: int = 0,
     j = _owned_job(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
+    if _is_treadle(j):
+        if _treadle_report_available(j):
+            return HTMLResponse(content=_treadle_report_html(j))
+        if j.get("state") not in ("pending", "running"):
+            return HTMLResponse(content=_treadle_unavailable_html(j), status_code=409)
     if halt_reason(j):
         # M2 fix: never hand a paying human a bare 409 / blank page. A job can be
         # mid-run ("running"), or have halted ("error", or orphaned by a worker/process
@@ -900,7 +957,10 @@ def get_job_report_pdf(job_id: str, force: int = 0):
     """
     from fastapi.responses import Response
     j = _owned_job(job_id)
-    if (_why := halt_reason(j)):
+    treadle = _is_treadle(j)
+    if treadle and not _treadle_report_available(j):
+        raise HTTPException(status_code=409, detail="The Treadle report is not available yet")
+    if not treadle and (_why := halt_reason(j)):
         raise HTTPException(status_code=404, detail=f"no report to render: {_why}")
 
     # The verifier's verdict binds on BOTH formats. Without this the PDF reused the HTML
@@ -909,7 +969,7 @@ def get_job_report_pdf(job_id: str, force: int = 0):
     # export instead of a decision, and no way to release the PDF of a report the operator
     # had deliberately forced. One verdict, both formats, same override.
     from report.verifier import blocking_findings
-    _blocking = blocking_findings(j["result"] or {})
+    _blocking = [] if treadle else blocking_findings(j["result"] or {})
     _refuse_forcing_a_refunded_report(job_id, _blocking, force)
     if _blocking and not force:
         log.warning("[api] withholding PDF %s — %d blocking finding(s)",
@@ -923,8 +983,11 @@ def get_job_report_pdf(job_id: str, force: int = 0):
     # Reuse the HTML endpoint by calling its function directly
     # annotate=0: report/pdf._strip_no_print would drop the refine blocks anyway, but
     # the script tag is not inside one and would run in the headless browser.
-    html_response = get_job_report_html(job_id, force=force, annotate=0)
-    html_body = html_response.body.decode() if hasattr(html_response, "body") else str(html_response)
+    if treadle:
+        html_body = _treadle_report_html(j, navigation=False)
+    else:
+        html_response = get_job_report_html(job_id, force=force, annotate=0)
+        html_body = html_response.body.decode() if hasattr(html_response, "body") else str(html_response)
 
     from report.pdf import available_engine, render_pdf
     if available_engine() is None:
@@ -952,12 +1015,18 @@ def get_job_report_pdf(job_id: str, force: int = 0):
 
 @router.get("/jobs/{job_id}/report", response_class=JSONResponse)
 def get_job_report(job_id: str):
-    """Markdown report for a completed job. Returns {markdown}."""
+    """Markdown for legacy jobs, or the typed Treadle report with its verdict."""
     import report as report_mod
 
     j = _owned_job(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
+    if _is_treadle(j):
+        if not _treadle_report_available(j):
+            raise HTTPException(status_code=409, detail="The Treadle report is not available yet")
+        result = j.get("result") or {}
+        return {"job_id": job_id, "kind": j["kind"], "pipeline": "treadle",
+                "status": result["_treadle_status"], "report": result["_treadle"]}
     if (_why := halt_reason(j)):
         raise HTTPException(status_code=409, detail=f"job produced no report: {_why}")
 
@@ -1020,7 +1089,8 @@ def get_share_state(job_id: str):
     below would answer with none.
     """
     import sharing
-    _owned_job(job_id)                       # 404s for anything that is not yours
+    j = _owned_job(job_id)                   # 404s for anything that is not yours
+    _require_legacy_report(j, "Public sharing")
     e = sharing.entry(job_id)
     coupon = sharing.coupon_for_job(job_id)
     earns = bool(coupon) or _reward_backed(job_id)
@@ -1049,6 +1119,7 @@ def share_report(job_id: str, req: ShareRequest):
     j = _owned_job(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
+    _require_legacy_report(j, "Public sharing")
     if j.get("kind") != "plan" or j.get("state") != "complete":
         raise HTTPException(status_code=409,
                             detail="only a finished report can be shared")
@@ -1147,7 +1218,8 @@ def get_shared_report(job_id: str):
     if not sharing.is_shared(job_id):
         raise HTTPException(status_code=404, detail="no such report in the library")
     j = jobs.get_unscoped(job_id)
-    if not j or j.get("kind") != "plan" or j.get("state") != "complete":
+    if (not j or j.get("kind") != "plan" or j.get("state") != "complete"
+            or _is_treadle(j)):
         raise HTTPException(status_code=404, detail="no such report in the library")
     from report.render_html import render_report_html
     return HTMLResponse(render_report_html(j.get("result") or {}, job_id=job_id,

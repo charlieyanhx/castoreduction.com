@@ -1,0 +1,263 @@
+```json
+{
+  "version": "business-object-trial/v1",
+  "company_alias": "Company B",
+  "root": {
+    "id": "company",
+    "kind": "company",
+    "label": "Company B",
+    "statement_ids": ["U-S01"],
+    "children": [
+      {
+        "id": "reportable_segments_group",
+        "kind": "group",
+        "label": "[inferred grouping] Operating and reportable segments",
+        "statement_ids": [],
+        "children": [
+          {
+            "id": "mobility_segment",
+            "kind": "reported_segment",
+            "label": "Mobility segment: connects riders with drivers through transportation offerings",
+            "statement_ids": ["U-S01", "U-S02"],
+            "children": [
+              {
+                "id": "ridesharing_offering",
+                "kind": "offering",
+                "label": "Ridesharing",
+                "statement_ids": ["U-S02"],
+                "children": []
+              },
+              {
+                "id": "taxi_offering",
+                "kind": "offering",
+                "label": "Taxis",
+                "statement_ids": ["U-S02"],
+                "children": []
+              },
+              {
+                "id": "mobility_revenue",
+                "kind": "revenue_stream",
+                "label": "Mobility revenue from driver service fees and consumer charges; the arrangement depends on the market; reported separately from Gross Bookings",
+                "statement_ids": ["U-S08", "U-S12"],
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "delivery_segment",
+            "kind": "reported_segment",
+            "label": "Delivery segment: brings together ordering consumers, merchants and couriers",
+            "statement_ids": ["U-S01", "U-S03", "U-S04"],
+            "children": [
+              {
+                "id": "restaurant_meals_delivery",
+                "kind": "offering",
+                "label": "Restaurant meal delivery",
+                "statement_ids": ["U-S03"],
+                "children": []
+              },
+              {
+                "id": "grocery_retail_group",
+                "kind": "business_line",
+                "label": "Grocery & Retail group spanning grocery, convenience and other retail purchases",
+                "statement_ids": ["U-S03"],
+                "children": []
+              },
+              {
+                "id": "white_label_delivery",
+                "kind": "offering",
+                "label": "White-label offering that lets restaurants and retailers use delivery services under their own brands",
+                "statement_ids": ["U-S05"],
+                "children": []
+              },
+              {
+                "id": "delivery_revenue",
+                "kind": "revenue_stream",
+                "label": "Delivery revenue, reported separately from Gross Bookings",
+                "statement_ids": ["U-S12"],
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "freight_segment",
+            "kind": "reported_segment",
+            "label": "Freight segment: connects shippers and carriers",
+            "statement_ids": ["U-S01", "U-S06"],
+            "children": [
+              {
+                "id": "freight_shipper_services",
+                "kind": "offering",
+                "label": "Brokerage, transportation management and related services for shippers",
+                "statement_ids": ["U-S06"],
+                "children": []
+              },
+              {
+                "id": "freight_revenue",
+                "kind": "revenue_stream",
+                "label": "Freight fees from brokerage, transportation management and related services; reported separately from Gross Bookings",
+                "statement_ids": ["U-S06", "U-S12"],
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "consumer_membership",
+        "kind": "offering",
+        "label": "Consumer membership with benefits across rides and Delivery, including grocery and retail orders",
+        "statement_ids": ["U-S07"],
+        "children": []
+      },
+      {
+        "id": "actors_group",
+        "kind": "group",
+        "label": "[inferred grouping] Marketplace participants",
+        "statement_ids": [],
+        "children": [
+          {
+            "id": "riders",
+            "kind": "user",
+            "label": "Riders",
+            "statement_ids": ["U-S02"],
+            "children": []
+          },
+          {
+            "id": "drivers",
+            "kind": "supplier",
+            "label": "Drivers",
+            "statement_ids": ["U-S02", "U-S08"],
+            "children": []
+          },
+          {
+            "id": "ordering_consumers",
+            "kind": "customer",
+            "label": "Consumers ordering through Delivery",
+            "statement_ids": ["U-S04"],
+            "children": []
+          },
+          {
+            "id": "delivery_merchants",
+            "kind": "supplier",
+            "label": "Merchants preparing or selling goods",
+            "statement_ids": ["U-S04"],
+            "children": []
+          },
+          {
+            "id": "couriers",
+            "kind": "supplier",
+            "label": "Couriers delivering orders",
+            "statement_ids": ["U-S04"],
+            "children": []
+          },
+          {
+            "id": "white_label_restaurants_retailers",
+            "kind": "customer",
+            "label": "Restaurants and retailers using delivery services under their own brands",
+            "statement_ids": ["U-S05"],
+            "children": []
+          },
+          {
+            "id": "shippers",
+            "kind": "customer",
+            "label": "Shippers",
+            "statement_ids": ["U-S06"],
+            "children": []
+          },
+          {
+            "id": "carriers",
+            "kind": "supplier",
+            "label": "Carriers",
+            "statement_ids": ["U-S06"],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "shared_platform_rnd",
+        "kind": "capability",
+        "label": "Shared platform research and development supporting the businesses; not a reportable segment",
+        "statement_ids": ["U-S09"],
+        "children": [
+          {
+            "id": "mapping_capability",
+            "kind": "capability",
+            "label": "Mapping",
+            "statement_ids": ["U-S09"],
+            "children": []
+          },
+          {
+            "id": "payments_technology",
+            "kind": "capability",
+            "label": "Payments technology",
+            "statement_ids": ["U-S09"],
+            "children": []
+          },
+          {
+            "id": "internal_infrastructure",
+            "kind": "capability",
+            "label": "Internal infrastructure",
+            "statement_ids": ["U-S09"],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "gross_bookings",
+        "kind": "metric",
+        "label": "Gross Bookings: ride and order values plus Freight revenue, including applicable taxes, tolls and fees, excluding driver tips; for rides and orders, measured before consumer discounts, refunds, participant earnings and driver incentives; not company revenue",
+        "statement_ids": ["U-S10", "U-S11", "U-S12"],
+        "children": []
+      }
+    ]
+  },
+  "relationships": [
+    {"from": "ridesharing_offering", "to": "riders", "kind": "serves", "statement_ids": ["U-S02"]},
+    {"from": "taxi_offering", "to": "riders", "kind": "serves", "statement_ids": ["U-S02"]},
+    {"from": "drivers", "to": "ridesharing_offering", "kind": "supplies", "statement_ids": ["U-S02"]},
+    {"from": "drivers", "to": "taxi_offering", "kind": "supplies", "statement_ids": ["U-S02"]},
+    {"from": "ridesharing_offering", "to": "mobility_revenue", "kind": "generates", "statement_ids": ["U-S02", "U-S08"]},
+    {"from": "taxi_offering", "to": "mobility_revenue", "kind": "generates", "statement_ids": ["U-S02", "U-S08"]},
+    {"from": "drivers", "to": "mobility_revenue", "kind": "pays", "statement_ids": ["U-S08"]},
+    {"from": "restaurant_meals_delivery", "to": "ordering_consumers", "kind": "serves", "statement_ids": ["U-S03", "U-S04"]},
+    {"from": "grocery_retail_group", "to": "ordering_consumers", "kind": "serves", "statement_ids": ["U-S03", "U-S04"]},
+    {"from": "delivery_merchants", "to": "restaurant_meals_delivery", "kind": "supplies", "statement_ids": ["U-S03", "U-S04"]},
+    {"from": "delivery_merchants", "to": "grocery_retail_group", "kind": "supplies", "statement_ids": ["U-S03", "U-S04"]},
+    {"from": "couriers", "to": "restaurant_meals_delivery", "kind": "supplies", "statement_ids": ["U-S03", "U-S04"]},
+    {"from": "couriers", "to": "grocery_retail_group", "kind": "supplies", "statement_ids": ["U-S03", "U-S04"]},
+    {"from": "white_label_delivery", "to": "white_label_restaurants_retailers", "kind": "serves", "statement_ids": ["U-S05"]},
+    {"from": "freight_shipper_services", "to": "shippers", "kind": "serves", "statement_ids": ["U-S06"]},
+    {"from": "carriers", "to": "freight_shipper_services", "kind": "supplies", "statement_ids": ["U-S06"]},
+    {"from": "freight_shipper_services", "to": "freight_revenue", "kind": "generates", "statement_ids": ["U-S06"]},
+    {"from": "mobility_segment", "to": "shared_platform_rnd", "kind": "depends_on", "statement_ids": ["U-S09"]},
+    {"from": "delivery_segment", "to": "shared_platform_rnd", "kind": "depends_on", "statement_ids": ["U-S09"]},
+    {"from": "freight_segment", "to": "shared_platform_rnd", "kind": "depends_on", "statement_ids": ["U-S09"]},
+    {"from": "gross_bookings", "to": "mobility_segment", "kind": "measures", "statement_ids": ["U-S10", "U-S12"]},
+    {"from": "gross_bookings", "to": "delivery_segment", "kind": "measures", "statement_ids": ["U-S10", "U-S12"]},
+    {"from": "gross_bookings", "to": "freight_segment", "kind": "measures", "statement_ids": ["U-S10", "U-S12"]}
+  ],
+  "missing_details": [
+    {"id": "q_mobility_consumer_payer", "node_id": "mobility_revenue", "detail": "Which consumers pay Mobility consumer charges and in which markets each arrangement applies", "question": "Who pays the consumer charges in Mobility, and in which markets do driver service fees versus consumer charges apply?"},
+    {"id": "q_delivery_revenue_mechanism", "node_id": "delivery_revenue", "detail": "How Delivery revenue is earned and from which participants", "question": "What fees or charges make up Delivery revenue, and do consumers, merchants or couriers pay them?"},
+    {"id": "q_white_label_pricing", "node_id": "white_label_delivery", "detail": "Pricing model for the white-label offering", "question": "How do restaurants and retailers pay for the white-label delivery offering?"},
+    {"id": "q_membership_pricing", "node_id": "consumer_membership", "detail": "Membership price, eligible members and specific benefits", "question": "What does the consumer membership cost, who is eligible for it, and what specific benefits does it provide?"},
+    {"id": "q_target_personas", "node_id": "ordering_consumers", "detail": "Characteristics of the target consumers, merchants and shippers", "question": "Which consumer, merchant and shipper profiles are the primary targets of each segment?"},
+    {"id": "q_market_size", "node_id": "company", "detail": "Market size for each segment", "question": "What is the addressable market size for Mobility, Delivery and Freight?"},
+    {"id": "q_segment_revenue_amounts", "node_id": "company", "detail": "Revenue and Gross Bookings amounts by segment", "question": "What are the reported revenue and Gross Bookings amounts for each segment?"},
+    {"id": "q_differentiators", "node_id": "company", "detail": "Claimed differentiators versus alternatives", "question": "What does the company state differentiates its offerings from alternatives?"},
+    {"id": "q_competitors", "node_id": "company", "detail": "Competitors by segment", "question": "Which competitors does the company identify in each segment?"},
+    {"id": "q_customer_feedback", "node_id": "company", "detail": "Customer and participant feedback", "question": "What feedback have riders, consumers, merchants, drivers, couriers, shippers and carriers given about the offerings?"}
+  ],
+  "report_projections": [
+    {"section": "summary", "node_ids": ["company", "mobility_segment", "delivery_segment", "freight_segment", "consumer_membership", "shared_platform_rnd"], "missing_detail_ids": []},
+    {"section": "target_personas", "node_ids": ["riders", "ordering_consumers", "white_label_restaurants_retailers", "shippers", "drivers", "delivery_merchants", "couriers", "carriers"], "missing_detail_ids": ["q_target_personas"]},
+    {"section": "multi_perspective", "node_ids": ["riders", "drivers", "ordering_consumers", "delivery_merchants", "couriers", "shippers", "carriers", "white_label_restaurants_retailers"], "missing_detail_ids": []},
+    {"section": "market_size", "node_ids": ["gross_bookings"], "missing_detail_ids": ["q_market_size"]},
+    {"section": "revenue", "node_ids": ["mobility_revenue", "delivery_revenue", "freight_revenue", "gross_bookings"], "missing_detail_ids": ["q_mobility_consumer_payer", "q_delivery_revenue_mechanism", "q_white_label_pricing", "q_membership_pricing", "q_segment_revenue_amounts"]},
+    {"section": "differentiators", "node_ids": ["consumer_membership", "white_label_delivery", "shared_platform_rnd", "mapping_capability", "payments_technology", "internal_infrastructure"], "missing_detail_ids": ["q_differentiators"]},
+    {"section": "competitive_landscape", "node_ids": [], "missing_detail_ids": ["q_competitors"]},
+    {"section": "customer_voice", "node_ids": [], "missing_detail_ids": ["q_customer_feedback"]}
+  ]
+}
+```

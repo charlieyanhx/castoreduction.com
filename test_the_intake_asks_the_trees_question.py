@@ -50,7 +50,7 @@ class TestTheTreePicksTheQuestion(unittest.TestCase):
     def test_the_progress_chips_are_the_active_pack(self):
         _, r = self._start(CAFE_TURN)
         fields = {f["field"] for f in r.get("tree_fields") or []}
-        self.assertIn("capacity", fields, "the UI cannot render pack progress")
+        self.assertIn("service_capacity", fields, "the UI cannot render survey progress")
 
     def test_not_sure_records_an_assumption_and_advances(self):
         sid, r1 = self._start(CAFE_TURN)

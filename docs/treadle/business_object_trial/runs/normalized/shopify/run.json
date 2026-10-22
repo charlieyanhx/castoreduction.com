@@ -1,0 +1,41 @@
+{
+  "company": "Shopify",
+  "model": "claude-opus-5-5",
+  "input_sha256": "64166d009c518c3a070f4dba5938e265a47efc6e5801f0247a466f2c114b920a",
+  "prompt_sha256": "d7b0f484aad7f32403b133c87d8f17c9ceaedd826f947e361c90b42a3e90864f",
+  "fixture": "/Users/charlieyan/Downloads/castor-advisories/docs/treadle/business_object_trial/inputs/shopify.json",
+  "automatic_retries": 0,
+  "usage": {
+    "input_tokens": 2089,
+    "output_tokens": 7568
+  },
+  "stop_reason": "end_turn",
+  "structural_status": "passed",
+  "elapsed_seconds": 57.26,
+  "initial_status": "failed",
+  "initial_error": "Expecting value: line 1 column 1 (char 0)",
+  "format_normalization": "removed_complete_json_code_fence",
+  "live_calls_for_normalization": 0,
+  "original_run": "docs/treadle/business_object_trial/runs/initial/shopify",
+  "structure": {
+    "node_count": 32,
+    "max_depth": 5,
+    "nodes_by_kind": {
+      "capability": 1,
+      "company": 1,
+      "customer": 1,
+      "group": 4,
+      "metric": 1,
+      "offering": 14,
+      "partner": 3,
+      "reported_segment": 1,
+      "revenue_stream": 5,
+      "user": 1
+    },
+    "relationship_count": 24,
+    "missing_detail_count": 13,
+    "projection_count": 8,
+    "referenced_statement_count": 12,
+    "unreferenced_statement_ids": []
+  }
+}

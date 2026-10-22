@@ -74,6 +74,11 @@
   .step-dot.on { color: var(--accent); background: var(--accent-soft);
                  border-color: color-mix(in srgb, var(--accent) 22%, transparent); }
   .step-dot.done { color: var(--text-dim); }
+  .answer-review { margin-bottom: 24px; }
+  .answer-review h2 { margin: 24px 0 12px; font-size: 20px; }
+  .answer-review dt { margin-top: 18px; font-weight: 600; }
+  .answer-review dd { margin: 6px 0 0; color: var(--text-dim); }
+  .answer-copy { white-space: pre-wrap; overflow-wrap: anywhere; }
 
   /* ---- page -------------------------------------------------------------------- */
   main { max-width: 1080px; margin: 0 auto; padding: 44px 24px 140px; }
@@ -460,14 +465,16 @@
   .loading { padding: 60px 0; color: var(--text-faint); font-size: 14px; }
 
   @media (max-width: 560px) {
-    .rail { padding: 11px 16px; gap: 10px; }
+    .rail { padding: 11px 16px; gap: 10px; flex-wrap: wrap; }
     .brand { white-space: nowrap; font-size: 15px; }
-    .steps { gap: 2px; }
+    .steps { gap: 2px; order: 3; width: 100%; flex-wrap: wrap; margin-left: 0; }
+    .rail-lib { margin-left: auto; }
     .step-dot { font-size: 9.5px; padding: 3px 7px; letter-spacing: .02em; }
     main { padding: 28px 16px 128px; }
     .bar { padding: 11px 16px; }
-    .bar-inner { gap: 10px; }
-    .tally { font-size: 11.5px; line-height: 1.35; }
+    .bar-inner { gap: 10px; flex-wrap: wrap; }
+    .tally { font-size: 11.5px; line-height: 1.35; order: -1; flex-basis: 100%; }
+    .err:not(:empty) { flex-basis: 100%; order: -1; }
     .go { padding: 10px 16px; font-size: 13.5px; white-space: nowrap; }
     .num { width: 100%; }
     .stat { padding: 20px; }
@@ -485,9 +492,8 @@
 
 <main>
   <div class="lede">
-    <h1 id="head">Tell us about your venture</h1>
-    <p id="sub">Whatever you have. A paragraph, a rough pitch, notes you already wrote.
-      The more you say, the fewer questions we have to ask you afterwards.</p>
+    <h1 id="head" tabindex="-1">Tell us about your venture</h1>
+    <p id="sub">Hi! I'll help you put together a market-research report. To start: in as much detail as you have, what does your product do and who is it for?</p>
   </div>
   <form id="form" novalidate><div class="loading">Loading…</div></form>
 </main>
@@ -496,8 +502,8 @@
   <div class="bar-inner">
     <button type="button" class="back" id="back" hidden>Back</button>
     <span class="tally" id="tally"></span>
-    <span class="err" id="err"></span>
-    <button type="button" class="back" id="skip" hidden>Skip and start now</button>
+    <span class="err" id="err" role="alert"></span>
+    <button type="button" class="back" id="skip" hidden>Skip these questions</button>
     <button type="button" class="go" id="go">Continue</button>
   </div>
 </div>

@@ -34,6 +34,9 @@ CAFE = {"product": "a specialty coffee shop serving espresso and pour-over",
 
 def _card(extra=None, base=None, answers=None):
     s = intake.get_session(intake.start_session()["session_id"])
+    # The revised survey reviews freeform answers rather than displaying arithmetic.
+    # Retain coverage of the preview API for sessions created by its older form.
+    s.pop("survey_version", None)
     s["extracted"].update(dict(base or CAFE, **(extra or {})))
     if answers:
         intake.apply_form_answers(s, answers)
@@ -181,14 +184,19 @@ class TestTheReadingIsAReading(unittest.TestCase):
 
 
 class TestTheTiering(unittest.TestCase):
-    def test_only_the_questions_the_preview_consumes_are_asked_first(self):
+    def test_legacy_preview_filter_does_not_define_the_revised_survey_order(self):
         s = intake.get_session(intake.start_session()["session_id"])
         s["extracted"].update(CAFE)
         ex = s["extracted"]
         cls = classify_turn(ex, user_text=intake.founder_words(s))
         plan = plan_questions(ex, cls)
         tier1 = {q["field"] for q in preview.preview_fields(plan, cls)}
-        self.assertEqual(tier1, {"avg_ticket", "monthly_cost_estimate", "capacity", "site"})
+        self.assertEqual(tier1, {"monthly_cost_estimate", "geography"})
+        self.assertEqual([q["field"] for q in plan if q["group"] == "core"],
+                         ["status_quo", "monthly_cost_estimate", "customer_evidence",
+                          "named_competitors", "success_target", "business_model",
+                          "delivery_mode"])
+        self.assertEqual(len([q for q in plan if q["group"] == "specific"]), 7)
 
     def test_the_rest_are_deferred_not_dropped(self):
         s = intake.get_session(intake.start_session()["session_id"])
@@ -203,9 +211,9 @@ class TestTheTiering(unittest.TestCase):
         self.assertIn("named_competitors", rest)
         self.assertIn("status_quo", rest)
 
-    def test_tiering_is_by_kind_so_a_new_pack_tiers_itself(self):
-        """A price is a price whatever the venture calls it: the tier is read off
-        slots.FIELD_KINDS, not a hardcoded field list."""
+    def test_legacy_preview_filter_still_understands_numeric_fields(self):
+        """Old preview clients retain their typed filter; new survey grouping is
+        explicit and cannot be reordered by the preview's numeric needs."""
         s2 = intake.get_session(intake.start_session()["session_id"])
         s2["extracted"].update({"product": "an online store selling roasted beans",
                                 "target_customer": "home brewers"})
@@ -213,7 +221,11 @@ class TestTheTiering(unittest.TestCase):
                                                     "like an online store"})
         ex = s2["extracted"]
         c2 = classify_turn(ex, user_text=intake.founder_words(s2))
-        tier1 = {q["field"] for q in preview.preview_fields(plan_questions(ex, c2), c2)}
+        legacy_questions = [
+            {"field": "avg_order"}, {"field": "monthly_cost_estimate"},
+            {"field": "geography"}, {"field": "status_quo"},
+        ]
+        tier1 = {q["field"] for q in preview.preview_fields(legacy_questions, c2)}
         self.assertIn("avg_order", tier1, "the ecommerce price tiers itself")
         for f in tier1:
             self.assertIn(slots.kind_of_field(f),
@@ -221,29 +233,26 @@ class TestTheTiering(unittest.TestCase):
 
 
 class TestTheSubscriptionPackAsksItsPrice(unittest.TestCase):
-    def test_a_recurring_venture_is_asked_what_one_customer_pays(self):
-        """It asked whether the fee is per company or per person and never once asked what
-        the fee IS, so nothing downstream could state a break-even."""
+    def test_a_recurring_venture_is_asked_for_both_cost_and_selling_price(self):
         s = intake.get_session(intake.start_session()["session_id"])
         s["extracted"].update({"product": "a scheduling tool", "target_customer": "clinics"})
         intake.apply_form_answers(s, {"kind_fork": "customers pay a recurring fee, "
                                                    "like Netflix"})
         fields = {q["field"] for q in intake.form_questions(s)}
-        self.assertIn("pricing", fields)
+        self.assertIn("unit_economics", fields)
+        self.assertIn("business_model", fields)
 
-    def test_the_price_question_collects_its_period(self):
-        """$49 a month and $49 a year are different businesses, and the period is
-        COLLECTED rather than sniffed out of the founder's phrasing downstream."""
-        from intake_tree import _INPUT_SPECS
-        spec = _INPUT_SPECS["pricing"]
-        self.assertEqual(spec["input_kind"], "number")
-        self.assertIn("per month", spec["period_choices"])
-        self.assertIn("per year", spec["period_choices"])
+    def test_unit_economics_accepts_a_qualified_breakdown(self):
+        plan = plan_questions({}, classify_turn({}))
+        spec = next(q for q in plan if q["field"] == "unit_economics")
+        self.assertEqual(spec["input_kind"], "para")
+        self.assertTrue(spec["optional"])
+        self.assertIn("cost to make per item", spec["question"])
+        self.assertIn("cost the consumer", spec["question"])
 
 
 class TestTheExtrasReachTheRun(unittest.TestCase):
-    """The deferred questions are asked AFTER the founder commits and BEFORE the run
-    launches, which is the only window where the answers still reach it.
+    """Both revised question groups are answered before review and report launch.
 
     run_plan stamps result["intake"] before step one and never re-reads the session, so a
     question answered during the six minute wait cannot affect the report. The survey used
@@ -256,7 +265,7 @@ class TestTheExtrasReachTheRun(unittest.TestCase):
         import api as api_mod
         return TestClient(api_mod.app)
 
-    def test_the_preview_splits_the_pack_into_now_and_after(self):
+    def test_the_preview_retains_all_questions_but_form_owns_the_groups(self):
         c = self._client()
         # SEED IT UNDER THE CLIENT'S OWN IDENTITY. Intake routes are owner-scoped now, so
         # a session started out-of-band belongs to nobody and answers 404 to the very
@@ -267,15 +276,17 @@ class TestTheExtrasReachTheRun(unittest.TestCase):
         # saved. It used to be a shallow copy over a live module dict, where a nested
         # update happened to stick and a top-level one silently did not.
         _s = intake.get_session(sid)
-        _s["extracted"].update(CAFE)
-        intake.save_session(_s)
+        intake.apply_form_answers(_s, CAFE)
         card = c.get("/intake/%s/preview" % sid).json()
         first = {q["field"] for q in card["questions"]}
         later = {q["field"] for q in card["deferred"]}
-        self.assertEqual(first, {"avg_ticket", "monthly_cost_estimate", "capacity", "site"})
+        self.assertEqual(first, {"monthly_cost_estimate", "geography"})
         self.assertEqual(card["deferred_count"], len(card["deferred"]))
         self.assertIn("named_competitors", later)
         self.assertFalse(first & later)
+        questions = c.get("/intake/%s/form" % sid).json()["questions"]
+        self.assertEqual(first | later, {q["field"] for q in questions})
+        self.assertEqual([q["group"] for q in questions], ["core"] * 7 + ["specific"] * 7)
 
     def test_an_extra_answered_before_launch_rides_the_record(self):
         c = self._client()
@@ -288,8 +299,7 @@ class TestTheExtrasReachTheRun(unittest.TestCase):
         # saved. It used to be a shallow copy over a live module dict, where a nested
         # update happened to stick and a top-level one silently did not.
         _s = intake.get_session(sid)
-        _s["extracted"].update(CAFE)
-        intake.save_session(_s)
+        intake.apply_form_answers(_s, CAFE)
         c.post("/intake/%s/form" % sid,
                json={"answers": {"avg_ticket": "6.50", "monthly_cost_estimate": "11000",
                                  "capacity": "15", "site": "NW 23rd and Irving"}})
@@ -316,8 +326,7 @@ class TestTheExtrasReachTheRun(unittest.TestCase):
         # saved. It used to be a shallow copy over a live module dict, where a nested
         # update happened to stick and a top-level one silently did not.
         _s = intake.get_session(sid)
-        _s["extracted"].update(CAFE)
-        intake.save_session(_s)
+        intake.apply_form_answers(_s, CAFE)
         c.post("/intake/%s/form" % sid,
                json={"answers": {"avg_ticket": "6.50", "monthly_cost_estimate": "11000",
                                  "capacity": "15", "site": "NW 23rd and Irving"}})

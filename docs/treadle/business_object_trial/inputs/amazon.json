@@ -1,0 +1,37 @@
+{
+  "company": "Amazon",
+  "snapshot": "FY2025, year ended 2025-12-31. Source-derived simulated customer input authored for this experiment, not a verbatim filing or actual customer input; deliberately incomplete. Company and product names are generalized in statements. Sources and expected checks are evaluator metadata only.",
+  "sources": [
+    {"id": "A1", "title": "Amazon 2025 Form 10-K: Business, Technology and Infrastructure, Segment Information", "url": "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000004/amzn-20251231.htm"},
+    {"id": "A2", "title": "Amazon fourth-quarter and full-year 2025 results, February 5, 2026: net-sales categories and definitions", "url": "https://ir.aboutamazon.com/news-release/news-release-details/2026/Amazon-com-Announces-Fourth-Quarter-Results/default.aspx"}
+  ],
+  "input_statements": [
+    {"id": "A-S01", "text": "We report three operating segments: North America, International, and our cloud-services business.", "source_ids": ["A1"]},
+    {"id": "A-S02", "text": "Both regional segments encompass retail sales, seller activity, advertising and subscriptions, so each reporting segment spans multiple offerings.", "source_ids": ["A1"]},
+    {"id": "A-S03", "text": "Consumers buy products through our online and physical stores; products may be sold by us or by independent third-party sellers.", "source_ids": ["A1"]},
+    {"id": "A-S04", "text": "Our seller programs let third parties sell in our stores and use our fulfillment services; we are not the seller of record.", "source_ids": ["A1"]},
+    {"id": "A-S05", "text": "Our cloud division sells computing, storage and database services to developers and enterprises; shared technology infrastructure also serves our internal needs.", "source_ids": ["A1"]},
+    {"id": "A-S06", "text": "Our consumer membership combines shipping benefits with access to entertainment, including movies, series and live sports.", "source_ids": ["A1"]},
+    {"id": "A-S07", "text": "Seller-service revenue includes sales commissions plus fulfillment and shipping fees for services provided to third-party sellers.", "source_ids": ["A2"]},
+    {"id": "A-S08", "text": "Advertising customers include sellers, vendors, publishers and authors; they can buy sponsored, display and video advertising.", "source_ids": ["A2"]},
+    {"id": "A-S09", "text": "Subscription revenue includes consumer membership fees and digital video, music, audiobook and ebook subscriptions, excluding cloud-service subscriptions.", "source_ids": ["A2"]},
+    {"id": "A-S10", "text": "Individual digital-media purchases count as online-store sales, while subscriptions granting ongoing viewing or usage rights count as subscription services.", "source_ids": ["A2"]},
+    {"id": "A-S11", "text": "Online orders collected at physical stores remain online-store sales; physical-store sales cover products customers select while visiting a store.", "source_ids": ["A2"]},
+    {"id": "A-S12", "text": "Paid-unit measures include items sold by us and third-party sellers; these item counts are distinct from our net-sales revenue categories.", "source_ids": ["A2"]}
+  ],
+  "expected_checks": [
+    {"id": "A-C01", "description": "Separate regional segment classifications from offering hierarchy.", "statement_ids": ["A-S01", "A-S02"]},
+    {"id": "A-C02", "description": "Distinguish consumers, third-party sellers and advertising customers.", "statement_ids": ["A-S03", "A-S04", "A-S08"]},
+    {"id": "A-C03", "description": "Nest computing, storage and databases under cloud services.", "statement_ids": ["A-S05"]},
+    {"id": "A-C04", "description": "Represent shared infrastructure serving internal operations and cloud customers.", "statement_ids": ["A-S05"]},
+    {"id": "A-C05", "description": "Connect membership to shipping and entertainment benefits.", "statement_ids": ["A-S06", "A-S09"]},
+    {"id": "A-C06", "description": "Keep seller fees and paid-unit metrics distinct.", "statement_ids": ["A-S07", "A-S12"]},
+    {"id": "A-C07", "description": "Preserve transaction-versus-subscription and order-channel classification rules.", "statement_ids": ["A-S09", "A-S10", "A-S11"]}
+  ],
+  "deliberately_unspecified": [
+    "Exact prices, commission percentages, subscription rates and contract terms.",
+    "Country-level availability and the complete geographic footprint of each offering.",
+    "Complete product catalog, brands, legal entities and organizational ownership.",
+    "Transaction volumes, revenue totals, margins and customer-level economics."
+  ]
+}

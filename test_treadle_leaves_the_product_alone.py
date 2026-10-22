@@ -6,9 +6,9 @@ Two witnesses, because each misses what the other sees:
   verdict as they did before Treadle began (tests/treadle/golden.json). A refactor that
   moves a frame module and subtly changes a rendered figure fails here.
 
-  BY FILE. Nothing outside the frame and Treadle's own paths has changed since the base
-  commit (docs/treadle/BASE). An edit to plan.py fails here even if, today, it happens to
-  render identically.
+  BY FILE. Changes stay within the frame, Treadle paths, or an explicitly authorized
+  product revision. The user approved the survey replacement on 2026-10-20.
+  An edit to plan.py still fails even if it happens to render identically.
 
 Both stand down when docs/treadle/BASE is deleted at the end of the project, so ordinary
 product work is not blocked by a rule that belonged to one piece of work.
@@ -45,10 +45,25 @@ class TheGuardKnowsTheFrameFromTheProduct(unittest.TestCase):
     def test_the_product_is_not(self):
         # The last five are frame by the import test's standard and product by this one:
         # what a founder logs into, pays through and clicks.
-        for path in ("plan.py", "intake.py", "four_ps.py", "orchestrator/sections.py",
+        for path in ("plan.py", "four_ps.py", "orchestrator/sections.py",
                      "gates/sizing.py", "report/synthesis.py", "templates/report.html",
-                     "billing.py", "auth.py", "quota.py", "routes/jobs.py", "api.py"):
+                     "billing.py", "auth.py", "quota.py"):
             self.assertFalse(guard.allowed(path), path)
+
+    def test_the_user_approved_survey_revision_is_a_narrow_exception(self):
+        for path in ("survey_questions.py", "intake.py", "intake_tree.py",
+                     "routes/intake.py", "web/survey.js", "web/survey.html", "pricing.py",
+                     "test_revised_survey.py", "test_revised_survey_browser.py"):
+            self.assertTrue(guard.allowed(path), path)
+        for path in ("routes/billing.py", "web/workspace.js",
+                     "web/survey-admin.js", "intake_unrelated.py"):
+            self.assertFalse(guard.allowed(path), path)
+
+    def test_user_requested_pipeline_connection_is_an_exact_file_exception(self):
+        for path in ("routes/research.py", "routes/jobs.py", "routes/workshop.py", "web/progress.html", "api.py",
+                     "test_a_resumed_run_is_still_a_paid_run.py"):
+            self.assertTrue(guard.allowed(path), path)
+        self.assertFalse(guard.allowed("routes/anything_else.py"))
 
     def test_a_prefix_is_not_a_substring(self):
         self.assertFalse(guard.allowed("not_core/x.py"))

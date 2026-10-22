@@ -26,9 +26,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from .inputs import Input
+
+if TYPE_CHECKING:
+    from .workflow import Workflow
 
 #: Used with fullmatch: `$` also matches before a trailing newline.
 _SLUG = re.compile(r"[a-z][a-z0-9_]*")
@@ -56,6 +59,9 @@ class ReportType:
     #: A section names an input in consumes / optional / decided_by exactly as it names
     #: another section; treadle.survey derives the survey from those names.
     inputs: tuple[Input, ...] = ()
+    #: Optional execution strategy. A pack can select dependency-aware concurrency and
+    #: bounded correction without embedding scheduling decisions in its producers.
+    workflow: Optional[Workflow] = None
 
     def __post_init__(self) -> None:
         if not _SLUG.fullmatch(self.key or ""):
@@ -66,6 +72,8 @@ class ReportType:
                              f"`sections` (the engine assembles) or `runner` (it runs "
                              f"itself)")
         _check_inputs(self)
+        if self.workflow is not None and self.runner is not None:
+            raise ValueError("a runner owns its execution; workflow requires sections")
 
     @property
     def name(self) -> str:

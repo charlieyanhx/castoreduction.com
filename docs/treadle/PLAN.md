@@ -25,6 +25,26 @@ auth, quota, intake, pages, routes, `plan.py`) is not edited. Two witnesses hold
 `test_treadle_leaves_the_product_alone.py` runs both. Delete `docs/treadle/BASE` when the
 project ends and both stand down.
 
+### Approved survey revision — 2026-10-20
+
+The user subsequently requested replacing the customer survey with a supplied opening,
+seven Core Pack questions, and seven More Specific Questions. That request authorizes
+the survey catalog, intake persistence/routes, browser survey, and their regression
+tests. It also requires the cost anchor in `pricing.py` to accept the new paragraph
+answers without mistaking a breakdown's first number for a total.
+`scripts/treadle_guard.py` lists these exact files as a narrow exception.
+Research execution, billing, auth, and the golden report baseline retain their existing
+boundaries. See [the revision record](SURVEY_REVISION_2026-10.md).
+
+The user's subsequent “I want it all connected” request also authorizes the exact
+customer dispatch/delivery/workshop guard files in `APPROVED_CONNECTION_FILES`.
+The later “only doing treadle in the future” request makes Treadle the sole path for new
+customer reports, including API requests without a selector and restored survey drafts.
+The full-analysis format is fixed; explicit legacy API selection is rejected. This
+includes owned HTML/PDF delivery, honest partial outcomes, and blocking purchases of
+unsupported workshop actions. Historical report delivery and legacy interrupted-job
+recovery remain compatible; the legacy research implementation itself is unchanged.
+
 ## Phases
 
 | # | Phase | Done when |
@@ -44,8 +64,8 @@ Estimate: 4 to 5 focused weeks; standalone after phase 2, about 2 weeks.
 
 ## Notes carried forward
 
-- Castor's own routes and CLI still call `plan.run_plan` directly. That is deliberate:
-  they are product. The 12 call-time leaks capped in `test_the_frame_does_not_import_the_soul.py`
+- The customer `/plan` route now uses Treadle exclusively. Historical interrupted jobs
+  and the legacy CLI still use `plan.run_plan`. The 12 call-time leaks capped in `test_the_frame_does_not_import_the_soul.py`
   close when the product chooses to dispatch through `treadle.run_report`, not before.
 - `progress` receives a `SectionResult` per section from a sections pack, but a partial
   result dict from a runner pack (what `run_plan` already emits). Phase 5 must give the

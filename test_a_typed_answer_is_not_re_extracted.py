@@ -35,7 +35,7 @@ CAFE = {"product": "a specialty coffee shop serving espresso and pour-over",
 
 def _session(**answers):
     s = intake.get_session(intake.start_session()["session_id"])
-    s["extracted"].update(CAFE)
+    intake.apply_form_answers(s, CAFE)
     if answers:
         intake.apply_form_answers(s, answers)
     return s

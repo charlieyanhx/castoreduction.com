@@ -40,6 +40,7 @@ from typing import Optional
 
 from treadle.logger import get
 from treadle.core import Evidence, Registry
+from treadle.execution_limits import charge_tool_call, check_budget
 
 
 def _default_registry() -> Registry:
@@ -234,15 +235,17 @@ def run_agent(
 
     The result is also obtainable as a single Evidence via .to_evidence().
     """
+    check_budget()
     registry = registry if registry is not None else _default_registry()
     budget = max(1, min(max_steps, MAX_STEPS_CEILING))
-    metas = select_tools(allowed_tools, allowed_categories)
+    metas = select_tools(allowed_tools, allowed_categories, registry=registry)
     result = AgentResult(goal=goal, answer="")
 
     if not metas:
         result.stop_reason = "no_tools_available"
         result.answer = "No tools available for this goal."
         log.warning("[agent] no tools matched the mask for goal: %s", goal[:80])
+        check_budget()
         return result
 
     # Stable system prefix (built once — KV-cache friendly).
@@ -257,6 +260,7 @@ def run_agent(
     obs_store = CompactionStore()
 
     for i in range(budget):
+        check_budget()
         # H13: compact the observation log when it outgrows the prompt budget.
         # The MAX_COMPACTIONS cap is the anti-thrash guard — once spent, the loop
         # accepts a long log rather than digesting its own summaries repeatedly.
@@ -280,6 +284,7 @@ def run_agent(
         )
 
         decision = call_next(system, user)
+        check_budget()
         if decision.get("done"):
             result.completed = True
             result.answer = str(decision.get("answer", "")).strip()
@@ -300,10 +305,12 @@ def run_agent(
             result.steps.append(Step(i, tool_name, {}, False, obs, error="bad_args"))
             continue
 
-        # Execute via the registry. The @tool wrapper already catches internal
-        # exceptions and returns error Evidence, so this won't raise.
+        # Count agent dispatches, not nested HTTP requests or helper functions. The
+        # sticky check catches budget errors swallowed by legacy tool wrappers.
         meta = registry[tool_name]
+        charge_tool_call()
         evidence = meta.fn(**args)
+        check_budget()
         if not isinstance(evidence, Evidence):  # defensive — should not happen
             evidence = Evidence(source=tool_name, category=meta.category,
                                 count=0, payload=evidence)
@@ -321,6 +328,7 @@ def run_agent(
 
     log.info("[agent] goal=%r steps=%d evidence=%d stop=%s",
              goal[:60], len(result.steps), len(result.evidence), result.stop_reason)
+    check_budget()
     return result
 
 

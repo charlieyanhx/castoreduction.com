@@ -1,24 +1,6 @@
-/* survey.js — the intake survey, four stages.
- *
- *   0  tell us about it        one text box. Voice and text-file drop both land in it.
- *   1  how the money comes in  asked ONLY when the classifier is not sure.
- *   2  the reading + 4 asks    what we read you as, what would decide it, and the few
- *                              numbers only you have.
- *   3  the reveal + the ask    the founder's own arithmetic, its limits stated, then the
- *                              call to run the report.
- *   4  the extras             the remaining questions, asked once they have committed and
- *                              before the run launches, and how the report should read.
- *                              All skippable.
- *
- * WHY THIS ORDER. The expensive thing is the report. Everything before it is nearly free,
- * and until now that free budget bought the founder nothing: they filled a survey and were
- * asked for money holding only a promise. Stage 3 spends it on an artifact instead, and
- * stage 2 asks only the four questions that artifact needs.
- *
- * The rest go in stage 4 rather than into the six minute wait, and that is not a taste
- * call: run_plan stamps the intake record before step one and never re-reads the session,
- * so an answer given while the run is going cannot reach it. Asking during the wait would
- * feel considerate and change nothing, which is the worst of both.
+/* survey.js — opening, Core Pack, More Specific Questions, then review and launch.
+ * Questions come from the fixed intake form catalog. Classification stays internal;
+ * customer answers and unconfirmed extraction suggestions remain distinct.
  */
 (function () {
   "use strict";
@@ -70,35 +52,28 @@
   /* ---- state ------------------------------------------------------------------- */
   var session = null;
   var stage = 0;
-  var card = null;            // the /preview payload
-  var forkQ = null;           // the money question, when one is being asked
+  var questionnaire = null;   // fixed /form catalog and saved progress
+  var draftAnswers = {};     // only values edited by the customer on this device
+  var savedStage = null;
+  var originalProse = "";
   var prose = "";
+  var launchInFlight = null;
+  var launchAccepted = false;
 
   var $ = function (id) { return document.getElementById(id); };
   var form = $("form"), go = $("go"), back = $("back"), err = $("err"),
     tally = $("tally"), skip = $("skip");
 
-  var STAGES = ["Your venture", "How you charge", "The few we need",
-              "What we found", "Last extras"];
-  var MIN_PROSE = 40;
-
-  /* HOW THE REPORT READS. The research is the same either way: the fact layer is the
-     product, and the writing is delegated under a citation gate. What the founder picks
-     here is the shape of the writing. `value` is what the server validates
-     (intake.REPORT_STYLES, mirrored from report/synthesis.STYLES); `label` is what they
-     read. A closed choice: no write-in, because a style nobody has built cannot be
-     rendered, and the default is the full analysis. */
-  var REPORT_STYLES = [
-    { value: "memo",
-      label: "Decision memo: the verdict and the three things that decide it, one page" },
-    { value: "full",
-      label: "Full analysis: everything the research found, with every number linked " +
-             "to its source" },
-    { value: "operating",
-      label: "Operating plan: the first 90 days, volumes, staffing, kill criteria" }
+  var STAGES = [
+    { id: 0, label: "Your venture" }, { id: 2, label: "Core Pack" },
+    { id: 4, label: "More Specific Questions" }, { id: 3, label: "Review and run" }
   ];
-  var DEFAULT_REPORT_STYLE = "full";
-  var styleSaid = null;       // the founder's pick, kept across back-and-forward
+  var OPENING_QUESTION = "Hi! I'll help you put together a market-research report. " +
+    "To start: in as much detail as you have, what does your product do and who is it for?";
+  var CORE_INTRO = "Some additional questions will help us better understand your idea. " +
+    "No worries if you don't have the answer right now. Feel free to skip any question " +
+    "and we will estimate the answer from your earlier description.";
+  var MIN_PROSE = 40;
 
   function el(tag, cls, text) {
     var n = document.createElement(tag);
@@ -109,9 +84,11 @@
 
   function setSteps() {
     $("steps").innerHTML = "";
-    STAGES.forEach(function (name, i) {
-      if (i === 1 && !forkQ) return;
-      var d = el("span", "step-dot" + (i === stage ? " on" : (i < stage ? " done" : "")), name);
+    var position = STAGES.findIndex(function (step) { return step.id === stage; });
+    STAGES.forEach(function (step, i) {
+      var d = el("span", "step-dot" + (i === position ? " on" : (i < position ? " done" : "")),
+                 step.label);
+      if (i === position) d.setAttribute("aria-current", "step");
       $("steps").appendChild(d);
     });
   }
@@ -121,9 +98,45 @@
     $("sub").textContent = sub;
     setSteps();
     back.hidden = stage === 0;
-    if (stage !== 4) skip.hidden = true;
+    skip.hidden = stage !== 2 && stage !== 4;
+    skip.textContent = "Skip these questions";
     err.textContent = "";
+    persistDraft();
     window.scrollTo({ top: 0, behavior: "smooth" });
+    $("head").focus({ preventScroll: true });
+  }
+
+  function persistDraft() {
+    if (!session) return;
+    try {
+      sessionStorage.setItem("castor-survey:" + session, JSON.stringify({
+        answers: draftAnswers, prose: prose, stage: stage,
+        report_style: "full", pipeline: "treadle"
+      }));
+    } catch (_) { /* Saved server answers still work if browser storage is unavailable. */ }
+  }
+
+  function restoreDraft() {
+    try {
+      var draft = JSON.parse(sessionStorage.getItem("castor-survey:" + session) || "null");
+      if (!draft || typeof draft !== "object") return;
+      draftAnswers = draft.answers && typeof draft.answers === "object" ? draft.answers : {};
+      if (typeof draft.prose === "string") prose = draft.prose;
+      savedStage = draft.stage;
+      // Earlier drafts may contain another pipeline or output style. Restore the
+      // customer's answers, while every new run uses Treadle's full analysis.
+    } catch (_) { /* A damaged local draft must not hide the saved server version. */ }
+  }
+
+  function submittedGroups() {
+    return (questionnaire && questionnaire.submitted_groups) || [];
+  }
+
+  function resumeStage() {
+    var groups = submittedGroups();
+    var furthest = groups.indexOf("core") < 0 ? 2 : (groups.indexOf("specific") < 0 ? 4 : 3);
+    var allowed = STAGES.slice(0, STAGES.findIndex(function (s) { return s.id === furthest; }) + 1);
+    return allowed.some(function (s) { return s.id === savedStage; }) ? savedStage : furthest;
   }
 
   /* A standing line ABOVE the fold, for the things the footer error slot cannot say.
@@ -164,9 +177,7 @@
     ta.id = "prose";
     ta.value = prose;
     ta.setAttribute("aria-label", "Describe your venture");
-    ta.placeholder = "What is it, who is it for, how do people pay you, and where? " +
-      "Anything you already know about price, costs or competitors is useful too. " +
-      "Do not worry about structure.";
+    ta.placeholder = "Describe your product and its customers in your own words. Notes and rough ideas are welcome.";
     wrap.appendChild(ta);
 
     var tools = el("div", "tools");
@@ -222,6 +233,8 @@
     function countUp() {
       var n = ta.value.trim() ? ta.value.trim().split(/\s+/).length : 0;
       count.textContent = n ? n + (n === 1 ? " word" : " words") : "";
+      prose = ta.value;
+      persistDraft();
     }
     ta.addEventListener("input", countUp);
     countUp();
@@ -253,9 +266,7 @@
     form.appendChild(wrap);
     go.textContent = "Continue";
     tally.textContent = "";
-    paint("Tell us about your venture",
-      "Whatever you have. A paragraph, a rough pitch, notes you already wrote. The more " +
-      "you say, the fewer questions we have to ask you afterwards.");
+    paint("Tell us about your venture", OPENING_QUESTION);
   }
 
   function readText(f, ta, after) {
@@ -274,7 +285,7 @@
     fr.readAsText(f);
   }
 
-  /* ============================================ stage 1 and 2: questions and the read == */
+  /* ---- questions -------------------------------------------------------------- */
   function renderQuestion(spec, index) {
     var q = el("div", "q");
     q.appendChild(el("div", "q-num", String(index + 1)));
@@ -284,6 +295,10 @@
     if (spec.optional) ask.appendChild(el("span", "q-opt", "optional"));
     body.appendChild(ask);
     body.appendChild(control(spec));
+    if (spec.source === "inferred" && answerText(spec.value)) {
+      body.appendChild(el("p", "hint", "From your description (unconfirmed): " +
+        answerText(spec.value) + ". Add your own answer above to confirm or correct it."));
+    }
     q.appendChild(body);
     if (spec.drives) {
       var note = el("div", "q-note");
@@ -299,9 +314,9 @@
     box.dataset.field = spec.field;
     var kind = spec.input_kind || "text";
     var current = spec.value;
-    var pre = (current && typeof current === "object")
-      ? (current.value != null && typeof current.value !== "object" ? String(current.value) : "")
-      : (current || "");
+    var hasDraft = Object.prototype.hasOwnProperty.call(draftAnswers, spec.field);
+    var pre = hasDraft ? draftAnswers[spec.field]
+      : (spec.source === "inferred" ? "" : questionAnswerText(spec));
     // The period rides in a sibling key of the typed slot, and the pre-fill read only
     // `value`, so a resumed draft came back with the number and none of its period.
     var prePeriod = (current && typeof current === "object") ? current.period : null;
@@ -356,9 +371,24 @@
     f.value = pre;
     f.setAttribute("aria-label", spec.question);
     if (spec.optional) f.placeholder = "leave blank if you do not know";
+    f.addEventListener("input", function () {
+      draftAnswers[spec.field] = f.value;
+      persistDraft();
+    });
     box.appendChild(f);
     box.dataset.kind = "text";
     return box;
+  }
+
+  function answerText(value) {
+    if (value == null) return "";
+    if (typeof value !== "object") return String(value);
+    if (value.unknown) return "";
+    return value.value != null && typeof value.value !== "object" ? String(value.value) : "";
+  }
+
+  function questionAnswerText(spec) {
+    return typeof spec.display_value === "string" ? spec.display_value : answerText(spec.value);
   }
 
   /* Does this pill carry the period the founder already picked? The two spellings differ
@@ -441,23 +471,6 @@
     } finally { btn.disabled = false; }
   }
 
-  /* Correcting the money kind re-derives the whole screen: the consequence sentence, what
-     would decide it, and WHICH questions are asked, because a cafe and a SaaS are asked
-     different things. It costs one round trip and no model call, so the page can afford to
-     be live. `lenient` keeps a half-typed number question from blocking the correction. */
-  async function changeKind() {
-    var answers = readAnswers(true);
-    go.disabled = true;
-    err.textContent = "";
-    try {
-      await api("POST", "/intake/" + session + "/form", { answers: answers });
-      await loadCard();
-      renderBrief();
-    } catch (e) {
-      err.textContent = "Could not update that: " + e.message;
-    } finally { go.disabled = false; }
-  }
-
   function readAnswers(lenient) {
     var out = {};
     var boxes = form.querySelectorAll(".ctl");
@@ -490,197 +503,96 @@
     return out;
   }
 
-  /* -------------------------------------------------- stage 2: the reading + the asks -- */
-  function renderBrief() {
+  function groupQuestions(group) {
+    return ((questionnaire && questionnaire.questions) || []).filter(function (q) {
+      return q.group === group;
+    });
+  }
+
+  function renderGroup(group) {
     form.innerHTML = "";
-    var brief = el("div", "brief");
-
-    var read = el("div", "reading");
-    read.appendChild(el("span", "reading-txt", "How the money comes in"));
-    read.appendChild(el("span", "prov prov-" + card.provenance,
-      card.provenance === "stated" ? "you picked this" : "we worked this out"));
-    brief.appendChild(read);
-
-    // THE KIND IS A PICKER, PRE-SELECTED TO OUR READING, ALWAYS VISIBLE.
-    //
-    // Not a hidden "not right?" toggle, and not a question we only ask when unsure. Two
-    // measured reasons. First, the classifier is confidently wrong on a whole class of
-    // ventures: "a scheduling tool for small physio clinics" was read as a walk-in venue
-    // off the word "clinic" sitting in the product sentence, with explicit=True, so no
-    // fork fired and nothing would have caught it. Second, this is the one branch that
-    // reshapes every financial table in the report, so a wrong answer here is not one
-    // wrong section, it is all of them.
-    //
-    // Pre-selecting costs the founder nothing when we are right (they read one line and
-    // move on) and costs one click when we are wrong. That is the cheapest possible
-    // insurance on the most expensive possible mistake.
-    var kindSpec = { field: "kind_fork", question: "How the money comes in",
-                     input_kind: "choice", options: card.kind_options, write_in: true,
-                     value: card.kind_said };
-    var kctl = control(kindSpec);
-    kctl.querySelectorAll("input[type=radio]").forEach(function (r) {
-      r.addEventListener("change", changeKind);
-    });
-    brief.appendChild(kctl);
-
-    brief.appendChild(el("div", "consequence", card.headline));
-
-    var dec = el("div", "decides");
-    dec.appendChild(el("div", "dec-lab", "What actually decides this"));
-    (card.decides || []).forEach(function (d) {
-      var row = el("div", "dec");
-      row.appendChild(el("div", "who who-" + d.who, d.who === "us" ? "we find" : "you tell us"));
-      var body = el("div");
-      body.appendChild(el("div", "dec-q", d.q));
-      body.appendChild(el("div", "dec-how", d.how));
-      row.appendChild(body);
-      dec.appendChild(row);
-    });
-    brief.appendChild(dec);
-    form.appendChild(brief);
-
-    (card.questions || []).forEach(function (q, i) { form.appendChild(renderQuestion(q, i)); });
-
-    go.textContent = "Show me the numbers";
-    tally.textContent = (card.questions || []).length + " questions. Blanks become " +
-      "disclosed assumptions, never silent ones.";
-    paint("Here is what we read, and what would settle it",
-      "We have not looked anything up yet. This is what your description tells us, and " +
-      "the few figures only you can give us.");
+    var questions = groupQuestions(group);
+    questions.forEach(function (q, i) { form.appendChild(renderQuestion(q, i)); });
+    go.textContent = group === "core" ? "Continue" : "Review and run";
+    tally.textContent = "All questions are optional. Estimates will be labelled as assumptions.";
+    paint(group === "core" ? "Core Pack" : "More Specific Questions",
+      group === "core" ? CORE_INTRO : "Add any details you know. You can skip any question.");
   }
 
   /* --------------------------------------------------------------- stage 3: the reveal -- */
   function renderReveal() {
     form.innerHTML = "";
     var wrap = el("div", "reveal");
-    var be = card.break_even, ceil = card.ceiling, util = card.utilisation;
-
-    if (be) {
-      var stat = el("div", "stat");
-      stat.appendChild(el("div", "stat-lab", "Your break-even"));
-      stat.appendChild(el("div", "stat-big", be.shape === "recurring"
-        ? be.units.toLocaleString() + " " + be.unit_noun
-        : be.per_day.toLocaleString() + " " + be.unit_noun + " a day"));
-      stat.appendChild(el("div", "stat-sub", be.shape === "recurring"
-        ? "That is how many paying customers cover your running costs before you earn anything."
-        : "That is " + be.units.toLocaleString() + " a month, every month, before you earn " +
-          "a thing."));
-      var w = el("div", "workings");
-      w.appendChild(el("b", null, "How: "));
-      w.appendChild(document.createTextNode(be.workings));
-      stat.appendChild(w);
-
-      if (util && ceil) {
-        var bars = el("div", "bars");
-        var fill = el("div", util.over_capacity ? "bar-over" : "bar-fill");
-        fill.style.width = Math.min(100, util.percent) + "%";
-        bars.appendChild(fill);
-        stat.appendChild(bars);
-        stat.appendChild(el("div", "stat-sub", util.over_capacity
-          ? "That is more than the room can serve. " + util.workings + ", so the space " +
-            "itself is the binding constraint, not demand."
-          : "About " + util.percent + "% of what the room can serve. " + util.workings + "."));
-        var w2 = el("div", "workings");
-        w2.appendChild(el("b", null, "Capacity: "));
-        w2.appendChild(document.createTextNode(ceil.workings));
-        stat.appendChild(w2);
-      }
-      wrap.appendChild(stat);
-    } else {
-      var none = el("div", "stat");
-      none.appendChild(el("div", "stat-lab", "Your break-even"));
-      none.appendChild(el("div", "stat-big", "Not yet"));
-      none.appendChild(el("div", "stat-sub",
-        "We need both a price and a monthly running cost to work this out, and we would " +
-        "rather say so than put up a number we made up."));
-      wrap.appendChild(none);
-    }
-
-    if ((card.limits || []).length) {
-      var lim = el("div", "limits");
-      lim.appendChild(el("div", "lim-lab", "What these numbers do not include"));
-      var ul = document.createElement("ul");
-      card.limits.forEach(function (l) { ul.appendChild(el("li", null, l)); });
-      lim.appendChild(ul);
-      wrap.appendChild(lim);
-    }
+    var summary = el("div", "answer-review");
+    summary.appendChild(el("h2", null, "Your business description"));
+    summary.appendChild(el("p", "answer-copy", originalProse || prose));
+    ["core", "specific"].forEach(function (group) {
+      summary.appendChild(el("h2", null, group === "core" ? "Core Pack" : "More Specific Questions"));
+      var list = el("dl");
+      groupQuestions(group).forEach(function (q) {
+        list.appendChild(el("dt", null, q.question));
+        var confirmed = q.source === "founder" || q.confirmed;
+        list.appendChild(el("dd", "answer-copy", confirmed && questionAnswerText(q)
+          ? questionAnswerText(q) : "Not supplied — any estimate will be labelled as an assumption."));
+      });
+      summary.appendChild(list);
+    });
+    wrap.appendChild(summary);
 
     var next = el("div", "next");
-    next.appendChild(el("h3", null, "Everything above is your own arithmetic"));
+    next.appendChild(el("h3", null, "What happens next"));
     next.appendChild(el("p", null,
-      "We have not looked anything up yet. The report is where we go outside and measure:"));
-    var ul2 = document.createElement("ul");
-    (card.decides || []).filter(function (d) { return d.who === "us"; })
-      .forEach(function (d) { ul2.appendChild(el("li", null, d.q + ", from " + d.how)); });
-    next.appendChild(ul2);
-    var promise = el("div", "promise");
-    promise.appendChild(el("b", null, "If we cannot source it, we do not publish it. "));
-    promise.appendChild(document.createTextNode(
-      "Every figure in the report carries where it came from, and anything we cannot " +
-      "stand behind is withheld and labelled rather than guessed at."));
-    next.appendChild(promise);
+      "First we build a detailed picture of your business and the questions to research. " +
+      "Then we prepare a full analysis of the market, competitors, and business " +
+      "opportunity. Your own inputs, research findings, and any assumptions will remain distinct."));
     wrap.appendChild(next);
     form.appendChild(wrap);
 
     go.textContent = "Run the full report";
-    tally.textContent = card.deferred_count
-      ? card.deferred_count + " optional questions and how the report should read come " +
-        "next, then it runs."
-      : "One question on how the report should read comes next, then it runs.";
-    paint(be ? "Your numbers, before we look anything up"
-             : "Here is where you stand so far",
-      "This is arithmetic on what you told us, with the workings shown so you can check " +
-      "it. Nothing here has been looked up yet.");
-  }
-
-  /* THE EXTRAS, asked after the founder commits and before the run starts.
-     Placement is the whole point. These questions make the REPORT better and do nothing
-     for the preview, so asking them earlier is friction spent before anyone has seen a
-     number. Asking them during the six minute wait would be worse than useless: run_plan
-     stamps the intake record before step one and never re-reads the session, so a late
-     answer cannot reach the run and telling the founder it sharpens their report would be
-     a lie. Here they have already decided, the answers still land, and skipping is one
-     click and equally fine. */
-  function renderExtras() {
-    form.innerHTML = "";
-    var deferred = card.deferred || [];
-    deferred.forEach(function (q, i) {
-      form.appendChild(renderQuestion(q, i));
-    });
-    // THE REPORT STYLE, drawn the way the money fork is drawn: a spec built here, handed
-    // to control() through renderQuestion, read back by readAnswers with the rest of the
-    // stage. Keyed (post_value), so what is posted is memo | full | operating and not the
-    // sentence beside it. It is asked on every venture, which is why this stage always
-    // runs now, deferred questions or none.
-    var styleSpec = { field: "report_style", question: "How should the report read?",
-                      input_kind: "choice", options: REPORT_STYLES, post_value: true,
-                      value: styleSaid || DEFAULT_REPORT_STYLE };
-    var styleQ = renderQuestion(styleSpec, deferred.length);
-    styleQ.querySelectorAll("input[type=radio]").forEach(function (r) {
-      r.addEventListener("change", function () { styleSaid = r.value; });
-    });
-    form.appendChild(styleQ);
-    go.textContent = "Start the report";
-    skip.hidden = false;
-    tally.textContent = "All optional. Blanks become disclosed assumptions, never silent ones.";
-    paint("Anything else before it goes?",
-      "These do not change what you have already seen. They make the report itself better, "
-      + "and every one you leave blank is estimated and labelled as an estimate.");
+    tally.textContent = "Review your answers, then start the research.";
+    paint("Review your business",
+      "Use Back to change an answer. Anything you skipped remains an unknown; " +
+      "research estimates will be labelled as assumptions.");
   }
 
   /* ---- flow --------------------------------------------------------------------- */
   async function loadCard() {
-    card = await api("GET", "/intake/" + session + "/preview");
-    forkQ = null;
-    if (!card.confident) {
-      var plan = await api("GET", "/intake/" + session + "/form");
-      forkQ = (plan.questions || []).filter(function (q) { return q.field === "kind_fork"; })[0] || null;
+    questionnaire = await api("GET", "/intake/" + session + "/form");
+    if (groupQuestions("core").length !== 7 || groupQuestions("specific").length !== 7) {
+      throw new Error("The survey questions could not be loaded. Please reload this page.");
     }
+    originalProse = questionnaire.original_description || originalProse;
+    if (!prose) prose = originalProse;
+  }
+
+  async function saveGroup(skipQuestions) {
+    var group = stage === 2 ? "core" : "specific";
+    var answers = readAnswers();
+    groupQuestions(group).forEach(function (q) {
+      if (skipQuestions) {
+        answers[q.field] = q.source === "founder" || q.confirmed ? q.value : "";
+        delete draftAnswers[q.field];
+      } else if ((q.source === "founder" || q.confirmed) &&
+                 q.value && typeof q.value === "object" &&
+                 answers[q.field] === questionAnswerText(q)) {
+        // Preserve units and currency when an old typed answer is left unchanged.
+        answers[q.field] = q.value;
+      }
+    });
+    await api("POST", "/intake/" + session + "/form", {
+      answers: answers, survey_version: "2026-10"
+    });
+    await loadCard();
+    stage = group === "core" ? 4 : 3;
+    showStage();
   }
 
   async function submit() {
+    if (go.disabled) return;
     err.textContent = "";
     go.disabled = true;
+    skip.disabled = true;
+    back.disabled = true;
     try {
       if (stage === 0) {
         var ta = $("prose");
@@ -691,66 +603,53 @@
           return;
         }
         go.textContent = "Reading…";
-        // ONE model call in the whole free funnel: this extraction pass.
-        var s = await api("POST", "/intake/start", { initial_message: prose });
-        session = s.session_id;
-        var url = new URL(location.href);
-        url.searchParams.set("s", session);
-        history.replaceState(null, "", url.toString());
+        if (!session || prose !== originalProse) {
+          var s = await api("POST", "/intake/start", { initial_message: prose });
+          session = s.session_id;
+          originalProse = prose;
+          draftAnswers = {};
+          var url = new URL(location.href);
+          url.searchParams.set("s", session);
+          history.replaceState(null, "", url.toString());
+        }
         await loadCard();
-        stage = forkQ ? 1 : 2;
+        stage = 2;
         showStage();
         return;
       }
-
-      var answers = readAnswers();
-      if (answers._needPeriod) {
-        answers._needPeriod.classList.add("need");
-        setTimeout(function () { answers._needPeriod.classList.remove("need"); }, 420);
-        err.textContent = "Pick a period for that number.";
-        return;
-      }
-
       if (stage === 3) {
-        // Always through the extras, even with no deferred questions: the report style
-        // is asked there, and the founder should see the choice before the run starts.
-        stage = 4; showStage(); return;
-      }
-      if (stage === 4) {
-        await api("POST", "/intake/" + session + "/form", { answers: answers });
         await launch();
         return;
       }
-
-      await api("POST", "/intake/" + session + "/form", { answers: answers });
-      await loadCard();
-      stage = stage === 1 ? 2 : 3;
-      showStage();
+      await saveGroup(false);
     } catch (e) {
-      // Stage-appropriate copy. "Could not save that" is wrong at the CTA, where nothing
-      // was being saved and the founder is committing.
       err.textContent = (stage === 3 ? "Could not start the report: "
                                      : "Could not save that: ") + e.message;
-    } finally { go.disabled = false; }
+      if (stage === 0) go.textContent = "Continue";
+    } finally { go.disabled = false; skip.disabled = false; back.disabled = false; }
   }
 
   function showStage() {
     if (stage === 0) return renderProse();
-    if (stage === 1) {
-      form.innerHTML = "";
-      form.appendChild(renderQuestion(forkQ, 0));
-      go.textContent = "Continue";
-      tally.textContent = "";
-      return paint("How does the money come in?",
-        "This changes the shape of every financial table in the report, so it is the one " +
-        "thing we will not guess at.");
-    }
-    if (stage === 2) return renderBrief();
-    if (stage === 3) return renderReveal();
-    return renderExtras();
+    if (stage === 2) return renderGroup("core");
+    if (stage === 4) return renderGroup("specific");
+    return renderReveal();
   }
 
-  async function launch() {
+  function guardedLaunch(action) {
+    if (launchInFlight) return launchInFlight;
+    if (launchAccepted) return Promise.resolve();
+    launchInFlight = Promise.resolve().then(action).finally(function () {
+      launchInFlight = null;
+    });
+    return launchInFlight;
+  }
+
+  function launch() {
+    return guardedLaunch(prepareAndLaunch);
+  }
+
+  async function prepareAndLaunch() {
     // CONFIRM READS, IT DOES NOT COMMIT. The endpoint returns the assembled description
     // and the intake record, and it also flags the session confirmed — which is what
     // drafts() uses to decide a session became a report. Calling it before /plan meant a
@@ -772,21 +671,25 @@
     // had free reports. gate() returns false when it has drawn the offer, and the founder
     // comes back through resumeAfterPurchase() with the description still in the session.
     if (!(await gate(description, res && res.intake_record))) return;
-    await launchPaid(description, res && res.intake_record);
+    await startPaidReport(description, res && res.intake_record);
   }
 
   /* The run itself, once it is entitled to happen. Separate from launch() because the
      gate has two exits into it (paid, and the preview switch) and neither should have
      to repeat the confirm/spend/redirect sequence. */
-  async function launchPaid(description, intake) {
-    var body = { description: description, operator_weights: {} };
-    if (intake) body.intake = intake;
-    // The style rides the /plan body from the INTAKE RECORD, not from the page: the
-    // record is what /confirm handed back, so a founder returning from checkout on a
-    // fresh page load still gets the shape they picked. Absent means the full analysis.
-    if (intake && intake.report_style) body.report_style = intake.report_style;
+  function launchPaid(description, intake) {
+    return guardedLaunch(function () { return startPaidReport(description, intake); });
+  }
+
+  async function startPaidReport(description, intake) {
+    var body = { description: description, operator_weights: {},
+                 pipeline: "treadle", report_style: "full" };
+    // A resumed draft can retain an old presentation preference. Keep all of its
+    // business answers and normalize the new run without mutating the saved record.
+    if (intake) body.intake = Object.assign({}, intake, { report_style: "full" });
     try {
       var job = await api("POST", "/plan", body);
+      launchAccepted = true;
       // Accepted. NOW the interview is spent, so it leaves the notebook.
       try { await api("POST", "/intake/" + session + "/confirm", { corrections: {} }); }
       catch (e) { /* the run is what matters; a stale draft is cosmetic */ }
@@ -1165,13 +1068,13 @@
 
     /* Both exits run the report. Wrapped so a failure anywhere in here still ends with
        the founder's paid run started rather than on a card with a dead button. */
-    function start() {
+    function start(insideLaunch) {
       box.remove();
       notice("Starting your report now.", "ok");
-      return launch();
+      return insideLaunch ? prepareAndLaunch() : launch();
     }
 
-    return await new Promise(function (resolve) {
+    return await new Promise(function (resolve, reject) {
       skipReg.onclick = function () {
         skipReg.disabled = true;
         go2.disabled = true;
@@ -1186,23 +1089,25 @@
         skipReg.disabled = true;
         var lab = go2.querySelector(".gate-buy-name");
         lab.textContent = "Creating your account…";
-        try {
-          await api("POST", "/auth/signup", { email: e2, password: p2 });
-        } catch (err2) {
-          // THEIR MONEY IS NOT AT RISK HERE and the copy has to say so, because a red
-          // error under a payment reads as a failed payment. The credits are on the guest
-          // id and matched to the address either way, and the run still starts.
-          go2.disabled = false;
-          skipReg.disabled = false;
-          lab.textContent = "Create account and start my report";
-          msg.textContent = "Could not create the account: " + err2.message
-            + ". Your payment is safe and your credits are held against " + e2
-            + ". You can start the report and register later.";
-          return;
-        }
-        // The signup moved the guest's jobs, drafts, credits and coupons onto the account,
-        // so the interview in the URL is still readable and launch() finds it.
-        resolve(start());
+        guardedLaunch(async function () {
+          try {
+            await api("POST", "/auth/signup", { email: e2, password: p2 });
+          } catch (err2) {
+            // A signup failure must leave both choices available without spending a run.
+            go2.disabled = false;
+            skipReg.disabled = false;
+            lab.textContent = "Create account and start my report";
+            msg.textContent = "Could not create the account: " + err2.message
+              + ". Your payment is safe and your credits are held against " + e2
+              + ". You can start the report and register later.";
+            return false;
+          }
+          // Continue inside the existing guard after ownership transfers to the account.
+          await start(true);
+          return true;
+        }).then(function (started) {
+          if (started) resolve();
+        }, reject);
       };
     });
   }
@@ -1273,35 +1178,23 @@
   /* ---- boot --------------------------------------------------------------------- */
   go.onclick = submit;
   skip.onclick = async function () {
+    if (stage !== 2 && stage !== 4) return;
     go.disabled = true;
     skip.disabled = true;
-    try {
-      // SKIP SKIPS THE QUESTIONS, NOT THE STYLE. The report style sits on the same
-      // screen with a selection already showing, and what is selected is what runs: a
-      // founder who picked the memo and then skipped the optional questions must not be
-      // handed the full analysis without a word. One answer is posted; the rest are left
-      // blank, which is what skipping means.
-      var picked = form.querySelector(
-        '.ctl[data-field="report_style"] input[type=radio]:checked');
-      if (picked) {
-        await api("POST", "/intake/" + session + "/form",
-                  { answers: { report_style: picked.value } });
-      }
-      await launch();
-    }
-    catch (e) { err.textContent = "Could not start the report: " + e.message; }
-    finally { go.disabled = false; skip.disabled = false; }
+    back.disabled = true;
+    try { await saveGroup(true); }
+    catch (e) { err.textContent = "Could not save that: " + e.message; }
+    finally { go.disabled = false; skip.disabled = false; back.disabled = false; }
   };
   back.onclick = function () {
-    if (stage === 4) stage = 3;
-    else if (stage === 3) stage = 2;
-    else if (stage === 2) stage = forkQ ? 1 : 0;
+    if (stage === 3) stage = 4;
+    else if (stage === 4) stage = 2;
     else stage = 0;
     showStage();
   };
-  form.addEventListener("keydown", function (e) {
-    if (e.key === "Enter" && e.target.tagName !== "TEXTAREA") { e.preventDefault(); submit(); }
-  });
+  // Native buttons keep their Enter action. Typing in a claim or checkout field must
+  // never trigger the report CTA through the surrounding survey form.
+  form.addEventListener("submit", function (e) { e.preventDefault(); });
 
   /* Back from Stripe with a report credit: the founder pressed the button before paying,
      so pressing it for them on return is what they already asked for.
@@ -1327,7 +1220,7 @@
       // backed out of checkout. Nothing was charged, and telling them they lost their
       // work is still the wrong answer.
       try { await loadCard(); } catch (e) { /* fall through to the stage below */ }
-      stage = forkQ ? 1 : 2;
+      stage = resumeStage();
       showStage();
       notice("Checkout cancelled. Nothing was charged, and every answer you gave is "
              + "still here.");
@@ -1348,8 +1241,13 @@
 
     try {
       await loadCard();
-      stage = 3;
+      stage = resumeStage();
       showStage();
+      if (stage !== 3) {
+        notice("Payment received. Your credit is saved. Complete or skip the remaining " +
+               "questions, then review your answers to start the report.", "ok");
+        return true;
+      }
     } catch (e) {
       // They have already paid. Falling through to the stale-draft notice here would read
       // as losing the money and the interview at once, so name what is actually true: the
@@ -1399,9 +1297,10 @@
     if (existing) {
       try {
         session = existing;
+        restoreDraft();
         if (await resumeAfterPurchase()) return;
         await loadCard();
-        stage = forkQ ? 1 : 2;
+        stage = resumeStage();
         return showStage();
       } catch (e) {
         // A DEAD DRAFT LINK USED TO BE A BLANK SURVEY. The session went null and the page

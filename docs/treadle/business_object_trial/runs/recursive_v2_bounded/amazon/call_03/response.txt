@@ -1,0 +1,62 @@
+```json
+{
+  "base_revision": 2,
+  "target_id": "grp_offerings",
+  "nodes": [
+    {"id": "off_online_stores", "kind": "offering", "label": "Online stores", "parent_id": "off_stores", "statement_ids": ["A-S03", "A-S11"]},
+    {"id": "off_physical_stores", "kind": "offering", "label": "Physical stores", "parent_id": "off_stores", "statement_ids": ["A-S03", "A-S11"]},
+    {"id": "off_digital_media_purchases", "kind": "offering", "label": "Individual digital-media purchases", "parent_id": "off_online_stores", "statement_ids": ["A-S10"]},
+    {"id": "off_fulfillment_services", "kind": "offering", "label": "Fulfillment services for third-party sellers", "parent_id": "off_seller_programs", "statement_ids": ["A-S04", "A-S07"]},
+    {"id": "off_membership_shipping_benefits", "kind": "offering", "label": "Membership shipping benefits", "parent_id": "off_consumer_membership", "statement_ids": ["A-S06"]},
+    {"id": "off_membership_entertainment_access", "kind": "offering", "label": "Membership entertainment access", "parent_id": "off_consumer_membership", "statement_ids": ["A-S06"]},
+    {"id": "off_digital_subscriptions", "kind": "offering", "label": "Digital video, music, audiobook and ebook subscriptions", "parent_id": "grp_offerings", "statement_ids": ["A-S09", "A-S10"]},
+    {"id": "cap_shared_tech_infrastructure", "kind": "capability", "label": "Shared technology infrastructure", "parent_id": "off_cloud_services", "statement_ids": ["A-S05"]}
+  ],
+  "facts": [
+    {"id": "fact_stores_product_source", "node_id": "off_stores", "key": "product_source", "value": "Products may be sold by Company A or by independent third-party sellers", "basis": "stated", "statement_ids": ["A-S03"], "qualifiers": {}},
+    {"id": "fact_online_stores_pickup_classification", "node_id": "off_online_stores", "key": "reporting_classification_rule", "value": "Online orders collected at physical stores remain online-store sales", "basis": "stated", "statement_ids": ["A-S11"], "qualifiers": {}},
+    {"id": "fact_physical_stores_sales_scope", "node_id": "off_physical_stores", "key": "reporting_classification_rule", "value": "Physical-store sales cover products customers select while visiting a store", "basis": "stated", "statement_ids": ["A-S11"], "qualifiers": {}},
+    {"id": "fact_digital_media_purchases_classification", "node_id": "off_digital_media_purchases", "key": "reporting_classification_rule", "value": "Individual digital-media purchases count as online-store sales", "basis": "stated", "statement_ids": ["A-S10"], "qualifiers": {}},
+    {"id": "fact_seller_programs_function", "node_id": "off_seller_programs", "key": "function", "value": "Lets third parties sell in Company A's stores", "basis": "stated", "statement_ids": ["A-S04"], "qualifiers": {}},
+    {"id": "fact_seller_programs_rev_commissions", "node_id": "off_seller_programs", "key": "revenue_component", "value": "Sales commissions", "basis": "stated", "statement_ids": ["A-S07"], "qualifiers": {}},
+    {"id": "fact_fulfillment_rev_fulfillment_fees", "node_id": "off_fulfillment_services", "key": "revenue_component", "value": "Fulfillment fees", "basis": "stated", "statement_ids": ["A-S07"], "qualifiers": {}},
+    {"id": "fact_fulfillment_rev_shipping_fees", "node_id": "off_fulfillment_services", "key": "revenue_component", "value": "Shipping fees", "basis": "stated", "statement_ids": ["A-S07"], "qualifiers": {}},
+    {"id": "fact_advertising_format_sponsored", "node_id": "off_advertising", "key": "ad_format", "value": "Sponsored advertising", "basis": "stated", "statement_ids": ["A-S08"], "qualifiers": {}},
+    {"id": "fact_advertising_format_display", "node_id": "off_advertising", "key": "ad_format", "value": "Display advertising", "basis": "stated", "statement_ids": ["A-S08"], "qualifiers": {}},
+    {"id": "fact_advertising_format_video", "node_id": "off_advertising", "key": "ad_format", "value": "Video advertising", "basis": "stated", "statement_ids": ["A-S08"], "qualifiers": {}},
+    {"id": "fact_membership_fee_classification", "node_id": "off_consumer_membership", "key": "revenue_classification", "value": "Consumer membership fees are included in subscription revenue", "basis": "stated", "statement_ids": ["A-S09"], "qualifiers": {}},
+    {"id": "fact_entertainment_content_movies", "node_id": "off_membership_entertainment_access", "key": "content_type", "value": "Movies", "basis": "stated", "statement_ids": ["A-S06"], "qualifiers": {}},
+    {"id": "fact_entertainment_content_series", "node_id": "off_membership_entertainment_access", "key": "content_type", "value": "Series", "basis": "stated", "statement_ids": ["A-S06"], "qualifiers": {}},
+    {"id": "fact_entertainment_content_live_sports", "node_id": "off_membership_entertainment_access", "key": "content_type", "value": "Live sports", "basis": "stated", "statement_ids": ["A-S06"], "qualifiers": {}},
+    {"id": "fact_digital_subs_type_video", "node_id": "off_digital_subscriptions", "key": "subscription_type", "value": "Digital video", "basis": "stated", "statement_ids": ["A-S09"], "qualifiers": {}},
+    {"id": "fact_digital_subs_type_music", "node_id": "off_digital_subscriptions", "key": "subscription_type", "value": "Music", "basis": "stated", "statement_ids": ["A-S09"], "qualifiers": {}},
+    {"id": "fact_digital_subs_type_audiobook", "node_id": "off_digital_subscriptions", "key": "subscription_type", "value": "Audiobook", "basis": "stated", "statement_ids": ["A-S09"], "qualifiers": {}},
+    {"id": "fact_digital_subs_type_ebook", "node_id": "off_digital_subscriptions", "key": "subscription_type", "value": "Ebook", "basis": "stated", "statement_ids": ["A-S09"], "qualifiers": {}},
+    {"id": "fact_digital_subs_revenue_classification", "node_id": "off_digital_subscriptions", "key": "revenue_classification", "value": "Included in subscription revenue", "basis": "stated", "statement_ids": ["A-S09"], "qualifiers": {}},
+    {"id": "fact_digital_subs_classification_rule", "node_id": "off_digital_subscriptions", "key": "reporting_classification_rule", "value": "Subscriptions granting ongoing viewing or usage rights count as subscription services", "basis": "stated", "statement_ids": ["A-S10"], "qualifiers": {}},
+    {"id": "fact_cloud_provider_division", "node_id": "off_cloud_services", "key": "provider_unit", "value": "Cloud division", "basis": "stated", "statement_ids": ["A-S05"], "qualifiers": {}},
+    {"id": "fact_cloud_subs_excluded_from_subscription_rev", "node_id": "off_cloud_services", "key": "revenue_classification", "value": "Cloud-service subscriptions are excluded from subscription revenue", "basis": "stated", "statement_ids": ["A-S09"], "qualifiers": {}},
+    {"id": "fact_shared_infra_internal_use", "node_id": "cap_shared_tech_infrastructure", "key": "internal_use", "value": "Shared technology infrastructure also serves Company A's internal needs", "basis": "stated", "statement_ids": ["A-S05"], "qualifiers": {}}
+  ],
+  "relationships": [
+    {"id": "rel_membership_bundles_shipping", "from_id": "off_consumer_membership", "to_id": "off_membership_shipping_benefits", "kind": "bundles", "basis": "stated", "statement_ids": ["A-S06"], "qualifiers": {}},
+    {"id": "rel_membership_bundles_entertainment", "from_id": "off_consumer_membership", "to_id": "off_membership_entertainment_access", "kind": "bundles", "basis": "stated", "statement_ids": ["A-S06"], "qualifiers": {}},
+    {"id": "rel_fulfillment_serves_sellers", "from_id": "off_fulfillment_services", "to_id": "actor_third_party_sellers", "kind": "serves", "basis": "stated", "statement_ids": ["A-S04"], "qualifiers": {}},
+    {"id": "rel_fulfillment_generates_seller_rev", "from_id": "off_fulfillment_services", "to_id": "rev_seller_services", "kind": "generates", "basis": "stated", "statement_ids": ["A-S07"], "qualifiers": {}},
+    {"id": "rel_cloud_uses_shared_infra", "from_id": "off_cloud_services", "to_id": "cap_shared_tech_infrastructure", "kind": "uses", "basis": "inferred", "statement_ids": ["A-S05"], "qualifiers": {}},
+    {"id": "rel_company_uses_shared_infra_internal", "from_id": "company", "to_id": "cap_shared_tech_infrastructure", "kind": "uses", "basis": "stated", "statement_ids": ["A-S05"], "qualifiers": {"conditions": ["internal needs"]}},
+    {"id": "rel_seg_na_offers_stores", "from_id": "seg_north_america", "to_id": "off_stores", "kind": "offers", "basis": "inferred", "statement_ids": ["A-S02"], "qualifiers": {}},
+    {"id": "rel_seg_na_offers_seller_programs", "from_id": "seg_north_america", "to_id": "off_seller_programs", "kind": "offers", "basis": "inferred", "statement_ids": ["A-S02"], "qualifiers": {}},
+    {"id": "rel_seg_na_offers_advertising", "from_id": "seg_north_america", "to_id": "off_advertising", "kind": "offers", "basis": "inferred", "statement_ids": ["A-S02"], "qualifiers": {}},
+    {"id": "rel_seg_na_offers_membership", "from_id": "seg_north_america", "to_id": "off_consumer_membership", "kind": "offers", "basis": "inferred", "statement_ids": ["A-S02", "A-S09"], "qualifiers": {}},
+    {"id": "rel_seg_na_offers_digital_subs", "from_id": "seg_north_america", "to_id": "off_digital_subscriptions", "kind": "offers", "basis": "inferred", "statement_ids": ["A-S02", "A-S09"], "qualifiers": {}},
+    {"id": "rel_seg_intl_offers_stores", "from_id": "seg_international", "to_id": "off_stores", "kind": "offers", "basis": "inferred", "statement_ids": ["A-S02"], "qualifiers": {}},
+    {"id": "rel_seg_intl_offers_seller_programs", "from_id": "seg_international", "to_id": "off_seller_programs", "kind": "offers", "basis": "inferred", "statement_ids": ["A-S02"], "qualifiers": {}},
+    {"id": "rel_seg_intl_offers_advertising", "from_id": "seg_international", "to_id": "off_advertising", "kind": "offers", "basis": "inferred", "statement_ids": ["A-S02"], "qualifiers": {}},
+    {"id": "rel_seg_intl_offers_membership", "from_id": "seg_international", "to_id": "off_consumer_membership", "kind": "offers", "basis": "inferred", "statement_ids": ["A-S02", "A-S09"], "qualifiers": {}},
+    {"id": "rel_seg_intl_offers_digital_subs", "from_id": "seg_international", "to_id": "off_digital_subscriptions", "kind": "offers", "basis": "inferred", "statement_ids": ["A-S02", "A-S09"], "qualifiers": {}}
+  ],
+  "gaps": [],
+  "expand_node_ids": []
+}
+```

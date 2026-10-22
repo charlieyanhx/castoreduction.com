@@ -20,8 +20,35 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from treadle.logger import get
+from treadle.execution_limits import (
+    BudgetExceeded, bounded_execution_active, charge_model_call, check_budget,
+    remaining_seconds,
+)
 
 log = get("llm")
+
+
+def _bounded_client_options() -> dict:
+    """Disable invisible SDK retries only for an explicitly bounded execution."""
+    if not bounded_execution_active():
+        return {}
+    check_budget()
+    return {"max_retries": 0, "timeout": remaining_seconds()}
+
+
+def _bounded_timeout() -> dict:
+    """Refresh the request timeout after pacing or another provider attempt."""
+    check_budget()
+    remaining = remaining_seconds()
+    return {} if remaining is None else {"timeout": remaining}
+
+
+def _budget_sleep(seconds: float) -> None:
+    """Keep existing backoff, but never sleep beyond the active task deadline."""
+    check_budget()
+    remaining = remaining_seconds()
+    time.sleep(seconds if remaining is None else min(seconds, remaining))
+    check_budget()
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +314,7 @@ def _gemini_rate_gate(model: str = "") -> None:
         _gemini_next_free[key] = start + _GEMINI_MIN_INTERVAL
     wait = start - time.time()
     if wait > 0:
-        time.sleep(wait)
+        _budget_sleep(wait)
 
 
 def _detect_backend() -> str:
@@ -322,12 +349,15 @@ def _call_anthropic(system: str, user: str, max_tokens: int, model: str,
                     json_mode: bool = True) -> tuple[str, int, int]:
     import anthropic
     key = os.environ.get("ANTHROPIC_API_KEY", "")
-    client = anthropic.Anthropic(api_key=key)
+    client = anthropic.Anthropic(api_key=key, **_bounded_client_options())
+    charge_model_call()
     msg = client.messages.create(
         model=model, max_tokens=max_tokens,
         temperature=0,  # F2: deterministic — same input → same number
         system=system, messages=[{"role": "user", "content": user}],
+        **_bounded_timeout(),
     )
+    check_budget()
     return msg.content[0].text, msg.usage.input_tokens, msg.usage.output_tokens
 
 
@@ -381,7 +411,7 @@ def call_long_text(system: str, user: str, max_tokens: int = 32000,
     if not key:
         from treadle.errors import AuthError
         raise AuthError("ANTHROPIC_API_KEY is not set; the long-text path is anthropic only")
-    client = anthropic.Anthropic(api_key=key)
+    client = anthropic.Anthropic(api_key=key, **_bounded_client_options())
     kw: dict = dict(model=model, max_tokens=max_tokens,
                     system=system_blocks if system_blocks is not None else system,
                     messages=(messages if messages is not None
@@ -391,8 +421,10 @@ def call_long_text(system: str, user: str, max_tokens: int = 32000,
         kw["output_config"] = {"effort": effort}
     t0 = time.time()
     try:
-        with client.messages.stream(**kw) as stream:
+        charge_model_call()
+        with client.messages.stream(**kw, **_bounded_timeout()) as stream:
             msg = stream.get_final_message()
+        check_budget()
     except anthropic.RateLimitError as e:
         log.warning("[llm] %s rate-limited after %.0fs: %s", model, time.time() - t0, e)
         raise
@@ -422,6 +454,7 @@ def call_long_text(system: str, user: str, max_tokens: int = 32000,
     log.info("call_long_text [%s] %d->%d tok (cache read %d, write %d), %.1fs, stop=%s",
              model, in_tok, out_tok, cache_read, cache_write, time.time() - t0,
              msg.stop_reason)
+    check_budget()
     return LongText(text, in_tok, out_tok, str(msg.stop_reason or ""), model,
                     cache_read, cache_write)
 
@@ -430,7 +463,8 @@ def _call_groq(system: str, user: str, max_tokens: int, model: str,
                json_mode: bool = True) -> tuple[str, int, int]:
     from groq import Groq
     key = os.environ.get("GROQ_API_KEY", "")
-    client = Groq(api_key=key)
+    client = Groq(api_key=key, **_bounded_client_options())
+    charge_model_call()
     resp = client.chat.completions.create(
         model=model, max_tokens=max_tokens,
         temperature=0, seed=42,  # F2: deterministic (Groq supports a seed)
@@ -442,7 +476,9 @@ def _call_groq(system: str, user: str, max_tokens: int, model: str,
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
+        **_bounded_timeout(),
     )
+    check_budget()
     text = resp.choices[0].message.content or ""
     in_tok = getattr(resp.usage, "prompt_tokens", 0) or 0
     out_tok = getattr(resp.usage, "completion_tokens", 0) or 0
@@ -457,7 +493,17 @@ def _gemini_client():
     """The genai client. Separated so the request-shaping logic below is testable without
     a live key or a network round trip."""
     from google import genai
-    return genai.Client(api_key=os.environ.get("GEMINI_API_KEY", ""))
+    return genai.Client(api_key=os.environ.get("GEMINI_API_KEY", ""),
+                        **_gemini_http_options())
+
+
+def _gemini_http_options() -> dict:
+    """Gemini timeouts are milliseconds; attempts includes the original request."""
+    if not bounded_execution_active():
+        return {}
+    check_budget()
+    return {"http_options": {"retry_options": {"attempts": 1},
+                             "timeout": max(1, int(remaining_seconds() * 1000))}}
 
 
 # Which models accept `thinking_config`, learned at runtime. Support is SPLIT across the
@@ -502,6 +548,7 @@ def _call_gemini(system: str, user: str, max_tokens: int, model: str,
       # it is dropped per model on evidence, never pre-emptively.
       for _use_thinking in ([True, False] if _GEMINI_THINKING_OK.get(m, True) else [False]):
         try:
+            charge_model_call()
             response = client.models.generate_content(
                 model=m,
                 contents=full_prompt,
@@ -518,16 +565,21 @@ def _call_gemini(system: str, user: str, max_tokens: int, model: str,
                         "max_output_tokens": max_tokens,
                         "temperature": 0,  # F2: deterministic — same input → same number
                         "seed": 42,
+                        **_gemini_http_options(),
                         **({"thinking_config": {"thinking_budget": 0}}
                            if _use_thinking else {})},
             )
+            check_budget()
             text = response.text or ""
             usage_meta = getattr(response, "usage_metadata", None)
             in_tok = getattr(usage_meta, "prompt_token_count", 0) or 0
             out_tok = getattr(usage_meta, "candidates_token_count", 0) or 0
             _GEMINI_THINKING_OK[m] = _use_thinking
             return text, in_tok, out_tok
+        except BudgetExceeded:
+            raise
         except Exception as e:
+            check_budget()
             last_err = e
             err_str = str(e)
             if _use_thinking and ("INVALID_ARGUMENT" in err_str or "400" in err_str):
@@ -590,8 +642,12 @@ def _try_one_backend(backend: str, system: str, user: str, max_tokens: int,
             system + "\n\nCRITICAL: Return valid JSON only. No markdown fences, no commentary.",
             user, max_tokens, model, json_mode=True,   # explicit: this chain is the JSON path
         )
+        check_budget()
         return text, in_tok, out_tok, model
+    except BudgetExceeded:
+        raise
     except Exception as e:
+        check_budget()
         es = str(e).lower()
         # Treat as transient: rate-limit, server error, timeout, AND transient network
         # faults. cycle36: the free Gemini tier frequently drops the TLS connection
@@ -636,11 +692,13 @@ def _chain_text(system: str, user: str, max_tokens: int,
     _CHAIN_BACKOFF = (0.0, 3.0, 8.0, 15.0)  # backoff before attempts 1-4; free Gemini tier
     # can be unreachable for ~10s stretches, so a 4th attempt past that window matters
     for attempt, delay in enumerate(_CHAIN_BACKOFF):
+        check_budget()
         if delay:
-            time.sleep(delay)
+            _budget_sleep(delay)
         for backend in chain:
             t0 = time.time()
             out = _try_one_backend(backend, system, user, max_tokens, tier)
+            check_budget()
             if out is None:
                 continue
             text, in_tok, out_tok, model_used = out
@@ -656,12 +714,14 @@ def _chain_text(system: str, user: str, max_tokens: int,
             if backend != primary:
                 log.info("[llm] cross-provider fallback succeeded on %s (primary %s exhausted)",
                          backend, primary)
+            check_budget()
             return text
         if attempt < len(_CHAIN_BACKOFF) - 1:
             log.info("[llm] chain exhausted (attempt %d/%d) — backing off %.0fs and retrying",
                      attempt + 1, len(_CHAIN_BACKOFF), _CHAIN_BACKOFF[attempt + 1])
     log.warning("[llm] ALL backends exhausted after %d attempts (chain: %s)",
                 len(_CHAIN_BACKOFF), ", ".join(chain))
+    check_budget()
     return None
 
 
@@ -863,6 +923,7 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
     dict interface, and `.get("_parse_error")` checks continue to work.
     """
     import os
+    check_budget()
     from treadle.cache import get as cache_get, put as cache_put
     # cycle31-r3: LLM_CACHE_BYPASS=1 disables read+write of cache, used for
     # statistical sampling so each --samples N run gets fresh LLM responses
@@ -885,6 +946,7 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
                 _trace.record_llm("cache", cached=True)
             except Exception:
                 pass
+            check_budget()
             return cached
 
     system_full = system
@@ -894,10 +956,15 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
             + json.dumps(response_model.model_json_schema(), sort_keys=True)
         )
 
-    attempts = 1 + (max_retries if response_model is not None else 1)
+    # Preserve legacy schemaless re-asks; bounded callers can explicitly disable them.
+    retries = max_retries if response_model is not None else 1
+    if bounded_execution_active():
+        retries = max(0, max_retries if response_model is not None else min(max_retries, 1))
+    attempts = 1 + retries
     error: Optional[str] = None
     text: str = ""
     for attempt in range(attempts):
+        check_budget()
         if attempt == 0:
             user_msg = user
         else:
@@ -909,6 +976,7 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
                 "Return ONLY the corrected JSON. No prose, no fences."
             )
         raw = _chain_text(system_full, user_msg, max_tokens, tier)
+        check_budget()
         if raw is None:
             _why = ("invalid request rejected by every backend (a 400 — this is a bug in "
                     "the request, not throttling; see the llm log)"
@@ -925,7 +993,10 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
         if response_model is not None:
             try:
                 result: dict = response_model.model_validate(obj).model_dump()
+            except BudgetExceeded:
+                raise
             except Exception as e:
+                check_budget()
                 error = str(e)
                 continue
         else:
@@ -940,9 +1011,11 @@ def call_json(system: str, user: str, max_tokens: int = 2000,
         elif repaired:
             log.warning("call_json: not caching a json_repair-salvaged result — a repaired "
                         "parse must not be replayed by later runs")
+        check_budget()
         return result
 
     log.warning("call_json: invalid after %d attempt(s): %s", attempts, (error or "")[:200])
+    check_budget()
     return {"_parse_error": f"invalid after {attempts} attempt(s): {error}",
             "_raw": _strip_fences(text)[:2000]}
 
@@ -955,6 +1028,7 @@ def call_text(system: str, user: str, max_tokens: int = 2000,
     Gemini both hardcode structured output when it is on, so asking for prose through the
     JSON path returns a quoted string or a refusal.
     """
+    check_budget()
     if memory is not None:
         system = memory.apply(system)
     backend, model = _backend_and_model()
@@ -967,5 +1041,6 @@ def call_text(system: str, user: str, max_tokens: int = 2000,
     # paragraph. Invisible on Anthropic, which never set a response format, which is how it
     # went unnoticed.
     text, in_tok, out_tok = fn(system, user, max_tokens, model, json_mode=False)
+    check_budget()
     usage.add(model, in_tok, out_tok)
     return text

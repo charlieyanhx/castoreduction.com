@@ -1230,7 +1230,10 @@ def billing_checkout(req: CheckoutRequest, request: Request):
     # stranger's id in this field bought capacity on their report. _owned_job raises 404
     # for anything not yours, which is also the right answer for a job that is not real.
     if req.job_id:
-        _owned_job(req.job_id, request)
+        job = _owned_job(req.job_id, request)
+        if req.kind == "workshop":
+            from routes.jobs import _require_legacy_report
+            _require_legacy_report(job, "Workshop purchases")
     base = str(request.base_url).rstrip("/")
     if os.environ.get("CASTOR_ENV", "").lower() == "production":
         base = base.replace("http://", "https://", 1)

@@ -84,13 +84,15 @@ class TestAVenueIsPhysicalBeforeItHasAnAddress(unittest.TestCase):
                             user_text="a chinese beef tripe taco stand")
         self.assertTrue(cls["is_physical"])
 
-    def test_and_therefore_gets_the_site_question(self):
+    def test_the_revised_survey_collects_location_and_service_capacity(self):
         cls = classify_turn({"product": "a chinese beef tripe taco stand",
                              "business_model": "they just pay for tacos"},
                             user_text="they just pay for tacos")
         fields = {q["field"] for q in plan_questions({}, cls)}
-        self.assertIn("site", fields)
-        self.assertIn("expected_volume", fields)
+        self.assertIn("geography", fields)
+        self.assertIn("service_capacity", fields)
+        self.assertNotIn("expected_volume", fields,
+                         "capacity is not a forecast of actual customer demand")
 
     def test_a_saas_is_still_not_physical(self):
         cls = classify_turn({"product": "a B2B SaaS for restaurant inventory",

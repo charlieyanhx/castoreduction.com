@@ -12,6 +12,7 @@ directional signal that's free and fast.
 from __future__ import annotations
 import json
 import math
+import re
 
 from llm import call_json
 from logger import get
@@ -436,7 +437,40 @@ def build_benchmark_table(
     }
 
 
-_USD_RE = __import__("re").compile(r"(\d[\d,]*(?:\.\d+)?)")
+_USD_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)")
+
+_MONTHLY_USD_TOTAL = re.compile(
+    r"""
+    (?:(?:about|roughly|approximately|around)\s+)?
+    (?P<label>(?:(?:total\s+)?(?:monthly\s+)?(?:operating\s+)?costs?|
+                 total(?:\s+monthly)?|monthly)\s*[:=]?\s*)?
+    (?P<before>USD|US\$|\$)?\s*
+    (?P<amount>(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?)
+    \s*(?P<after>USD|US\s+dollars?)?
+    \s*(?P<period>(?:/\s*|per\s+|a\s+|each\s+)(?:month|mo)|monthly)?
+    (?:\s+(?:in\s+)?total)?\.?
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _monthly_usd_total(text: str) -> float | None:
+    """Read only a simple, explicit monthly USD total from a paragraph answer.
+
+    Full matching deliberately abstains on components, ranges, other currencies,
+    and other periods. Those answers remain research context; taking their first
+    number would mislabel an expense component as a sourced total.
+    """
+    match = _MONTHLY_USD_TOTAL.fullmatch(text.strip())
+    if not match:
+        return None
+    currency = (match["before"] or "").upper()
+    if currency not in ("USD", "US$") and not match["after"]:
+        return None
+    if not match["period"] and "monthly" not in (match["label"] or "").lower():
+        return None
+    amount = float(match["amount"].replace(",", ""))
+    return amount if math.isfinite(amount) and amount > 0 else None
 
 
 def founder_cost_anchor(result: dict | None) -> tuple[float | None, float | None]:
@@ -445,9 +479,15 @@ def founder_cost_anchor(result: dict | None) -> tuple[float | None, float | None
     result['intake'].facts, and financials shipped an unsourced LLM guess of $12,500
     anyway. Operator's rule: founder input is the anchor; the model's figure is the
     benchmark beside it."""
-    facts = ((result or {}).get("intake") or {}).get("facts") or {}
+    record = (result or {}).get("intake") or {}
+    facts = record.get("facts") or {}
+    typed = record.get("slots") or {}
 
     def _usd(field):
+        import slots
+        answer = typed.get(field)
+        if slots.is_slot(answer) and answer.get("kind") == slots.TEXT:
+            return _monthly_usd_total(slots.text(answer))
         m = _USD_RE.search(str(facts.get(field) or ""))
         if not m:
             return None

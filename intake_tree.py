@@ -1,38 +1,8 @@
-"""intake_tree.py — the next intake question depends on what kind of business this is.
+"""Survey question planning and the pipeline's retained business classifiers.
 
-WHY THIS EXISTS. Intake used to ask every venture the same eight fields and let a generic
-LLM pick the next question; the only branch in the flow was one site-marker check. But the
-pipeline classifies every venture into seven money-kinds and five market scales, and each
-cell's ARITHMETIC consumes different facts: a cafe's ladder needs seats and a ticket price,
-a SaaS ladder needs to know whether $1,450/mo is per person or per company (the
-100-seats/month stock defect), a marketplace needs the take rate (the C10 guard was built,
-documented, and never once given an input), a chain needs its location count, and a free
-product must never be asked for a price (C7 shipped a validated three-tier price deck on
-one). Those classifiers ran AFTER the founder was gone. This module runs them DURING the
-conversation and lets their output pick the next question.
-
-THE TREE IS CODE; THE LLM ONLY EXTRACTS. Questions live here as literals — deterministic,
-testable, jargon-lintable — and the classifiers they branch on are the pipeline's own
-(business_model.classify_with_confidence, and the deterministic override helpers from
-skills.sizing.classify), so intake and pipeline cannot disagree about what a venture is.
-
-THREE RULES, each earned by a shipped defect:
-  1. THE FOUNDER NEVER SEES THE TAXONOMY. Every question is plain language with a concrete
-     anchor ("monthly like Netflix", "a cut like Uber"). The orbital brief answered our
-     "business model" field with "Undetermined" — our word, their confusion.
-  2. LOW CONFIDENCE FORKS OUT LOUD. When the kind classifier is unsure, the next question
-     IS the disambiguation, asked in examples. "Undetermined" silently became subscription
-     and an entire seat-priced report followed (job d62bc04f).
-  3. "NOT SURE" IS AN ANSWER. It records {"unknown": True} — an assumption the report must
-     disclose — instead of forcing fake precision or re-asking forever.
-
-WIRING HONESTY (the C10 lesson: a fact nobody consumes is collection theatre). Every pack
-entry declares its consumer:
-    consumer_kind="module"  a named function reads this field's value directly, or reads
-                            the phrasing _synthesize_from_extracted emits for it
-                            (brief.extract_price, plan.extract_location_count, ...)
-    consumer_kind="brief"   the fact rides final_description as context for downstream
-                            prompts — honest, useful, but NOT deterministically consumed
+The visible survey is the fixed, founder-approved catalog in survey_questions.py.
+Classification still informs existing research and preview consumers; it does not
+insert conditional questions. Legacy pack definitions remain for older integrations.
 """
 from __future__ import annotations
 
@@ -755,52 +725,13 @@ def classify_turn(extracted: dict, user_text: str | None = None) -> dict:
 
 # --------------------------------------------------------------------------- the plan --
 def plan_questions(extracted: dict, cls: dict) -> list[dict]:
-    """Every question THIS venture should be asked, in priority order. Deterministic."""
-    ex = extracted or {}
-    plan: list[dict] = []
+    """The approved survey, in fixed order for every business.
 
-    if cls.get("needs_fork"):
-        plan.append(_q("kind_fork", cls.get("fork_question") or FORK_QUESTION,
-                       "every financial table takes a different shape depending on this",
-                       "business_model.classify_with_confidence", "module",
-                       input_kind="choice", options=KIND_OPTIONS, write_in=True))
-
-    plan.extend(KIND_PACKS.get(cls.get("kind") or "", ()))
-
-    if cls.get("is_physical"):
-        if cls.get("multi_location"):
-            plan.append(MODIFIER_PACKS["locations_count"])
-        else:
-            plan.append(MODIFIER_PACKS["site"])
-        # Wave D (operator spec Q7): the founder's own expected volume, number plus a
-        # period. Printed as the founder's estimate next to the model, never mixed in;
-        # this is also the input whose absence D59 keeps surfacing.
-        plan.append(MODIFIER_PACKS["expected_volume"])
-    elif cls.get("kind") in ("ecommerce", "marketplace"):
-        plan.append(MODIFIER_PACKS["expected_volume"])
-    if cls.get("non_us"):
-        plan.append(MODIFIER_PACKS["local_anchor"])
-    if cls.get("launched"):
-        plan.append(MODIFIER_PACKS["real_traction"])
-    if cls.get("regulated"):
-        plan.append(MODIFIER_PACKS["regulatory"])
-
-    plan.extend(CORE_PACK)
-
-    # Wave D (operator spec Q13): a quantified year-one target earns the how question.
-    # The survey listens; the REPORT is where likelihood gets checked, respectfully.
-    tgt = ex.get("success_target")
-    if _answered(tgt) and not is_unknown(tgt) and _DIGIT_RE.search(slots.text(tgt)):
-        plan.append(_q("target_basis",
-                       "How did you arrive at that number? A sentence is plenty; the "
-                       "report will compare it against what the market data supports.",
-                       "whether your target is read as a goal or a forecast",
-                       "viability framing", "brief"))
-
-    # A free product's pack must not inherit a price question from elsewhere (C7).
-    if cls.get("kind") == "ad_supported":
-        plan = [q for q in plan if q["field"] not in ("avg_ticket", "avg_order")]
-    return _apply_input_specs(plan)
+    Keep the signature for chat/preview consumers and keep classification helpers
+    available to the research pipeline. Classification no longer changes the survey.
+    """
+    from survey_questions import QUESTIONS
+    return [dict(question) for question in QUESTIONS]
 
 
 # A pack question is also satisfied by a GENERIC field that already answers it — the
@@ -839,10 +770,6 @@ def next_question(extracted: dict, cls: dict) -> Optional[dict]:
     """The first planned question whose field is neither answered, declined, nor already
     covered by a generic field."""
     ex = extracted or {}
-    if cls.get("needs_fork") and not _answered(ex.get("kind_fork")):
-        for q in plan_questions(ex, cls):
-            if q["field"] == "kind_fork":
-                return q
     for q in plan_questions(ex, cls):
         if not _answered(ex.get(q["field"])) and not _alias_satisfies(q["field"], ex):
             return q

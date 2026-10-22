@@ -1,0 +1,265 @@
+{
+  "schema_version": "market_research.business_readiness/1",
+  "support_review": {
+    "status": "complete"
+  },
+  "expansion_complete": true,
+  "blocked_reason": null,
+  "sections": {
+    "summary": {
+      "status": "partial_input",
+      "available_requirement_ids": [
+        "summary.offering"
+      ],
+      "missing_requirements": [
+        {
+          "id": "summary.actor",
+          "question": "Who is served by each offering?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "summary.monetization",
+          "question": "How does each offering generate revenue?",
+          "resolution": "customer_input"
+        }
+      ],
+      "node_ids": [
+        "off_advertising",
+        "off_cloud_services",
+        "off_consumer_membership",
+        "off_digital_media_purchases",
+        "off_digital_subscriptions",
+        "off_fulfillment_services",
+        "off_membership_entertainment_access",
+        "off_membership_shipping_benefits",
+        "off_online_stores",
+        "off_physical_stores",
+        "off_seller_programs",
+        "off_stores"
+      ],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "target_personas": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "target_personas.actor",
+          "question": "Which customers are served by each offering?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "target_personas.need",
+          "question": "What need, problem, or workflow does each customer have?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "target_personas.buyer",
+          "question": "Who buys, and what buying trigger or purchasing constraint applies?",
+          "resolution": "external_research"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "multi_perspective": {
+      "status": "partial_input",
+      "available_requirement_ids": [
+        "multi_perspective.roles"
+      ],
+      "missing_requirements": [
+        {
+          "id": "multi_perspective.concerns",
+          "question": "What concerns are stated for those stakeholders?",
+          "resolution": "external_research"
+        }
+      ],
+      "node_ids": [
+        "actor_advertising_customers",
+        "actor_consumers",
+        "actor_developers",
+        "actor_enterprises",
+        "actor_third_party_sellers",
+        "off_advertising",
+        "off_cloud_services",
+        "off_fulfillment_services",
+        "off_seller_programs",
+        "off_stores"
+      ],
+      "fact_ids": [
+        "fact_ad_customers_role",
+        "fact_consumers_role",
+        "fact_developers_role",
+        "fact_enterprises_role",
+        "fact_sellers_role"
+      ],
+      "relationship_ids": [
+        "rel_advertising_serves_ad_customers",
+        "rel_cloud_serves_developers",
+        "rel_cloud_serves_enterprises",
+        "rel_fulfillment_serves_sellers",
+        "rel_seller_programs_serves_sellers",
+        "rel_stores_serves_consumers"
+      ],
+      "ready_for_research": true,
+      "report_ready": false
+    },
+    "market_size": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "market_size.scope",
+          "question": "What geography, analysis period, and counting unit define each market?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "market_size.base",
+          "question": "What population count or annual spending is available for that exact market scope?",
+          "resolution": "external_research"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "revenue": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "revenue.monetization",
+          "question": "Which revenue streams belong to each offering?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "revenue.scope",
+          "question": "What geography, forecast period, and customer unit define the forecast?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "revenue.pricing",
+          "question": "What numeric unit price, charging unit, currency, and billing period apply?",
+          "resolution": "external_research"
+        },
+        {
+          "id": "revenue.adoption",
+          "question": "What numeric adoption rate or customer count applies to the forecast scope and period, with an explicit population unit?",
+          "resolution": "external_research"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "differentiators": {
+      "status": "partial_input",
+      "available_requirement_ids": [
+        "differentiators.offering"
+      ],
+      "missing_requirements": [
+        {
+          "id": "differentiators.alternatives",
+          "question": "What named alternatives or status quo compete with each offering?",
+          "resolution": "external_research"
+        },
+        {
+          "id": "differentiators.comparison",
+          "question": "What concrete comparison and basis support each claimed advantage?",
+          "resolution": "external_research"
+        }
+      ],
+      "node_ids": [
+        "off_advertising",
+        "off_cloud_services",
+        "off_consumer_membership",
+        "off_digital_media_purchases",
+        "off_digital_subscriptions",
+        "off_fulfillment_services",
+        "off_membership_entertainment_access",
+        "off_membership_shipping_benefits",
+        "off_online_stores",
+        "off_physical_stores",
+        "off_seller_programs",
+        "off_stores"
+      ],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": true,
+      "report_ready": false
+    },
+    "competitive_landscape": {
+      "status": "partial_input",
+      "available_requirement_ids": [
+        "competitive_landscape.offering"
+      ],
+      "missing_requirements": [
+        {
+          "id": "competitive_landscape.scope",
+          "question": "What geography defines the competitive search?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "competitive_landscape.competitors",
+          "question": "Which direct competitors and indirect alternatives are stated?",
+          "resolution": "external_research"
+        }
+      ],
+      "node_ids": [
+        "off_advertising",
+        "off_cloud_services",
+        "off_consumer_membership",
+        "off_digital_media_purchases",
+        "off_digital_subscriptions",
+        "off_fulfillment_services",
+        "off_membership_entertainment_access",
+        "off_membership_shipping_benefits",
+        "off_online_stores",
+        "off_physical_stores",
+        "off_seller_programs",
+        "off_stores"
+      ],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "customer_voice": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "customer_voice.actor",
+          "question": "Which customer group should be heard?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "customer_voice.observations",
+          "question": "What observed customer quotations include participant context and an observation method?",
+          "resolution": "external_research"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    }
+  },
+  "report_ready": false,
+  "limitations": [
+    "Coverage describes accepted customer input, not externally verified evidence.",
+    "Sufficient input still requires research, calculation, review, and report writing.",
+    "Inferred and quarantined items never satisfy required input coverage."
+  ]
+}

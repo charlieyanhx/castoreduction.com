@@ -1,0 +1,514 @@
+{
+  "company": "Shopify",
+  "summary": {
+    "evaluated_output": "docs/treadle/business_object_trial/runs/recursive_v2_bounded/shopify/accepted.json",
+    "basis": "Independent model inspection against the 12 supplied input_statements only. No web pages, source contents or company-memory facts were used. Accepted output is scored; candidate and support-review records are inspected only to explain removals. Organizational parent links are not treated as financial classifications.",
+    "rubric": "Same seven expected checks as the v1 audit. Pass means the stated distinction/mechanism is retained in explicit facts or relationships. Partial means some required connection is absent although other records retain part or all of the information. Fail means the required fact is absent or contradicted. Counts are not a factual-accuracy score.",
+    "check_counts": {
+      "total": 7,
+      "pass": 6,
+      "partial": 1,
+      "fail": 0
+    },
+    "inspection": {
+      "node_count": 29,
+      "factual_node_count": 24,
+      "fact_count": 32,
+      "relationship_count": 21,
+      "gap_count": 0,
+      "node_ids_reviewed": [
+        "company",
+        "segment_single",
+        "rev_subscription_solutions",
+        "rev_merchant_solutions",
+        "grp_offerings",
+        "off_commerce_platform",
+        "cap_integrated_back_end",
+        "grp_subscription_offerings",
+        "grp_merchant_solution_offerings",
+        "grp_actors",
+        "actor_merchants",
+        "actor_buyers",
+        "actor_extension_partners",
+        "metric_gmv",
+        "cls_offline_revenue",
+        "actor_app_developers",
+        "actor_theme_designers",
+        "actor_service_partners",
+        "off_merchant_payment_service",
+        "off_lending_services",
+        "off_shipping_labels",
+        "off_pos_hardware",
+        "off_advertising",
+        "off_subscription_plans",
+        "off_higher_tier_plan",
+        "off_premium_pos_subscription",
+        "off_apps",
+        "off_themes",
+        "off_domain_registration"
+      ],
+      "fact_ids_reviewed": [
+        "f_segment_count",
+        "f_platform_workflow",
+        "f_gmv_definition",
+        "f_gmv_nature",
+        "f_partner_role",
+        "f_offline_scope",
+        "f_merchants_job",
+        "f_merchants_size_range",
+        "f_larger_merchants_need",
+        "f_buyers_role",
+        "f_payment_fee_processing",
+        "f_payment_fee_currency_conversion",
+        "f_payment_service_integration",
+        "f_lending_category",
+        "f_shipping_labels_monetization",
+        "f_shipping_labels_category",
+        "f_pos_hardware_monetization",
+        "f_pos_hardware_category",
+        "f_advertising_category",
+        "f_sub_plans_target_population",
+        "f_sub_plans_larger_merchant_extras",
+        "f_sub_plans_category",
+        "f_higher_tier_includes_b2b",
+        "f_premium_pos_category",
+        "f_apps_category",
+        "f_themes_category",
+        "f_domain_registration_category",
+        "f_platform_channel_online",
+        "f_platform_channel_physical",
+        "f_back_end_supports_inventory",
+        "f_back_end_supports_transactions",
+        "f_back_end_supports_buyer_relationships"
+      ],
+      "relationship_ids_reviewed": [
+        "r_platform_serves_merchants",
+        "r_gmv_measures_platform",
+        "r_segment_generates_subscription",
+        "r_segment_generates_merchant",
+        "r_merchants_sell_to_buyers",
+        "r_gmv_measures_merchants",
+        "r_payment_service_generates_merchant_rev",
+        "r_lending_generates_merchant_rev",
+        "r_shipping_labels_generate_merchant_rev",
+        "r_pos_hardware_generates_merchant_rev",
+        "r_advertising_generates_merchant_rev",
+        "r_payment_service_classified_offline",
+        "r_pos_hardware_classified_offline",
+        "r_payment_service_serves_merchants",
+        "r_sub_plans_serve_merchants",
+        "r_premium_pos_classified_offline",
+        "r_sub_plans_generate_sub_rev",
+        "r_premium_pos_generates_sub_rev",
+        "r_apps_generate_sub_rev",
+        "r_themes_generate_sub_rev",
+        "r_domain_reg_generates_sub_rev"
+      ],
+      "quarantined_ids_reviewed": [
+        "off_b2b_selling_feature",
+        "f_b2b_availability",
+        "r_platform_uses_back_end",
+        "r_partners_supply_platform",
+        "r_merchants_pay_subscription",
+        "r_merchants_pay_merchant_solutions",
+        "r_higher_tier_bundles_b2b",
+        "r_b2b_serves_merchants"
+      ],
+      "all_accepted_records_reviewed": true,
+      "inferred_relationship_count": 10,
+      "expansion_complete": true,
+      "model_calls": 6
+    },
+    "baseline_comparison": {
+      "prior_check_counts": {
+        "total": 7,
+        "pass": 7,
+        "partial": 0,
+        "fail": 0
+      },
+      "changed_check_ids": [
+        "S-C04"
+      ],
+      "finding": "More atomic details and an explicit offline classification are available, but over-rejection of the shared-back-end edge regresses one preservation check. The previous unsupported parent-based physical-payment component assignment does not carry over because this contract declares parent links organizational."
+    }
+  },
+  "checks": [
+    {
+      "id": "S-C01",
+      "description": "Distinguish revenue components from the single reporting segment.",
+      "status": "pass",
+      "finding": "A single reported-segment node and its count are distinct from the subscription and merchant-solution revenue streams. Explicit generates edges retain the component connection without relying on organizational parents.",
+      "node_ids": [
+        "segment_single",
+        "rev_subscription_solutions",
+        "rev_merchant_solutions"
+      ],
+      "fact_ids": [
+        "f_segment_count"
+      ],
+      "relationship_ids": [
+        "r_segment_generates_subscription",
+        "r_segment_generates_merchant"
+      ],
+      "statement_ids": [
+        "S-S01"
+      ],
+      "reason": "A single reported-segment node and its count are distinct from the subscription and merchant-solution revenue streams. Explicit generates edges retain the component connection without relying on organizational parents."
+    },
+    {
+      "id": "S-C02",
+      "description": "Keep merchants, buyers and ecosystem partners distinct.",
+      "status": "pass",
+      "finding": "Merchants, their buyers, extension partners, app developers, theme designers and service partners are separate actor nodes. The partner-role fact explicitly distinguishes partners from merchants and buyers, and merchants supply buyers.",
+      "node_ids": [
+        "actor_merchants",
+        "actor_buyers",
+        "actor_extension_partners",
+        "actor_app_developers",
+        "actor_theme_designers",
+        "actor_service_partners"
+      ],
+      "fact_ids": [
+        "f_partner_role",
+        "f_buyers_role"
+      ],
+      "relationship_ids": [
+        "r_merchants_sell_to_buyers"
+      ],
+      "statement_ids": [
+        "S-S02",
+        "S-S08"
+      ],
+      "reason": "Merchants, their buyers, extension partners, app developers, theme designers and service partners are separate actor nodes. The partner-role fact explicitly distinguishes partners from merchants and buyers, and merchants supply buyers."
+    },
+    {
+      "id": "S-C03",
+      "description": "Separate subscription, payment and hardware revenue mechanisms.",
+      "status": "pass",
+      "finding": "Platform and premium POS subscriptions remain distinct from integrated-payment processing/currency-conversion fees and POS hardware sales. Category facts and explicit revenue edges preserve the mechanisms; several obvious component connections are conservatively marked inferred rather than stated. No unsupported price, fee rate or GMV take rate is invented.",
+      "node_ids": [
+        "off_subscription_plans",
+        "off_premium_pos_subscription",
+        "off_merchant_payment_service",
+        "off_pos_hardware",
+        "rev_subscription_solutions",
+        "rev_merchant_solutions"
+      ],
+      "fact_ids": [
+        "f_payment_fee_processing",
+        "f_payment_fee_currency_conversion",
+        "f_pos_hardware_monetization",
+        "f_sub_plans_category",
+        "f_premium_pos_category"
+      ],
+      "relationship_ids": [
+        "r_payment_service_generates_merchant_rev",
+        "r_pos_hardware_generates_merchant_rev",
+        "r_sub_plans_generate_sub_rev",
+        "r_premium_pos_generates_sub_rev"
+      ],
+      "statement_ids": [
+        "S-S04",
+        "S-S05",
+        "S-S06"
+      ],
+      "reason": "Platform and premium POS subscriptions remain distinct from integrated-payment processing/currency-conversion fees and POS hardware sales. Category facts and explicit revenue edges preserve the mechanisms; several obvious component connections are conservatively marked inferred rather than stated. No unsupported price, fee rate or GMV take rate is invented."
+    },
+    {
+      "id": "S-C04",
+      "description": "Represent shared back-end capabilities across sales channels.",
+      "status": "partial",
+      "finding": "The three back-end functions are now individually queryable facts, each preserving cross-channel applicability, and platform channel facts distinguish online and physical commerce. However, support review removed r_platform_uses_back_end; with organizational parents not expressing semantics, no accepted relationship connects the platform to its shared back end.",
+      "node_ids": [
+        "off_commerce_platform",
+        "cap_integrated_back_end"
+      ],
+      "fact_ids": [
+        "f_platform_channel_online",
+        "f_platform_channel_physical",
+        "f_back_end_supports_inventory",
+        "f_back_end_supports_transactions",
+        "f_back_end_supports_buyer_relationships"
+      ],
+      "relationship_ids": [],
+      "statement_ids": [
+        "S-S07"
+      ],
+      "reason": "The three back-end functions are now individually queryable facts, each preserving cross-channel applicability, and platform channel facts distinguish online and physical commerce. However, support review removed r_platform_uses_back_end; with organizational parents not expressing semantics, no accepted relationship connects the platform to its shared back end."
+    },
+    {
+      "id": "S-C05",
+      "description": "Treat offline as a cross-offering classification.",
+      "status": "pass",
+      "finding": "Offline revenue has classification kind and a scope fact explicitly spanning physical-payment services, POS subscriptions and hardware. Classified-as edges retain the cross-offering treatment. The integrated-payment-service edge is conditional on physical commerce and must retain that condition; it does not establish actual physical-channel availability of that specific service.",
+      "node_ids": [
+        "cls_offline_revenue",
+        "off_merchant_payment_service",
+        "off_premium_pos_subscription",
+        "off_pos_hardware"
+      ],
+      "fact_ids": [
+        "f_offline_scope"
+      ],
+      "relationship_ids": [
+        "r_payment_service_classified_offline",
+        "r_pos_hardware_classified_offline",
+        "r_premium_pos_classified_offline"
+      ],
+      "statement_ids": [
+        "S-S09"
+      ],
+      "reason": "Offline revenue has classification kind and a scope fact explicitly spanning physical-payment services, POS subscriptions and hardware. Classified-as edges retain the cross-offering treatment. The integrated-payment-service edge is conditional on physical commerce and must retain that condition; it does not establish actual physical-channel availability of that specific service."
+    },
+    {
+      "id": "S-C06",
+      "description": "Separate GMV from company revenue.",
+      "status": "pass",
+      "finding": "GMV is a metric with a definition retaining shipping, handling, duty, VAT and net refunds. A separate nature fact explicitly distinguishes merchant activity from company revenue, and measures edges connect GMV to the platform and merchants.",
+      "node_ids": [
+        "metric_gmv",
+        "rev_subscription_solutions",
+        "rev_merchant_solutions"
+      ],
+      "fact_ids": [
+        "f_gmv_definition",
+        "f_gmv_nature"
+      ],
+      "relationship_ids": [
+        "r_gmv_measures_platform",
+        "r_gmv_measures_merchants"
+      ],
+      "statement_ids": [
+        "S-S10",
+        "S-S11"
+      ],
+      "reason": "GMV is a metric with a definition retaining shipping, handling, duty, VAT and net refunds. A separate nature fact explicitly distinguishes merchant activity from company revenue, and measures edges connect GMV to the platform and merchants."
+    },
+    {
+      "id": "S-C07",
+      "description": "Attach business-to-business functionality to the stated subscription tier.",
+      "status": "pass",
+      "finding": "The accepted higher-tier-plan fact f_higher_tier_includes_b2b explicitly associates B2B selling with the stated subscription tier, satisfying the preservation check. Internal review nevertheless removed the separately modeled B2B offering and its availability/bundling/serves records; graph navigation loses those records even though the required association survives as an atomic fact.",
+      "node_ids": [
+        "off_higher_tier_plan"
+      ],
+      "fact_ids": [
+        "f_higher_tier_includes_b2b"
+      ],
+      "relationship_ids": [],
+      "statement_ids": [
+        "S-S03",
+        "S-S12"
+      ],
+      "reason": "The accepted higher-tier-plan fact f_higher_tier_includes_b2b explicitly associates B2B selling with the stated subscription tier, satisfying the preservation check. Internal review nevertheless removed the separately modeled B2B offering and its availability/bundling/serves records; graph navigation loses those records even though the required association survives as an atomic fact."
+    }
+  ],
+  "unsupported_claims": [
+    {
+      "id": "shopify_unsupported_need_typing",
+      "finding": "f_larger_merchants_need is keyed as need and marked stated, but S-S03 states that larger merchants receive additional functionality and support; it does not state a customer need. The value text is supported, while the semantic field categorization is not. This matters because readiness accepts it as persona need evidence. The separate f_sub_plans_larger_merchant_extras accurately represents this as offering differentiation.",
+      "record_ids": [
+        "f_larger_merchants_need"
+      ],
+      "node_ids": [
+        "actor_merchants"
+      ],
+      "statement_ids": [
+        "S-S03"
+      ],
+      "scope": "Unsupported typed interpretation; not a fabricated textual feature or financial value."
+    }
+  ],
+  "omissions": [
+    {
+      "finding": "The accepted object lacks a semantic connection from the commerce platform to its shared integrated back end after review removed a supported relationship. Parent placement does not replace that connection.",
+      "record_ids": [
+        "r_platform_uses_back_end"
+      ],
+      "statement_ids": [
+        "S-S02",
+        "S-S07"
+      ],
+      "check_ids": [
+        "S-C04"
+      ]
+    },
+    {
+      "finding": "Review removed the explicit B2B offering plus its availability and tier/merchant edges. The higher-tier included_feature fact still preserves the required association, so this is a representation loss rather than a failed S-C07 check.",
+      "record_ids": [
+        "off_b2b_selling_feature",
+        "f_b2b_availability",
+        "r_higher_tier_bundles_b2b",
+        "r_b2b_serves_merchants"
+      ],
+      "statement_ids": [
+        "S-S12"
+      ],
+      "check_ids": [
+        "S-C07"
+      ]
+    }
+  ],
+  "schema_limitations": [
+    "All 29 accepted nodes, 32 facts and 21 relationships were inspected. Ten revenue/classification edges remain explicitly inferred; they must not silently become customer-confirmed assertions.",
+    "f_segment_count stores the count as string \"1\" rather than a number, and several otherwise atomic fields such as partner role still contain multiple clauses. The structure is more queryable than v1 but not uniformly typed or atomic.",
+    "The conditional payment-to-offline edge must carry its physical-commerce condition. It does not prove that the integrated merchant payment service and the physical-payment services in S-S09 are identical, nor that the service is currently available in physical commerce.",
+    "No node-scoped gaps were generated. The separate deterministic readiness output supplies report questions, but the unresolved payment-service identity and precise fee payer questions are not preserved as specific object gaps.",
+    "Readiness uses broad all-offering coverage requirements. It labels actor and revenue coverage missing even though several named offerings have supported serves and generates relationships, and it returns no partial evidence for those failed requirements. Follow-up questions should target missing branches instead of asking for all known mappings again.",
+    "The multi-perspective and customer-voice readiness outputs omit already identified actor-role evidence when their aggregate requirement fails. Actual stakeholder concerns and customer observations are missing, but actor identities are partly known.",
+    "A supplied feature is not automatically a customer need or a comparative advantage; f_larger_merchants_need demonstrates why key semantics need review in addition to value text.",
+    "GMV measures merchant activity; it is neither company revenue nor an addressable-market estimate. Offline revenue is overlapping classification data and must not be added to subscription and merchant-solution totals."
+  ],
+  "internal_review": {
+    "status": "complete",
+    "quarantined_record_count": 8,
+    "overrejects": [
+      {
+        "record_ids": [
+          "off_b2b_selling_feature"
+        ],
+        "dependent_record_ids": [
+          "f_b2b_availability",
+          "r_higher_tier_bundles_b2b",
+          "r_b2b_serves_merchants"
+        ],
+        "finding": "The reviewer admits S-S12 supports the feature and its tier availability, but rejects it because its parent is the subscription-offerings group. Parent links are organizational in this contract. The supported entity should not be removed for an unasserted revenue classification."
+      },
+      {
+        "record_ids": [
+          "r_platform_uses_back_end"
+        ],
+        "dependent_record_ids": [],
+        "finding": "Read as a connected business description, S-S02 and S-S07 describe one commerce platform and its integrated back end across merchant channels. Requiring an explicit \"uses\" verb is overly literal. The backend function and cross-channel relationship are supported by ordinary sentence meaning."
+      }
+    ],
+    "misses": [
+      {
+        "record_ids": [
+          "f_larger_merchants_need"
+        ],
+        "finding": "The reviewer checks the value text against S-S03 and overlooks that key need converts a provided feature into a stated customer need."
+      }
+    ],
+    "reasonable_or_ambiguous_removals": [
+      {
+        "record_ids": [
+          "r_merchants_pay_subscription",
+          "r_merchants_pay_merchant_solutions"
+        ],
+        "finding": "Exact payers are not explicitly supplied. Both were already marked inferred; quarantine is defensible under a conservative acceptance policy, although plausible hypotheses could instead remain separately visible for confirmation."
+      },
+      {
+        "record_ids": [
+          "r_partners_supply_platform"
+        ],
+        "finding": "Partners extending a platform is supported; the edge verb supplies can imply an unspecified commercial supplier relationship. Replacing it with a precise extension relationship would preserve the known role without settling supplier economics. The accepted f_partner_role still retains the source fact."
+      }
+    ],
+    "interpretation": "Support review is a model judgment, not independent verification. It removes some uncertain claims but also loses supported connections and misses semantic field typing."
+  },
+  "report_readiness": {
+    "ready": false,
+    "reason": "The accepted object supports a qualitative commerce model but still lacks geographic/period scope, prices and fee rates, adoption and market-size values, competitors, comparative evidence and customer observations. All eight readiness sections correctly keep report_ready false. Some generic missing-input flags are too broad and hide evidence that is already present.",
+    "readiness_sections_reviewed": [
+      "summary",
+      "target_personas",
+      "multi_perspective",
+      "market_size",
+      "revenue",
+      "differentiators",
+      "competitive_landscape",
+      "customer_voice"
+    ],
+    "support_review_does_not_establish_truth": true
+  },
+  "over_rejections": [
+    {
+      "record_ids": [
+        "off_b2b_selling_feature"
+      ],
+      "dependent_record_ids": [
+        "f_b2b_availability",
+        "r_higher_tier_bundles_b2b",
+        "r_b2b_serves_merchants"
+      ],
+      "finding": "The reviewer admits S-S12 supports the feature and its tier availability, but rejects it because its parent is the subscription-offerings group. Parent links are organizational in this contract. The supported entity should not be removed for an unasserted revenue classification."
+    },
+    {
+      "record_ids": [
+        "r_platform_uses_back_end"
+      ],
+      "dependent_record_ids": [],
+      "finding": "Read as a connected business description, S-S02 and S-S07 describe one commerce platform and its integrated back end across merchant channels. Requiring an explicit \"uses\" verb is overly literal. The backend function and cross-channel relationship are supported by ordinary sentence meaning."
+    }
+  ],
+  "readiness_findings": [
+    {
+      "section_ids": [
+        "summary",
+        "target_personas",
+        "customer_voice"
+      ],
+      "requirement_ids": [
+        "summary.actor",
+        "target_personas.actor",
+        "customer_voice.actor"
+      ],
+      "finding": "The all-offering mapping test fails and hides known merchant relationships. Follow-up should identify the offerings lacking actor mappings rather than imply that the target customer is wholly absent.",
+      "record_ids": [
+        "actor_merchants",
+        "r_platform_serves_merchants",
+        "r_payment_service_serves_merchants",
+        "r_sub_plans_serve_merchants"
+      ]
+    },
+    {
+      "section_ids": [
+        "summary",
+        "revenue"
+      ],
+      "requirement_ids": [
+        "summary.monetization",
+        "revenue.monetization"
+      ],
+      "finding": "All-offering monetization coverage is incomplete, but known payment-fee revenue and explicit hardware/shipping sale mechanisms should remain visible as partial coverage. Ten inferred component edges correctly cannot count as customer-confirmed coverage.",
+      "record_ids": [
+        "r_payment_service_generates_merchant_rev",
+        "f_payment_fee_processing",
+        "f_payment_fee_currency_conversion",
+        "f_pos_hardware_monetization",
+        "f_shipping_labels_monetization"
+      ]
+    },
+    {
+      "section_ids": [
+        "multi_perspective"
+      ],
+      "requirement_ids": [
+        "multi_perspective.roles"
+      ],
+      "finding": "A missing aggregate role requirement omits already captured merchant, buyer and partner identities/roles. Concerns are genuinely unspecified; identities are partly supplied.",
+      "record_ids": [
+        "actor_merchants",
+        "actor_buyers",
+        "actor_extension_partners",
+        "f_partner_role",
+        "f_buyers_role",
+        "r_merchants_sell_to_buyers"
+      ]
+    },
+    {
+      "section_ids": [
+        "target_personas"
+      ],
+      "requirement_ids": [
+        "target_personas.need"
+      ],
+      "finding": "Readiness includes f_larger_merchants_need as stated need evidence even though it describes provided functionality/support. f_merchants_job does independently support a job-to-be-done; removing the mistyped fact need not erase all persona evidence.",
+      "record_ids": [
+        "f_larger_merchants_need",
+        "f_merchants_job"
+      ]
+    }
+  ]
+}

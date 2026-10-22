@@ -154,10 +154,16 @@ def get_intake_form(session_id: str):
     Same deterministic plan the chat walks one turn at a time — each spec carries its
     own input_kind / options / write_in / unit_hint / optional, so the client renders a
     survey rather than a conversation."""
-    from intake import form_questions
+    from intake import form_questions, report_style_of, _original_description
+    from survey_questions import OPENING_QUESTION, INTRODUCTION, GROUPS, SURVEY_VERSION
     s = _owned_session(session_id)
     qs = form_questions(s)
     return {"session_id": session_id, "questions": qs,
+            "survey_version": SURVEY_VERSION,
+            "opening_question": OPENING_QUESTION, "introduction": INTRODUCTION,
+            "groups": list(GROUPS), "original_description": _original_description(s),
+            "report_style": report_style_of(s),
+            "submitted_groups": s.get("submitted_groups") or [],
             "answered": sum(1 for q in qs if q.get("value") not in (None, "", [])),
             "total": len(qs)}
 
@@ -172,7 +178,15 @@ def post_intake_form(session_id: str, body: dict | None = None):
     as typed. Returns the confirmation card so the operator still reviews before the
     run starts."""
     from intake import apply_form_answers, confirmation_payload
+    from survey_questions import SURVEY_VERSION
     s = _owned_session(session_id)
+    version = (body or {}).get("survey_version")
+    if version is not None:
+        if version != SURVEY_VERSION:
+            raise HTTPException(status_code=400, detail="Unsupported survey version.")
+        # New UI can reopen a legacy draft. Opting into paragraph preservation
+        # does not grant authorship to any old extractor suggestions.
+        s["survey_version"] = version
     try:
         apply_form_answers(s, (body or {}).get("answers") or {})
     except ValueError as e:
@@ -253,7 +267,9 @@ def post_intake_confirm(session_id: str, body: dict | None = None):
     # paywall destroyed the interview. Default true, because every other caller (and the
     # confirmation card) means the committing kind.
     _commit = (body or {}).get("commit", True) is not False
-    from intake import ALL_FIELDS
+    from intake import ALL_FIELDS, _mark_founder_owned
+    from survey_questions import FIELDS, SURVEY_VERSION
+    import slots
     for field, value in ((body or {}).get("corrections") or {}).items():
         # Any extracted field is correctable — the old whitelist of two meant a wrong
         # business-model inference on the card could be SEEN but not FIXED, which makes
@@ -263,8 +279,13 @@ def post_intake_confirm(session_id: str, body: dict | None = None):
             continue
         if field == "kind":
             s.setdefault("extracted", {})["business_model"] = value.strip()
+            _mark_founder_owned(s, "business_model")
         elif field in ALL_FIELDS:
-            s.setdefault("extracted", {})[field] = value.strip()
+            s.setdefault("extracted", {})[field] = (
+                slots.make(field, value.strip(), kind=slots.TEXT, source="correction")
+                if field in FIELDS and s.get("survey_version") == SURVEY_VERSION
+                else value.strip())
+            _mark_founder_owned(s, field)
     if _commit:
         mark_confirmed(s)
     else:

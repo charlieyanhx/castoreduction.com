@@ -76,6 +76,8 @@
   .phase-name { font-size: 15px; letter-spacing: -.005em; color: var(--text-faint); }
   .phase.done .phase-name, .phase.live .phase-name { color: var(--text); }
   .phase.live .phase-name { font-weight: 600; }
+  .phase.issue .dot { border-color: var(--warn-ink); }
+  .phase.issue .phase-name, .phase.issue .phase-note { color: var(--warn-ink); }
   .phase-note { margin-top: 2px; font-size: 12.5px; color: var(--text-faint); }
 
   .feed { margin-top: 30px; padding: 18px 20px; background: var(--surface);
@@ -113,6 +115,7 @@
                  color: var(--warn-ink); }
   .bad-card p { margin-top: 8px; font-size: 14px; color: var(--warn-ink); max-width: 56ch; }
   .bad-card a { color: var(--warn-ink); }
+  .bad-card a.open { color: #fff; }
   /* The description a stopped run was given, handed back verbatim. The interview it came
      from is closed once a run is accepted, so this text is the only part of ten minutes of
      answering that the founder can still get at. It has to be selectable, and long briefs
@@ -190,6 +193,18 @@
       keys: ["four_ps", "segment_ranking", "viability"] }
   ];
   var TOTAL_STEPS = PHASES.reduce(function (n, p) { return n + p.keys.length; }, 0);
+  var TREADLE_PHASES = [
+    { key: "prep", name: "Building your business and research brief" },
+    { key: "target_personas", name: "Target personas" },
+    { key: "competitive_landscape", name: "Competitive landscape" },
+    { key: "customer_voice", name: "Customer voice" },
+    { key: "market_size", name: "Market size" },
+    { key: "differentiators", name: "Differentiators" },
+    { key: "revenue", name: "Three-year revenue" },
+    { key: "multi_perspective", name: "Multiple perspectives" },
+    { key: "summary", name: "Executive summary" }
+  ];
+  var activePipeline = "legacy";
 
   /* Tool names in founder language. An unmapped tool degrades to its own name with the
      underscores taken out, which is honest and readable rather than hidden. */
@@ -262,6 +277,23 @@
       empty: "Nothing yet. The first searches start once the report ahead of this one is done."
     }
   };
+  var TREADLE_COPY = {
+    running: {
+      title: "Building your Treadle report",
+      sub: "First we build a detailed picture of your business and the questions to " +
+           "research. Report sections then run as their inputs become available. " +
+           "Stage results appear after each research round, so the list may stay unchanged for several minutes. " +
+           "You can close this tab and return while the work continues.",
+      lab: "Research updates",
+      empty: "Waiting for the next update. Sections can run together and may be revisited."
+    },
+    queued: COPY.queued
+  };
+
+  function waitingCopy(queued) {
+    var copy = activePipeline === "treadle" ? TREADLE_COPY : COPY;
+    return queued ? copy.queued : copy.running;
+  }
 
   function fmt(secs) {
     var m = Math.floor(secs / 60), s = Math.floor(secs % 60);
@@ -316,6 +348,57 @@
     $("fill").style.width = Math.max(2, Math.min(100, pct)) + "%";
   }
 
+  function renderTreadlePhases(result, state) {
+    result = result || {};
+    var progress = result._treadle_progress || {};
+    var report = result._treadle || {};
+    var sections = progress.sections || (report.sections && report.sections.sections) || [];
+    var verdicts = {};
+    if (Array.isArray(sections)) {
+      sections.forEach(function (section) {
+        if (section && typeof section.key === "string") verdicts[section.key] = section;
+      });
+    } else if (sections && typeof sections === "object") {
+      verdicts = sections;
+    }
+    var completed = {};
+    (result._steps_completed || []).forEach(function (key) { completed[key] = true; });
+    var terminal = state === "complete" || state === "error";
+    var doneCount = 0;
+    var host = $("phases");
+    host.innerHTML = "";
+    TREADLE_PHASES.forEach(function (phase) {
+      var verdict = verdicts[phase.key];
+      var status = typeof verdict === "string" ? verdict : verdict && verdict.status;
+      if (!status && completed[phase.key]) status = "ok";
+      var done = status === "ok";
+      if (done) doneCount += 1;
+      var issue = status === "failed" || status === "flagged" || status === "skipped";
+      var row = el("div", "phase" + (done ? " done" : issue ? " issue" : ""));
+      row.dataset.section = phase.key;
+      row.appendChild(el("div", "dot"));
+      var body = el("div");
+      body.appendChild(el("div", "phase-name", phase.name));
+      var note = done ? "Done" : status === "flagged" ? "Needs review"
+        : status === "failed" ? "Did not complete"
+        : status === "skipped" ? "Missing required input"
+        : status === "not_applicable" ? "Not applicable"
+        : terminal ? "No completed result" : state === "pending" ? "Queued" : "Waiting for a result";
+      body.appendChild(el("div", "phase-note", note));
+      row.appendChild(body);
+      host.appendChild(row);
+    });
+    // Count only reported successful stages. A later stage never implies an earlier
+    // one finished: these sections can run concurrently and be corrected independently.
+    $("fill").style.width = (doneCount / TREADLE_PHASES.length * 100) + "%";
+    var track = $("fill").parentElement;
+    track.setAttribute("role", "progressbar");
+    track.setAttribute("aria-label", "Research stages completed");
+    track.setAttribute("aria-valuemin", "0");
+    track.setAttribute("aria-valuemax", String(TREADLE_PHASES.length));
+    track.setAttribute("aria-valuenow", String(doneCount));
+  }
+
   /* THE PROOF OF WORK. Six minutes of a spinner is six minutes of doubt; six minutes of
      watching it read the census and price real competitors is the product demonstrating
      that it goes outside and measures, which is the entire thing the founder just paid
@@ -332,9 +415,12 @@
     host.innerHTML = "";
     shown.slice(-40).reverse().forEach(function (e) {
       var row = el("div", "ev" + (e.ok === false ? " bad" : ""));
+      var stage = activePipeline === "treadle" && TREADLE_PHASES.find(function (phase) {
+        return phase.key === e.name;
+      });
       var what = e.layer === "tool"
         ? (TOOL_WORDS[e.name] || String(e.name || "").replace(/_/g, " "))
-        : "finished " + String(e.name || "").replace(/_/g, " ");
+        : "finished " + (stage ? stage.name : String(e.name || "").replace(/_/g, " "));
       if (e.ok === false) what = "could not " + what;
       row.appendChild(el("span", "ev-what", what));
       if (e.detail) row.appendChild(el("span", "ev-detail", e.detail));
@@ -385,6 +471,40 @@
     // No auto-redirect. The old page bounced after 1.5s, which throws away the one moment
     // the reader is deciding whether the wait was worth it, and yanks the page out from
     // under anyone mid-scroll. Enter opens it for the impatient.
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" && !finishedNavigated) { finishedNavigated = true; a.click(); }
+    });
+  }
+
+  function finishTreadle(job) {
+    var result = job.result || {};
+    if (!result._treadle || job.report_available !== true) {
+      return fail(job.error || "The run stopped before usable report sections were saved.");
+    }
+    finished = true;
+    stopClock();
+    var complete = job.state === "complete" && result._treadle_status === "complete";
+    $("title").textContent = complete ? "Your Treadle report is ready" : "Your Treadle report is partial";
+    $("sub").textContent = complete
+      ? "The report is assembled. Review its assumptions and uncertainties alongside the findings."
+      : "The run has stopped with incomplete research or unresolved findings. The available work is saved.";
+    $("feedLab").textContent = "What it did";
+    var card = el("div", complete ? "done-card" : "bad-card");
+    card.appendChild(el("h2", null, complete ? "Ready to read" : "Partial report available"));
+    card.appendChild(el("p", null, complete
+      ? "Open your full analysis below."
+      : "Open the partial report to see the available sections and the limitations that remain."));
+    if (!complete && job.error) card.appendChild(el("p", null,
+      String(job.error).replace(/^CustomerPipelineIncomplete:\s*/, "")));
+    card.appendChild(el("p", null,
+      "Source tracing is disabled in this version; the report does not verify every claim against its source."));
+    var a = el("a", "open", complete ? "Open the report" : "Open the partial report");
+    a.href = "/jobs/" + encodeURIComponent(jobId) + "/report.html";
+    card.appendChild(a);
+    card.appendChild(el("span", "second", "or press Enter"));
+    $("outcome").innerHTML = "";
+    $("outcome").appendChild(card);
+    quietFeed();
     document.addEventListener("keydown", function (ev) {
       if (ev.key === "Enter" && !finishedNavigated) { finishedNavigated = true; a.click(); }
     });
@@ -443,8 +563,9 @@
   function quietFeed() {
     var empty = $("feed").querySelector(".feed-empty");
     if (empty) {
-      empty.textContent = "This run predates the live activity log, so there is nothing "
-                        + "to replay here.";
+      empty.textContent = activePipeline === "treadle"
+        ? "No detailed activity was recorded for this run. The section results are shown above."
+        : "This run predates the live activity log, so there is nothing to replay here.";
     }
   }
 
@@ -454,7 +575,7 @@
      rewritten; replacing textContent here would delete the clock. */
   function setWaiting(queued) {
     if (finished) return;
-    var c = queued ? COPY.queued : COPY.running;
+    var c = waitingCopy(queued);
     var head = $("title").firstChild;
     if (head) head.nodeValue = c.title;
     $("sub").textContent = c.sub;
@@ -547,13 +668,16 @@
       }
       missed = 0;                                      // answered: back to normal
       var j = await res.json();
+      activePipeline = (j.params && j.params.pipeline === "treadle") ||
+        (j.result && j.result._pipeline === "treadle") ? "treadle" : "legacy";
       if (j.created_at) createdAt = j.created_at;
       // Kept for fail(): the description is the one piece of the interview a stopped run
       // can still hand back.
       if (j.params && j.params.description) runDescription = String(j.params.description);
       var queued = j.state === "pending";
-      renderPhases((j.result && j.result._steps_completed) || [],
-                   j.state === "complete", queued);
+      if (activePipeline === "treadle") renderTreadlePhases(j.result, j.state);
+      else renderPhases((j.result && j.result._steps_completed) || [],
+                        j.state === "complete", queued);
       setWaiting(queued);
 
       try {
@@ -572,10 +696,14 @@
           $("feed").appendChild(el("div", "feed-empty",
             finished ? "This run predates the live activity log, so there is nothing to replay here."
             : !evRes.ok ? "The activity log is not answering right now. The run itself carries on."
-            : (queued ? COPY.queued.empty : COPY.running.empty)));
+            : waitingCopy(queued).empty));
         }
       } catch (e) { /* the event stream is a bonus, never the thing that breaks the page */ }
 
+      if (activePipeline === "treadle" && (j.state === "complete" || j.state === "error")) {
+        tick();
+        return finishTreadle(j);
+      }
       if (j.state === "complete") { tick(); return succeed(j.result); }
       if (j.state === "error") { tick(); return fail(j.error); }
     } catch (e) {

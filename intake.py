@@ -1,27 +1,9 @@
-"""
-Iter 37: Conversational intake — chat with the founder until we have enough
-to fire the 14-step pipeline. Don't stop until critical fields are filled.
+"""Persist the founder's opening description and the approved optional survey.
 
-The pipeline needs (at minimum) a clear paragraph that names:
-  - product (what it does, 1-2 sentences)
-  - target customer (who buys/uses)
-  - business model (DTC, B2B SaaS, marketplace, ...)
-  - geography (default US)
-
-Nice-to-have (will ask once if missing):
-  - pricing (if known)
-  - differentiation thesis
-  - stage (pre-launch, launched, scaling)
-  - key features
-
-Each turn, the LLM:
-  1. Looks at the running transcript
-  2. Decides what's still unknown
-  3. Either asks ONE focused next question, or signals "ready" and assembles
-     the final paragraph that downstream `run_plan` will consume.
-
-Sessions are stored in-memory (these are 1-3 minute conversations); SQLite
-persistence is a follow-up if needed.
+The model extracts suggestions from conversation; deterministic question planning
+owns the survey. Revised sessions confirm only founder-authored answers and preserve
+all original description text for report preparation. SQLite keeps drafts restorable
+across workers and restarts.
 """
 from __future__ import annotations
 import os
@@ -37,6 +19,7 @@ from typing import Any
 from capabilities.effort import STANDARD, resolve_effort
 from llm import call_json
 from logger import get
+from survey_questions import FIELDS as SURVEY_FIELDS, OPENING_QUESTION, SURVEY_VERSION
 
 log = get("intake")
 
@@ -44,13 +27,12 @@ log = get("intake")
 REQUIRED_FIELDS = ("product", "target_customer", "business_model", "geography")
 NICE_TO_HAVE_FIELDS = ("pricing", "differentiation", "stage", "key_features")
 
-# The decision tree's fields (intake_tree.py). Which of these a session is actually asked
-# depends on what KIND of business it is — a cafe gets capacity/site/rent, a SaaS gets the
-# per-seat question, a marketplace gets its take — plus founder-only core facts the pipeline
-# used to guess (status quo, costs, customer evidence, competitors, success target).
+# Revised question fields plus legacy answers retained for older clients and reports.
+# The visible question order comes exclusively from survey_questions.py.
 TREE_FIELDS = (
     "status_quo", "monthly_cost_estimate", "customer_evidence", "named_competitors",
-    "success_target",
+    "success_target", "delivery_mode", "service_capacity", "scalability",
+    "acquisition_channels", "unit_economics", "fixed_costs", "constraints",
     "capacity", "avg_ticket", "rent_estimate",
     "pricing_unit_scope", "seats_per_account", "sales_motion",
     "avg_order", "unit_cost", "channel",
@@ -58,7 +40,7 @@ TREE_FIELDS = (
     "take_rate", "side_first", "avg_transaction",
     "payer", "audience_threshold", "hybrid_legs",
     "site", "locations_count", "local_anchor", "real_traction", "regulatory",
-    "kind_fork",
+    "kind_fork", "expected_volume", "target_basis",
 )
 ALL_FIELDS = REQUIRED_FIELDS + NICE_TO_HAVE_FIELDS + TREE_FIELDS
 
@@ -77,7 +59,7 @@ DEFAULT_REPORT_STYLE = "full"
 # The escape hatch: a founder who answers vaguely forever must not be trapped in the
 # interview. After this many user turns, every still-open tree question is marked as an
 # assumption and the session goes ready — the report then discloses what was assumed.
-MAX_TREE_TURNS = 14
+MAX_TREE_TURNS = 15
 
 
 INTAKE_PROMPT = """You are an analyst interviewing a founder to gather just enough information to run a market-research pipeline. Be conversational, warm, and concise — never interrogative.
@@ -258,6 +240,8 @@ def _mark_founder_owned(session: dict, field: str) -> None:
     owned = session.setdefault("founder_fields", [])
     if field not in owned:
         owned.append(field)
+    if field in (session.get("unanswered_fields") or []):
+        session["unanswered_fields"].remove(field)
 
 
 _HAS_DIGIT = re.compile(r"\d")
@@ -278,14 +262,22 @@ def _file_pending_answer(session: dict, pending: str | None, utterance: str) -> 
     if not pending or not u or utterance_is_not_sure(u):
         return
     from intake_tree import _INPUT_SPECS, is_unknown
-    input_kind = (_INPUT_SPECS.get(pending) or {}).get("input_kind", "text")
+    revised_field = (session.get("survey_version") == SURVEY_VERSION
+                     and pending in SURVEY_FIELDS)
+    input_kind = ("para" if revised_field else
+                  (_INPUT_SPECS.get(pending) or {}).get("input_kind", "text"))
     if input_kind == "number" and not _HAS_DIGIT.search(u):
         return                       # not a number answer; leave it to conversation
     current = session["extracted"].get(pending)
     if is_unknown(current):
         return                       # an explicit "not sure" stays a disclosed unknown
-    if input_kind in ("number", "location", "choice") or not current:
-        session["extracted"][pending] = u
+    if revised_field or input_kind in ("number", "location", "choice") or not current:
+        if revised_field:
+            import slots
+            session["extracted"][pending] = slots.make(
+                pending, u, kind=slots.TEXT, source="chat")
+        else:
+            session["extracted"][pending] = u
         _mark_founder_owned(session, pending)
 
 
@@ -300,6 +292,7 @@ def start_session(initial_message: str | None = None,
     session = {
         "id": sid,
         "created_at": int(time.time()),
+        "survey_version": SURVEY_VERSION,
         "messages": [],   # [{role, content}]
         "extracted": {f: None for f in ALL_FIELDS},
         "pending_field": None,   # which tree field the last question asked about
@@ -319,10 +312,7 @@ def start_session(initial_message: str | None = None,
         return process_message(sid, initial_message)
 
     # First-turn opening question — fixed, no LLM needed
-    opener = (
-        "Hi! I'll help you put together a market-research report. "
-        "To start: in a sentence or two, what does your product do and who is it for?"
-    )
+    opener = OPENING_QUESTION
     session["messages"].append({"role": "assistant", "content": opener})
     save_session(session)
     return {
@@ -366,6 +356,8 @@ def process_message(session_id: str, user_message: str) -> dict:
 
     session["messages"].append({"role": "user", "content": user_message})
     user_msg_count = sum(1 for m in session["messages"] if m["role"] == "user")
+    if user_msg_count == 1:
+        session["original_description"] = user_message
 
     # Call LLM to update extracted state + decide next action.
     # Retry on transient LLM hiccups (empty / _parse_error) before salvaging — a
@@ -431,8 +423,10 @@ def process_message(session_id: str, user_message: str) -> dict:
     # "Not sure" is an ANSWER: the pending field becomes a disclosed assumption instead of
     # being re-asked forever or force-filled with fake precision.
     pending = session.get("pending_field")
-    if pending and utterance_is_not_sure(user_message) and             not session["extracted"].get(pending):
+    if pending and utterance_is_not_sure(user_message):
         mark_unknown(session["extracted"], pending)
+        if pending in (session.get("unanswered_fields") or []):
+            session["unanswered_fields"].remove(pending)
 
     # THE TREE KNOWS WHAT IT ASKED. An answer matching the pending question's shape is
     # filed verbatim, deterministically, AFTER the LLM merge so the founder's words win
@@ -499,6 +493,8 @@ def process_message(session_id: str, user_message: str) -> dict:
     # open questions. The tree outranks it — that is the whole point of the tree.
     if next_action == "ready" and tree_q is not None:
         next_action = "ask"
+    if session.get("survey_version") == SURVEY_VERSION and tree_q is None:
+        next_action = "ready"
 
     if next_action == "ready":
         final = resp.get("final_description") or ""
@@ -510,6 +506,8 @@ def process_message(session_id: str, user_message: str) -> dict:
             final = (final + ". " + (session["extracted"].get("product") or "") + " " +
                      (session["extracted"].get("target_customer") or "")).strip()
         session["final_description"] = final
+        if session.get("survey_version") == SURVEY_VERSION:
+            final = session["final_description"] = _description_for_session(session)
         session["ready"] = True
         # NOT "Generating your report now" — nothing is generating. The run does not start
         # until the operator confirms the load-bearing answers and presses the button, and
@@ -760,6 +758,13 @@ def _synthesize_from_extracted(ex: dict) -> str:
         ("real_traction", "Traction to date: {}."),
         ("regulatory", "Known regulatory requirements: {}."),
         ("local_anchor", "Founder-supplied local figure: {}."),
+        ("delivery_mode", "Delivery mode: {}."),
+        ("service_capacity", "Service capacity and period: {}."),
+        ("scalability", "Scalability: {}."),
+        ("acquisition_channels", "Customer acquisition channels: {}."),
+        ("unit_economics", "Per-item costs, prices, and marginal profit: {}."),
+        ("fixed_costs", "Fixed costs: {}."),
+        ("constraints", "Other constraints: {}."),
     )
     for field, tpl in _tree_lines:
         said = _say(field)
@@ -816,6 +821,14 @@ _PARSE_LABELS: tuple[tuple[str, str], ...] = (
     ("real_traction", "Traction to date:"),
     ("regulatory", "Known regulatory requirements:"),
     ("local_anchor", "Founder-supplied local figure:"),
+    ("delivery_mode", "Delivery mode:"),
+    ("service_capacity", "Service capacity and period:"),
+    ("scalability", "Scalability:"),
+    ("acquisition_channels", "Customer acquisition channels:"),
+    ("unit_economics", "Per-item costs, prices, and marginal profit:"),
+    ("fixed_costs", "Fixed costs:"),
+    ("constraints", "Other constraints:"),
+    ("original_description", "Original business description:"),
     ("_assumptions", "The founder does not know yet"),
 )
 
@@ -1032,6 +1045,13 @@ def confirmation_payload(session: dict | None) -> dict:
     """What the UI renders before the Generate button becomes real."""
     ex = (session or {}).get("extracted") or {}
     items = confirmation_items(ex)
+    if (session or {}).get("survey_version") == SURVEY_VERSION:
+        owned = set((session or {}).get("founder_fields") or [])
+        for item in items:
+            field = "business_model" if item["field"] == "kind" else item["field"]
+            if item.get("value") and field not in owned:
+                item["provenance"] = "inferred"
+                item["precise"] = False
     return {"items": items,
             "all_precise": all(i["precise"] for i in items),
             "confirmed": is_confirmed(session or {})}
@@ -1078,6 +1098,10 @@ def intake_record(session: dict) -> dict:
     import slots as _slots
     from intake_tree import is_unknown
     ex = (session or {}).get("extracted") or {}
+    if session.get("survey_version") == SURVEY_VERSION:
+        owned = set(session.get("founder_fields") or [])
+        ex = {field: value for field, value in ex.items()
+              if field in owned or is_unknown(value)}
     # `facts` stays a dict of STRINGS: roughly thirty downstream readers consume it that
     # way, and the canonical rendering is what they were already reading. What changed is
     # how the string is produced. The old comprehension filtered on `isinstance(v, str)`,
@@ -1086,6 +1110,9 @@ def intake_record(session: dict) -> dict:
     # went blind to a fact the founder had typed. A list-valued key_features was lost the
     # same way, silently, for as long as this function has existed.
     facts = _slots.as_facts(ex)
+    original = _original_description(session)
+    if original:
+        facts["original_description"] = original
     # `slots` is the typed record itself, for consumers that want the kind guard: a reader
     # asking for kind="price" cannot be handed the founder's monthly operating cost, which
     # is the substitution that published the "-95%" pricing banner (audit 1, R2).
@@ -1094,6 +1121,7 @@ def intake_record(session: dict) -> dict:
     warnings_shown = [{"field": i["field"], "warning": i["warning"]}
                       for i in confirmation_items(ex) if i.get("warning")]
     return {"facts": facts, "slots": typed, "unknowns": unknowns,
+            "unanswered": sorted(set(session.get("unanswered_fields") or []) & set(unknowns)),
             "warnings_shown": warnings_shown,
             "confirmed": bool((session or {}).get("confirmed")),
             # The founder's choice of report shape. Always present, so the run and the
@@ -1110,13 +1138,15 @@ def mark_confirmed(session: dict) -> dict:
     """
     ex = (session or {}).get("extracted") or {}
     session["confirmed"] = True
-    session["confirmed_facts"] = {i["field"]: ex.get(i["field"])
-                                  for i in confirmation_items(ex)}
     session["intake_record"] = intake_record(session)
+    session["confirmed_facts"] = (
+        dict(session["intake_record"]["facts"])
+        if session.get("survey_version") == SURVEY_VERSION else
+        {i["field"]: ex.get(i["field"]) for i in confirmation_items(ex)})
     # REBUILD. final_description is synthesised when the session goes ready, which is
     # BEFORE the operator sees the card — so a correction made on the card would never
     # reach the run, and the card would be theatre for the one field it exists to fix.
-    session["final_description"] = _synthesize_from_extracted(ex)
+    session["final_description"] = _description_for_session(session)
     save_session(session)
     return session
 
@@ -1175,16 +1205,62 @@ def founder_words(session: dict) -> str:
     return " ".join(p for p in parts if p)
 
 
+def _original_description(session: dict) -> str:
+    """The opening answer is source material, not the extractor's shorter paraphrase."""
+    original = session.get("original_description")
+    if isinstance(original, str) and original.strip():
+        return original.strip()
+    return next((str(message.get("content") or "").strip()
+                 for message in session.get("messages") or []
+                 if message.get("role") == "user"), "")
+
+
+def _description_for_session(session: dict) -> str:
+    """Keep all opening details and only explicitly authored follow-up answers."""
+    from intake_tree import is_unknown
+    ex = session.get("extracted") or {}
+    if session.get("survey_version") == SURVEY_VERSION:
+        owned = set(session.get("founder_fields") or [])
+        unanswered = set(session.get("unanswered_fields") or [])
+        ex = {field: value for field, value in ex.items()
+              if (field in owned or is_unknown(value)) and field not in unanswered}
+    description = _synthesize_from_extracted(ex)
+    original = _original_description(session)
+    if original:
+        # Put the raw source last so free-form text cannot merge into a preceding
+        # structured answer when the legacy labelled-description parser runs.
+        description = (description + " Original business description: " + original).strip()
+    return description
+
+
+def _survey_display_value(field: str, value: Any) -> str:
+    """Render old typed answers without dropping their unit, period, or currency."""
+    import slots
+    rendered = slots.text(value)
+    if (field == "monthly_cost_estimate" and slots.is_slot(value)
+            and value.get("kind") == slots.COST and value.get("currency") == "USD"
+            and isinstance(value.get("value"), (int, float))
+            and rendered.startswith("$")):
+        rendered = "USD " + rendered[1:]
+    return rendered
+
+
 def form_questions(session: dict) -> list[dict]:
     """Every question this venture should answer, with its current value. Deterministic:
     the same plan the chat would walk, rendered all at once."""
-    from intake_tree import classify_turn, plan_questions
+    from intake_tree import classify_turn, is_unknown, plan_questions
     ex = session.get("extracted") or {}
     cls = classify_turn(ex, user_text=founder_words(session))
     out = []
     for q in plan_questions(ex, cls):
         spec = dict(q)
-        spec["value"] = ex.get(q["field"])
+        value = ex.get(q["field"])
+        spec["value"] = value
+        spec["display_value"] = _survey_display_value(q["field"], value)
+        owned = q["field"] in (session.get("founder_fields") or [])
+        spec["confirmed"] = owned and not is_unknown(value)
+        spec["source"] = ("unknown" if is_unknown(value) else "founder" if owned
+                          else "empty" if value in (None, "", []) else "inferred")
         out.append(spec)
     return out
 
@@ -1203,19 +1279,23 @@ def apply_form_answers(session: dict, answers: dict) -> dict:
     the founder's phrasing, because inferring it from phrasing is the defect.
     """
     import slots as _slots
-    from intake_tree import mark_unknown         # NOT is_unknown: this line used to import
-    ex = session.setdefault("extracted",         # the wrong name and every blank answer
-                            {f: None for f in ALL_FIELDS})   # raised NameError, so the
-    asked = {q["field"]: q for q in form_questions(session)}  # endpoint 500'd on the first
+    if not isinstance(answers, dict):
+        raise ValueError("Answers must be an object keyed by survey field.")
+    from intake_tree import is_unknown, mark_unknown
+    ex = session.setdefault("extracted", {f: None for f in ALL_FIELDS})
+    asked = {q["field"]: q for q in form_questions(session)}
+    revised = session.get("survey_version") == SURVEY_VERSION
     # THE REPORT STYLE IS VALIDATED FIRST, before anything is written, so a refused submit
     # leaves the session exactly as it was. It lives on the session, not in `extracted`
     # (see REPORT_STYLES), and a blank leaves the earlier choice or the default standing.
     if (answers or {}).get("report_style") not in (None, ""):
         session["report_style"] = parse_report_style(answers["report_style"])
-    for field, value in (answers or {}).items():             # realistic submit.
+    for field, value in answers.items():
         if field not in ALL_FIELDS and field not in asked:
             continue                      # never invent a field the tree does not know
         unit = period = None
+        if revised and _slots.is_slot(value) and field in SURVEY_FIELDS:
+            value = _survey_display_value(field, value)
         if isinstance(value, dict) and not _slots.is_slot(value):
             unit, period = value.get("unit"), value.get("period")
             value = value.get("value")
@@ -1223,9 +1303,17 @@ def apply_form_answers(session: dict, answers: dict) -> dict:
             value = value.strip()
         if value in (None, "", []):
             if field in asked:
+                was_unknown = is_unknown(ex.get(field))
                 mark_unknown(ex, field)   # asked, not answered -> a DECLARED unknown
+                unanswered = session.setdefault("unanswered_fields", [])
+                if not was_unknown and field not in unanswered:
+                    unanswered.append(field)
             continue
-        ex[field] = _slots.make(field, value, unit=unit, period=period, source="form")
+        if field in (session.get("unanswered_fields") or []):
+            session["unanswered_fields"].remove(field)
+        ex[field] = _slots.make(
+            field, value, unit=unit, period=period, source="form",
+            kind=_slots.TEXT if revised and field in SURVEY_FIELDS else None)
         _mark_founder_owned(session, field)   # typed by the founder; no later extractor
                                               # pass may overwrite it with a paraphrase
     # The fork answer IS the founder naming their revenue model. The chat writes it into
@@ -1233,11 +1321,16 @@ def apply_form_answers(session: dict, answers: dict) -> dict:
     # that path, so the answer sat in kind_fork where no classifier reads it and the pack
     # never switched off the subscription default.
     said = _slots.text(ex.get("kind_fork")).strip()
-    if said:
+    if said and "kind_fork" in (answers or {}) and "business_model" not in (answers or {}):
         ex["business_model"] = _slots.make("business_model", said, source="form")
         _mark_founder_owned(session, "business_model")
     session["extracted"] = ex
-    session["final_description"] = _synthesize_from_extracted(ex)
+    session["final_description"] = _description_for_session(session)
+    submitted = session.setdefault("submitted_groups", [])
+    for group in ("core", "specific"):
+        fields = {field for field, question in asked.items() if question.get("group") == group}
+        if fields and fields <= set(answers or {}) and group not in submitted:
+            submitted.append(group)
     session["form_submitted"] = True
     save_session(session)
     return session
