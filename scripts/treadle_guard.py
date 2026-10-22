@@ -86,6 +86,7 @@ APPROVED_CONNECTION_FILES = frozenset({
     "routes/research.py", "routes/jobs.py", "routes/workshop.py", "web/progress.html",
     "api.py",  # refuse purchases of workshop actions unavailable for this pipeline
     "test_a_resumed_run_is_still_a_paid_run.py",
+    ".env.example",  # documents TREADLE_PREP_MODEL, without which /plan answers 503
 })
 
 # On 2026-10-22 the user approved making the suite agree with the Treadle-only route:

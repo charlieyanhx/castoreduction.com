@@ -1,4 +1,7 @@
-"""Run the selectable PREP workflow and save JSON, HTML and optionally PDF.
+"""Run the selectable PREP workflow through the Treadle service; save JSON, HTML, optionally PDF.
+
+The pack-agnostic command line is `python -m treadle` (treadle/service/cli.py); this
+script keeps the market-research tuning flags.
 
     .venv/bin/python scripts/treadle_market_research.py --brief venture.json --out out/venture --pdf
 
@@ -42,6 +45,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="maximum recursive business graph depth")
     parser.add_argument("--pdf", action="store_true", help="also render PDF using the existing exporter")
     parser.add_argument("--describe", action="store_true", help="print the workflow without model calls")
+    parser.add_argument("--runs-dir", type=Path,
+                        help="where the service keeps the run (default: <out dir>/treadle-runs)")
     args = parser.parse_args(argv)
     from treadle.execution_limits import ExecutionLimits
     from packs.market_research_next import DEPENDENCIES, REPORT_ORDER, build_report_type
@@ -71,8 +76,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.brief is None or args.out is None:
         parser.error("--brief and --out are required unless --describe is used")
-    from treadle import register, run_report
-    from packs.market_research_next.render import render_html
+    from treadle import register
+    from treadle.service import Service, ServiceError
 
     try:
         brief = json.loads(args.brief.read_text(encoding="utf-8"))
@@ -84,27 +89,40 @@ def main(argv: list[str] | None = None) -> int:
                                business_max_calls=args.business_calls,
                                business_max_depth=args.business_depth)
         register(rt)
-        report = run_report(rt.key, brief)
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        prefix = str(args.out)
-        Path(prefix + ".json").write_text(json.dumps(asdict(report), ensure_ascii=False,
-                                                   allow_nan=False, indent=2),
-                                           encoding="utf-8")
-        html = render_html(report)
+        # The run goes through the Treadle service, so it is recorded like any other:
+        # status, treadle.run/1 events and the report under --runs-dir.
+        service = Service(args.runs_dir or args.out.parent / "treadle-runs")
+        try:
+            run_id = service.start_run(report_type=rt.key, brief=brief)["run_id"]
+            status = service.runs.wait(run_id)
+            if status["status"] not in ("completed", "incomplete"):
+                raise RuntimeError(f"the run failed ({status.get('error_type')}); "
+                                   f"see run {run_id}")
+            args.out.parent.mkdir(parents=True, exist_ok=True)
+            prefix = str(args.out)
+            Path(prefix + ".json").write_text(json.dumps(service.report(run_id),
+                                                         ensure_ascii=False,
+                                                         allow_nan=False, indent=2),
+                                               encoding="utf-8")
+            html = service.report_html(run_id)
+        finally:
+            service.close()
         Path(prefix + ".html").write_text(html, encoding="utf-8")
         if args.pdf:
             from report.pdf import render_pdf
 
             Path(prefix + ".pdf").write_bytes(render_pdf(html, meta={"title": "Venture research report"}))
-        print(json.dumps({"ok": report.ok, "output_prefix": prefix,
-                          "correction_rounds": report.execution["correction_rounds"],
-                          "stop_reason": report.execution.get("stop_reason"),
-                          "usage": report.execution.get("usage")}))
-        return 0 if report.ok else 1
+        print(json.dumps({"ok": status["ok"], "output_prefix": prefix, "run_id": run_id,
+                          "correction_rounds": status.get("correction_rounds"),
+                          "stop_reason": status.get("stop_reason"),
+                          "usage": status.get("usage")}))
+        return 0 if status["ok"] else 1
+    except ServiceError as exc:
+        print(f"Treadle: {exc}", file=sys.stderr)
+        return 2
     except (ValueError, OSError, RuntimeError) as exc:
         print(f"Treadle: {exc}", file=sys.stderr)
         return 2
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

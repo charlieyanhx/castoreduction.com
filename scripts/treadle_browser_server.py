@@ -7,16 +7,12 @@ The server binds to 127.0.0.1 only. Starting a report uses configured live provi
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from dataclasses import asdict
 import html
 import json
 from pathlib import Path
 import re
 import sys
-from threading import Lock
-import time
 from typing import Callable
 from uuid import uuid4
 
@@ -31,26 +27,12 @@ MAX_BODY_BYTES = 65_536
 RUN_ID = re.compile(r"^[0-9a-f]{32}$")
 
 
-def _write_json(path: Path, value: object) -> None:
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, allow_nan=False, indent=2),
-                         encoding="utf-8")
-    temporary.replace(path)
-
-
-def _append_progress(path: str, verdict) -> None:
-    """File-backed callback: bounded callbacks execute outside the server process."""
-    with Path(path).open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({"time": time.time(), **verdict.as_dict()},
-                                ensure_ascii=False, allow_nan=False) + "\n")
-
-
 def _live_runner(prep_model: str | None) -> Callable:
-    from functools import partial
     from packs.market_research_next import build_report_type
     from packs.market_research_next.models import ExplicitPrepModel
     from treadle import register, run_report
     from treadle.execution_limits import ExecutionLimits
+    from treadle.service import EventLog
 
     report_type = register(build_report_type(
         key="market_research_browser_" + uuid4().hex,
@@ -63,7 +45,7 @@ def _live_runner(prep_model: str | None) -> Callable:
 
     def execute(brief: dict, directory: Path):
         return run_report(report_type.key, brief,
-                          progress=partial(_append_progress, str(directory / "events.jsonl")))
+                          progress=EventLog(str(directory / "events.jsonl"), directory.name))
 
     return execute
 
@@ -120,7 +102,7 @@ async function poll(id) {
       if (eventsResponse.ok) {
         const events = await eventsResponse.json();
         document.getElementById('events').textContent = events.map(event =>
-          event.key + ': ' + event.status).join('\\n');
+          (event.section || event.key) + ': ' + event.status).join('\\n');
       }
       if (data.status !== 'running') {
         if (data.status === 'completed' || data.status === 'incomplete') {
@@ -193,12 +175,15 @@ def create_app(*, out_dir: Path, prep_model: str | None = None, port: int = 8779
     from packs.market_research_next import validate
     from packs.market_research_next.render import render_html
 
+    from treadle.service import RunStore, ServiceError
+
     out_dir = out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     execute = runner if runner is not None else _live_runner(prep_model)
-    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="treadle-browser")
-    lock = Lock()
-    jobs: dict[str, dict] = {}
+    # The store's report type is a stable label: the live runner registers a fresh key
+    # per process, and a run id reused after a restart must still match its first request.
+    store = RunStore(out_dir, execute=lambda _key, brief, _survey, directory: execute(
+        brief, directory), render=render_html)
     example_path = ROOT / "docs/treadle/example_hybrid_venture.json"
     example = json.loads(example_path.read_text(encoding="utf-8"))
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
@@ -206,7 +191,7 @@ def create_app(*, out_dir: Path, prep_model: str | None = None, port: int = 8779
     @asynccontextmanager
     async def lifespan(_app):
         yield
-        executor.shutdown(wait=False, cancel_futures=True)
+        store.close()
 
     app = FastAPI(title="Treadle local pipeline test", docs_url=None, redoc_url=None,
                   openapi_url=None, lifespan=lifespan)
@@ -236,65 +221,12 @@ def create_app(*, out_dir: Path, prep_model: str | None = None, port: int = 8779
         )
         return response
 
-    def public_status(job: dict) -> dict:
-        status = {key: value for key, value in job.items() if key != "started_monotonic"}
-        end = job.get("finished_at", time.time())
-        status["elapsed_seconds"] = max(0.0, end - job["started_at"])
-        return status
-
-    def persisted_job(run_id: str) -> dict | None:
-        """Read prior receipts only; never resubmit work after a server restart."""
-        directory = out_dir / run_id
-        status_path = directory / "status.json"
-        if not status_path.is_file():
-            return None
+    def guarded(call, *args):
+        """The store's refusals as this page's HTTP errors."""
         try:
-            job = json.loads(status_path.read_text(encoding="utf-8"))
-            if (not isinstance(job, dict) or job.get("run_id") != run_id
-                    or job.get("status") not in ("running", "completed", "incomplete", "failed")
-                    or not isinstance(job.get("started_at"), (int, float))):
-                return None
-            if job["status"] == "running":
-                job.update(status="interrupted", ok=False, error_type="ServerRestart",
-                           finished_at=status_path.stat().st_mtime,
-                           error="The server restarted. This run was interrupted and was not resumed.")
-            elif job["status"] in ("completed", "incomplete") and not all(
-                    (directory / name).is_file() for name in ("report.json", "report.html")):
-                job.update(status="failed", ok=False, error_type="MissingArtifact",
-                           error="Saved report artifacts are unavailable.")
-            return job
-        except (OSError, ValueError, TypeError):
-            return None
-
-    def finish(run_id: str, brief: dict, directory: Path) -> None:
-        try:
-            report = execute(brief, directory)
-            report_dict = asdict(report)
-            _write_json(directory / "report.json", report_dict)
-            (directory / "report.html").write_text(render_html(report), encoding="utf-8")
-            execution = report.execution or {}
-            update = {
-                "status": "completed" if report.ok else "incomplete", "ok": report.ok,
-                "correction_rounds": execution.get("correction_rounds", 0),
-                "stop_reason": execution.get("stop_reason"), "usage": execution.get("usage"),
-            }
-        except Exception as exc:
-            # Provider exceptions may contain request text or credentials. Keep them
-            # out of HTTP responses and persisted status, including exception messages.
-            update = {"status": "failed", "ok": False, "error_type": type(exc).__name__,
-                      "error": "Pipeline execution failed. No report is available."}
-        with lock:
-            jobs[run_id].update(update, finished_at=time.time())
-            _write_json(directory / "status.json", public_status(jobs[run_id]))
-
-    def lookup(run_id: str) -> tuple[dict, Path]:
-        if not RUN_ID.fullmatch(run_id):
-            raise HTTPException(404, "Run not found.")
-        with lock:
-            job = jobs.get(run_id) or persisted_job(run_id)
-            if job is None:
-                raise HTTPException(404, "Run not found.")
-            return public_status(job), out_dir / run_id
+            return call(*args)
+        except ServiceError as exc:
+            raise HTTPException(404 if exc.code == "not_found" else 409, str(exc)) from None
 
     @app.get("/", response_class=HTMLResponse)
     def index():
@@ -328,66 +260,30 @@ def create_app(*, out_dir: Path, prep_model: str | None = None, port: int = 8779
             validate(brief)
         except (ValueError, TypeError, RecursionError, UnicodeError):
             raise HTTPException(422, "Provide a valid JSON business brief with a description.") from None
-        with lock:
-            if request_id:
-                previous = jobs.get(request_id) or persisted_job(request_id)
-                directory = out_dir / request_id
-                if previous is not None:
-                    try:
-                        saved_brief = json.loads((directory / "brief.json").read_text(encoding="utf-8"))
-                    except (OSError, ValueError):
-                        raise HTTPException(409, "This run ID already exists; its brief is unavailable.") from None
-                    if json.dumps(saved_brief, sort_keys=True) != json.dumps(brief, sort_keys=True):
-                        raise HTTPException(409, "This run ID was already used for a different brief.")
-                    return JSONResponse({"run_id": request_id, "status": previous["status"]},
-                                        status_code=202)
-                if directory.exists():
-                    raise HTTPException(409, "This run ID already exists and cannot be restarted.")
-            for current in jobs.values():
-                if current["status"] == "running":
-                    return JSONResponse({"detail": "A report is already running.",
-                                         "run_id": current["run_id"]}, status_code=409)
-            run_id = request_id or uuid4().hex
-            directory = out_dir / run_id
-            directory.mkdir()
-            job = {"run_id": run_id, "status": "running", "started_at": time.time()}
-            _write_json(directory / "brief.json", brief)
-            _write_json(directory / "status.json", public_status(job))
-            jobs[run_id] = job
-            executor.submit(finish, run_id, brief, directory)
-        return JSONResponse({"run_id": run_id, "status": "running"}, status_code=202)
+        try:
+            started, _created = store.start("market_research_next", brief, run_id=request_id)
+        except ServiceError as exc:
+            if exc.code == "busy":
+                return JSONResponse({"detail": str(exc), "run_id": exc.detail["run_id"]},
+                                    status_code=409)
+            raise HTTPException(409, str(exc)) from None
+        return JSONResponse(started, status_code=202)
 
     @app.get("/runs/{run_id}")
     def status(run_id: str):
-        return lookup(run_id)[0]
+        return guarded(store.status, run_id)
 
     @app.get("/runs/{run_id}/events")
     def events(run_id: str):
-        _, directory = lookup(run_id)
-        path = directory / "events.jsonl"
-        if not path.exists():
-            return []
-        result = []
-        for line in path.read_text(encoding="utf-8").splitlines():
-            try:
-                result.append(json.loads(line))
-            except ValueError:
-                continue  # A concurrently appended final line may be incomplete.
-        return result
-
-    def artifact(run_id: str, name: str, media_type: str) -> Response:
-        job, directory = lookup(run_id)
-        if job["status"] not in ("completed", "incomplete"):
-            raise HTTPException(409, "Report is not available.")
-        return Response((directory / name).read_bytes(), media_type=media_type)
+        return guarded(store.events, run_id)
 
     @app.get("/runs/{run_id}/report")
     def report_html(run_id: str):
-        return artifact(run_id, "report.html", "text/html")
+        return Response(guarded(store.html, run_id), media_type="text/html")
 
     @app.get("/runs/{run_id}/report.json")
     def report_json(run_id: str):
-        return artifact(run_id, "report.json", "application/json")
+        return JSONResponse(guarded(store.report, run_id))
 
     return app
 

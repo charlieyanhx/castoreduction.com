@@ -18,6 +18,7 @@ from treadle.execution_limits import ExecutionLimits
 from treadle.workflow import DeterministicWorkflow, ReviewIssue
 
 from .contracts import task_contracts, validate_prep_input
+from .form import form, from_form
 from .models import ExplicitPrepModel
 from .prep import REPORT_SECTIONS, prepare_recursive
 from .research import LocalResearchBackend
@@ -95,6 +96,13 @@ def consistency_review(result: dict, verdicts: tuple) -> tuple[ReviewIssue, ...]
     return tuple(out)
 
 
+def _render(report) -> str:
+    """The pack's HTML page. Imported on use: render reads REPORT_ORDER from this module."""
+    from .render import render_html
+
+    return render_html(report)
+
+
 def build_report_type(*, key: str = "market_research_next", prep_model: Callable | None = None,
                       business_model: Callable | None = None,
                       business_max_calls: int = 6, business_max_depth: int = 6,
@@ -148,7 +156,7 @@ def build_report_type(*, key: str = "market_research_next", prep_model: Callable
     return ReportType(
         key=key, label="Market research · PREP workflow",
         description="Eight-section venture report with recursive business PREP and bounded execution.",
-        sections=sections, validate=validate,
+        sections=sections, validate=validate, render=_render, form=form, from_form=from_form,
         workflow=DeterministicWorkflow(
             max_workers=max_workers, max_correction_rounds=max_correction_rounds,
             review=review if review is not None else consistency_review, repair=repair,

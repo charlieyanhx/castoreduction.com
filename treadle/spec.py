@@ -62,6 +62,14 @@ class ReportType:
     #: Optional execution strategy. A pack can select dependency-aware concurrency and
     #: bounded correction without embedding scheduling decisions in its producers.
     workflow: Optional[Workflow] = None
+    #: Report -> HTML. Optional; the service serves a rendered page only for a type that
+    #: declares one, and the JSON report either way.
+    render: Optional[Callable[[Any], str]] = None
+    #: A FIXED QUESTIONNAIRE, for a type whose questions are written rather than derived
+    #: from its inputs: () -> JSON the service serves as treadle.form/1, and `from_form`,
+    #: answers -> the brief. A type has a derived survey or a form, never both.
+    form: Optional[Callable[[], dict]] = None
+    from_form: Optional[Callable[[dict], dict]] = None
 
     def __post_init__(self) -> None:
         if not _SLUG.fullmatch(self.key or ""):
@@ -74,6 +82,12 @@ class ReportType:
         _check_inputs(self)
         if self.workflow is not None and self.runner is not None:
             raise ValueError("a runner owns its execution; workflow requires sections")
+        if (self.form is None) != (self.from_form is None):
+            raise ValueError(f"report type {self.key!r}: a form needs `from_form` to turn "
+                             f"its answers into a brief, and `from_form` needs a form")
+        if self.form is not None and self.inputs:
+            raise ValueError(f"report type {self.key!r}: its survey is derived from its "
+                             f"inputs, so it cannot also declare a fixed form")
 
     @property
     def name(self) -> str:

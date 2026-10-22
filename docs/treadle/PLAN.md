@@ -62,7 +62,7 @@ sets `TREADLE_PREP_MODEL`; `.env.example` documents it.
 | 2 | Carve `treadle/` as an installable package; re-export shims at old paths | clean venv installs it and runs a pack written outside the repo, no Castor module imported (done: `scripts/treadle_standalone_check.py`) |
 | 3 | `FactStore`: every value carries source, tier and writer; reads are recorded | travel guide: every figure in its report resolves to a fact with a tier (done: `treadle/facts.py`) |
 | 4 | Survey derived from section inputs (`ask` / `find` / `assume`, load-bearing first) | travel guide's survey asks only what its plan cannot run without (done: `test_treadle_survey_asks_only_what_the_plan_needs.py`) |
-| 5 | Service: CLI, HTTP and MCP; survey and result as JSON | an external script drives survey to report with the Castor app not running |
+| 5 | Service: CLI, HTTP and MCP; survey and result as JSON | an external script drives survey to report with the Castor app not running (done offline: `treadle/service/`, `test_treadle_service.py`, [SERVICE.md](SERVICE.md); no live market-research run through it yet) |
 | 7 | Per-pack eval corpus and scorecard in CI | an engine change ships only if no pack regresses |
 
 Phase 6 (moving Castor's steps onto `Section`, adopting FactStore and the derived survey)
@@ -101,6 +101,13 @@ Estimate: 4 to 5 focused weeks; standalone after phase 2, about 2 weeks.
   `open_inputs`. The survey lives in `treadle/survey/` (engine, demand, question, entry,
   finding, unfound, session, disclose); the spec it was built from was produced by a
   three-design judge panel and each step was verified independently.
+- Phase 5 (2026-10-22) closed four of the carried items. Surveys are kept server-side
+  under an id, so their unsigned JSON never reaches a client. Runs write one event shape,
+  `treadle.run/1`, for sections and runner packs alike. The wire protocols are versioned
+  side by side (`treadle.service/1`, `treadle.survey/1`, `treadle.run/1`,
+  `treadle.form/1`). An unknown report key is `unknown_report` on the wire. Still open:
+  callers are not authenticated, so STATED still means "someone called answer()"; and no
+  call submits a finding. The old progress-shape note above is answered by `treadle.run/1`.
 - Carried to phase 5 (the wire): sessions are unsigned and `from_dict` cannot prove who
   answered, so a served survey keeps sessions server-side or signs them; `answer()` cannot
   tell a person from an agent, so STATED means "someone called answer()" until callers

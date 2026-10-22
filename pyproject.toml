@@ -27,5 +27,8 @@ groq = ["groq>=0.9"]
 gemini = ["google-genai>=1.0"]
 all = ["anthropic>=0.39", "groq>=0.9", "google-genai>=1.0"]
 
+[project.scripts]
+treadle = "treadle.service.cli:main"
+
 [tool.setuptools.packages.find]
 include = ["treadle", "treadle.*"]
