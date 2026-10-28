@@ -51,7 +51,7 @@ def repair_once(result, verdicts):
 
 
 def run_fixture(key, **kwargs):
-    report_type = build_report_type(key=key, prep_model=fake_prep,
+    report_type = build_report_type(analysis=False, key=key, prep_model=fake_prep,
                                     business_model=minimal_business_model,
                                     research=fake_research, review=no_issues, **kwargs)
     register(report_type)
@@ -78,7 +78,7 @@ def test_default_pack_is_isolated_and_has_finite_limits():
 
 
 def test_targeted_correction_preserves_unrelated_results_in_isolated_mode():
-    report_type = build_report_type(key="closed_loop_repair", prep_model=fake_prep,
+    report_type = build_report_type(analysis=False, key="closed_loop_repair", prep_model=fake_prep,
                                     business_model=minimal_business_model,
                                     research=fake_research, review=repair_once)
     register(report_type)
@@ -109,7 +109,7 @@ def test_hung_custom_reviewer_cannot_hold_report_open():
         time.sleep(30)
         return ()
 
-    report_type = build_report_type(key="closed_loop_hung_review", prep_model=fake_prep,
+    report_type = build_report_type(analysis=False, key="closed_loop_hung_review", prep_model=fake_prep,
                                     business_model=minimal_business_model,
                                     research=fake_research, review=stuck_review,
                                     limits=ExecutionLimits(review_timeout_s=0.4))
@@ -186,7 +186,7 @@ def test_cli_saves_success_and_incomplete_artifacts(tmp_path, monkeypatch, capsy
     def fixture_factory(**kwargs):
         return original_factory(prep_model=fake_prep, research=fake_research,
                                 business_model=minimal_business_model,
-                                review=no_issues, **kwargs)
+                                review=no_issues, analysis=False, **kwargs)
 
     monkeypatch.setattr(pack, "build_report_type", fixture_factory)
     brief = tmp_path / "venture.json"

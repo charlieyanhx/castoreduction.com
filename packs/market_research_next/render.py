@@ -6,7 +6,8 @@ import json
 
 from treadle.run import Report
 
-from . import REPORT_ORDER
+from . import FULL_ORDER, REPORT_ORDER
+from .analysis import registry as analysis_registry
 from .prep import REPORT_SECTIONS
 
 
@@ -21,6 +22,9 @@ def render_html(report: Report) -> str:
              "h2{margin-top:40px;border-top:1px solid #cbd5db;padding-top:24px}"
              ".notice{padding:16px;background:#f7f1df;border-left:3px solid #8b661d}"
              "p{white-space:pre-wrap}li{margin:6px 0}small{color:#52616b}"
+             "table.data{border-collapse:collapse;margin:12px 0;font-size:14px}"
+             "table.data th,table.data td{border:1px solid #cbd5db;padding:4px 8px;"
+             "text-align:left;vertical-align:top}.statement{font-size:18px;font-weight:600}"
              "@media print{body{margin:0;max-width:none}h2{break-after:avoid}}",
              "</style></head><body><h1>Venture research report</h1>"]
     if not report.ok:
@@ -53,8 +57,12 @@ def render_html(report: Report) -> str:
                          "the starting business description did not establish their answers.</p><ul>")
             parts.extend(f"<li>{escape(question)}</li>" for question in questions)
             parts.append("</ul></details>")
-    for key in REPORT_ORDER:
-        parts.append(f'<section><h2 id="{key}">{escape(REPORT_SECTIONS[key]["label"])}</h2>')
+    for key in FULL_ORDER:
+        analysis = key in analysis_registry.ANALYSIS
+        if analysis and key not in report.result and key not in verdicts:
+            continue  # not part of this report type's plan
+        label = analysis_registry.label(key) if analysis else REPORT_SECTIONS[key]["label"]
+        parts.append(f'<section><h2 id="{key}">{escape(label)}</h2>')
         block = report.result.get(key)
         if not isinstance(block, dict):
             reason = verdicts.get(key, {}).get("reason") or "This section was not produced."
@@ -63,6 +71,9 @@ def render_html(report: Report) -> str:
         if block.get("research_note"):
             parts.append(f"<p><em>{escape(str(block['research_note']))}</em></p>")
         parts.append(f"<p>{escape(str(block.get('narrative', '')))}</p>")
+        if analysis and isinstance(block.get("data"), dict):
+            # The module escapes every value it renders (analysis/base.py helpers).
+            parts.append(analysis_registry.module(key).render_data(block["data"]))
         if block.get("metrics"):
             parts.append("<h3>Calculations and figures</h3><table><tbody>")
             for label, value in _metric_rows(block["metrics"]):

@@ -40,7 +40,7 @@ def _live_runner(prep_model: str | None) -> Callable:
         business_model=ExplicitPrepModel(model=prep_model, max_tokens=12000),
         max_workers=4, max_correction_rounds=2,
         business_max_calls=6, business_max_depth=6,
-        limits=ExecutionLimits(run_timeout_s=900, task_timeout_s=300, review_timeout_s=90),
+        limits=ExecutionLimits(run_timeout_s=1500, task_timeout_s=300, review_timeout_s=90),
     ))
 
     def execute(brief: dict, directory: Path):
@@ -65,7 +65,7 @@ a{margin-right:1rem} #state{font-weight:600}
 <h1>Treadle local pipeline test</h1>
 <p>Runs the connected business-object PREP, research, bounded review, and report
 pipeline using configured live models. This is a local test surface.</p>
-<p>Limits: 900 seconds overall; 300 seconds per task; 90 seconds per review;
+<p>Limits: 1500 seconds overall; 300 seconds per task; 90 seconds per review;
 120 model attempts; 60 tool dispatches; at most two correction rounds.
 Source tracing is disabled.</p>
 <form id="run-form"><label for="brief">Business brief (JSON)</label>

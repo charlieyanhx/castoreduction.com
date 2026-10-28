@@ -73,7 +73,7 @@ def unresolved_review(result, verdicts):
 
 
 def run_fixture(**kwargs):
-    return run_customer_pipeline(DESCRIPTION, intake=deepcopy(INTAKE),
+    return run_customer_pipeline(DESCRIPTION, intake=deepcopy(INTAKE), analysis=False,
                                  prep_model=fixture_prep_model,
                                  business_model=fixture_business_model,
                                  research=fixture_research, review=kwargs.pop("review", clean_review),
@@ -107,7 +107,7 @@ def test_customer_inputs_reach_real_business_prep_and_bounded_workflow_with_pare
     assert "business_context" in prep
     assert prep["venture"]["attributes"]["pricing"]["basis"] == "unknown"
     execution = saved["execution"]
-    assert execution["limits"]["run_timeout_s"] == 900
+    assert execution["limits"]["run_timeout_s"] == 1500
     assert execution["correction_rounds"] == 0
     assert set(result["_steps_completed"]) == {"prep", *REPORT_ORDER}
     assert checkpoints[0]["_treadle_status"] == "running"

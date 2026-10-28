@@ -13,6 +13,7 @@ import math
 
 from treadle.execution_limits import TaskContract
 
+from .analysis import registry as analysis_registry
 from .prep import REPORT_SECTIONS, RECURSIVE_SCHEMA_VERSION, SCHEMA_VERSION, VENTURE_FIELDS
 
 
@@ -129,26 +130,41 @@ def validate_section_output(value: dict) -> None:
         raise ValueError("Partial research must disclose its uncertainty")
 
 
+def validate_analysis_output(section_key: str, value: dict) -> None:
+    """The shared envelope, then the section's own typed payload."""
+    validate_section_output(value)
+    if not isinstance(value.get("data"), dict):
+        raise ValueError("An analysis section must return a data object")
+    analysis_registry.module(section_key).validate_data(value["data"])
+
+
 def validate_section_input(section_key: str, context: dict, *, require_business=False) -> None:
     _finite_json(context)
     if not isinstance(context, dict):
         raise ValueError("Research requires an input object")
-    if section_key not in REPORT_SECTIONS:
+    if section_key not in REPORT_SECTIONS and section_key not in analysis_registry.ANALYSIS:
         raise ValueError("Unknown report section")
     validator = validate_recursive_prep_output if require_business else validate_prep_output
     validator(context.get("prep"))
     for name, value in context.items():
-        if name != "prep":
-            if name not in REPORT_SECTIONS:
-                raise ValueError("Research received an undeclared upstream section")
+        if name == "prep":
+            continue
+        if name in REPORT_SECTIONS:
             validate_section_output(value)
+        elif name in analysis_registry.ANALYSIS:
+            validate_analysis_output(name, value)
+        else:
+            raise ValueError("Research received an undeclared upstream section")
 
 
-def task_contracts() -> dict[str, TaskContract]:
+def task_contracts(analysis: tuple[str, ...] = ()) -> dict[str, TaskContract]:
     """Return fresh policy objects; models cannot alter validation or dependencies."""
     return {
         "prep": TaskContract(validate_prep_input, validate_recursive_prep_output),
         **{name: TaskContract(partial(validate_section_input, name, require_business=True),
                               validate_section_output)
            for name in REPORT_SECTIONS},
+        **{name: TaskContract(partial(validate_section_input, name, require_business=True),
+                              partial(validate_analysis_output, name))
+           for name in analysis},
     }

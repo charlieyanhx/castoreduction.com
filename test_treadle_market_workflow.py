@@ -59,7 +59,7 @@ def test_survey_to_preparation_to_research_and_report(registered):
         assert ctx["prep"]["research_spec"][name]["questions"] == [f"Investigate {name}"]
         return section_payload(name)
 
-    key = registered(build_report_type(key="venture_integration", prep_model=prep_model,
+    key = registered(build_report_type(analysis=False, key="venture_integration", prep_model=prep_model,
                                        business_model=minimal_business_model,
                                        research=research, review=lambda result, verdicts: (),
                                        limits=None))
@@ -102,7 +102,7 @@ def test_consistency_correction_refreshes_only_affected_sections(registered):
             return (ReviewIssue("scope_mismatch", "Use Canadian clinic counts", ("market_size",)),)
         return ()
 
-    key = registered(build_report_type(key="venture_correction", prep_model=prep_response,
+    key = registered(build_report_type(analysis=False, key="venture_correction", prep_model=prep_response,
                                        business_model=minimal_business_model,
                                        research=research, review=review, limits=None))
     report = run_report(key, {"description": "Dental receptionist"})
@@ -116,7 +116,7 @@ def test_consistency_correction_refreshes_only_affected_sections(registered):
 
 
 def test_unresolved_issues_make_report_not_ok_and_visible(registered):
-    key = registered(build_report_type(
+    key = registered(build_report_type(analysis=False, 
         key="venture_unresolved", prep_model=prep_response,
         business_model=minimal_business_model,
         research=lambda name, ctx, **kwargs: section_payload(name),
@@ -131,7 +131,7 @@ def test_unresolved_issues_make_report_not_ok_and_visible(registered):
 
 def test_prep_failure_never_starts_research(registered):
     research = Mock()
-    key = registered(build_report_type(key="venture_bad_prep", prep_model=lambda **kwargs: {},
+    key = registered(build_report_type(analysis=False, key="venture_bad_prep", prep_model=lambda **kwargs: {},
                                        business_model=minimal_business_model,
                                        research=research, review=lambda result, verdicts: (),
                                        limits=None))
@@ -165,7 +165,7 @@ def test_legacy_market_research_keeps_its_runner():
 
 
 def test_renderer_uses_fixed_order_and_escapes_source_text(registered):
-    key = registered(build_report_type(
+    key = registered(build_report_type(analysis=False, 
         key="venture_html", prep_model=prep_response,
         business_model=minimal_business_model,
         research=lambda name, ctx, **kwargs: {

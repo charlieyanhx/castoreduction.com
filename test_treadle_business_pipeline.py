@@ -155,7 +155,7 @@ def review_market_once(result, verdicts):
 def _run(key, **kwargs):
     options = {"prep_model": planning_model, "business_model": complex_business_model,
                "research": observe_business, "review": review_clean, **kwargs}
-    pack = build_report_type(key=key, **options)
+    pack = build_report_type(analysis=False, key=key, **options)
     register(pack)
     try:
         return run_report(key, deepcopy(COMPLEX_BRIEF))

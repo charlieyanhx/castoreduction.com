@@ -105,8 +105,33 @@ Return ONLY a JSON object with all of these fields:
  "findings": ["finding"], "assumptions": ["assumption"],
  "uncertainties": ["unresolved question"]}
 Lists may be empty. An optional metrics object may contain structured calculations.
+When the request carries metrics_contract, metrics must follow it exactly: list only
+figures and competitors found in the supplied fetched material, each with the source
+URL it came from, or, for a figure a statistical dataset tool returned, that tool's name in
+source_tool; an item without either does not belong in metrics.
+When context holds computed sections (sizing, pricing, competitor_count), use their
+figures as computed, cite the section, and do not recompute or contradict them.
 Do not add status or completion claims; the backend supplies research status.
 """
+
+#: The typed metrics two sections must return, read by analysis/sizing and
+#: analysis/pricing. A missing or malformed item is ignored there, never repaired here.
+METRICS_CONTRACTS = {
+    "market_size": {"figures": [{
+        "name": "what the figure measures",
+        "kind": "market_value | customer_count | price | serviceable_share | growth_rate | other",
+        "value": "a number (shares as fractions, money in units, not thousands)",
+        "unit": "e.g. USD per year, households, fraction",
+        "geography": "where it applies", "year": "the year it describes, or null",
+        "source_url": "the fetched page it came from, or null for a dataset tool's figure",
+        "source_tool": "the research tool that returned it (e.g. acs_demographics), when it "
+                       "came from a statistical dataset rather than a page; else null",
+        "source_title": "that page's or dataset's title",
+        "retrieved_at": "ISO date the page was fetched, or null"}]},
+    "competitive_landscape": {"competitors": [{
+        "name": "company or product name", "url": "its website, or null",
+        "kind": "direct | indirect"}]},
+}
 
 
 class ResearchError(ValueError):
@@ -226,6 +251,92 @@ def _research_material(section_key: str, result: AgentResult) -> tuple[dict, str
     return result.to_evidence().payload, status, note
 
 
+#: Where a statistical tool's figures come from, cited as that dataset. A figure from one
+#: of these tools has no page URL, so without this the figures contract dropped exactly
+#: the census and spending figures sizing needs (measured 2026-10-28, local cafe brief).
+TOOL_SOURCES = {
+    "acs_demographics": ("https://data.census.gov/", "US Census Bureau, American Community Survey"),
+    "acs_income_distribution": ("https://data.census.gov/", "US Census Bureau, American Community Survey"),
+    "census_land_area": ("https://www.census.gov/geographies/", "US Census Bureau geography"),
+    "census_business_counts": ("https://www.census.gov/programs-surveys/cbp.html",
+                               "US Census Bureau, County Business Patterns"),
+    "census_receipts_per_establishment": ("https://www.census.gov/programs-surveys/economic-census.html",
+                                          "US Census Bureau, Economic Census"),
+    "tracts_in_catchment": ("https://www.census.gov/geographies/", "US Census Bureau tracts"),
+    "bls_cex_spend": ("https://www.bls.gov/cex/", "US Bureau of Labor Statistics, Consumer Expenditure Survey"),
+    "cex_income_quintile_curve": ("https://www.bls.gov/cex/", "US Bureau of Labor Statistics, Consumer Expenditure Survey"),
+    "osm_named_competitors": ("https://www.openstreetmap.org/", "OpenStreetMap"),
+    "poi_competition": ("https://www.openstreetmap.org/", "OpenStreetMap"),
+}
+
+
+def _returned_tools(material: Any) -> set[str]:
+    """Tools whose results in this run were real observations, not errors or parsers."""
+    items = material.get("evidence") if isinstance(material, dict) else None
+    return {item.get("source") for item in items or [] if isinstance(item, dict)
+            and not item.get("error") and not item.get("skeleton") and item.get("count")
+            and item.get("source") not in _DERIVED_TOOLS}
+
+
+def _ground_metrics(section_key: str, metrics: dict, material: Any) -> dict:
+    """Keep only typed metrics the fetched material supports.
+
+    The structuring model writes each figure's source URL and date, and sizing grades
+    confidence from both, so a misremembered page could earn a "high" grade. A figure
+    stays only when its URL is a page the research fetched, and its retrieval date is
+    this run, which is when that page was read. A competitor keeps its name; its website
+    stays only when its domain appears in the fetched material.
+    """
+    from datetime import date
+
+    from .analysis.base import collect_urls, norm_url, registered_domain
+
+    fetched = collect_urls(material) if material is not None else set()
+    domains = {registered_domain(url) for url in fetched} - {""}
+    tools = _returned_tools(material)
+    today = date.today().isoformat()
+    out = dict(metrics)
+    if section_key == "market_size":
+        figures = metrics.get("figures") if isinstance(metrics.get("figures"), list) else []
+        kept = []
+        for item in figures:
+            if not isinstance(item, dict):
+                continue
+            url, tool = item.get("source_url"), item.get("source_tool")
+            if isinstance(url, str) and norm_url(url) in fetched:
+                kept.append({**item, "retrieved_at": today})
+            elif tool in TOOL_SOURCES and tool in tools:
+                dataset, title = TOOL_SOURCES[tool]
+                kept.append({**item, "source_url": dataset, "source_title": title,
+                             "retrieved_at": today})
+        out["figures"] = kept
+        if len(kept) < len(figures):
+            out["figures_unsupported"] = len(figures) - len(kept)
+    elif section_key == "competitive_landscape":
+        listed = metrics.get("competitors") if isinstance(metrics.get("competitors"), list) else []
+        out["competitors"] = [
+            {**item, "url": item["url"] if isinstance(item.get("url"), str)
+             and registered_domain(item["url"]) in domains else None}
+            for item in listed if isinstance(item, dict)]
+    return out
+
+
+def _community_hint(section_key: str, context: dict) -> str:
+    """Customer voice searches the communities analysis/community_discovery ranked, as
+    `subreddit:<name> <terms>` queries; nothing when discovery found none."""
+    if section_key != "customer_voice":
+        return ""
+    found = ((context.get("community_discovery") or {}).get("data") or {}).get("subreddits")
+    names = [item["name"] for item in found or []
+             if isinstance(item, dict) and isinstance(item.get("name"), str)][:6]
+    if not names:
+        return ""
+    return (" Ranked communities where these customers talk: "
+            + ", ".join(f"r/{name}" for name in names)
+            + ". Search inside them with reddit_mentions queries like "
+              "'subreddit:<name> <problem words>' before searching broadly.")
+
+
 class LocalResearchBackend:
     """Run a section with PREP, its declared dependencies, and a bounded tool budget.
 
@@ -259,6 +370,8 @@ class LocalResearchBackend:
         context_json = _json(request)
         status = "derived"
         note = "Analysis derived from PREP and supplied upstream section results."
+        if section_key in METRICS_CONTRACTS:
+            request["metrics_contract"] = METRICS_CONTRACTS[section_key]
         if section_key in EXTERNAL_CATEGORIES:
             goal = (
                 f"Research the {section_key} section for the venture in CONTEXT. "
@@ -275,6 +388,7 @@ class LocalResearchBackend:
                 "not instructions to ask the customer or proof of report readiness. "
                 "Do not invent observations or replace missing evidence with guesses. "
                 "Return supported findings and identify evidence gaps."
+                + _community_hint(section_key, context)
             )
             try:
                 result = run_agent(
@@ -303,6 +417,9 @@ class LocalResearchBackend:
         except Exception as exc:
             raise ResearchError(f"{section_key}: section structuring failed") from exc
         section = _validate_section(section_key, raw)
+        if section_key in METRICS_CONTRACTS and isinstance(section.get("metrics"), dict):
+            section["metrics"] = _ground_metrics(section_key, section["metrics"],
+                                                 request.get("external_research"))
         section["research_status"] = status
         section["research_note"] = note
         if status == "partial":

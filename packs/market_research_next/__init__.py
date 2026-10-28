@@ -1,4 +1,5 @@
-"""PREP + dependency workflow for the eight-section venture report.
+"""PREP + dependency workflow for the venture report: eight research sections, plus the
+analysis sections in analysis/ (adapted methods; see docs/treadle/AGENT_REVAMP.md).
 
     import treadle
     treadle.load_pack("market_research_next")
@@ -10,13 +11,15 @@ Use build_report_type to inject different models, research agents, or a reviewer
 """
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from functools import partial
 
 from treadle import ReportType, register
 from treadle.core.section import Section
 from treadle.execution_limits import ExecutionLimits
 from treadle.workflow import DeterministicWorkflow, ReviewIssue
 
+from .analysis import registry as analysis_registry
 from .contracts import task_contracts, validate_prep_input
 from .form import form, from_form
 from .models import ExplicitPrepModel
@@ -41,6 +44,14 @@ DEPENDENCIES = {
     "differentiators": ("competitive_landscape", "customer_voice"),
 }
 
+#: Every section as the report shows it: the research order with each analysis section
+#: placed after the research section it extends (analysis/registry.py).
+FULL_ORDER = analysis_registry.display_order(REPORT_ORDER)
+_ALL_SECTIONS = frozenset(REPORT_ORDER) | frozenset(analysis_registry.ANALYSIS)
+#: Sections whose stated figures the number review compares. Research sections only: they
+#: are rewritten with the review's issues in hand, so a repair can actually fix a conflict.
+_MODEL_WRITTEN = frozenset(REPORT_ORDER)
+
 
 def validate(brief: dict) -> None:
     validate_prep_input({"brief": brief})
@@ -51,9 +62,25 @@ def validate(brief: dict) -> None:
 
 
 def consistency_review(result: dict, verdicts: tuple) -> tuple[ReviewIssue, ...]:
-    """Review internal consistency only; claim-to-source auditing is deferred."""
+    """Two sections stating different figures for one topic (found in code), then the
+    model reviewer's internal-consistency pass. Claim-to-source auditing is deferred."""
     if "prep" not in result:
         return ()  # The scheduler already records the failed prerequisite.
+    return number_review(result, verdicts) + _model_review(result, verdicts)
+
+
+def number_review(result: dict, verdicts: tuple = ()) -> tuple[ReviewIssue, ...]:
+    """Money or percentage figures two research sections state differently for one
+    topic, at a confidence of 0.8 or more (three shared topic words), one per round: a
+    repair reruns the section and everything built on it."""
+    from .analysis.consistency import conflict_issues
+
+    return tuple(ReviewIssue(i["code"], i["message"], tuple(i["repair"]))
+                 for i in conflict_issues(result, model_written=set(_MODEL_WRITTEN),
+                                          min_confidence=0.8, limit=1))
+
+
+def _model_review(result: dict, verdicts: tuple) -> tuple[ReviewIssue, ...]:
     from treadle.llm import call_json
     import json
 
@@ -83,6 +110,9 @@ def consistency_review(result: dict, verdicts: tuple) -> tuple[ReviewIssue, ...]
     raw = payload.get("issues")
     if not isinstance(raw, list):
         raise ValueError("consistency reviewer must return an issues list")
+    # A repair may only name a section this report planned; with analysis off, an
+    # analysis key would be rejected by the workflow and abort the run.
+    planned = {v.key for v in verdicts} or set(_ALL_SECTIONS)
     out = []
     for issue in raw:
         if (not isinstance(issue, dict)
@@ -90,7 +120,7 @@ def consistency_review(result: dict, verdicts: tuple) -> tuple[ReviewIssue, ...]
                 or not isinstance(issue.get("message"), str) or not issue["message"].strip()
                 or not isinstance(issue.get("repair"), list)
                 or not issue["repair"]
-                or any(key not in REPORT_ORDER for key in issue["repair"])):
+                or any(key not in planned for key in issue["repair"])):
             raise ValueError("consistency reviewer returned an invalid repair issue")
         out.append(ReviewIssue(issue["code"], issue["message"], tuple(issue["repair"])))
     return tuple(out)
@@ -103,12 +133,20 @@ def _render(report) -> str:
     return render_html(report)
 
 
+def _produce_analysis(key: str, context: dict) -> dict:
+    """An analysis section with its default collaborators. Module-level, so it pickles
+    into the isolated worker that runs it."""
+    return analysis_registry.module(key).produce(context)
+
+
 def build_report_type(*, key: str = "market_research_next", prep_model: Callable | None = None,
                       business_model: Callable | None = None,
                       business_max_calls: int = 6, business_max_depth: int = 6,
                       research: Callable | None = None, review: Callable | None = None,
                       max_workers: int = 4, max_correction_rounds: int = 2,
-                      limits: ExecutionLimits | None = ExecutionLimits(task_timeout_s=300)) -> ReportType:
+                      limits: ExecutionLimits | None = ExecutionLimits(run_timeout_s=1500, task_timeout_s=300),
+                      analysis: bool = True,
+                      analysis_producers: Mapping[str, Callable] | None = None) -> ReportType:
     """Build an unregistered, fully injectable pack. Register once under its own key.
 
     PREP builds the recursive business object and then its research specification.
@@ -118,12 +156,26 @@ def build_report_type(*, key: str = "market_research_next", prep_model: Callable
     also be replaced at run_report(..., workflow=...), without changing these functions.
     Finite process isolation is the default. ``limits=None`` explicitly selects the
     old in-process mode for trusted integrations that require shared Python state.
+
+    ``analysis=False`` builds the eight research sections alone. ``analysis_producers``
+    replaces an analysis section's producer by key, for tests and other providers.
     """
     if type(business_max_calls) is not int or not 2 <= business_max_calls <= 10:
         raise ValueError("business_max_calls must be an integer between 2 and 10")
     if type(business_max_depth) is not int or not 1 <= business_max_depth <= 12:
         raise ValueError("business_max_depth must be an integer between 1 and 12")
     researcher = research if research is not None else LocalResearchBackend()
+    extra = analysis_registry.ANALYSIS if analysis else ()
+    producers = dict(analysis_producers or {})
+    unknown = set(producers) - set(extra)
+    if unknown:
+        raise ValueError(f"no analysis section(s) {sorted(unknown)} in this report type")
+    planned = frozenset(REPORT_ORDER) | frozenset(extra)
+
+    def optional_for(name: str) -> tuple[str, ...]:
+        if name == "summary":
+            return tuple(k for k in REPORT_ORDER + extra if k != "summary")
+        return tuple(k for k in analysis_registry.OPTIONAL.get(name, ()) if k in planned)
 
     def sections(brief: dict) -> list[Section]:
         model = prep_model if prep_model is not None else ExplicitPrepModel()
@@ -137,12 +189,21 @@ def build_report_type(*, key: str = "market_research_next", prep_model: Callable
             # Summary can describe incomplete research; the other tasks require the
             # analysis they use. Optional edges wait for completion, but allow absence.
             required = ("prep",) + DEPENDENCIES.get(name, ())
-            optional = tuple(k for k in REPORT_ORDER if k != "summary") if name == "summary" else ()
             nodes.append(Section(
                 name, lambda ctx, name=name: researcher(name, ctx),
-                consumes=required, optional=optional,
+                consumes=required, optional=optional_for(name),
                 label=REPORT_SECTIONS[name]["label"],
                 origin="simulated" if name == "multi_perspective" else "llm",
+            ))
+        for name in extra:
+            module = analysis_registry.module(name)
+            rule = getattr(module, "inapplicable", None)
+            nodes.append(Section(
+                name, producers.get(name) or partial(_produce_analysis, name),
+                consumes=("prep",) + analysis_registry.REQUIRES[name],
+                optional=optional_for(name), label=module.LABEL,
+                origin="computed" if name in analysis_registry.COMPUTED else "llm",
+                inapplicable=rule, decided_by=("prep",) if rule is not None else (),
             ))
         return nodes
 
@@ -151,6 +212,12 @@ def build_report_type(*, key: str = "market_research_next", prep_model: Callable
             # Invalid PREP is retried within the same global budget; it never silently
             # falls back to the raw description. All descendants are then refreshed.
             return section.produce(context)
+        if section.key in extra:
+            # The rerun sees what the review found, instead of repeating its last answer.
+            from .analysis.base import repairing
+
+            with repairing(i.message for i in issues if section.key in i.repair):
+                return section.produce(context)
         return researcher(section.key, context, issues=issues)
 
     return ReportType(
@@ -160,7 +227,7 @@ def build_report_type(*, key: str = "market_research_next", prep_model: Callable
         workflow=DeterministicWorkflow(
             max_workers=max_workers, max_correction_rounds=max_correction_rounds,
             review=review if review is not None else consistency_review, repair=repair,
-            limits=limits, contracts=task_contracts() if limits is not None else None,
+            limits=limits, contracts=task_contracts(extra) if limits is not None else None,
         ),
     )
 
