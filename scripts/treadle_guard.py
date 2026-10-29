@@ -113,9 +113,19 @@ APPROVED_TREADLE_ONLY_TEST_FILES = frozenset({
 })
 
 
+# 2026-10-28: merging master into treadle/phase-0 for PR #1 brought four of sorzach's
+# Aug 26 changes the branch had not superseded: geo- and channel-aware competitor search,
+# OSM clothing and resale tags, and two profile fields. A merge, not a Treadle edit.
+MERGED_FROM_MASTER = frozenset({
+    "company_profile.py", "orchestrator/steps/competitor_refinement.py",
+    "skills/discovery_multi.py", "skills/sizing/osm_tags.py",
+})
+
+
 def allowed(path: str) -> bool:
     return (path in FRAME_FILES or path in TREADLE_FILES or path in APPROVED_SURVEY_FILES
             or path in APPROVED_CONNECTION_FILES or path in APPROVED_TREADLE_ONLY_TEST_FILES
+            or path in MERGED_FROM_MASTER
             or path.startswith(FRAME_PREFIXES)
             or path.startswith(TREADLE_PREFIXES))
 

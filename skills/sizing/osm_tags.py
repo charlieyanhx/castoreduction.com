@@ -55,11 +55,23 @@ _OSM_TAG_BY_CATEGORY = {
     "pharmacy": ("amenity", "pharmacy"), "bookstore": ("shop", "books"),
     "bookshop": ("shop", "books"), "florist": ("shop", "florist"),
     "library": ("amenity", "library"), "cinema": ("amenity", "cinema"),
+    # Clothing / vintage / fashion retail — shop=clothes is the OSM tag for
+    # any physical clothing store. Vintage, consignment, and boutique all map here.
+    "clothing": ("shop", "clothes"), "clothes": ("shop", "clothes"),
+    "vintage": ("shop", "clothes"), "thrift": ("shop", "second_hand"),
+    "consignment": ("shop", "second_hand"), "second hand": ("shop", "second_hand"),
+    "secondhand": ("shop", "second_hand"), "resale": ("shop", "second_hand"),
+    "boutique": ("shop", "clothes"), "fashion": ("shop", "clothes"),
+    "apparel": ("shop", "clothes"), "garment": ("shop", "clothes"),
+    "luxury retail": ("shop", "clothes"),
 }
 _RADIUS_BY_OSM_VALUE = {
     "cafe": 1500, "fast_food": 1500, "bakery": 1500, "ice_cream": 1500,
     "bar": 2000, "pub": 2000, "hairdresser": 2500, "beauty": 2500, "spa": 3000,
     "restaurant": 3000, "nightclub": 3000, "pharmacy": 3000,
+    # Clothing/vintage: destination retail — people travel further for boutique shopping
+    # than for a haircut; 4km covers a tourist strip like Venice Beach comfortably.
+    "clothes": 4000, "second_hand": 4000,
     "clinic": 4500, "dentist": 4500, "fitness_centre": 5000, "cinema": 6000, "library": 4000,
 }
 def _radius_for_osm_value(osm_value: str, default: int = 3000) -> int:
