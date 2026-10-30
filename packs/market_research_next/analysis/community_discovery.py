@@ -1,4 +1,4 @@
-"""Where the customers talk: subreddits found by Reddit's public search, ranked locally.
+"""Where the customers talk: subreddits found by search, ranked locally.
 
 The ranking rules are adapted from reddit-research-mcp (MIT). Their confidence comes from
 embeddings we do not have, so confidence here is token overlap between the query and the
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections import Counter
 
 from . import base
 from .competitor_count import category_phrase, location_phrase
@@ -17,12 +18,25 @@ from .competitor_count import category_phrase, location_phrase
 KEY = "community_discovery"
 LABEL = "Online communities"
 #: Reddit closed its public JSON API to anonymous clients (measured in
-#: tools/sources/forums.py: 403 with any user-agent), so search needs app-only OAuth:
-#: a "script" app's client id and secret exchanged for a bearer token.
+#: tools/sources/forums.py: 403 with any user-agent), so its search needs app-only OAuth:
+#: a "script" app's client id and secret exchanged for a bearer token. Since late 2025
+#: Reddit also reviews every new app before it can be created.
 TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
 URL = "https://oauth.reddit.com/subreddits/search"
-NO_CREDENTIALS = ("Reddit's API needs credentials (REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET), "
-                  "which are not configured, so communities were not searched.")
+#: Without those credentials two open archives answer, keyless: Arctic Shift (subreddit
+#: metadata by name prefix or exact name) and PullPush (full-text post search, the open
+#: successor to Pushshift). Their copies trail Reddit by days; the ranking is the same.
+ARCHIVE_SUBREDDITS = "https://arctic-shift.photon-reddit.com/api/subreddits/search"
+ARCHIVE_POSTS = "https://api.pullpush.io/reddit/search/submission/"
+PREFIX_LIMIT = 10
+POST_SAMPLE = 100
+#: A subreddit seen in fewer matching posts is noise, and only a few are looked up.
+MIN_POSTS = 2
+LOOKUPS = 4
+#: A prefix lookup returns every subreddit whose name starts with the word, which Reddit's
+#: own search never would: r/dogecoin for "dog", a 20-member r/specialtycoffeeph. Archive
+#: results keep a subreddit only with this many members and a search word as a whole word.
+ARCHIVE_MIN_MEMBERS = 1_000
 USER_AGENT = "castor-research/1.0 (market research; contact via castor-advisory.com)"
 KEEP = 10
 MAX_TERMS = 4
@@ -143,29 +157,54 @@ def produce(context: dict, *, model=None, session=None, env=None, now=None) -> d
     """Search, rank and report; a failed search is partial because customer voice goes on."""
     env = os.environ if env is None else env
     queries = build_queries(context)
-    results: dict[str, list[dict]] = {}
-    failures: list[str] = []
     client = ((env.get("REDDIT_CLIENT_ID") or "").strip(),
               (env.get("REDDIT_CLIENT_SECRET") or "").strip())
-    token = None
-    if queries and not all(client):
-        failures.append(NO_CREDENTIALS)
-        queries_to_run: list[str] = []
-    else:
-        queries_to_run = queries
-    if queries_to_run:
-        try:
-            grant = base.http_json("POST", TOKEN_URL, session=session,
-                                   headers={"User-Agent": USER_AGENT},
-                                   form={"grant_type": "client_credentials"}, auth=client,
-                                   timeout=10.0)
-            token = grant.get("access_token") if isinstance(grant, dict) else None
-            if not isinstance(token, str) or not token:
-                raise base.AnalysisError("Reddit returned no access token")
-        except base.AnalysisError as exc:
-            failures.append(f"Reddit sign-in failed: {exc}.")
-            queries_to_run = []
-    for query in queries_to_run:
+    source = "reddit" if all(client) else "open_archive"
+    search = _search_reddit if source == "reddit" else _search_archives
+    results, failures = search(queries, client, session) if queries else ({}, [])
+    subreddits = rank(results)
+    data = {"queries": queries, "source": source, "subreddits": subreddits,
+            "tier_distribution": {name: sum(1 for s in subreddits if s["match_tier"] == name)
+                                  for name in ("exact", "semantic", "adjacent", "peripheral")},
+            "quality": quality(subreddits)}
+    uncertainties = list(failures)
+    if not queries:
+        uncertainties.append("The venture's category is not known, so Reddit was not searched.")
+    elif not subreddits and not failures:
+        uncertainties.append("No subreddit matched the category words.")
+    if subreddits and data["quality"] == "poor":
+        uncertainties.append("Few subreddits match the category closely; treat these as leads.")
+    status = "partial" if failures or not subreddits else "completed"
+    assumptions = ["Confidence is word overlap between the search and each subreddit's name, "
+                   "title and description, not a measure of how active buyers are there."]
+    if source == "open_archive":
+        assumptions.append("Subreddits come from open Reddit archives (Arctic Shift, PullPush), "
+                           "which trail Reddit by days and can miss new or small communities.")
+    return base.envelope(
+        LABEL, _narrative(data, failures), data=data, status=status,
+        findings=[f'r/{s["name"]}: {s["subscribers"]:,} members, {s["match_tier"]} match'
+                  for s in subreddits[:5]],
+        assumptions=assumptions, uncertainties=uncertainties,
+        metrics={"subreddits": [s["name"] for s in subreddits], "quality": data["quality"]})
+
+
+# --------------------------------------------------------------------------- searches
+def _search_reddit(queries: list[str], client: tuple[str, str],
+                   session) -> tuple[dict[str, list[dict]], list[str]]:
+    """Reddit's own subreddit search, through an app-only token."""
+    try:
+        grant = base.http_json("POST", TOKEN_URL, session=session,
+                               headers={"User-Agent": USER_AGENT},
+                               form={"grant_type": "client_credentials"}, auth=client,
+                               timeout=10.0)
+        token = grant.get("access_token") if isinstance(grant, dict) else None
+        if not isinstance(token, str) or not token:
+            raise base.AnalysisError("Reddit returned no access token")
+    except base.AnalysisError as exc:
+        return {}, [f"Reddit sign-in failed: {exc}."]
+    results: dict[str, list[dict]] = {}
+    failures: list[str] = []
+    for query in queries:
         try:
             payload = base.http_json(
                 "GET", URL, session=session,
@@ -178,38 +217,100 @@ def produce(context: dict, *, model=None, session=None, env=None, now=None) -> d
                     if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else None)
         results[query] = [c for c in children if isinstance(c, dict)] if isinstance(
             children, list) else []
-    subreddits = rank(results)
-    data = {"queries": queries, "subreddits": subreddits,
-            "tier_distribution": {name: sum(1 for s in subreddits if s["match_tier"] == name)
-                                  for name in ("exact", "semantic", "adjacent", "peripheral")},
-            "quality": quality(subreddits)}
-    uncertainties = list(failures)
-    if not queries:
-        uncertainties.append("The venture's category is not known, so Reddit was not searched.")
-    elif not subreddits and not failures:
-        uncertainties.append("No subreddit matched the category words.")
-    if subreddits and data["quality"] == "poor":
-        uncertainties.append("Few subreddits match the category closely; treat these as leads.")
-    status = "partial" if failures or not subreddits else "completed"
-    return base.envelope(
-        LABEL, _narrative(data, failures), data=data, status=status,
-        findings=[f'r/{s["name"]}: {s["subscribers"]:,} members, {s["match_tier"]} match'
-                  for s in subreddits[:5]],
-        assumptions=["Confidence is word overlap between the search and each subreddit's name, "
-                     "title and description, not a measure of how active buyers are there."],
-        uncertainties=uncertainties,
-        metrics={"subreddits": [s["name"] for s in subreddits], "quality": data["quality"]})
+    return results, failures
+
+
+def _archive(params: dict, session, url: str = ARCHIVE_SUBREDDITS) -> list[dict]:
+    """One archive call's records; anything but a list of objects is no records."""
+    payload = base.http_json("GET", url, session=session, params=params,
+                             headers={"User-Agent": USER_AGENT}, timeout=15.0)
+    records = payload.get("data") if isinstance(payload, dict) else None
+    return [r for r in records if isinstance(r, dict)] if isinstance(records, list) else []
+
+
+def _split_name(name: str) -> set[str]:
+    """SpecialtyCoffee, specialty_coffee -> {specialty, coffee}; a run-together name stays whole."""
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name).replace("_", " ")
+    return set(re.findall(r"[a-z0-9]+", spaced.lower()))
+
+
+def _relevant(record: dict, terms: list[str]) -> bool:
+    members = base.finite_number(record.get("subscribers"))
+    if members is None or members < ARCHIVE_MIN_MEMBERS:
+        return False
+    name = record.get("display_name") if isinstance(record.get("display_name"), str) else ""
+    text = " ".join(str(record.get(k) or "") for k in ("title", "public_description"))
+    words = set(re.findall(r"[a-z0-9]+", text.lower())) | _split_name(name)
+    return any(t in words for t in terms) or name.lower() in {"".join(terms[i:j])
+                                                              for i in range(len(terms))
+                                                              for j in range(i + 1, len(terms) + 1)}
+
+
+def _search_archives(queries: list[str], _client: tuple[str, str],
+                     session) -> tuple[dict[str, list[dict]], list[str]]:
+    """Subreddits named like each query word, plus those where matching posts gather.
+
+    Each word is looked up once; its subreddits are scored against every query holding it.
+    A subreddit found only through posts needs MIN_POSTS of them before its metadata is
+    fetched, and at most LOOKUPS are fetched, so one stray post never makes the list.
+    """
+    results: dict[str, list[dict]] = {q: [] for q in queries}
+    failures: list[str] = []
+    by_word: dict[str, list[dict]] = {}
+    for word in dict.fromkeys(w for q in queries for w in q.split()):
+        try:
+            by_word[word] = _archive({"subreddit_prefix": word, "limit": PREFIX_LIMIT}, session)
+        except base.AnalysisError as exc:
+            failures.append(f'The subreddit archive lookup for "{word}" failed: {exc}.')
+    found: dict[str, Counter] = {}
+    for query in queries:
+        terms = query.split()
+        for word in terms:
+            results[query].extend({"data": r} for r in by_word.get(word, [])
+                                  if _relevant(r, terms))
+        try:
+            posts = _archive({"q": query, "size": POST_SAMPLE}, session, ARCHIVE_POSTS)
+        except base.AnalysisError as exc:
+            failures.append(f'The post archive search for "{query}" failed: {exc}.')
+            continue
+        found[query] = Counter(p["subreddit"] for p in posts
+                               if isinstance(p.get("subreddit"), str))
+    known = {(c["data"].get("display_name") or "").lower()
+             for children in results.values() for c in children}
+    tally = Counter()
+    for counts in found.values():
+        tally.update(counts)
+    leads = [name for name, seen in tally.most_common()
+             if seen >= MIN_POSTS and name.lower() not in known][:LOOKUPS]
+    for name in leads:
+        try:
+            records = _archive({"subreddit": name}, session)
+        except base.AnalysisError as exc:
+            failures.append(f"The subreddit archive lookup for r/{name} failed: {exc}.")
+            continue
+        for query, counts in found.items():
+            if counts.get(name, 0):
+                # Matching posts are the evidence here, so only the member floor applies.
+                results[query].extend({"data": r} for r in records
+                                      if (base.finite_number(r.get("subscribers")) or 0)
+                                      >= ARCHIVE_MIN_MEMBERS)
+    if failures and not any(results.values()):
+        failures.insert(0, "The open Reddit archives could not be reached, so no community "
+                           "is listed.")
+    return results, failures
 
 
 def _narrative(data: dict, failures: list[str]) -> str:
     if not data["queries"]:
         return "No community search was made: the venture's category is not known."
     searched = " and ".join(f'"{q}"' for q in data["queries"])
+    where = ("Reddit's open archives were" if data.get("source") == "open_archive"
+             else "Reddit was")
     if not data["subreddits"]:
         why = "the search failed" if failures else "nothing matched"
-        return f"Reddit was searched for {searched}; {why}, so no community is listed."
+        return f"{where} searched for {searched}; {why}, so no community is listed."
     top = ", ".join(f'r/{s["name"]}' for s in data["subreddits"][:3])
-    return (f"Reddit was searched for {searched}. {len(data['subreddits'])} communities are "
+    return (f"{where} searched for {searched}. {len(data['subreddits'])} communities are "
             f"listed, led by {top}. Match quality is {data['quality']}.")
 
 
@@ -217,6 +318,8 @@ def _narrative(data: dict, failures: list[str]) -> str:
 def validate_data(data: dict) -> None:
     if not isinstance(data, dict) or not isinstance(data.get("queries"), list):
         raise ValueError("community_discovery data needs its queries")
+    if data.get("source", "reddit") not in ("reddit", "open_archive"):
+        raise ValueError("source must be reddit or open_archive")
     if data.get("quality") not in ("good", "moderate", "poor"):
         raise ValueError("quality must be good, moderate or poor")
     subs = data.get("subreddits")

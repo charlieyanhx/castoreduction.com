@@ -270,11 +270,90 @@ def test_network_failure_is_partial_not_an_error():
     assert len(session.calls) == 1       # a failed sign-in makes no searches
 
 
-def test_without_credentials_reddit_is_not_called():
-    session = Session()
-    section = checked(cd, cd.produce(CAFE, session=session, env={}))
-    assert session.calls == [] and section["research_status"] == "partial"
-    assert cd.NO_CREDENTIALS in section["uncertainties"]
+class Archives:
+    """The two open archives, answered by URL and the parameter each call varies."""
+
+    def __init__(self, prefixes=None, posts=None, exact=None, fail=False):
+        self.prefixes, self.posts, self.exact = prefixes or {}, posts or {}, exact or {}
+        self.fail, self.calls = fail, []
+
+    def request(self, method, url, headers=None, params=None, json=None, timeout=None,
+                data=None, auth=None):
+        self.calls.append({"method": method, "url": url, "headers": headers, "params": params})
+        if self.fail:
+            raise ConnectionError("down")
+        if url == cd.ARCHIVE_POSTS:
+            names = self.posts.get(params["q"], [])
+            return Resp({"data": [{"subreddit": n, "title": "a post"} for n in names]})
+        if "subreddit_prefix" in params:
+            return Resp({"data": self.prefixes.get(params["subreddit_prefix"], [])})
+        return Resp({"data": self.exact.get(params["subreddit"], [])})
+
+
+def meta(name, subscribers, title="", description="", over18=False):
+    return sub(name, subscribers, title, description, over18)["data"]
+
+
+def test_without_credentials_the_open_archives_answer():
+    ctx = context({"product": "A specialty coffee shop on NW 23rd Avenue",
+                   "geography": "NW 23rd Avenue, Portland, Oregon"},
+                  description="Zebra quantum flamingo espresso bar for laptops.")
+    archives = Archives(
+        prefixes={"coffee": [meta("Coffee", 2_000_000, "Coffee lovers"),
+                             meta("CoffeeNSFW", 90_000, "coffee", over18=True)],
+                  "portland": [meta("Portland", 600_000, "Portland, Oregon")]},
+        posts={"specialty coffee shop portland": ["askportland", "askportland", "nottheonion"]},
+        exact={"askportland": [meta("askportland", 80_000, "Portland questions",
+                                    "coffee shop and neighbourhood advice")]})
+    section = checked(cd, cd.produce(ctx, session=archives, env={}))
+    urls = {c["url"] for c in archives.calls}
+    assert cd.TOKEN_URL not in urls and cd.URL not in urls
+    assert urls == {cd.ARCHIVE_SUBREDDITS, cd.ARCHIVE_POSTS}
+    sent = " ".join(str(v) for c in archives.calls for v in c["params"].values()).lower()
+    assert not {"zebra", "quantum", "flamingo", "laptops"} & set(sent.split())
+    assert all(c["headers"]["User-Agent"] == cd.USER_AGENT for c in archives.calls)
+    data = section["data"]
+    names = [s["name"] for s in data["subreddits"]]
+    assert "CoffeeNSFW" not in names
+    assert "askportland" in names            # seen in two matching posts, then looked up
+    assert "nottheonion" not in names        # one stray post is noise, never looked up
+    assert not any(c["params"].get("subreddit") == "nottheonion" for c in archives.calls)
+    assert data["source"] == "open_archive" and section["research_status"] == "completed"
+    assert "archive" in section["narrative"].lower()
+
+
+def test_archive_keeps_real_matches_only():
+    ctx = context({"product": "A dog grooming salon", "geography": "Austin, Texas"})
+    archives = Archives(prefixes={"dog": [
+        meta("doggrooming", 77_000, "Dog Grooming", "for dog groomers"),
+        meta("dogecoin", 2_500_000, "Dogecoin", "the cryptocurrency"),
+        meta("DogGroomersItaly", 180, "dog grooming", "dog groomers in Italy")]})
+    names = [s["name"] for s in cd.produce(ctx, session=archives, env={})["data"]["subreddits"]]
+    assert names == ["doggrooming"]   # a shared prefix is not a match; 180 members is too few
+
+
+def test_each_word_is_looked_up_once_across_queries():
+    archives = Archives()
+    cd.produce(CAFE, session=archives, env={})
+    words = [c["params"]["subreddit_prefix"] for c in archives.calls
+             if "subreddit_prefix" in (c["params"] or {})]
+    assert sorted(words) == sorted(set(words))
+    assert len([c for c in archives.calls if c["url"] == cd.ARCHIVE_POSTS]) == 2
+
+
+def test_archive_failure_is_partial_not_an_error():
+    archives = Archives(fail=True)
+    section = checked(cd, cd.produce(CAFE, session=archives, env={}))
+    assert section["research_status"] == "partial" and section["data"]["subreddits"] == []
+    assert any("archive" in u.lower() for u in section["uncertainties"])
+
+
+def test_with_credentials_the_archives_are_not_used():
+    session = signed(Resp({"data": {"children": [sub("Coffee", 2_000_000, "coffee")]}}),
+                     Resp({"data": {"children": []}}))
+    section = cd.produce(CAFE, session=session, env=REDDIT_ENV)
+    assert {c["url"] for c in session.calls} == {cd.TOKEN_URL, cd.URL}
+    assert section["data"]["source"] == "reddit"
 
 
 def test_nothing_matched_is_partial_with_empty_list():

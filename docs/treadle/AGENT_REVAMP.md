@@ -12,7 +12,7 @@ functional and coherent end to end. Measured by `scripts/treadle_scorecard.py` a
 | Area | Decision |
 |---|---|
 | Google Places | Places API (New) REST, key `GOOGLE_MAPS_API_KEY` in `.env`. No key: the section says so and the run goes on. |
-| Reddit discovery | Reddit's subreddit search through app-only OAuth (`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`), ranked locally with reddit-research-mcp's rules. Reddit closed its anonymous JSON API, and their hosted server needs its own OAuth; neither is used. Without credentials the section says so and makes no call. |
+| Reddit discovery | Reddit's subreddit search through app-only OAuth (`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`), ranked locally with reddit-research-mcp's rules. Reddit closed its anonymous JSON API, and their hosted server needs its own OAuth; neither is used. Since late 2025 Reddit also reviews every new app before it can be created, so without credentials the section searches two keyless open archives instead (Arctic Shift, PullPush) and ranks them the same way. |
 | Pricing | Our own extraction; confidence and validation from sandbase `multi-source-search` (its pricing skills are stubs). |
 | Search and verification | RivalSearch's `score.py` and `detect.py` ported; our existing search tools stay. |
 | Budget | $20 of live runs for the build. |
@@ -89,9 +89,15 @@ MODERATE=2, EXPENSIVE=3, VERY_EXPENSIVE=4; unspecified is null. Data: `query`,
 `available`, `competitors[]`, `count`, `median_rating`, `median_price_level`,
 `price_level_counts`. Applies when the venture is in person or a mix and has a location.
 
-**community_discovery.** `GET https://www.reddit.com/subreddits/search.json?q=<terms>&limit=25`
-with a descriptive User-Agent, terms built from category and geography words only (never
-the brief). Confidence is token overlap between the query terms and the subreddit name,
+**community_discovery.** With `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET`: an app-only
+token, then `GET https://oauth.reddit.com/subreddits/search?q=<terms>&limit=25`. Without
+them, the open archives: each query word once against Arctic Shift's
+`/api/subreddits/search?subreddit_prefix=<word>`, each query against PullPush's
+`/reddit/search/submission/?q=<query>&size=100`, and the subreddits seen in ≥2 matching
+posts (at most 4) looked up by exact name. Archive results need ≥1,000 members, and a
+prefix match needs a query word as a whole word in the name, title or description
+(r/dogecoin is not a "dog" community). Either way: a descriptive User-Agent, terms built
+from category and geography words only (never the brief). Confidence is token overlap between the query terms and the subreddit name,
 title and description; then reddit-research-mcp's rules: generic subreddits (funny, pics,
 videos, gifs, memes, aww, news, science) ×0.3 unless the query names them; ≥1,000,000
 subscribers ×1.1 (cap 1.0); <10,000 ×0.9; NSFW dropped; sort by (−confidence,
