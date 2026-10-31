@@ -40,7 +40,7 @@ def _live_runner(prep_model: str | None) -> Callable:
         business_model=ExplicitPrepModel(model=prep_model, max_tokens=12000),
         max_workers=4, max_correction_rounds=2,
         business_max_calls=6, business_max_depth=6,
-        limits=ExecutionLimits(run_timeout_s=1500, task_timeout_s=300, review_timeout_s=90),
+        limits=ExecutionLimits(run_timeout_s=1500, task_timeout_s=480, review_timeout_s=90),
     ))
 
     def execute(brief: dict, directory: Path):

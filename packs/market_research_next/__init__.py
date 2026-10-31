@@ -144,7 +144,7 @@ def build_report_type(*, key: str = "market_research_next", prep_model: Callable
                       business_max_calls: int = 6, business_max_depth: int = 6,
                       research: Callable | None = None, review: Callable | None = None,
                       max_workers: int = 4, max_correction_rounds: int = 2,
-                      limits: ExecutionLimits | None = ExecutionLimits(run_timeout_s=1500, task_timeout_s=300),
+                      limits: ExecutionLimits | None = ExecutionLimits(run_timeout_s=1500, task_timeout_s=480),
                       analysis: bool = True,
                       analysis_producers: Mapping[str, Callable] | None = None) -> ReportType:
     """Build an unregistered, fully injectable pack. Register once under its own key.

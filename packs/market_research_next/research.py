@@ -331,10 +331,14 @@ def _community_hint(section_key: str, context: dict) -> str:
              if isinstance(item, dict) and isinstance(item.get("name"), str)][:6]
     if not names:
         return ""
-    return (" Ranked communities where these customers talk: "
-            + ", ".join(f"r/{name}" for name in names)
-            + ". Search inside them with reddit_mentions queries like "
-              "'subreddit:<name> <problem words>' before searching broadly.")
+    listed = " Ranked communities where these customers talk: " + ", ".join(
+        f"r/{name}" for name in names)
+    if (context.get("community_discovery") or {}).get("data", {}).get("source") == "open_archive":
+        # Found without Reddit credentials, so reddit_mentions would answer 403 here.
+        return (listed + ". Reddit's own search is not available in this run; use these "
+                "names to aim web searches at their discussions.")
+    return (listed + ". Search inside them with reddit_mentions queries like "
+                     "'subreddit:<name> <problem words>' before searching broadly.")
 
 
 class LocalResearchBackend:
@@ -409,7 +413,8 @@ class LocalResearchBackend:
         request["research_note"] = note
         try:
             raw = self.model(
-                _SYSTEM, _json(request), max_tokens=3500,
+                # 3,500 cut customer voice's write-up mid-string (live, 2026-10-30).
+                _SYSTEM, _json(request), max_tokens=6000,
                 tier="critical" if section_key == "summary" else "reasoning",
             )
         except ResearchError:

@@ -332,6 +332,21 @@ def test_archive_keeps_real_matches_only():
     assert names == ["doggrooming"]   # a shared prefix is not a match; 180 members is too few
 
 
+def test_archive_search_fits_one_section_tool_budget():
+    # Live 2026-10-30: ten archive calls against a per-section allowance of eight stopped
+    # the whole run with call_budget. The worst case must stay under the allowance.
+    from treadle.execution_limits import ExecutionLimits
+
+    ctx = context({"product": "Artisan sourdough bakery cafe with wine bar",
+                   "geography": "Hawthorne Boulevard, Portland, Oregon"})
+    many = [f"sub{n}" for n in range(12) for _ in range(3)]
+    archives = Archives(posts={q: many for q in cd.build_queries(ctx)},
+                        exact={f"sub{n}": [meta(f"sub{n}", 50_000, "bakery")] for n in range(12)})
+    cd.produce(ctx, session=archives, env={})
+    assert len(archives.calls) <= cd.ARCHIVE_CALLS < ExecutionLimits().task_tool_calls
+    assert any(c["url"] == cd.ARCHIVE_POSTS for c in archives.calls)
+
+
 def test_each_word_is_looked_up_once_across_queries():
     archives = Archives()
     cd.produce(CAFE, session=archives, env={})

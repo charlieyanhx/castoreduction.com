@@ -213,6 +213,18 @@ def test_prep_model_requires_explicit_choice_and_never_falls_back(monkeypatch):
     assert client.messages.create.call_args.kwargs["model"] == "chosen-model"
 
 
+def test_prep_planning_call_has_room_for_every_section_and_time_to_finish():
+    # Live 2026-10-30: with nine analysis sections the planning answer outgrew 7,000
+    # output tokens and stopped at max_tokens, after ~277s of a 300s task allowance.
+    from packs.market_research_next.customer_pipeline import _DEFAULT_LIMITS
+
+    assert ExplicitPrepModel("chosen-model").max_tokens == 16000
+    pack = build_report_type(key="market_research_limits_probe",
+                             prep_model=lambda **_: {}, business_model=minimal_business_model)
+    assert pack.workflow.limits.task_timeout_s >= 480
+    assert _DEFAULT_LIMITS.task_timeout_s >= 480
+
+
 @pytest.mark.parametrize("raw", [
     '{"ok":true}',
     ' \n```json\n{"ok":true}\n```\n ',

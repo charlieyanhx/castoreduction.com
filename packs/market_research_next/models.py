@@ -15,7 +15,9 @@ class ExplicitPrepModel:
     No process-wide model environment is changed during a run.
     """
 
-    def __init__(self, model: str | None = None, *, max_tokens: int = 7000) -> None:
+    #: The planning answer covers every planned section; with the nine analysis sections it
+    #: outgrew 7,000 tokens and stopped at max_tokens (live run, 2026-10-30).
+    def __init__(self, model: str | None = None, *, max_tokens: int = 16000) -> None:
         if type(max_tokens) is not int or not 1 <= max_tokens <= 16000:
             raise ValueError("max_tokens must be an integer between 1 and 16000")
         self.model_name = model or os.environ.get("TREADLE_PREP_MODEL", "").strip()

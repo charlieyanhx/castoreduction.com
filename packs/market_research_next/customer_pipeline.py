@@ -38,7 +38,7 @@ _FULL_STEPS = ("prep",) + FULL_ORDER
 _DONE = ("ok", "not_applicable")
 #: 25 minutes: one clean pass of the full report takes about 8.5, and a correction round
 #: or a PREP retry must still fit (measured 2026-10-28; 15 minutes ran out mid-repair).
-_DEFAULT_LIMITS = ExecutionLimits(run_timeout_s=1500, task_timeout_s=300, review_timeout_s=90)
+_DEFAULT_LIMITS = ExecutionLimits(run_timeout_s=1500, task_timeout_s=480, review_timeout_s=90)
 log = logging.getLogger(__name__)
 
 

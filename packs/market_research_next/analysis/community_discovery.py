@@ -37,6 +37,9 @@ LOOKUPS = 4
 #: own search never would: r/dogecoin for "dog", a 20-member r/specialtycoffeeph. Archive
 #: results keep a subreddit only with this many members and a search word as a whole word.
 ARCHIVE_MIN_MEMBERS = 1_000
+#: Every archive call is charged to the section's tool allowance (eight by default), and a
+#: section over its allowance stops the whole run, so the search never makes more than this.
+ARCHIVE_CALLS = 7
 USER_AGENT = "castor-research/1.0 (market research; contact via castor-advisory.com)"
 KEEP = 10
 MAX_TERMS = 4
@@ -253,21 +256,15 @@ def _search_archives(queries: list[str], _client: tuple[str, str],
     Each word is looked up once; its subreddits are scored against every query holding it.
     A subreddit found only through posts needs MIN_POSTS of them before its metadata is
     fetched, and at most LOOKUPS are fetched, so one stray post never makes the list.
+    Every call counts against ARCHIVE_CALLS, failed ones too: post searches first, then
+    word lookups leaving room for one subreddit lookup, then subreddit lookups.
     """
     results: dict[str, list[dict]] = {q: [] for q in queries}
     failures: list[str] = []
-    by_word: dict[str, list[dict]] = {}
-    for word in dict.fromkeys(w for q in queries for w in q.split()):
-        try:
-            by_word[word] = _archive({"subreddit_prefix": word, "limit": PREFIX_LIMIT}, session)
-        except base.AnalysisError as exc:
-            failures.append(f'The subreddit archive lookup for "{word}" failed: {exc}.')
     found: dict[str, Counter] = {}
-    for query in queries:
-        terms = query.split()
-        for word in terms:
-            results[query].extend({"data": r} for r in by_word.get(word, [])
-                                  if _relevant(r, terms))
+    spent = 0
+    for query in queries[:ARCHIVE_CALLS]:
+        spent += 1
         try:
             posts = _archive({"q": query, "size": POST_SAMPLE}, session, ARCHIVE_POSTS)
         except base.AnalysisError as exc:
@@ -275,13 +272,27 @@ def _search_archives(queries: list[str], _client: tuple[str, str],
             continue
         found[query] = Counter(p["subreddit"] for p in posts
                                if isinstance(p.get("subreddit"), str))
+    by_word: dict[str, list[dict]] = {}
+    words = list(dict.fromkeys(w for q in queries for w in q.split()))
+    for word in words[:max(0, ARCHIVE_CALLS - spent - 1)]:
+        spent += 1
+        try:
+            by_word[word] = _archive({"subreddit_prefix": word, "limit": PREFIX_LIMIT}, session)
+        except base.AnalysisError as exc:
+            failures.append(f'The subreddit archive lookup for "{word}" failed: {exc}.')
+    for query in queries:
+        terms = query.split()
+        for word in terms:
+            results[query].extend({"data": r} for r in by_word.get(word, [])
+                                  if _relevant(r, terms))
     known = {(c["data"].get("display_name") or "").lower()
              for children in results.values() for c in children}
     tally = Counter()
     for counts in found.values():
         tally.update(counts)
     leads = [name for name, seen in tally.most_common()
-             if seen >= MIN_POSTS and name.lower() not in known][:LOOKUPS]
+             if seen >= MIN_POSTS and name.lower() not in known][:min(LOOKUPS,
+                                                                     ARCHIVE_CALLS - spent)]
     for name in leads:
         try:
             records = _archive({"subreddit": name}, session)

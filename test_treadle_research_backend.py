@@ -423,6 +423,44 @@ class TestResearchBackend(unittest.TestCase):
                 LocalResearchBackend()("unknown", context("summary"))
         model.assert_not_called()
 
+    def test_the_write_up_has_room_for_a_full_section(self):
+        # Live 2026-10-30: customer voice's write-up stopped mid-string at 3,500 tokens.
+        captured = []
+
+        def model(system, user, **kwargs):
+            captured.append(kwargs)
+            return valid_section()
+
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result()):
+            LocalResearchBackend(model).research("competitive_landscape",
+                                                 context("competitive_landscape"))
+        self.assertGreaterEqual(captured[-1]["max_tokens"], 6000)
+
+    def test_community_hint_matches_what_reddit_search_can_reach(self):
+        def found(source):
+            ctx = context("customer_voice")
+            ctx["community_discovery"] = {"data": {"source": source, "subreddits": [
+                {"name": "Coffee_Shop"}, {"name": "barista"}]}}
+            return ctx
+
+        def goal(ctx):
+            with patch("packs.market_research_next.research.run_agent",
+                       return_value=observed_result()) as agent:
+                LocalResearchBackend(lambda *a, **k: valid_section()).research(
+                    "customer_voice", ctx)
+            return agent.call_args.args[0]
+
+        with_keys = goal(found("reddit"))
+        self.assertIn("r/Coffee_Shop", with_keys)
+        self.assertIn("subreddit:", with_keys)
+        # Without Reddit credentials, reddit_mentions answers 403: name the communities,
+        # never send the agent to search inside them through Reddit.
+        archive = goal(found("open_archive"))
+        self.assertIn("r/Coffee_Shop", archive)
+        self.assertNotIn("subreddit:", archive)
+        self.assertNotIn("reddit_mentions", archive)
+
 
 if __name__ == "__main__":
     unittest.main()

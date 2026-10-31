@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import copy
 import json
 import xml.etree.ElementTree as ET
@@ -124,7 +125,11 @@ def test_interrupted_saved_run_is_terminal_and_never_repolled():
         request = Request()
 
     context = Context()
-    state = asyncio.run(_wait_for_run(context, "http://127.0.0.1:8779", "saved", 1))
+    # Its own thread: an earlier test in the full suite can leave an event loop running
+    # in this one, and asyncio.run refuses to start inside it.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        state = pool.submit(asyncio.run, _wait_for_run(
+            context, "http://127.0.0.1:8779", "saved", 1)).result()
     assert state["status"] in TERMINAL
     assert state["status"] == "interrupted"
     report, brief, _ = _report()
