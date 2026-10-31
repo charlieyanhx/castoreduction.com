@@ -1,0 +1,2708 @@
+{
+  "candidate": {
+    "version": "market_research.business/2",
+    "company_alias": "Company B",
+    "nodes": [
+      {
+        "id": "company",
+        "kind": "company",
+        "label": "Company B",
+        "parent_id": null,
+        "statement_ids": []
+      },
+      {
+        "id": "seg_mobility",
+        "kind": "reported_segment",
+        "label": "Mobility",
+        "parent_id": "company",
+        "statement_ids": [
+          "U-S01",
+          "U-S02",
+          "U-S08",
+          "U-S12"
+        ]
+      },
+      {
+        "id": "seg_delivery",
+        "kind": "reported_segment",
+        "label": "Delivery",
+        "parent_id": "company",
+        "statement_ids": [
+          "U-S01",
+          "U-S03",
+          "U-S04",
+          "U-S05",
+          "U-S12"
+        ]
+      },
+      {
+        "id": "seg_freight",
+        "kind": "reported_segment",
+        "label": "Freight",
+        "parent_id": "company",
+        "statement_ids": [
+          "U-S01",
+          "U-S06",
+          "U-S12"
+        ]
+      },
+      {
+        "id": "consumer_membership",
+        "kind": "offering",
+        "label": "Consumer membership",
+        "parent_id": "company",
+        "statement_ids": [
+          "U-S07"
+        ]
+      },
+      {
+        "id": "shared_platform_rd",
+        "kind": "capability",
+        "label": "Shared platform research and development",
+        "parent_id": "company",
+        "statement_ids": [
+          "U-S09"
+        ]
+      },
+      {
+        "id": "cap_mapping",
+        "kind": "capability",
+        "label": "Mapping",
+        "parent_id": "shared_platform_rd",
+        "statement_ids": [
+          "U-S09"
+        ]
+      },
+      {
+        "id": "cap_payments_technology",
+        "kind": "capability",
+        "label": "Payments technology",
+        "parent_id": "shared_platform_rd",
+        "statement_ids": [
+          "U-S09"
+        ]
+      },
+      {
+        "id": "cap_internal_infrastructure",
+        "kind": "capability",
+        "label": "Internal infrastructure",
+        "parent_id": "shared_platform_rd",
+        "statement_ids": [
+          "U-S09"
+        ]
+      },
+      {
+        "id": "metric_gross_bookings",
+        "kind": "metric",
+        "label": "Gross Bookings",
+        "parent_id": "company",
+        "statement_ids": [
+          "U-S10",
+          "U-S11",
+          "U-S12"
+        ]
+      },
+      {
+        "id": "delivery_restaurant_meals",
+        "kind": "offering",
+        "label": "Restaurant meal delivery",
+        "parent_id": "seg_delivery",
+        "statement_ids": [
+          "U-S03"
+        ]
+      },
+      {
+        "id": "delivery_grocery_retail_group",
+        "kind": "group",
+        "label": "Grocery & Retail",
+        "parent_id": "seg_delivery",
+        "statement_ids": [
+          "U-S03"
+        ]
+      },
+      {
+        "id": "delivery_grocery",
+        "kind": "offering",
+        "label": "Grocery purchases",
+        "parent_id": "delivery_grocery_retail_group",
+        "statement_ids": [
+          "U-S03"
+        ]
+      },
+      {
+        "id": "delivery_convenience",
+        "kind": "offering",
+        "label": "Convenience purchases",
+        "parent_id": "delivery_grocery_retail_group",
+        "statement_ids": [
+          "U-S03"
+        ]
+      },
+      {
+        "id": "delivery_other_retail",
+        "kind": "offering",
+        "label": "Other retail purchases",
+        "parent_id": "delivery_grocery_retail_group",
+        "statement_ids": [
+          "U-S03"
+        ]
+      },
+      {
+        "id": "delivery_white_label",
+        "kind": "offering",
+        "label": "White-label delivery offering",
+        "parent_id": "seg_delivery",
+        "statement_ids": [
+          "U-S05"
+        ]
+      },
+      {
+        "id": "actor_delivery_consumers",
+        "kind": "actor",
+        "label": "Ordering consumers",
+        "parent_id": "seg_delivery",
+        "statement_ids": [
+          "U-S04"
+        ]
+      },
+      {
+        "id": "actor_delivery_merchants",
+        "kind": "actor",
+        "label": "Merchants preparing or selling goods",
+        "parent_id": "seg_delivery",
+        "statement_ids": [
+          "U-S04"
+        ]
+      },
+      {
+        "id": "actor_delivery_couriers",
+        "kind": "actor",
+        "label": "Couriers",
+        "parent_id": "seg_delivery",
+        "statement_ids": [
+          "U-S04"
+        ]
+      },
+      {
+        "id": "actor_white_label_clients",
+        "kind": "actor",
+        "label": "Restaurants and retailers using white-label delivery",
+        "parent_id": "delivery_white_label",
+        "statement_ids": [
+          "U-S05"
+        ]
+      },
+      {
+        "id": "actor_freight_shippers",
+        "kind": "actor",
+        "label": "Shippers",
+        "parent_id": "seg_freight",
+        "statement_ids": [
+          "U-S06"
+        ]
+      },
+      {
+        "id": "actor_freight_carriers",
+        "kind": "actor",
+        "label": "Carriers",
+        "parent_id": "seg_freight",
+        "statement_ids": [
+          "U-S06"
+        ]
+      },
+      {
+        "id": "rev_freight_brokerage_fees",
+        "kind": "revenue_stream",
+        "label": "Freight brokerage fees",
+        "parent_id": "seg_freight",
+        "statement_ids": [
+          "U-S06"
+        ]
+      },
+      {
+        "id": "rev_freight_tms_fees",
+        "kind": "revenue_stream",
+        "label": "Transportation management fees",
+        "parent_id": "seg_freight",
+        "statement_ids": [
+          "U-S06"
+        ]
+      },
+      {
+        "id": "rev_freight_related_services_fees",
+        "kind": "revenue_stream",
+        "label": "Related freight services fees",
+        "parent_id": "seg_freight",
+        "statement_ids": [
+          "U-S06"
+        ]
+      },
+      {
+        "id": "actor_mobility_riders",
+        "kind": "actor",
+        "label": "Riders",
+        "parent_id": "seg_mobility",
+        "statement_ids": [
+          "U-S02"
+        ]
+      },
+      {
+        "id": "actor_mobility_drivers",
+        "kind": "actor",
+        "label": "Drivers",
+        "parent_id": "seg_mobility",
+        "statement_ids": [
+          "U-S02",
+          "U-S08"
+        ]
+      },
+      {
+        "id": "mobility_ridesharing",
+        "kind": "offering",
+        "label": "Ridesharing",
+        "parent_id": "seg_mobility",
+        "statement_ids": [
+          "U-S02"
+        ]
+      },
+      {
+        "id": "mobility_taxis",
+        "kind": "offering",
+        "label": "Taxis",
+        "parent_id": "seg_mobility",
+        "statement_ids": [
+          "U-S02"
+        ]
+      },
+      {
+        "id": "rev_mobility_driver_service_fees",
+        "kind": "revenue_stream",
+        "label": "Mobility driver service fees",
+        "parent_id": "seg_mobility",
+        "statement_ids": [
+          "U-S08"
+        ]
+      },
+      {
+        "id": "rev_mobility_consumer_charges",
+        "kind": "revenue_stream",
+        "label": "Mobility consumer charges",
+        "parent_id": "seg_mobility",
+        "statement_ids": [
+          "U-S08"
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "f_shared_platform_not_segment",
+        "node_id": "shared_platform_rd",
+        "key": "is_reportable_segment",
+        "value": "false",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_gb_components",
+        "node_id": "metric_gross_bookings",
+        "key": "measured_components",
+        "value": "Ride and order values plus Freight revenue",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S10"
+        ],
+        "qualifiers": {
+          "includes": [
+            "applicable taxes",
+            "tolls",
+            "fees"
+          ],
+          "excludes": [
+            "driver tips"
+          ]
+        }
+      },
+      {
+        "id": "f_gb_pre_deduction",
+        "node_id": "metric_gross_bookings",
+        "key": "measurement_basis",
+        "value": "Measured before deductions for consumer discounts, refunds, participant earnings and driver incentives",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S11"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "for rides and orders"
+          ]
+        }
+      },
+      {
+        "id": "f_gb_not_revenue",
+        "node_id": "metric_gross_bookings",
+        "key": "relation_to_revenue",
+        "value": "Reported separately from revenue; Gross Bookings cannot be relabeled as company revenue",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S12"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_membership_benefit_rides",
+        "node_id": "consumer_membership",
+        "key": "benefit_scope",
+        "value": "Provides benefits on rides",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_membership_benefit_delivery",
+        "node_id": "consumer_membership",
+        "key": "benefit_scope",
+        "value": "Provides benefits on Delivery",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S07"
+        ],
+        "qualifiers": {
+          "includes": [
+            "grocery orders",
+            "retail orders"
+          ]
+        }
+      },
+      {
+        "id": "f_delivery_reportable",
+        "node_id": "seg_delivery",
+        "key": "is_reportable_segment",
+        "value": "true",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S01"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_delivery_revenue_separate",
+        "node_id": "seg_delivery",
+        "key": "revenue_reporting",
+        "value": "Delivery revenue is reported separately from Gross Bookings",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S12"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_consumers_role",
+        "node_id": "actor_delivery_consumers",
+        "key": "role",
+        "value": "Place orders",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_merchants_role",
+        "node_id": "actor_delivery_merchants",
+        "key": "role",
+        "value": "Prepare or sell goods",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_couriers_role",
+        "node_id": "actor_delivery_couriers",
+        "key": "role",
+        "value": "Deliver the orders",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_white_label_function",
+        "node_id": "delivery_white_label",
+        "key": "job_to_be_done",
+        "value": "Lets restaurants and retailers use delivery services under their own brands",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_freight_reportable",
+        "node_id": "seg_freight",
+        "key": "is_reportable_segment",
+        "value": "true",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S01"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_freight_revenue_separate",
+        "node_id": "seg_freight",
+        "key": "revenue_reporting",
+        "value": "Freight revenue is reported separately from Gross Bookings",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S12"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_freight_brokerage_form",
+        "node_id": "rev_freight_brokerage_fees",
+        "key": "revenue_form",
+        "value": "Fees from brokerage services for shippers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_freight_tms_form",
+        "node_id": "rev_freight_tms_fees",
+        "key": "revenue_form",
+        "value": "Fees from transportation management services for shippers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_freight_related_form",
+        "node_id": "rev_freight_related_services_fees",
+        "key": "revenue_form",
+        "value": "Fees from related services for shippers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_mobility_reportable",
+        "node_id": "seg_mobility",
+        "key": "is_reportable_segment",
+        "value": "true",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S01"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_mobility_revenue_separate",
+        "node_id": "seg_mobility",
+        "key": "revenue_reporting",
+        "value": "Mobility revenue is reported separately from Gross Bookings",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S12"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_mobility_revenue_arrangement_varies",
+        "node_id": "seg_mobility",
+        "key": "revenue_arrangement_variability",
+        "value": "The applicable revenue arrangement depends on the market",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_mobility_driver_fees_form",
+        "node_id": "rev_mobility_driver_service_fees",
+        "key": "revenue_form",
+        "value": "Driver service fees",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S08"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "applicable arrangement depends on the market"
+          ]
+        }
+      },
+      {
+        "id": "f_mobility_consumer_charges_form",
+        "node_id": "rev_mobility_consumer_charges",
+        "key": "revenue_form",
+        "value": "Consumer charges",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S08"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "applicable arrangement depends on the market"
+          ]
+        }
+      }
+    ],
+    "relationships": [
+      {
+        "id": "r_gb_measures_mobility",
+        "from_id": "metric_gross_bookings",
+        "to_id": "seg_mobility",
+        "kind": "measures",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S10",
+          "U-S02"
+        ],
+        "qualifiers": {
+          "includes": [
+            "ride values"
+          ]
+        }
+      },
+      {
+        "id": "r_gb_measures_delivery",
+        "from_id": "metric_gross_bookings",
+        "to_id": "seg_delivery",
+        "kind": "measures",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S10",
+          "U-S04"
+        ],
+        "qualifiers": {
+          "includes": [
+            "order values"
+          ]
+        }
+      },
+      {
+        "id": "r_gb_measures_freight",
+        "from_id": "metric_gross_bookings",
+        "to_id": "seg_freight",
+        "kind": "measures",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S10"
+        ],
+        "qualifiers": {
+          "includes": [
+            "Freight revenue"
+          ]
+        }
+      },
+      {
+        "id": "r_mobility_uses_platform",
+        "from_id": "seg_mobility",
+        "to_id": "shared_platform_rd",
+        "kind": "uses",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_uses_platform",
+        "from_id": "seg_delivery",
+        "to_id": "shared_platform_rd",
+        "kind": "uses",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_freight_uses_platform",
+        "from_id": "seg_freight",
+        "to_id": "shared_platform_rd",
+        "kind": "uses",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_membership_applies_mobility",
+        "from_id": "consumer_membership",
+        "to_id": "seg_mobility",
+        "kind": "applies_to",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S07",
+          "U-S02"
+        ],
+        "qualifiers": {
+          "includes": [
+            "membership benefits on rides"
+          ]
+        }
+      },
+      {
+        "id": "r_membership_applies_delivery",
+        "from_id": "consumer_membership",
+        "to_id": "seg_delivery",
+        "kind": "applies_to",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S07"
+        ],
+        "qualifiers": {
+          "includes": [
+            "membership benefits on Delivery",
+            "grocery and retail orders"
+          ]
+        }
+      },
+      {
+        "id": "r_delivery_offers_restaurant",
+        "from_id": "seg_delivery",
+        "to_id": "delivery_restaurant_meals",
+        "kind": "offers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_offers_grocery",
+        "from_id": "seg_delivery",
+        "to_id": "delivery_grocery",
+        "kind": "offers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_offers_convenience",
+        "from_id": "seg_delivery",
+        "to_id": "delivery_convenience",
+        "kind": "offers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_offers_other_retail",
+        "from_id": "seg_delivery",
+        "to_id": "delivery_other_retail",
+        "kind": "offers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_offers_white_label",
+        "from_id": "seg_delivery",
+        "to_id": "delivery_white_label",
+        "kind": "offers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_connects_consumers",
+        "from_id": "seg_delivery",
+        "to_id": "actor_delivery_consumers",
+        "kind": "connects",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_connects_merchants",
+        "from_id": "seg_delivery",
+        "to_id": "actor_delivery_merchants",
+        "kind": "connects",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_connects_couriers",
+        "from_id": "seg_delivery",
+        "to_id": "actor_delivery_couriers",
+        "kind": "connects",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_white_label_serves_clients",
+        "from_id": "delivery_white_label",
+        "to_id": "actor_white_label_clients",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_freight_connects_shippers",
+        "from_id": "seg_freight",
+        "to_id": "actor_freight_shippers",
+        "kind": "connects",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_freight_connects_carriers",
+        "from_id": "seg_freight",
+        "to_id": "actor_freight_carriers",
+        "kind": "connects",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_freight_serves_shippers",
+        "from_id": "seg_freight",
+        "to_id": "actor_freight_shippers",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {
+          "includes": [
+            "brokerage",
+            "transportation management",
+            "related services"
+          ]
+        }
+      },
+      {
+        "id": "r_freight_generates_brokerage",
+        "from_id": "seg_freight",
+        "to_id": "rev_freight_brokerage_fees",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_freight_generates_tms",
+        "from_id": "seg_freight",
+        "to_id": "rev_freight_tms_fees",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_freight_generates_related",
+        "from_id": "seg_freight",
+        "to_id": "rev_freight_related_services_fees",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_shippers_pay_brokerage",
+        "from_id": "actor_freight_shippers",
+        "to_id": "rev_freight_brokerage_fees",
+        "kind": "pays",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_shippers_pay_tms",
+        "from_id": "actor_freight_shippers",
+        "to_id": "rev_freight_tms_fees",
+        "kind": "pays",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_shippers_pay_related",
+        "from_id": "actor_freight_shippers",
+        "to_id": "rev_freight_related_services_fees",
+        "kind": "pays",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_mobility_connects_riders",
+        "from_id": "seg_mobility",
+        "to_id": "actor_mobility_riders",
+        "kind": "connects",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_mobility_connects_drivers",
+        "from_id": "seg_mobility",
+        "to_id": "actor_mobility_drivers",
+        "kind": "connects",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_mobility_offers_ridesharing",
+        "from_id": "seg_mobility",
+        "to_id": "mobility_ridesharing",
+        "kind": "offers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_mobility_offers_taxis",
+        "from_id": "seg_mobility",
+        "to_id": "mobility_taxis",
+        "kind": "offers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_mobility_generates_driver_fees",
+        "from_id": "seg_mobility",
+        "to_id": "rev_mobility_driver_service_fees",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S08"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "applicable arrangement depends on the market"
+          ]
+        }
+      },
+      {
+        "id": "r_mobility_generates_consumer_charges",
+        "from_id": "seg_mobility",
+        "to_id": "rev_mobility_consumer_charges",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S08"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "applicable arrangement depends on the market"
+          ]
+        }
+      },
+      {
+        "id": "r_drivers_pay_service_fees",
+        "from_id": "actor_mobility_drivers",
+        "to_id": "rev_mobility_driver_service_fees",
+        "kind": "pays",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S08"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "applicable arrangement depends on the market"
+          ]
+        }
+      },
+      {
+        "id": "r_riders_pay_consumer_charges",
+        "from_id": "actor_mobility_riders",
+        "to_id": "rev_mobility_consumer_charges",
+        "kind": "pays",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S02",
+          "U-S08"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "applicable arrangement depends on the market",
+            "riders act as the consumers charged"
+          ]
+        }
+      }
+    ],
+    "gaps": [
+      {
+        "id": "g_membership_monetization",
+        "node_id": "consumer_membership",
+        "question": "Does the consumer membership generate its own revenue stream, and if so, what unit price, charging unit, currency and billing period apply?",
+        "section_ids": [
+          "revenue",
+          "summary"
+        ]
+      },
+      {
+        "id": "g_membership_adoption",
+        "node_id": "consumer_membership",
+        "question": "How many consumers hold the membership, or what adoption rate applies, within which geography and period?",
+        "section_ids": [
+          "revenue",
+          "market_size"
+        ]
+      },
+      {
+        "id": "g_delivery_revenue_streams",
+        "node_id": "seg_delivery",
+        "question": "What revenue streams does the Delivery segment generate, and which actors pay each of them?",
+        "section_ids": [
+          "revenue",
+          "summary"
+        ]
+      },
+      {
+        "id": "g_white_label_monetization",
+        "node_id": "delivery_white_label",
+        "question": "How is the white-label delivery offering priced, and what charging unit, currency and billing period apply?",
+        "section_ids": [
+          "revenue"
+        ]
+      },
+      {
+        "id": "g_freight_fee_pricing",
+        "node_id": "seg_freight",
+        "question": "How are Freight brokerage, transportation management and related service fees priced, and what charging unit, currency and billing period apply?",
+        "section_ids": [
+          "revenue"
+        ]
+      },
+      {
+        "id": "g_freight_carrier_role",
+        "node_id": "actor_freight_carriers",
+        "question": "What role do carriers play in Freight transactions, and do they pay any Freight fees?",
+        "section_ids": [
+          "revenue",
+          "multi_perspective"
+        ]
+      },
+      {
+        "id": "g_freight_related_services_scope",
+        "node_id": "rev_freight_related_services_fees",
+        "question": "Which specific services make up the related services for shippers?",
+        "section_ids": [
+          "summary",
+          "revenue"
+        ]
+      },
+      {
+        "id": "g_mobility_market_arrangements",
+        "node_id": "seg_mobility",
+        "question": "In which markets does Mobility revenue come from driver service fees versus consumer charges?",
+        "section_ids": [
+          "revenue",
+          "multi_perspective"
+        ]
+      },
+      {
+        "id": "g_mobility_fee_pricing",
+        "node_id": "seg_mobility",
+        "question": "How are Mobility driver service fees and consumer charges priced, and what charging unit, currency and billing period apply?",
+        "section_ids": [
+          "revenue"
+        ]
+      },
+      {
+        "id": "g_mobility_rider_adoption",
+        "node_id": "actor_mobility_riders",
+        "question": "How many riders use Mobility offerings, within which geography and period?",
+        "section_ids": [
+          "revenue",
+          "market_size"
+        ]
+      }
+    ]
+  },
+  "accepted": {
+    "version": "market_research.business/2",
+    "company_alias": "Company B",
+    "nodes": [
+      {
+        "id": "company",
+        "kind": "company",
+        "label": "Company B",
+        "parent_id": null,
+        "statement_ids": []
+      },
+      {
+        "id": "seg_mobility",
+        "kind": "reported_segment",
+        "label": "Mobility",
+        "parent_id": "company",
+        "statement_ids": [
+          "U-S01",
+          "U-S02",
+          "U-S08",
+          "U-S12"
+        ]
+      },
+      {
+        "id": "seg_delivery",
+        "kind": "reported_segment",
+        "label": "Delivery",
+        "parent_id": "company",
+        "statement_ids": [
+          "U-S01",
+          "U-S03",
+          "U-S04",
+          "U-S05",
+          "U-S12"
+        ]
+      },
+      {
+        "id": "seg_freight",
+        "kind": "reported_segment",
+        "label": "Freight",
+        "parent_id": "company",
+        "statement_ids": [
+          "U-S01",
+          "U-S06",
+          "U-S12"
+        ]
+      },
+      {
+        "id": "consumer_membership",
+        "kind": "offering",
+        "label": "Consumer membership",
+        "parent_id": "company",
+        "statement_ids": [
+          "U-S07"
+        ]
+      },
+      {
+        "id": "shared_platform_rd",
+        "kind": "capability",
+        "label": "Shared platform research and development",
+        "parent_id": "company",
+        "statement_ids": [
+          "U-S09"
+        ]
+      },
+      {
+        "id": "cap_mapping",
+        "kind": "capability",
+        "label": "Mapping",
+        "parent_id": "shared_platform_rd",
+        "statement_ids": [
+          "U-S09"
+        ]
+      },
+      {
+        "id": "cap_payments_technology",
+        "kind": "capability",
+        "label": "Payments technology",
+        "parent_id": "shared_platform_rd",
+        "statement_ids": [
+          "U-S09"
+        ]
+      },
+      {
+        "id": "cap_internal_infrastructure",
+        "kind": "capability",
+        "label": "Internal infrastructure",
+        "parent_id": "shared_platform_rd",
+        "statement_ids": [
+          "U-S09"
+        ]
+      },
+      {
+        "id": "metric_gross_bookings",
+        "kind": "metric",
+        "label": "Gross Bookings",
+        "parent_id": "company",
+        "statement_ids": [
+          "U-S10",
+          "U-S11",
+          "U-S12"
+        ]
+      },
+      {
+        "id": "delivery_restaurant_meals",
+        "kind": "offering",
+        "label": "Restaurant meal delivery",
+        "parent_id": "seg_delivery",
+        "statement_ids": [
+          "U-S03"
+        ]
+      },
+      {
+        "id": "delivery_grocery_retail_group",
+        "kind": "group",
+        "label": "Grocery & Retail",
+        "parent_id": "seg_delivery",
+        "statement_ids": [
+          "U-S03"
+        ]
+      },
+      {
+        "id": "delivery_grocery",
+        "kind": "offering",
+        "label": "Grocery purchases",
+        "parent_id": "delivery_grocery_retail_group",
+        "statement_ids": [
+          "U-S03"
+        ]
+      },
+      {
+        "id": "delivery_convenience",
+        "kind": "offering",
+        "label": "Convenience purchases",
+        "parent_id": "delivery_grocery_retail_group",
+        "statement_ids": [
+          "U-S03"
+        ]
+      },
+      {
+        "id": "delivery_other_retail",
+        "kind": "offering",
+        "label": "Other retail purchases",
+        "parent_id": "delivery_grocery_retail_group",
+        "statement_ids": [
+          "U-S03"
+        ]
+      },
+      {
+        "id": "delivery_white_label",
+        "kind": "offering",
+        "label": "White-label delivery offering",
+        "parent_id": "seg_delivery",
+        "statement_ids": [
+          "U-S05"
+        ]
+      },
+      {
+        "id": "actor_delivery_consumers",
+        "kind": "actor",
+        "label": "Ordering consumers",
+        "parent_id": "seg_delivery",
+        "statement_ids": [
+          "U-S04"
+        ]
+      },
+      {
+        "id": "actor_delivery_merchants",
+        "kind": "actor",
+        "label": "Merchants preparing or selling goods",
+        "parent_id": "seg_delivery",
+        "statement_ids": [
+          "U-S04"
+        ]
+      },
+      {
+        "id": "actor_delivery_couriers",
+        "kind": "actor",
+        "label": "Couriers",
+        "parent_id": "seg_delivery",
+        "statement_ids": [
+          "U-S04"
+        ]
+      },
+      {
+        "id": "actor_white_label_clients",
+        "kind": "actor",
+        "label": "Restaurants and retailers using white-label delivery",
+        "parent_id": "delivery_white_label",
+        "statement_ids": [
+          "U-S05"
+        ]
+      },
+      {
+        "id": "actor_freight_shippers",
+        "kind": "actor",
+        "label": "Shippers",
+        "parent_id": "seg_freight",
+        "statement_ids": [
+          "U-S06"
+        ]
+      },
+      {
+        "id": "actor_freight_carriers",
+        "kind": "actor",
+        "label": "Carriers",
+        "parent_id": "seg_freight",
+        "statement_ids": [
+          "U-S06"
+        ]
+      },
+      {
+        "id": "rev_freight_brokerage_fees",
+        "kind": "revenue_stream",
+        "label": "Freight brokerage fees",
+        "parent_id": "seg_freight",
+        "statement_ids": [
+          "U-S06"
+        ]
+      },
+      {
+        "id": "rev_freight_tms_fees",
+        "kind": "revenue_stream",
+        "label": "Transportation management fees",
+        "parent_id": "seg_freight",
+        "statement_ids": [
+          "U-S06"
+        ]
+      },
+      {
+        "id": "rev_freight_related_services_fees",
+        "kind": "revenue_stream",
+        "label": "Related freight services fees",
+        "parent_id": "seg_freight",
+        "statement_ids": [
+          "U-S06"
+        ]
+      },
+      {
+        "id": "actor_mobility_riders",
+        "kind": "actor",
+        "label": "Riders",
+        "parent_id": "seg_mobility",
+        "statement_ids": [
+          "U-S02"
+        ]
+      },
+      {
+        "id": "actor_mobility_drivers",
+        "kind": "actor",
+        "label": "Drivers",
+        "parent_id": "seg_mobility",
+        "statement_ids": [
+          "U-S02",
+          "U-S08"
+        ]
+      },
+      {
+        "id": "mobility_ridesharing",
+        "kind": "offering",
+        "label": "Ridesharing",
+        "parent_id": "seg_mobility",
+        "statement_ids": [
+          "U-S02"
+        ]
+      },
+      {
+        "id": "mobility_taxis",
+        "kind": "offering",
+        "label": "Taxis",
+        "parent_id": "seg_mobility",
+        "statement_ids": [
+          "U-S02"
+        ]
+      },
+      {
+        "id": "rev_mobility_driver_service_fees",
+        "kind": "revenue_stream",
+        "label": "Mobility driver service fees",
+        "parent_id": "seg_mobility",
+        "statement_ids": [
+          "U-S08"
+        ]
+      },
+      {
+        "id": "rev_mobility_consumer_charges",
+        "kind": "revenue_stream",
+        "label": "Mobility consumer charges",
+        "parent_id": "seg_mobility",
+        "statement_ids": [
+          "U-S08"
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "f_shared_platform_not_segment",
+        "node_id": "shared_platform_rd",
+        "key": "is_reportable_segment",
+        "value": "false",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_gb_components",
+        "node_id": "metric_gross_bookings",
+        "key": "measured_components",
+        "value": "Ride and order values plus Freight revenue",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S10"
+        ],
+        "qualifiers": {
+          "includes": [
+            "applicable taxes",
+            "tolls",
+            "fees"
+          ],
+          "excludes": [
+            "driver tips"
+          ]
+        }
+      },
+      {
+        "id": "f_gb_pre_deduction",
+        "node_id": "metric_gross_bookings",
+        "key": "measurement_basis",
+        "value": "Measured before deductions for consumer discounts, refunds, participant earnings and driver incentives",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S11"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "for rides and orders"
+          ]
+        }
+      },
+      {
+        "id": "f_gb_not_revenue",
+        "node_id": "metric_gross_bookings",
+        "key": "relation_to_revenue",
+        "value": "Reported separately from revenue; Gross Bookings cannot be relabeled as company revenue",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S12"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_membership_benefit_rides",
+        "node_id": "consumer_membership",
+        "key": "benefit_scope",
+        "value": "Provides benefits on rides",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_membership_benefit_delivery",
+        "node_id": "consumer_membership",
+        "key": "benefit_scope",
+        "value": "Provides benefits on Delivery",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S07"
+        ],
+        "qualifiers": {
+          "includes": [
+            "grocery orders",
+            "retail orders"
+          ]
+        }
+      },
+      {
+        "id": "f_delivery_reportable",
+        "node_id": "seg_delivery",
+        "key": "is_reportable_segment",
+        "value": "true",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S01"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_delivery_revenue_separate",
+        "node_id": "seg_delivery",
+        "key": "revenue_reporting",
+        "value": "Delivery revenue is reported separately from Gross Bookings",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S12"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_consumers_role",
+        "node_id": "actor_delivery_consumers",
+        "key": "role",
+        "value": "Place orders",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_merchants_role",
+        "node_id": "actor_delivery_merchants",
+        "key": "role",
+        "value": "Prepare or sell goods",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_couriers_role",
+        "node_id": "actor_delivery_couriers",
+        "key": "role",
+        "value": "Deliver the orders",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_white_label_function",
+        "node_id": "delivery_white_label",
+        "key": "job_to_be_done",
+        "value": "Lets restaurants and retailers use delivery services under their own brands",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_freight_reportable",
+        "node_id": "seg_freight",
+        "key": "is_reportable_segment",
+        "value": "true",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S01"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_freight_revenue_separate",
+        "node_id": "seg_freight",
+        "key": "revenue_reporting",
+        "value": "Freight revenue is reported separately from Gross Bookings",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S12"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_freight_brokerage_form",
+        "node_id": "rev_freight_brokerage_fees",
+        "key": "revenue_form",
+        "value": "Fees from brokerage services for shippers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_freight_tms_form",
+        "node_id": "rev_freight_tms_fees",
+        "key": "revenue_form",
+        "value": "Fees from transportation management services for shippers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_freight_related_form",
+        "node_id": "rev_freight_related_services_fees",
+        "key": "revenue_form",
+        "value": "Fees from related services for shippers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_mobility_reportable",
+        "node_id": "seg_mobility",
+        "key": "is_reportable_segment",
+        "value": "true",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S01"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_mobility_revenue_separate",
+        "node_id": "seg_mobility",
+        "key": "revenue_reporting",
+        "value": "Mobility revenue is reported separately from Gross Bookings",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S12"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_mobility_revenue_arrangement_varies",
+        "node_id": "seg_mobility",
+        "key": "revenue_arrangement_variability",
+        "value": "The applicable revenue arrangement depends on the market",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "f_mobility_driver_fees_form",
+        "node_id": "rev_mobility_driver_service_fees",
+        "key": "revenue_form",
+        "value": "Driver service fees",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S08"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "applicable arrangement depends on the market"
+          ]
+        }
+      },
+      {
+        "id": "f_mobility_consumer_charges_form",
+        "node_id": "rev_mobility_consumer_charges",
+        "key": "revenue_form",
+        "value": "Consumer charges",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S08"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "applicable arrangement depends on the market"
+          ]
+        }
+      }
+    ],
+    "relationships": [
+      {
+        "id": "r_gb_measures_mobility",
+        "from_id": "metric_gross_bookings",
+        "to_id": "seg_mobility",
+        "kind": "measures",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S10",
+          "U-S02"
+        ],
+        "qualifiers": {
+          "includes": [
+            "ride values"
+          ]
+        }
+      },
+      {
+        "id": "r_gb_measures_delivery",
+        "from_id": "metric_gross_bookings",
+        "to_id": "seg_delivery",
+        "kind": "measures",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S10",
+          "U-S04"
+        ],
+        "qualifiers": {
+          "includes": [
+            "order values"
+          ]
+        }
+      },
+      {
+        "id": "r_gb_measures_freight",
+        "from_id": "metric_gross_bookings",
+        "to_id": "seg_freight",
+        "kind": "measures",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S10"
+        ],
+        "qualifiers": {
+          "includes": [
+            "Freight revenue"
+          ]
+        }
+      },
+      {
+        "id": "r_mobility_uses_platform",
+        "from_id": "seg_mobility",
+        "to_id": "shared_platform_rd",
+        "kind": "uses",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_uses_platform",
+        "from_id": "seg_delivery",
+        "to_id": "shared_platform_rd",
+        "kind": "uses",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_freight_uses_platform",
+        "from_id": "seg_freight",
+        "to_id": "shared_platform_rd",
+        "kind": "uses",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_membership_applies_mobility",
+        "from_id": "consumer_membership",
+        "to_id": "seg_mobility",
+        "kind": "applies_to",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S07",
+          "U-S02"
+        ],
+        "qualifiers": {
+          "includes": [
+            "membership benefits on rides"
+          ]
+        }
+      },
+      {
+        "id": "r_membership_applies_delivery",
+        "from_id": "consumer_membership",
+        "to_id": "seg_delivery",
+        "kind": "applies_to",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S07"
+        ],
+        "qualifiers": {
+          "includes": [
+            "membership benefits on Delivery",
+            "grocery and retail orders"
+          ]
+        }
+      },
+      {
+        "id": "r_delivery_offers_restaurant",
+        "from_id": "seg_delivery",
+        "to_id": "delivery_restaurant_meals",
+        "kind": "offers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_offers_grocery",
+        "from_id": "seg_delivery",
+        "to_id": "delivery_grocery",
+        "kind": "offers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_offers_convenience",
+        "from_id": "seg_delivery",
+        "to_id": "delivery_convenience",
+        "kind": "offers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_offers_other_retail",
+        "from_id": "seg_delivery",
+        "to_id": "delivery_other_retail",
+        "kind": "offers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_offers_white_label",
+        "from_id": "seg_delivery",
+        "to_id": "delivery_white_label",
+        "kind": "offers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_connects_consumers",
+        "from_id": "seg_delivery",
+        "to_id": "actor_delivery_consumers",
+        "kind": "connects",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_connects_merchants",
+        "from_id": "seg_delivery",
+        "to_id": "actor_delivery_merchants",
+        "kind": "connects",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_delivery_connects_couriers",
+        "from_id": "seg_delivery",
+        "to_id": "actor_delivery_couriers",
+        "kind": "connects",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_white_label_serves_clients",
+        "from_id": "delivery_white_label",
+        "to_id": "actor_white_label_clients",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_freight_connects_shippers",
+        "from_id": "seg_freight",
+        "to_id": "actor_freight_shippers",
+        "kind": "connects",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_freight_connects_carriers",
+        "from_id": "seg_freight",
+        "to_id": "actor_freight_carriers",
+        "kind": "connects",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_freight_serves_shippers",
+        "from_id": "seg_freight",
+        "to_id": "actor_freight_shippers",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {
+          "includes": [
+            "brokerage",
+            "transportation management",
+            "related services"
+          ]
+        }
+      },
+      {
+        "id": "r_freight_generates_brokerage",
+        "from_id": "seg_freight",
+        "to_id": "rev_freight_brokerage_fees",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_freight_generates_tms",
+        "from_id": "seg_freight",
+        "to_id": "rev_freight_tms_fees",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_freight_generates_related",
+        "from_id": "seg_freight",
+        "to_id": "rev_freight_related_services_fees",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_mobility_connects_riders",
+        "from_id": "seg_mobility",
+        "to_id": "actor_mobility_riders",
+        "kind": "connects",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_mobility_connects_drivers",
+        "from_id": "seg_mobility",
+        "to_id": "actor_mobility_drivers",
+        "kind": "connects",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_mobility_offers_ridesharing",
+        "from_id": "seg_mobility",
+        "to_id": "mobility_ridesharing",
+        "kind": "offers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_mobility_offers_taxis",
+        "from_id": "seg_mobility",
+        "to_id": "mobility_taxis",
+        "kind": "offers",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "r_mobility_generates_driver_fees",
+        "from_id": "seg_mobility",
+        "to_id": "rev_mobility_driver_service_fees",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S08"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "applicable arrangement depends on the market"
+          ]
+        }
+      },
+      {
+        "id": "r_mobility_generates_consumer_charges",
+        "from_id": "seg_mobility",
+        "to_id": "rev_mobility_consumer_charges",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "U-S08"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "applicable arrangement depends on the market"
+          ]
+        }
+      }
+    ],
+    "gaps": [
+      {
+        "id": "g_membership_monetization",
+        "node_id": "consumer_membership",
+        "question": "Does the consumer membership generate its own revenue stream, and if so, what unit price, charging unit, currency and billing period apply?",
+        "section_ids": [
+          "revenue",
+          "summary"
+        ]
+      },
+      {
+        "id": "g_membership_adoption",
+        "node_id": "consumer_membership",
+        "question": "How many consumers hold the membership, or what adoption rate applies, within which geography and period?",
+        "section_ids": [
+          "revenue",
+          "market_size"
+        ]
+      },
+      {
+        "id": "g_delivery_revenue_streams",
+        "node_id": "seg_delivery",
+        "question": "What revenue streams does the Delivery segment generate, and which actors pay each of them?",
+        "section_ids": [
+          "revenue",
+          "summary"
+        ]
+      },
+      {
+        "id": "g_white_label_monetization",
+        "node_id": "delivery_white_label",
+        "question": "How is the white-label delivery offering priced, and what charging unit, currency and billing period apply?",
+        "section_ids": [
+          "revenue"
+        ]
+      },
+      {
+        "id": "g_freight_fee_pricing",
+        "node_id": "seg_freight",
+        "question": "How are Freight brokerage, transportation management and related service fees priced, and what charging unit, currency and billing period apply?",
+        "section_ids": [
+          "revenue"
+        ]
+      },
+      {
+        "id": "g_freight_carrier_role",
+        "node_id": "actor_freight_carriers",
+        "question": "What role do carriers play in Freight transactions, and do they pay any Freight fees?",
+        "section_ids": [
+          "revenue",
+          "multi_perspective"
+        ]
+      },
+      {
+        "id": "g_freight_related_services_scope",
+        "node_id": "rev_freight_related_services_fees",
+        "question": "Which specific services make up the related services for shippers?",
+        "section_ids": [
+          "summary",
+          "revenue"
+        ]
+      },
+      {
+        "id": "g_mobility_market_arrangements",
+        "node_id": "seg_mobility",
+        "question": "In which markets does Mobility revenue come from driver service fees versus consumer charges?",
+        "section_ids": [
+          "revenue",
+          "multi_perspective"
+        ]
+      },
+      {
+        "id": "g_mobility_fee_pricing",
+        "node_id": "seg_mobility",
+        "question": "How are Mobility driver service fees and consumer charges priced, and what charging unit, currency and billing period apply?",
+        "section_ids": [
+          "revenue"
+        ]
+      },
+      {
+        "id": "g_mobility_rider_adoption",
+        "node_id": "actor_mobility_riders",
+        "question": "How many riders use Mobility offerings, within which geography and period?",
+        "section_ids": [
+          "revenue",
+          "market_size"
+        ]
+      }
+    ]
+  },
+  "quarantined": [
+    {
+      "collection": "relationships",
+      "id": "r_shippers_pay_brokerage",
+      "status": "uncertain",
+      "reason": "U-S06 says the services are for shippers but does not state who pays the fees. Being served by a service does not establish being the payer.",
+      "record": {
+        "id": "r_shippers_pay_brokerage",
+        "from_id": "actor_freight_shippers",
+        "to_id": "rev_freight_brokerage_fees",
+        "kind": "pays",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      }
+    },
+    {
+      "collection": "relationships",
+      "id": "r_shippers_pay_tms",
+      "status": "uncertain",
+      "reason": "U-S06 does not identify the payer of transportation management fees; the services being for shippers is only an association.",
+      "record": {
+        "id": "r_shippers_pay_tms",
+        "from_id": "actor_freight_shippers",
+        "to_id": "rev_freight_tms_fees",
+        "kind": "pays",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      }
+    },
+    {
+      "collection": "relationships",
+      "id": "r_shippers_pay_related",
+      "status": "uncertain",
+      "reason": "U-S06 does not identify the payer of related service fees; the services being for shippers is only an association.",
+      "record": {
+        "id": "r_shippers_pay_related",
+        "from_id": "actor_freight_shippers",
+        "to_id": "rev_freight_related_services_fees",
+        "kind": "pays",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S06"
+        ],
+        "qualifiers": {}
+      }
+    },
+    {
+      "collection": "relationships",
+      "id": "r_drivers_pay_service_fees",
+      "status": "uncertain",
+      "reason": "U-S08 names driver service fees but does not state that drivers pay them; the label alone does not establish the payer.",
+      "record": {
+        "id": "r_drivers_pay_service_fees",
+        "from_id": "actor_mobility_drivers",
+        "to_id": "rev_mobility_driver_service_fees",
+        "kind": "pays",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S08"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "applicable arrangement depends on the market"
+          ]
+        }
+      }
+    },
+    {
+      "collection": "relationships",
+      "id": "r_riders_pay_consumer_charges",
+      "status": "uncertain",
+      "reason": "U-S08 mentions consumer charges but never equates riders with the consumers charged. The payer identity is not settled by the text.",
+      "record": {
+        "id": "r_riders_pay_consumer_charges",
+        "from_id": "actor_mobility_riders",
+        "to_id": "rev_mobility_consumer_charges",
+        "kind": "pays",
+        "basis": "inferred",
+        "statement_ids": [
+          "U-S02",
+          "U-S08"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "applicable arrangement depends on the market",
+            "riders act as the consumers charged"
+          ]
+        }
+      }
+    }
+  ],
+  "support_review": {
+    "status": "complete",
+    "assessments": [
+      {
+        "id": "seg_mobility",
+        "status": "supported",
+        "reason": "U-S01 names Mobility as an operating and reportable segment."
+      },
+      {
+        "id": "seg_delivery",
+        "status": "supported",
+        "reason": "U-S01 names Delivery as an operating and reportable segment."
+      },
+      {
+        "id": "seg_freight",
+        "status": "supported",
+        "reason": "U-S01 names Freight as an operating and reportable segment."
+      },
+      {
+        "id": "consumer_membership",
+        "status": "supported",
+        "reason": "U-S07 describes 'our consumer membership', which supports a company-level offering."
+      },
+      {
+        "id": "shared_platform_rd",
+        "status": "supported",
+        "reason": "U-S09 describes shared platform R&D that supports the businesses, which fits a capability node under the company."
+      },
+      {
+        "id": "cap_mapping",
+        "status": "supported",
+        "reason": "U-S09 lists mapping as part of shared platform R&D."
+      },
+      {
+        "id": "cap_payments_technology",
+        "status": "supported",
+        "reason": "U-S09 lists payments technology as part of shared platform R&D."
+      },
+      {
+        "id": "cap_internal_infrastructure",
+        "status": "supported",
+        "reason": "U-S09 lists internal infrastructure as part of shared platform R&D."
+      },
+      {
+        "id": "metric_gross_bookings",
+        "status": "supported",
+        "reason": "U-S10 to U-S12 describe Gross Bookings as a measure that is reported separately from revenue."
+      },
+      {
+        "id": "delivery_restaurant_meals",
+        "status": "supported",
+        "reason": "U-S03 states that Delivery covers restaurant meals."
+      },
+      {
+        "id": "delivery_grocery",
+        "status": "supported",
+        "reason": "U-S03 states that the Grocery & Retail group within Delivery spans grocery purchases."
+      },
+      {
+        "id": "delivery_convenience",
+        "status": "supported",
+        "reason": "U-S03 states that the Grocery & Retail group spans convenience purchases."
+      },
+      {
+        "id": "delivery_other_retail",
+        "status": "supported",
+        "reason": "U-S03 states that the Grocery & Retail group spans other retail purchases."
+      },
+      {
+        "id": "delivery_white_label",
+        "status": "supported",
+        "reason": "U-S05 describes a white-label offering within Delivery."
+      },
+      {
+        "id": "actor_delivery_consumers",
+        "status": "supported",
+        "reason": "U-S04 names ordering consumers as Delivery participants."
+      },
+      {
+        "id": "actor_delivery_merchants",
+        "status": "supported",
+        "reason": "U-S04 names merchants preparing or selling goods as Delivery participants."
+      },
+      {
+        "id": "actor_delivery_couriers",
+        "status": "supported",
+        "reason": "U-S04 names couriers delivering the orders as Delivery participants."
+      },
+      {
+        "id": "actor_white_label_clients",
+        "status": "supported",
+        "reason": "U-S05 states that restaurants and retailers use the white-label delivery services."
+      },
+      {
+        "id": "actor_freight_shippers",
+        "status": "supported",
+        "reason": "U-S06 states that Freight connects shippers."
+      },
+      {
+        "id": "actor_freight_carriers",
+        "status": "supported",
+        "reason": "U-S06 states that Freight connects carriers."
+      },
+      {
+        "id": "rev_freight_brokerage_fees",
+        "status": "supported",
+        "reason": "U-S06 states that Freight earns fees from brokerage."
+      },
+      {
+        "id": "rev_freight_tms_fees",
+        "status": "supported",
+        "reason": "U-S06 states that Freight earns fees from transportation management."
+      },
+      {
+        "id": "rev_freight_related_services_fees",
+        "status": "supported",
+        "reason": "U-S06 states that Freight earns fees from related services for shippers."
+      },
+      {
+        "id": "actor_mobility_riders",
+        "status": "supported",
+        "reason": "U-S02 states that Mobility connects riders."
+      },
+      {
+        "id": "actor_mobility_drivers",
+        "status": "supported",
+        "reason": "U-S02 states that Mobility connects riders with drivers."
+      },
+      {
+        "id": "mobility_ridesharing",
+        "status": "supported",
+        "reason": "U-S02 says Mobility's transportation offerings include ridesharing."
+      },
+      {
+        "id": "mobility_taxis",
+        "status": "supported",
+        "reason": "U-S02 says Mobility's transportation offerings include taxis."
+      },
+      {
+        "id": "rev_mobility_driver_service_fees",
+        "status": "supported",
+        "reason": "U-S08 states that Mobility revenue can come from driver service fees."
+      },
+      {
+        "id": "rev_mobility_consumer_charges",
+        "status": "supported",
+        "reason": "U-S08 states that Mobility revenue can come from consumer charges."
+      },
+      {
+        "id": "f_shared_platform_not_segment",
+        "status": "supported",
+        "reason": "U-S09 says shared platform R&D is not another reportable segment."
+      },
+      {
+        "id": "f_gb_components",
+        "status": "supported",
+        "reason": "U-S10 states that Gross Bookings measures ride and order values plus Freight revenue, including taxes, tolls and fees, and excluding driver tips."
+      },
+      {
+        "id": "f_gb_pre_deduction",
+        "status": "supported",
+        "reason": "U-S11 states that, for rides and orders, Gross Bookings is measured before the listed deductions."
+      },
+      {
+        "id": "f_gb_not_revenue",
+        "status": "supported",
+        "reason": "U-S12 says revenue is reported separately and bookings cannot be relabeled as revenue."
+      },
+      {
+        "id": "f_membership_benefit_rides",
+        "status": "supported",
+        "reason": "U-S07 says the membership provides benefits across rides."
+      },
+      {
+        "id": "f_membership_benefit_delivery",
+        "status": "supported",
+        "reason": "U-S07 says the membership provides benefits across Delivery, including grocery and retail orders."
+      },
+      {
+        "id": "f_delivery_reportable",
+        "status": "supported",
+        "reason": "U-S01 states that Delivery is a reportable segment."
+      },
+      {
+        "id": "f_delivery_revenue_separate",
+        "status": "supported",
+        "reason": "U-S12 states that Delivery revenue is reported separately from Gross Bookings."
+      },
+      {
+        "id": "f_consumers_role",
+        "status": "supported",
+        "reason": "U-S04 describes these participants as ordering consumers."
+      },
+      {
+        "id": "f_merchants_role",
+        "status": "supported",
+        "reason": "U-S04 describes merchants as preparing or selling goods."
+      },
+      {
+        "id": "f_couriers_role",
+        "status": "supported",
+        "reason": "U-S04 describes couriers as delivering the orders."
+      },
+      {
+        "id": "f_white_label_function",
+        "status": "supported",
+        "reason": "The wording matches U-S05."
+      },
+      {
+        "id": "f_freight_reportable",
+        "status": "supported",
+        "reason": "U-S01 states that Freight is a reportable segment."
+      },
+      {
+        "id": "f_freight_revenue_separate",
+        "status": "supported",
+        "reason": "U-S12 states that Freight revenue is reported separately from Gross Bookings."
+      },
+      {
+        "id": "f_freight_brokerage_form",
+        "status": "supported",
+        "reason": "U-S06 states that Freight earns fees from brokerage services for shippers, read as the phrase 'for shippers' applying to all listed services."
+      },
+      {
+        "id": "f_freight_tms_form",
+        "status": "supported",
+        "reason": "U-S06 states that Freight earns fees from transportation management services for shippers."
+      },
+      {
+        "id": "f_freight_related_form",
+        "status": "supported",
+        "reason": "U-S06 states that Freight earns fees from related services for shippers."
+      },
+      {
+        "id": "f_mobility_reportable",
+        "status": "supported",
+        "reason": "U-S01 states that Mobility is a reportable segment."
+      },
+      {
+        "id": "f_mobility_revenue_separate",
+        "status": "supported",
+        "reason": "U-S12 states that Mobility revenue is reported separately from Gross Bookings."
+      },
+      {
+        "id": "f_mobility_revenue_arrangement_varies",
+        "status": "supported",
+        "reason": "U-S08 says the applicable arrangement depends on the market."
+      },
+      {
+        "id": "f_mobility_driver_fees_form",
+        "status": "supported",
+        "reason": "U-S08 lists driver service fees as a revenue form, with the market-dependent condition."
+      },
+      {
+        "id": "f_mobility_consumer_charges_form",
+        "status": "supported",
+        "reason": "U-S08 lists consumer charges as a revenue form, with the market-dependent condition."
+      },
+      {
+        "id": "r_gb_measures_mobility",
+        "status": "supported",
+        "reason": "Inferred link: U-S10 includes ride values, and U-S02/U-S07 place rides within Mobility. The inference is reasonable and correctly labeled as inferred."
+      },
+      {
+        "id": "r_gb_measures_delivery",
+        "status": "supported",
+        "reason": "Inferred link: U-S10 includes order values, and U-S04 places orders within Delivery. The inference is reasonable and correctly labeled as inferred."
+      },
+      {
+        "id": "r_gb_measures_freight",
+        "status": "supported",
+        "reason": "U-S10 explicitly includes Freight revenue in Gross Bookings."
+      },
+      {
+        "id": "r_mobility_uses_platform",
+        "status": "supported",
+        "reason": "Inferred: U-S09 says shared platform R&D supports the businesses, which reasonably includes Mobility. Correctly labeled as inferred."
+      },
+      {
+        "id": "r_delivery_uses_platform",
+        "status": "supported",
+        "reason": "Inferred: U-S09 says shared platform R&D supports the businesses, which reasonably includes Delivery. Correctly labeled as inferred."
+      },
+      {
+        "id": "r_freight_uses_platform",
+        "status": "supported",
+        "reason": "Inferred: U-S09 says shared platform R&D supports the businesses, which reasonably includes Freight. Correctly labeled as inferred."
+      },
+      {
+        "id": "r_membership_applies_mobility",
+        "status": "supported",
+        "reason": "Inferred: U-S07 gives benefits on rides, and U-S02 places rides within Mobility. Correctly labeled as inferred."
+      },
+      {
+        "id": "r_membership_applies_delivery",
+        "status": "supported",
+        "reason": "U-S07 explicitly says benefits apply across Delivery, including grocery and retail orders."
+      },
+      {
+        "id": "r_delivery_offers_restaurant",
+        "status": "supported",
+        "reason": "U-S03 states that Delivery covers restaurant meals."
+      },
+      {
+        "id": "r_delivery_offers_grocery",
+        "status": "supported",
+        "reason": "U-S03 states that Delivery's Grocery & Retail group spans grocery."
+      },
+      {
+        "id": "r_delivery_offers_convenience",
+        "status": "supported",
+        "reason": "U-S03 states that the group within Delivery spans convenience."
+      },
+      {
+        "id": "r_delivery_offers_other_retail",
+        "status": "supported",
+        "reason": "U-S03 states that the group within Delivery spans other retail."
+      },
+      {
+        "id": "r_delivery_offers_white_label",
+        "status": "supported",
+        "reason": "U-S05 describes a white-label offering within Delivery."
+      },
+      {
+        "id": "r_delivery_connects_consumers",
+        "status": "supported",
+        "reason": "U-S04 says Delivery brings together ordering consumers."
+      },
+      {
+        "id": "r_delivery_connects_merchants",
+        "status": "supported",
+        "reason": "U-S04 says Delivery brings together merchants."
+      },
+      {
+        "id": "r_delivery_connects_couriers",
+        "status": "supported",
+        "reason": "U-S04 says Delivery brings together couriers."
+      },
+      {
+        "id": "r_white_label_serves_clients",
+        "status": "supported",
+        "reason": "U-S05 says the white-label offering lets restaurants and retailers use delivery services under their own brands."
+      },
+      {
+        "id": "r_freight_connects_shippers",
+        "status": "supported",
+        "reason": "U-S06 states that Freight connects shippers."
+      },
+      {
+        "id": "r_freight_connects_carriers",
+        "status": "supported",
+        "reason": "U-S06 states that Freight connects carriers."
+      },
+      {
+        "id": "r_freight_serves_shippers",
+        "status": "supported",
+        "reason": "U-S06 refers to brokerage, transportation management and related services for shippers."
+      },
+      {
+        "id": "r_freight_generates_brokerage",
+        "status": "supported",
+        "reason": "U-S06 states that Freight earns fees from brokerage."
+      },
+      {
+        "id": "r_freight_generates_tms",
+        "status": "supported",
+        "reason": "U-S06 states that Freight earns fees from transportation management."
+      },
+      {
+        "id": "r_freight_generates_related",
+        "status": "supported",
+        "reason": "U-S06 states that Freight earns fees from related services."
+      },
+      {
+        "id": "r_shippers_pay_brokerage",
+        "status": "uncertain",
+        "reason": "U-S06 says the services are for shippers but does not state who pays the fees. Being served by a service does not establish being the payer."
+      },
+      {
+        "id": "r_shippers_pay_tms",
+        "status": "uncertain",
+        "reason": "U-S06 does not identify the payer of transportation management fees; the services being for shippers is only an association."
+      },
+      {
+        "id": "r_shippers_pay_related",
+        "status": "uncertain",
+        "reason": "U-S06 does not identify the payer of related service fees; the services being for shippers is only an association."
+      },
+      {
+        "id": "r_mobility_connects_riders",
+        "status": "supported",
+        "reason": "U-S02 states that Mobility connects riders."
+      },
+      {
+        "id": "r_mobility_connects_drivers",
+        "status": "supported",
+        "reason": "U-S02 states that Mobility connects riders with drivers."
+      },
+      {
+        "id": "r_mobility_offers_ridesharing",
+        "status": "supported",
+        "reason": "U-S02 says Mobility's offerings include ridesharing."
+      },
+      {
+        "id": "r_mobility_offers_taxis",
+        "status": "supported",
+        "reason": "U-S02 says Mobility's offerings include taxis."
+      },
+      {
+        "id": "r_mobility_generates_driver_fees",
+        "status": "supported",
+        "reason": "U-S08 says Mobility revenue can come from driver service fees, depending on the market."
+      },
+      {
+        "id": "r_mobility_generates_consumer_charges",
+        "status": "supported",
+        "reason": "U-S08 says Mobility revenue can come from consumer charges, depending on the market."
+      },
+      {
+        "id": "r_drivers_pay_service_fees",
+        "status": "uncertain",
+        "reason": "U-S08 names driver service fees but does not state that drivers pay them; the label alone does not establish the payer."
+      },
+      {
+        "id": "r_riders_pay_consumer_charges",
+        "status": "uncertain",
+        "reason": "U-S08 mentions consumer charges but never equates riders with the consumers charged. The payer identity is not settled by the text."
+      }
+    ],
+    "error": null
+  },
+  "inferred_ids": [
+    "r_gb_measures_mobility",
+    "r_gb_measures_delivery",
+    "r_mobility_uses_platform",
+    "r_delivery_uses_platform",
+    "r_freight_uses_platform",
+    "r_membership_applies_mobility"
+  ],
+  "expansion_complete": true,
+  "pending": [],
+  "stop_reason": "complete",
+  "calls": 6,
+  "history": [
+    {
+      "call": 1,
+      "stage": "expansion",
+      "target_id": "company",
+      "request_digest": "59477c1426a395945017ffa6e183a14552563688e2458829f11f84516cede462",
+      "accepted": true,
+      "error": null,
+      "revision_before": 0,
+      "revision_after": 1
+    },
+    {
+      "call": 2,
+      "stage": "expansion",
+      "target_id": "consumer_membership",
+      "request_digest": "693ad99aeecf4ac26e4dbfb284742f562b56f2f33c8aa52828ca34d63c34b0d2",
+      "accepted": true,
+      "error": null,
+      "revision_before": 1,
+      "revision_after": 2
+    },
+    {
+      "call": 3,
+      "stage": "expansion",
+      "target_id": "seg_delivery",
+      "request_digest": "cb5c84f95e4667db95222f158e96a142766a4436bfa1af9d954a1e234d3a9d40",
+      "accepted": true,
+      "error": null,
+      "revision_before": 2,
+      "revision_after": 3
+    },
+    {
+      "call": 4,
+      "stage": "expansion",
+      "target_id": "seg_freight",
+      "request_digest": "3c264deaa4f0e9398eb0ab4fadca3563731225e964ce3a198c8e633bc70e851c",
+      "accepted": true,
+      "error": null,
+      "revision_before": 3,
+      "revision_after": 4
+    },
+    {
+      "call": 5,
+      "stage": "expansion",
+      "target_id": "seg_mobility",
+      "request_digest": "1c3f9f830bd5b9c3528408389aea87277fb76b9e412b644d29ef54447b75c9e4",
+      "accepted": true,
+      "error": null,
+      "revision_before": 4,
+      "revision_after": 5
+    },
+    {
+      "call": 6,
+      "stage": "support_review",
+      "target_id": null,
+      "request_digest": "81232f9ae2fb7c061c97f38d553f3e36355332f65a6305f6058b088eeea3c4b0",
+      "accepted": true,
+      "error": null,
+      "revision_before": 5,
+      "revision_after": 5
+    }
+  ],
+  "revision": 5,
+  "limits": {
+    "max_calls": 6,
+    "max_depth": 6,
+    "root_patch_limits": {
+      "nodes": 16,
+      "facts": 6,
+      "relationships": 6,
+      "gaps": 0,
+      "expand_node_ids": 4
+    }
+  },
+  "input_fingerprint": "f9448632ede7e961f588035786d0a3932beb454e0c00f915cb2fd14279c29af3"
+}

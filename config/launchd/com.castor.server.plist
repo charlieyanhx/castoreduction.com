@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- THE TEST SERVER OUTLIVES THE TERMINAL THAT STARTED IT. launchd restarts it when it
+       exits and starts it at login, so the collaborator link works whether or not anyone
+       is sitting at this Mac. The app reads .env itself (load_dotenv), so WorkingDirectory
+       is the whole configuration. Install: cp to ~/Library/LaunchAgents and
+       launchctl load -w ~/Library/LaunchAgents/com.castor.server.plist -->
+  <key>Label</key><string>com.castor.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/charlieyan/Downloads/castor-advisories/.venv/bin/python</string>
+    <string>-m</string><string>uvicorn</string>
+    <string>api:app</string>
+    <string>--host</string><string>127.0.0.1</string>
+    <string>--port</string><string>8765</string>
+    <string>--log-level</string><string>warning</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/charlieyan/Downloads/castor-advisories</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>StandardOutPath</key><string>/tmp/castor_server.log</string>
+  <key>StandardErrorPath</key><string>/tmp/castor_server.log</string>
+</dict>
+</plist>

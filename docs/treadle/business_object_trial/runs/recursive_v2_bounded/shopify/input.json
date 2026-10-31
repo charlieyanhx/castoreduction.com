@@ -1,0 +1,53 @@
+{
+  "company_alias": "Company C",
+  "input_statements": [
+    {
+      "id": "S-S01",
+      "text": "We operate as one reporting segment, with subscription solutions and merchant solutions as revenue components."
+    },
+    {
+      "id": "S-S02",
+      "text": "Merchants use our commerce platform to sell to their buyers across online storefronts and physical retail locations."
+    },
+    {
+      "id": "S-S03",
+      "text": "Our subscription plans serve businesses from entry level through enterprise, with additional functionality and support for larger merchants."
+    },
+    {
+      "id": "S-S04",
+      "text": "Subscription solutions include platform subscriptions, a premium point-of-sale subscription, apps, themes and domain registration."
+    },
+    {
+      "id": "S-S05",
+      "text": "Merchant solutions earn payment-processing and currency-conversion fees through our integrated merchant payment service."
+    },
+    {
+      "id": "S-S06",
+      "text": "Other merchant solutions include lending services, shipping-label sales, point-of-sale hardware sales and advertising offerings."
+    },
+    {
+      "id": "S-S07",
+      "text": "An integrated back end supports inventory, transactions and buyer relationships across the merchant's sales channels."
+    },
+    {
+      "id": "S-S08",
+      "text": "App developers, theme designers and service partners extend the platform for merchants; these partners are distinct from merchants and buyers."
+    },
+    {
+      "id": "S-S09",
+      "text": "Our offline revenue includes payment services for physical commerce, point-of-sale subscriptions and hardware, spanning multiple offerings."
+    },
+    {
+      "id": "S-S10",
+      "text": "Gross Merchandise Volume measures orders facilitated through the platform, net of refunds and including shipping, handling, duty and value-added taxes."
+    },
+    {
+      "id": "S-S11",
+      "text": "Gross Merchandise Volume describes merchant sales activity, whereas subscription and merchant-solution fees are revenue earned by our company."
+    },
+    {
+      "id": "S-S12",
+      "text": "The reported business-to-business selling feature is available to merchants on our higher-tier plan, connecting a specific offering to that subscription tier."
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "company": "Amazon",
+  "model": "claude-opus-5-5",
+  "input_sha256": "012d1c76638b67602255a8a0ccb9a6c315bdf3353cddaea102bb1b7c5e20a5f5",
+  "prompt_sha256": "d7b0f484aad7f32403b133c87d8f17c9ceaedd826f947e361c90b42a3e90864f",
+  "fixture": "/Users/charlieyan/Downloads/castor-advisories/docs/treadle/business_object_trial/inputs/amazon.json",
+  "automatic_retries": 0,
+  "usage": {
+    "input_tokens": 2085,
+    "output_tokens": 9005
+  },
+  "stop_reason": "end_turn",
+  "structural_status": "passed",
+  "elapsed_seconds": 68.76,
+  "initial_status": "failed",
+  "initial_error": "Expecting value: line 1 column 1 (char 0)",
+  "format_normalization": "removed_complete_json_code_fence",
+  "live_calls_for_normalization": 0,
+  "original_run": "docs/treadle/business_object_trial/runs/initial/amazon",
+  "structure": {
+    "node_count": 34,
+    "max_depth": 3,
+    "nodes_by_kind": {
+      "capability": 1,
+      "company": 1,
+      "customer": 4,
+      "group": 7,
+      "metric": 1,
+      "offering": 11,
+      "reported_segment": 3,
+      "revenue_stream": 6
+    },
+    "relationship_count": 26,
+    "missing_detail_count": 14,
+    "projection_count": 8,
+    "referenced_statement_count": 12,
+    "unreferenced_statement_ids": []
+  }
+}

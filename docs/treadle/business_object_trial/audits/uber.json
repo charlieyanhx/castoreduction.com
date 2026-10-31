@@ -1,0 +1,247 @@
+{
+  "company": "Uber",
+  "summary": {
+    "evaluated_output": "docs/treadle/business_object_trial/runs/normalized/uber/object.json",
+    "basis": "Only input_statements; sources and company familiarity were not used. Normalized output removes only the complete outer Markdown fence; raw output remains unchanged.",
+    "rubric": "Pass means the stated distinction/mechanism is retained. Partial means some required graph nesting or connection is absent although labels preserve part or all of the fact. Fail means the required fact is absent or contradicted. Exact check counts are not a factual-accuracy score.",
+    "check_counts": {
+      "total": 7,
+      "pass": 5,
+      "partial": 2,
+      "fail": 0
+    },
+    "inspection": {
+      "node_count": 29,
+      "relationship_count": 23,
+      "node_ids_reviewed": [
+        "company",
+        "reportable_segments_group",
+        "mobility_segment",
+        "ridesharing_offering",
+        "taxi_offering",
+        "mobility_revenue",
+        "delivery_segment",
+        "restaurant_meals_delivery",
+        "grocery_retail_group",
+        "white_label_delivery",
+        "delivery_revenue",
+        "freight_segment",
+        "freight_shipper_services",
+        "freight_revenue",
+        "consumer_membership",
+        "actors_group",
+        "riders",
+        "drivers",
+        "ordering_consumers",
+        "delivery_merchants",
+        "couriers",
+        "white_label_restaurants_retailers",
+        "shippers",
+        "carriers",
+        "shared_platform_rnd",
+        "mapping_capability",
+        "payments_technology",
+        "internal_infrastructure",
+        "gross_bookings"
+      ],
+      "relationship_positions_reviewed": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ],
+      "relationship_position_basis": "One-based order in normalized object.json"
+    },
+    "missing_details_review": {
+      "total_questions": 10,
+      "focused_report_gaps": [
+        "All ten questions map to plausible fixed-report gaps: payer conditions, Delivery economics, white-label and membership pricing, personas, sizing, financial amounts, differentiation, competitors and feedback.",
+        "q_mobility_consumer_payer preserves uncertainty instead of automatically equating riders with the charged consumer in every market."
+      ],
+      "secondary_or_overbroad": [
+        "q_membership_pricing combines price, eligibility and specific benefits; prioritize only the fields needed in the report.",
+        "q_white_label_pricing presupposes restaurants/retailers pay; ask who pays and on what basis before assuming the payer."
+      ],
+      "remaining_gaps": [
+        "q_segment_revenue_amounts should specify a consistent period and currency.",
+        "q_market_size does not request geography, date, method or external supporting evidence.",
+        "multi_perspective has no missing-detail references despite lacking participant goals and constraints.",
+        "Feedback questions need attributable evidence and collection context; feature descriptions alone cannot establish relative differentiation."
+      ]
+    }
+  },
+  "checks": [
+    {
+      "id": "U-C01",
+      "description": "Nest restaurant, grocery/retail and white-label offerings within Delivery.",
+      "status": "pass",
+      "finding": "Restaurant meals, Grocery & Retail (including convenience) and white-label delivery are nested within the reported Delivery segment; white-label customer branding is retained.",
+      "node_ids": [
+        "delivery_segment",
+        "restaurant_meals_delivery",
+        "grocery_retail_group",
+        "white_label_delivery"
+      ]
+    },
+    {
+      "id": "U-C02",
+      "description": "Distinguish rider, driver, consumer, merchant and courier roles.",
+      "status": "pass",
+      "finding": "Riders, drivers, ordering consumers, merchants and couriers are separate role nodes with rider-service and merchant/courier-supply relationships. These functional roles do not establish employment or all payer arrangements.",
+      "node_ids": [
+        "riders",
+        "drivers",
+        "ordering_consumers",
+        "delivery_merchants",
+        "couriers"
+      ]
+    },
+    {
+      "id": "U-C03",
+      "description": "Connect Freight to shippers, carriers and shipper-paid services.",
+      "status": "partial",
+      "finding": "Freight contains shipper services and revenue, serves shippers and links carriers. It has no shipper pays edge; the carrier supplies edge targets the combined brokerage/transportation-management offering, which is more specific than the source connectivity claim.",
+      "node_ids": [
+        "freight_segment",
+        "freight_shipper_services",
+        "freight_revenue",
+        "shippers",
+        "carriers"
+      ]
+    },
+    {
+      "id": "U-C04",
+      "description": "Connect one membership across Mobility and Delivery.",
+      "status": "partial",
+      "finding": "Exactly one membership node preserves rides, Delivery, grocery and retail in its label, but it has no relationships to either segment or their offerings.",
+      "node_ids": [
+        "consumer_membership",
+        "mobility_segment",
+        "delivery_segment",
+        "grocery_retail_group"
+      ]
+    },
+    {
+      "id": "U-C05",
+      "description": "Preserve market-dependent fee payers without inventing prices.",
+      "status": "pass",
+      "finding": "Mobility revenue explicitly names driver service fees, consumer charges and market dependence. No prices or fee percentages are invented. The specific consumer identity and market applicability are correctly left as a question.",
+      "node_ids": [
+        "mobility_revenue",
+        "drivers"
+      ]
+    },
+    {
+      "id": "U-C06",
+      "description": "Represent mapping, payments and infrastructure as shared capabilities.",
+      "status": "pass",
+      "finding": "Mapping, payments technology and internal infrastructure are nested under one shared platform capability, referenced by all three segments and explicitly not a reportable segment.",
+      "node_ids": [
+        "shared_platform_rnd",
+        "mapping_capability",
+        "payments_technology",
+        "internal_infrastructure",
+        "mobility_segment",
+        "delivery_segment",
+        "freight_segment"
+      ]
+    },
+    {
+      "id": "U-C07",
+      "description": "Preserve Gross Bookings as a metric with stated inclusions/exclusions.",
+      "status": "pass",
+      "finding": "Gross Bookings is a metric separate from revenue and retains ride/order value plus Freight revenue, taxes/tolls/fees, driver-tip exclusion and the pre-deduction treatment of discounts, refunds, participant earnings and incentives.",
+      "node_ids": [
+        "gross_bookings",
+        "mobility_revenue",
+        "delivery_revenue",
+        "freight_revenue"
+      ]
+    }
+  ],
+  "unsupported_claims": [
+    {
+      "finding": "U-S06 says Freight connects carriers and shippers and earns fees for services to shippers. It does not say carriers supply the combined brokerage, transportation-management and related-service offering. The edge asserts a more specific supplier relationship than the input establishes.",
+      "node_ids": [
+        "carriers",
+        "freight_shipper_services"
+      ],
+      "statement_ids": [
+        "U-S06"
+      ],
+      "relationships": [
+        "carriers -> freight_shipper_services (supplies)"
+      ]
+    }
+  ],
+  "omissions": [
+    {
+      "finding": "No membership relationships connect the one shared offering to Mobility, Delivery or Grocery & Retail; cross-business coverage exists only in the label.",
+      "node_ids": [
+        "consumer_membership",
+        "mobility_segment",
+        "delivery_segment",
+        "grocery_retail_group"
+      ],
+      "statement_ids": [
+        "U-S07"
+      ],
+      "relationships": []
+    },
+    {
+      "finding": "No explicit shipper payment relationship to Freight fees; the expected shipper-paid-service connection is only inferable from the combined service/revenue labels.",
+      "node_ids": [
+        "shippers",
+        "freight_revenue",
+        "freight_shipper_services"
+      ],
+      "statement_ids": [
+        "U-S06"
+      ],
+      "relationships": []
+    },
+    {
+      "finding": "Consumer charges are retained in the Mobility revenue label but have no separate consumer payer node or pays relationship. The exact consumer identity/market mapping is legitimately unknown and questioned.",
+      "node_ids": [
+        "mobility_revenue",
+        "riders"
+      ],
+      "statement_ids": [
+        "U-S08"
+      ],
+      "relationships": []
+    }
+  ],
+  "schema_limitations": [
+    "All 29 nodes and 23 typed edges were inspected against supplied statements; one unsupported relationship specificity is listed above. Shape validation does not assess this grounding problem.",
+    "drivers -> mobility_revenue (pays) is unqualified as an edge; the market-dependent condition lives in the revenue label. Likewise, offerings generating a combined Mobility revenue node do not establish that every fee mechanism applies to every offering or market.",
+    "ordering_consumers and white_label_restaurants_retailers are typed customer although the cited statements establish use/ordering, not their exact payments to the company. This is acceptable as a service-customer role only; it must not be rendered as confirmed payer status. Drivers are suppliers and also explicit possible fee payers, demonstrating why node kind alone cannot identify all payers.",
+    "The schema has no neutral connects relationship. Substituting supplies for the stated carrier connection introduces specificity; adding a neutral relation would preserve the source more faithfully.",
+    "White-label restaurants/retailers and delivery merchants can overlap as entities but represent different stated roles; the input does not establish exact identity. One membership and one shared capability are present, with no duplicated shared resource.",
+    "All metric exclusions survive in the label, but a typed edge or node-kind check cannot verify or apply them. Gross Bookings is company activity, not an addressable-market estimate.",
+    "The multi_perspective projection contains actor labels without their goals, constraints or outcomes. Projecting shared capabilities into differentiators is not comparative evidence."
+  ],
+  "report_readiness": {
+    "ready": false,
+    "reason": "Not ready for a full eight-section report. The 203-word fixture supports a qualitative three-segment map, participant roles, shared capabilities and metric definitions. It supplies no segment amounts, market estimates, competitor comparison or customer testimony. The isolated membership and unsupported carrier-service edge also need correction before relying on graph traversal."
+  }
+}

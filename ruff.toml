@@ -1,0 +1,6 @@
+target-version = "py312"
+extend-exclude = ["claude-code-main", "legacy-site", "test_*.py"]
+
+[lint]
+# Production correctness/dead-binding checks; leave formatting to a separate change.
+select = ["F", "E9"]

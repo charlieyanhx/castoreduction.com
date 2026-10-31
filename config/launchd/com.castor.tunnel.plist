@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- THE NAMED TUNNEL, KEPT ALIVE. "shuttle" carries app.castor-advisory.com to the
+       server on 8765 (ingress in ~/.cloudflared/config.yml). It used to be started by hand
+       from a shell and died with it. Install: cp to ~/Library/LaunchAgents and
+       launchctl load -w ~/Library/LaunchAgents/com.castor.tunnel.plist -->
+  <key>Label</key><string>com.castor.tunnel</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/cloudflared</string>
+    <string>--config</string><string>/Users/charlieyan/.cloudflared/config.yml</string>
+    <string>tunnel</string><string>run</string><string>shuttle</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>StandardOutPath</key><string>/tmp/castor_tunnel.log</string>
+  <key>StandardErrorPath</key><string>/tmp/castor_tunnel.log</string>
+</dict>
+</plist>

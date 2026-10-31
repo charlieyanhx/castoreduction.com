@@ -1,0 +1,91 @@
+/* brand.css — the one place Castor's identity is defined.
+ *
+ * TAKEN FROM THE MARKETING SITE, not invented. castor-advisory.com renders
+ * #2B3C2B on #F7F5F0 with #B07840 as its accent, Inter at weight 900 for headings, and a
+ * beaver mark beside a CASTOR wordmark. The app had grown its own palette (emerald accent,
+ * Iowan serif headings) and read as a different company to anyone arriving from the site.
+ *
+ * HOW TO USE IT. Every page links this FIRST, then maps its own semantic names onto these
+ * in its local :root. Pages keep their vocabulary (--bg, --accent, --text) so nothing else
+ * has to change; only the values move, and they move in one file.
+ */
+:root {
+  /* ---- the identity ---- */
+  --brand-paper:      #F7F5F0;   /* body ground */
+  --brand-surface:    #FFFFFF;   /* raised cards */
+  --brand-surface-2:  #EFEDE6;   /* recessed wells */
+  --brand-ink:        #2B3C2B;   /* deep forest green: headings and body */
+  --brand-ink-dim:    #5A6E5A;   /* sage: secondary text */
+  --brand-ink-faint:  #8A9A8A;
+  /* THE PRIMARY BUTTON IS THE LANDING PAGE'S, which is the deep green, not the bronze.
+     .nav-cta-btn there is background-color:#2B3C2B with white text; the app was filling
+     its primary actions in #B07840, so crossing from the marketing page to the survey
+     changed the colour of the main thing you click. Bronze stays as the accent it is on
+     that page: eyebrows, the second line of the headline, hover tints. */
+  --brand-action:     #2B3C2B;   /* filled primary buttons */
+  --brand-action-hi:  #3B5140;   /* its hover */
+  --brand-accent:     #B07840;   /* bronze: accents and highlights, not fills */
+  --brand-accent-ink: #8A5C2E;   /* bronze dark enough for text on cream (AA) */
+  --brand-accent-bg:  rgba(176, 120, 64, .12);
+  --brand-accent-bg2: rgba(176, 120, 64, .08);
+  --brand-line:       rgba(43, 60, 43, .13);
+  --brand-line-soft:  rgba(43, 60, 43, .07);
+
+  /* semantic, and deliberately NOT the accent: bronze already means "Castor", so a
+     warning that borrowed it would read as branding rather than as a warning. */
+  --brand-warn:       #8A5A12;
+  --brand-warn-bg:    #FBF3E4;
+  --brand-warn-line:  #E4CFA6;
+  --brand-danger:     #8C3626;
+  --brand-danger-bg:  #FBEEEB;
+  --brand-ok:         #3F6B47;
+  --brand-ok-bg:      #E8F0E7;
+
+  --brand-shadow:   0 1px 2px rgba(43,60,43,.05), 0 5px 18px -8px rgba(43,60,43,.13);
+  --brand-shadow-2: 0 2px 6px rgba(43,60,43,.06), 0 14px 40px -14px rgba(43,60,43,.22);
+
+  /* ---- type ---- */
+  /* Inter, the site's face. The 900 is load-bearing: the marketing headings are black
+     weight, and at 700 the app looks adjacent to the brand rather than part of it. */
+  --brand-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --brand-mono: "SF Mono", ui-monospace, SFMono-Regular, "Cascadia Code", Menlo, monospace;
+  --brand-display-weight: 900;
+
+  /* ---- shape ---- */
+  --brand-r-sm: 8px;
+  --brand-r:    12px;
+  --brand-r-lg: 16px;
+  --brand-r-pill: 9999px;
+}
+
+/* THE WORDMARK, COPIED FROM THE LANDING PAGE'S OWN NAV so the app does not read as a
+   second product. Same beaver, same 900-weight CASTOR at 1.25rem, same RESEARCH in sage
+   at 0.75rem with wide tracking. The app used an emoji and a serif; side by side with the
+   marketing page that looked like two companies. */
+.brand-mark {
+  display: inline-flex; align-items: center; gap: .6rem;
+  text-decoration: none; color: var(--brand-ink);
+  font-family: var(--brand-sans);
+}
+.brand-mark svg { width: 32px; height: 32px; flex: none; }
+.brand-mark .word {
+  color: var(--brand-ink); font-size: 1.25rem; font-weight: 900;
+  letter-spacing: -.015em; text-transform: uppercase;
+}
+.brand-mark .sub {
+  color: var(--brand-ink-dim); font-size: .75rem; font-weight: 500;
+  margin-left: .5rem; letter-spacing: .1em; text-transform: uppercase;
+}
+/* The landing page's measure and padding, so the header lines up across the seam. */
+.rail { padding-left: 1.5rem; padding-right: 1.5rem; }
+.rail > .brand-mark { margin-right: auto; }
+
+/* The site's eyebrow: a pill with a hairline, used above section headings. */
+.brand-eyebrow {
+  display: inline-block; padding: 5px 14px; border-radius: var(--brand-r-pill);
+  border: 1px solid var(--brand-line); background: var(--brand-accent-bg2);
+  font-family: var(--brand-sans); font-size: 11px; font-weight: 700;
+  letter-spacing: .13em; text-transform: uppercase; color: var(--brand-accent-ink);
+}
+
+[hidden] { display: none !important; }

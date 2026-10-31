@@ -1,0 +1,84 @@
+{
+  "company": "Shopify",
+  "model": "claude-opus-5-5",
+  "fixture": "/Users/charlieyan/Downloads/castor-advisories/docs/treadle/business_object_trial/inputs/shopify.json",
+  "max_calls": 6,
+  "max_depth": 6,
+  "status": "completed",
+  "candidate_structure": {
+    "node_count": 31,
+    "fact_count": 25,
+    "relationship_count": 38,
+    "gap_count": 10,
+    "max_depth": 4,
+    "nodes_by_kind": {
+      "actor": 5,
+      "capability": 1,
+      "classification": 1,
+      "company": 1,
+      "group": 4,
+      "metric": 1,
+      "offering": 13,
+      "reported_segment": 1,
+      "revenue_stream": 4
+    },
+    "referenced_statement_count": 12,
+    "unreferenced_statement_ids": []
+  },
+  "accepted_structure": {
+    "node_count": 31,
+    "fact_count": 25,
+    "relationship_count": 33,
+    "gap_count": 10,
+    "max_depth": 4,
+    "nodes_by_kind": {
+      "actor": 5,
+      "capability": 1,
+      "classification": 1,
+      "company": 1,
+      "group": 4,
+      "metric": 1,
+      "offering": 13,
+      "reported_segment": 1,
+      "revenue_stream": 4
+    },
+    "referenced_statement_count": 12,
+    "unreferenced_statement_ids": []
+  },
+  "support_review": "complete",
+  "expansion_complete": true,
+  "stop_reason": "complete",
+  "pending": [],
+  "quarantined_count": 5,
+  "calls": [
+    {
+      "model": "claude-opus-5-5",
+      "status": "parsed",
+      "automatic_retries": 0,
+      "usage": {
+        "input_tokens": 4504,
+        "output_tokens": 11766
+      },
+      "stop_reason": "end_turn",
+      "format_normalization": "removed_complete_json_code_fence",
+      "elapsed_seconds": 86.87
+    },
+    {
+      "model": "claude-opus-5-5",
+      "status": "parsed",
+      "automatic_retries": 0,
+      "usage": {
+        "input_tokens": 9849,
+        "output_tokens": 5959
+      },
+      "stop_reason": "end_turn",
+      "format_normalization": "none",
+      "elapsed_seconds": 43.79
+    }
+  ],
+  "usage": {
+    "input_tokens": 14353,
+    "output_tokens": 17725
+  },
+  "elapsed_seconds": 130.69
+}

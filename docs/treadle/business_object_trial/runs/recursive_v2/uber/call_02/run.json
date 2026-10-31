@@ -1,0 +1,12 @@
+{
+  "model": "claude-opus-5-5",
+  "status": "parsed",
+  "automatic_retries": 0,
+  "usage": {
+    "input_tokens": 11854,
+    "output_tokens": 4294
+  },
+  "stop_reason": "end_turn",
+  "format_normalization": "none",
+  "elapsed_seconds": 33.39
+}

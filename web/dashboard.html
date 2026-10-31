@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Your reports · Castor Research</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap">
+<link rel="stylesheet" href="/brand.css">
+<style>
+  /* [hidden] is a UA rule and ANY author `display:` beats it. See login.html. */
+  [hidden] { display: none !important; }
+
+  /* The warm paper of the survey, the progress screen and the report. The library used to
+     be the old dark console, so following "your library" out of a finished report handed
+     the reader a different product mid-flow. */
+  :root {
+    --bg: var(--brand-paper);
+    --surface: var(--brand-surface);
+    --surface-2: var(--brand-surface-2);
+    --line: var(--brand-line);
+    --text: var(--brand-ink);
+    --text-dim: var(--brand-ink-dim);
+    --text-faint: var(--brand-ink-faint);
+    --shadow-1: var(--brand-shadow);
+    --accent: var(--brand-accent-ink);
+    --accent-soft: var(--brand-accent-bg);
+    --warn-ink: var(--brand-warn);
+    --warn-bg: var(--brand-warn-bg);
+    --warn-line: var(--brand-warn-line);
+    --danger: var(--brand-danger);
+    --danger-bg: var(--brand-danger-bg);
+    --radius: var(--brand-r);
+    --serif: var(--brand-sans);
+    --sans: var(--brand-sans);
+    --mono: var(--brand-mono);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  body { font-family: var(--sans); font-size: 14px; line-height: 1.5; color: var(--text);
+         background: var(--bg); -webkit-font-smoothing: antialiased; }
+
+  .rail { position: sticky; top: 0; z-index: 20; display: flex; align-items: center;
+          gap: 14px; padding: 13px 24px; background: oklch(97.3% 0.006 85 / .88);
+          backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+  .brand { font-family: var(--serif); font-size: 16px; font-weight: var(--brand-display-weight);
+           letter-spacing: -.01em; text-decoration: none; color: var(--text); }
+  .brand span { color: var(--accent); }
+  .rail-acts { margin-left: auto; display: flex; gap: 9px; align-items: center; }
+  .btn { font: inherit; font-size: 13px; font-weight: 600; text-decoration: none;
+         cursor: pointer; padding: 8px 15px; border-radius: 9px;
+         border: 1px solid var(--line); background: var(--surface); color: var(--text-dim); }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.go { background: var(--brand-action); border-color: var(--brand-action); color: #fff; }
+  .btn.go:hover { opacity: .92; color: #fff; }
+
+  main { max-width: 1000px; margin: 0 auto; padding: 40px 24px 90px; }
+  h1 { font-family: var(--serif); font-size: clamp(26px, 1.4rem + 1.6vw, 34px);
+       font-weight: var(--brand-display-weight); letter-spacing: -.02em; }
+  .lede { margin-top: 10px; font-size: 15px; color: var(--text-dim); max-width: 58ch; }
+
+  .filters { display: flex; gap: 9px; margin: 26px 0 18px; flex-wrap: wrap; }
+  .filters input, .filters select {
+    font: inherit; font-size: 13.5px; color: inherit; padding: 9px 12px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 9px; }
+  .filters input { flex: 1; min-width: 190px; }
+  .filters input:focus, .filters select:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent); }
+
+  .row { display: grid; grid-template-columns: 26px minmax(0, 1fr) 128px 118px;
+         gap: 16px; align-items: center; padding: 15px 16px; background: var(--surface);
+         border: 1px solid var(--line); border-radius: var(--radius);
+         margin-bottom: 9px; box-shadow: var(--shadow-1); }
+  .row a.name { font-size: 15.5px; font-weight: 600; color: var(--text);
+                text-decoration: none; letter-spacing: -.006em; }
+  .row a.name:hover { color: var(--accent); }
+  .row .sum { margin-top: 3px; font-size: 12.5px; color: var(--text-faint);
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .when { font-size: 11.5px; color: var(--text-faint); margin-top: 4px;
+               font-variant-numeric: tabular-nums; }
+  .score { font-family: var(--serif); font-size: 22px; font-weight: var(--brand-display-weight);
+           text-align: right; font-variant-numeric: tabular-nums; }
+  .score small { display: block; font-family: var(--sans); font-size: 10px;
+                 font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+                 color: var(--text-faint); margin-top: 2px; }
+  .pill { font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+          padding: 4px 10px; border-radius: 999px; text-align: center; white-space: nowrap; }
+  .pill.ready { background: var(--accent-soft); color: var(--accent); }
+  .pill.withheld { background: var(--warn-bg); color: var(--warn-ink); }
+  .pill.running { background: oklch(95% 0.03 250); color: oklch(45% 0.13 250); }
+  /* A grey pill among coloured ones reads as "inactive", not as "this run failed". The
+     danger tokens are what the rest of the product uses to say something went wrong. */
+  .pill.failed { background: var(--danger-bg); color: var(--danger); }
+
+  .empty { padding: 50px 0; color: var(--text-faint); font-size: 14.5px; }
+  .empty a { color: var(--accent); }
+  .empty .btn { margin-left: 4px; }
+  .bar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px;
+         font-size: 13px; color: var(--text-dim); }
+
+  /* THE LOADING STATE HAD THE SAME TREATMENT AS THE EMPTY ONE: one faint line of type in
+     the .empty style. /jobs opens every stored run's result blob to build its rows, so on
+     a full library it is slow enough that "Loading…" sat there long enough to be read as
+     "you have no reports" by somebody who has several. Rows in the shape of the real ones
+     cannot be misread that way. */
+  .skel-row { pointer-events: none; }
+  .skel { background: var(--surface-2); border-radius: 6px; height: 11px;
+          animation: skel-pulse 1.3s ease-in-out infinite; }
+  .skel.nm    { height: 15px; width: 44%; }
+  .skel.sm    { margin-top: 8px; width: 66%; }
+  .skel.wh    { margin-top: 8px; width: 20%; height: 9px; }
+  .skel.sc    { height: 24px; width: 46px; margin-left: auto; }
+  /* max-width because at the narrow breakpoint .pillcell spans the full row, and a
+     block-level placeholder there stretches into a bar nothing on the real list matches. */
+  .skel.pl    { height: 22px; border-radius: 999px; max-width: 112px; }
+  @keyframes skel-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .42; } }
+  @media (prefers-reduced-motion: reduce) { .skel { animation: none; opacity: .7; } }
+  @media (max-width: 680px) {
+    .row { grid-template-columns: 24px minmax(0, 1fr) 84px; }
+    .row .pillcell { grid-column: 2 / -1; }
+  }
+  .rail-lib { font-size: 13px; font-weight: 600; text-decoration: none; padding: 7px 13px;
+              border-radius: 9px; border: 1px solid var(--line); color: var(--text-dim);
+              background: var(--surface); white-space: nowrap; }
+  .rail-lib:hover { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header class="rail">
+  {% with home = "/home" %}{% include "partials/brand_mark.html" %}{% endwith %}
+  <span class="rail-acts">
+    <a class="rail-lib" href="/library">The library</a>
+    <a class="btn go" href="/survey">New report</a>
+  </span>
+</header>
+
+<main>
+  <h1>Your reports</h1>
+  <div class="lede">Every run you have made. A withheld report is one whose own checks
+    failed, and it says which; it is still here to read.</div>
+
+  <div class="filters">
+    <input id="search" placeholder="Filter by name…">
+    <select id="tier">
+      <option value="">All outcomes</option>
+      <option value="ready">Ready to read</option>
+      <option value="withheld">Withheld</option>
+      <option value="running">Still running</option>
+      <option value="failed">Did not finish</option>
+    </select>
+  </div>
+
+  <div class="bar" id="bar"></div>
+  <!-- Painted by showLoading() the moment the script below runs; see .skel for why the
+       library must not open on a line of type that reads like an empty library. -->
+  <div id="list" aria-busy="true"></div>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  const $ = (s) => document.querySelector(s);
+  let rows = [];
+  // Whether `rows` is the answer from the server or just its initial value. Without it,
+  // typing in the filter box while the list is still loading (or after it failed) runs
+  // render() over an empty array and replaces the skeleton, or the error, with
+  // "No reports yet", which is the page asserting something it does not know.
+  let loaded = false;
+
+  function when(ts) {
+    if (!ts) return "";
+    const d = new Date(ts * 1000);
+    return d.toLocaleDateString(undefined, {month: "short", day: "numeric"}) + " " +
+           d.toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
+  }
+
+  function statusOf(j) {
+    if (j.state === "running" || j.state === "pending") return "running";
+    if (j.state === "error") return "failed";
+    if (j.state === "complete") return j.publishable === false ? "withheld" : "ready";
+    return "failed";
+  }
+
+  const LABEL = {ready: "Ready", withheld: "Withheld", running: "Running", failed: "Did not finish"};
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  /* Three rows in the shape of the real ones, not a word. See .skel in the stylesheet:
+     the old "Loading…" wore the empty state's styling and was read as one. Three is a
+     deliberate number, not a guess at how many reports you have. */
+  function showLoading() {
+    const host = $("#list");
+    host.innerHTML = "";
+    host.setAttribute("aria-busy", "true");
+    for (let i = 0; i < 3; i++) {
+      const row = el("div", "row skel-row");
+      row.appendChild(el("div", "dot"));
+      const body = el("div");
+      body.appendChild(el("div", "skel nm"));
+      body.appendChild(el("div", "skel sm"));
+      body.appendChild(el("div", "skel wh"));
+      row.appendChild(body);
+      row.appendChild(el("div", "skel sc"));
+      const cell = el("div", "pillcell");
+      cell.appendChild(el("div", "skel pl"));
+      row.appendChild(cell);
+      host.appendChild(row);
+    }
+    $("#bar").textContent = "Loading your reports…";
+  }
+
+  /* What the reader gets when the list does not arrive. It used to be the exception's
+     own message, which for the commonest failure was a TypeError off the response body
+     (see load()). Say what happened, and give them the one button that might fix it. */
+  function trouble(message) {
+    loaded = false;               // so the filters cannot paint over the explanation
+    const host = $("#list");
+    host.innerHTML = "";
+    host.removeAttribute("aria-busy");
+    $("#bar").textContent = "";
+    const box = el("div", "empty");
+    box.appendChild(document.createTextNode(message + " "));
+    const again = el("button", "btn", "Try again");
+    again.type = "button";
+    again.addEventListener("click", load);
+    box.appendChild(again);
+    host.appendChild(box);
+  }
+
+  function render() {
+    if (!loaded) return;
+    const q = ($("#search").value || "").toLowerCase();
+    const want = $("#tier").value;
+    const shown = rows.filter((j) => {
+      const st = statusOf(j);
+      if (want && st !== want) return false;
+      if (!q) return true;
+      return ((j.idea_name || j.params_title || "") + " " + (j.idea_summary || ""))
+        .toLowerCase().includes(q);
+    });
+
+    $("#bar").textContent = shown.length === rows.length
+      ? rows.length + (rows.length === 1 ? " report" : " reports")
+      : shown.length + " of " + rows.length + " shown";
+
+    const host = $("#list");
+    host.innerHTML = "";
+    host.removeAttribute("aria-busy");
+    if (!shown.length) {
+      const e = el("div", "empty");
+      e.appendChild(document.createTextNode(rows.length ? "Nothing matches that filter. "
+                                                        : "No reports yet. "));
+      const a = document.createElement("a");
+      a.href = "/survey"; a.textContent = "Start one";
+      e.appendChild(a);
+      host.appendChild(e);
+      return;
+    }
+
+    shown.forEach((j) => {
+      const st = statusOf(j);
+      const row = el("div", "row");
+      row.appendChild(el("div", "dot"));
+
+      const body = el("div");
+      const a = el("a", "name", j.idea_name || j.params_title || "(unnamed)");
+      // A run still going belongs on its progress screen, and so does one that stopped:
+      // /report.html answers 409 for a run that produced no report, so a failed row
+      // pointed the reader at a dead end. The progress screen names the failure and
+      // offers a new run. Anything finished opens the report, withheld included (the
+      // withhold page lists what blocked it), and refine mode is the default there now.
+      a.href = (st === "running" || st === "failed")
+        ? "/progress.html?job=" + encodeURIComponent(j.id)
+        : "/jobs/" + encodeURIComponent(j.id) + "/report.html";
+      body.appendChild(a);
+      // A failed row that shows the idea's summary looks like a report. Say why it
+      // stopped instead; the list carries the reason now, so the reader does not have to
+      // click through to learn it.
+      const sub = (st === "failed") ? (j.error || "") : (j.idea_summary || "");
+      if (sub) body.appendChild(el("div", "sum", sub));
+      body.appendChild(el("div", "when", when(j.created_at)));
+      row.appendChild(body);
+
+      const sc = el("div", "score");
+      if (j.viability_score != null) {
+        sc.appendChild(document.createTextNode(String(j.viability_score)));
+        sc.appendChild(el("small", null, "viability"));
+      }
+      row.appendChild(sc);
+
+      const cell = el("div", "pillcell");
+      cell.appendChild(el("span", "pill " + st, LABEL[st]));
+      row.appendChild(cell);
+      host.appendChild(row);
+    });
+  }
+
+  async function load() {
+    showLoading();
+    let res;
+    try {
+      // ONE request. This used to fetch every job's full result blob to read four fields.
+      res = await fetch("/jobs?limit=200");
+    } catch (e) {
+      trouble("We could not reach the server, so your library did not load.");
+      return;
+    }
+
+    // CHECK THE STATUS BEFORE TOUCHING THE BODY. There was no unauthorised state here at
+    // all: an install running CASTOR_REQUIRE_LOGIN=1 answers 401 with {"detail": ...},
+    // which has no .filter, so the page caught its own TypeError and printed
+    // "Could not load your reports: all.filter is not a function" at somebody whose only
+    // problem was being signed out.
+    if (res.status === 401 || res.status === 403) {
+      const host = $("#list");
+      host.innerHTML = "";
+      host.removeAttribute("aria-busy");
+      $("#bar").textContent = "";
+      host.appendChild(el("div", "empty", "Sign in to see your reports. Taking you there now."));
+      // ?next= so signing in lands back on the library rather than the front door, and
+      // replace() rather than href so the back button does not bounce between the two.
+      // Same-origin path only, which is what login.html's nextUrl() will accept.
+      location.replace("/login?next=" +
+                       encodeURIComponent(location.pathname + location.search));
+      return;
+    }
+    if (!res.ok) {
+      trouble("Your library did not load. The server answered " + res.status + ".");
+      return;
+    }
+
+    let all;
+    try {
+      all = await res.json();
+    } catch (e) {
+      all = null;
+    }
+    // /jobs returns an array. Anything else is a body this page cannot read, and calling
+    // .filter on it is the same TypeError by another route.
+    if (!Array.isArray(all)) {
+      trouble("Your library came back in a form this page could not read.");
+      return;
+    }
+    rows = all.filter((j) => j.kind === "plan");
+    loaded = true;
+    render();
+  }
+
+  $("#search").addEventListener("input", render);
+  $("#tier").addEventListener("change", render);
+  load();
+})();
+</script>
+<script src="/account.js" defer></script>
+</body>
+</html>

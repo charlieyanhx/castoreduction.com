@@ -1,4 +1,49 @@
+# Castor — one project, one ignore file.
+# Merged when the product was promoted from market-research-prototype/ to the repo root:
+# the paths that used to be prefixed no longer are, and the two lists became one.
+
+# --- local environment ---
+.venv/
+.env
 .claude/
 .DS_Store
+.session_secret
+.bin/
+
+# --- python ---
+__pycache__/
+*.pyc
+
+# --- local state: caches, job store, transcripts ---
+.cache.sqlite
+.jobs.sqlite
+.http_cache.sqlite
+.cex_curve_cache.json
+.transcripts/
+jobs.db
+
+# --- run artifacts, never source ---
+out/
+*.log
+
+# --- vendored reference copy, not ours ---
 claude-code-main/
-out/.cache/
+
+# --- bulk public reference data (large, re-downloadable) ---
+data/
+
+# --- latex build artifacts ---
+docs/papers/*.aux
+docs/papers/*.log
+docs/papers/*.out
+
+# SQLite side files and the pytest cache never belong in history
+.jobs.sqlite-wal
+.jobs.sqlite-shm
+.pytest_cache/
+.ruff_cache/
+feedback-for-jane.*
+
+# the testing account on the live instance (see scripts/live_smoke.py)
+.testaccount
+.env.bak-*

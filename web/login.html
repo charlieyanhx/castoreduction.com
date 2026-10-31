@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Castor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap">
+<link rel="stylesheet" href="/brand.css">
+<style>
+  /* [hidden] is a UA rule and ANY author `display:` beats it. .google set
+     display:flex, so "Continue with Google" rendered on every install and 404'd
+     wherever OAuth was unconfigured — the exact failure its own comment claims to
+     prevent. One rule, so the next element to carry `hidden` is safe by default. */
+  [hidden] { display: none !important; }
+
+  /* One screen, two modes. A separate /signup page would double the surface for a form
+     that differs by one endpoint and one line of copy; a toggle keeps the shared parts
+     shared and makes "I do not have an account yet" a click rather than a navigation.
+
+     Deliberately NOT the workspace shell: this page must render before any authenticated
+     fetch, so it carries its own styles and depends on nothing that could 401. */
+  :root {
+    --ink: var(--brand-ink);
+    --paper: var(--brand-paper);
+    --line: var(--brand-line);
+    --muted: var(--brand-ink-dim);
+    --accent: var(--brand-accent-ink);          /* the same deep green the reports use for verdicts */
+    --accent-ink: var(--brand-paper);
+    --bad: var(--brand-danger);
+    --radius: var(--brand-r);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+    display: grid; grid-template-columns: 1.1fr 1fr;
+  }
+
+  /* Left: what the thing is. A bare login box tells a first-time visitor nothing about
+     what they are signing in to. */
+  .pitch {
+    background: var(--ink); color: #efeae3; padding: 56px 48px;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+  /* THE SHARED MARK ON A DARK GROUND. brand.css sets the wordmark in ink on paper; this
+     panel is ink, so the words take the panel's own text colours. The mark is a column
+     flex child here and would otherwise stretch to the full row. */
+  .pitch .brand-mark { align-self: flex-start; }
+  .pitch .brand-mark .word { color: #efeae3; }
+  .pitch .brand-mark .sub { color: #7cb69f; }
+  .pitch h1 {
+    font: 600 clamp(28px, 2.4vw, 40px)/1.15 ui-serif, Georgia, "Times New Roman", serif;
+    margin: 40px 0 14px; max-width: 15ch;
+  }
+  .pitch p { color: #b9b2a8; max-width: 46ch; margin: 0 0 22px; }
+  .facts { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+  .facts li { display: flex; gap: 10px; color: #cfc8be; font-size: 14px; }
+  .facts li::before { content: "→"; color: #7cb69f; }
+  .fine { color: #8d867d; font-size: 12.5px; margin: 0; }
+
+  /* Right: the form. */
+  .panel { display: flex; align-items: center; justify-content: center; padding: 40px 32px; }
+  form { width: 100%; max-width: 380px; }
+  h2 { font-size: 22px; margin: 0 0 4px; }
+  .lede { color: var(--muted); margin: 0 0 26px; font-size: 14px; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 6px; }
+  input {
+    width: 100%; padding: 11px 12px; margin: 0 0 4px; font: inherit; color: inherit;
+    background: #fff; border: 1px solid var(--line); border-radius: 9px;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  input:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(27, 77, 62, .14);
+  }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 18px; min-height: 1.2em; }
+  /* The password field with its "see it" button: a toggle, not a second field. */
+  .pw { position: relative; }
+  .pw input { padding-right: 44px; }
+  .pw-eye { position: absolute; top: 0; right: 0; height: calc(100% - 4px); width: 42px;
+            border: none; background: none; cursor: pointer; color: var(--muted);
+            display: flex; align-items: center; justify-content: center; border-radius: 0 9px 9px 0; }
+  .pw-eye:hover, .pw-eye:focus-visible { color: var(--accent); outline: none; }
+  .pw-eye:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+  .pw-eye svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8;
+                stroke-linecap: round; stroke-linejoin: round; }
+  .pw-eye .slash { display: none; }
+  .pw-eye[aria-pressed="true"] .slash { display: block; }
+  button[type=submit] {
+    width: 100%; padding: 12px; font: 600 15px/1 inherit; cursor: pointer;
+    color: var(--accent-ink); background: var(--brand-action);
+    border: 1px solid var(--accent); border-radius: 9px;
+    transition: transform .12s ease, opacity .15s ease;
+  }
+  button[type=submit]:hover { opacity: .92; }
+  .google {
+    display: flex; align-items: center; justify-content: center; gap: .6rem;
+    width: 100%; padding: .72rem 1rem; margin-bottom: .2rem;
+    font: inherit; font-size: .95rem; font-weight: 600; text-decoration: none;
+    color: #3c4043; background: #fff; border: 1px solid #dadce0; border-radius: 8px;
+  }
+  .google:hover { background: #f8f9fa; border-color: #c6c9cc; }
+  .or {
+    display: flex; align-items: center; gap: .75rem; margin: 1rem 0 .4rem;
+    color: #9ca3af; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em;
+  }
+  .or::before, .or::after {
+    content: ""; flex: 1; height: 1px; background: currentColor; opacity: .28;
+  }
+  button[type=submit]:active { transform: translateY(1px); }
+  button[type=submit][disabled] { opacity: .55; cursor: progress; }
+  .swap { margin: 18px 0 0; font-size: 14px; color: var(--muted); text-align: center; }
+  .swap button {
+    background: none; border: none; padding: 0; font: inherit; cursor: pointer;
+    color: var(--accent); text-decoration: underline; text-underline-offset: 2px;
+  }
+  .error {
+    display: none; margin: 0 0 16px; padding: 10px 12px; border-radius: 9px;
+    background: #fdecec; border: 1px solid #f3c9c9; color: var(--bad); font-size: 13.5px;
+  }
+  .error.show { display: block; }
+
+  @media (max-width: 860px) {
+    body { grid-template-columns: 1fr; }
+    .pitch { padding: 28px 24px; }
+    .pitch h1 { font-size: 26px; margin: 20px 0 10px; }
+    .facts, .fine { display: none; }        /* the form is why you are here on a phone */
+    .panel { padding: 28px 24px 48px; }
+  }
+</style>
+</head>
+<body>
+  <section class="pitch">
+    {% with home = "/" %}{% include "partials/brand_mark.html" %}{% endwith %}
+    <div>
+      <h1>Market research you can check.</h1>
+      <p>Every number in a Castor report carries the source it came from, and the report
+         refuses to publish when its own checks fail.</p>
+      <ul class="facts">
+        <li>Census, BLS and OpenStreetMap data, not a model's recollection</li>
+        <li>63 automated invariants run against every report before you see it</li>
+        <li>Three free reports a day while the product is in preview</li>
+      </ul>
+    </div>
+    <p class="fine">A report takes about six minutes of live research to produce.</p>
+  </section>
+
+  <main class="panel">
+    <form id="authForm" novalidate>
+      <h2 id="formTitle">Sign in</h2>
+      <p class="lede" id="formLede">Welcome back.</p>
+
+      <div class="error" id="formError" role="alert"></div>
+
+      <!-- Google first: for most people it is one click against twelve characters they
+           have to invent and remember. Hidden entirely unless the server is configured,
+           so the button is never present-but-broken. -->
+      <a class="google" id="googleBtn" href="/auth/google" hidden>
+        <svg viewBox="0 0 18 18" aria-hidden="true" width="17" height="17">
+          <path fill="#4285F4" d="M17.6 9.2c0-.6-.1-1.3-.2-1.9H9v3.5h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.7-3.9 2.7-6.5z"/>
+          <path fill="#34A853" d="M9 18c2.4 0 4.5-.8 6-2.2l-2.9-2.3c-.8.6-1.9.9-3.1.9-2.4 0-4.4-1.6-5.1-3.8H.9v2.3A9 9 0 0 0 9 18z"/>
+          <path fill="#FBBC05" d="M3.9 10.7a5.4 5.4 0 0 1 0-3.4V5H.9a9 9 0 0 0 0 8l3-2.3z"/>
+          <path fill="#EA4335" d="M9 3.6c1.3 0 2.5.5 3.4 1.3l2.6-2.6A9 9 0 0 0 .9 5l3 2.3C4.6 5.2 6.6 3.6 9 3.6z"/>
+        </svg>
+        Continue with Google
+      </a>
+      <div class="or" id="orLine" hidden><span>or</span></div>
+
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="email"
+             required autofocus>
+
+      <label for="password">Password</label>
+      <div class="pw">
+        <input id="password" name="password" type="password"
+               autocomplete="current-password" required>
+        <button type="button" class="pw-eye" id="pwEye" aria-label="Show password"
+                aria-pressed="false" title="Show password">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="eye" d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle class="eye" cx="12" cy="12" r="3"/><path class="slash" d="M4 4l16 16"/></svg>
+        </button>
+      </div>
+      <p class="hint" id="pwHint">At least 12 characters.</p>
+
+      <button type="submit" id="submitBtn">Sign in</button>
+
+      <div style="text-align:center;margin-top:10px;font-size:13.5px"><a href="/forgot" style="color:var(--accent)">Forgot your password?</a></div>
+      <p class="swap" id="swapLine">
+        No account yet? <button type="button" id="swapBtn">Sign up</button>
+      </p>
+    </form>
+  </main>
+
+<script>
+  /* The account button carries ?next= so signing in returns the visitor to the page they
+     were reading. Same-origin PATHS only: an open redirect on a login form hands an
+     attacker a castor-advisory.com link that lands on their site with our name on it. */
+  function nextUrl() {
+    try {
+      var n = new URLSearchParams(location.search).get("next") || "";
+      if (n.charAt(0) === "/" && n.charAt(1) !== "/" && n.indexOf("\\") === -1) return n;
+    } catch (e) { /* fall through */ }
+    return "/";
+  }
+
+(function () {
+  var MIN_PASSWORD = 12;
+  var mode = new URLSearchParams(location.search).get("mode") === "signup"
+             ? "signup" : "login";
+
+  var form   = document.getElementById("authForm");
+  var title  = document.getElementById("formTitle");
+  var lede   = document.getElementById("formLede");
+  var btn    = document.getElementById("submitBtn");
+  var swap   = document.getElementById("swapLine");
+  var errBox = document.getElementById("formError");
+  var pw     = document.getElementById("password");
+
+  function render() {
+    var signup = mode === "signup";
+    title.textContent = signup ? "Sign up" : "Sign in";
+    lede.textContent  = signup ? "Three free reports a day, no card."
+                               : "Welcome back.";
+    btn.textContent   = signup ? "Sign up" : "Sign in";
+    pw.setAttribute("autocomplete", signup ? "new-password" : "current-password");
+    swap.innerHTML = signup
+      ? 'Already have an account? <button type="button" id="swapBtn">Sign in</button>'
+      : 'No account yet? <button type="button" id="swapBtn">Sign up</button>';
+    document.getElementById("swapBtn").addEventListener("click", function () {
+      mode = signup ? "login" : "signup";
+      hideError();
+      render();
+    });
+    document.title = (signup ? "Sign up" : "Sign in") + " · Castor";
+  }
+
+  // SEE YOUR PASSWORD. A typo in a hidden field is the commonest reason a sign-in
+  // fails, and the page could only say "wrong password". The eye shows what was typed;
+  // the label and the pressed state say which way it is set, for a screen reader too.
+  var eye = document.getElementById("pwEye"), pw = document.getElementById("password");
+  eye.addEventListener("click", function () {
+    var show = pw.type === "password";
+    pw.type = show ? "text" : "password";
+    eye.setAttribute("aria-pressed", String(show));
+    eye.setAttribute("aria-label", show ? "Hide password" : "Show password");
+    eye.title = show ? "Hide password" : "Show password";
+    pw.focus();
+  });
+
+  function showError(msg) { errBox.textContent = msg; errBox.classList.add("show"); }
+  function hideError()    { errBox.classList.remove("show"); }
+
+  form.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    hideError();
+    var email = document.getElementById("email").value.trim();
+    var password = pw.value;
+
+    // Checked here as well as on the server: the server's refusal is authoritative, but
+    // learning the minimum after a round trip is a wasted one.
+    if (!email || email.indexOf("@") === -1) return showError("Enter a valid email address.");
+    if (password.length < MIN_PASSWORD)
+      return showError("Password must be at least " + MIN_PASSWORD + " characters.");
+
+    btn.disabled = true;
+    var wasLabel = btn.textContent;
+    btn.textContent = mode === "signup" ? "Creating account…" : "Signing in…";
+    try {
+      var endpoint = mode === "signup" ? "/auth/signup" : "/auth/login";
+      var r = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email, password: password })
+      });
+      if (r.ok) { location.href = nextUrl(); return; }
+      var detail = "";
+      try { detail = (await r.json()).detail || ""; } catch (_) {}
+      // The server deliberately does not say WHICH half was wrong — repeating its exact
+      // wording keeps the login form from becoming an account-enumeration oracle.
+      showError(detail || (mode === "signup"
+                ? "Could not create that account."
+                : "Invalid email or password."));
+    } catch (_) {
+      showError("Could not reach the server. Check your connection and try again.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = wasLabel;
+    }
+  });
+
+  // Already signed in? Do not make someone log in twice.
+  fetch("/auth/me").then(function (r) { return r.json(); }).then(function (me) {
+    if (me && me.authenticated) { location.href = nextUrl(); return; }
+    // Reveal Google only when the server can actually complete the flow.
+    if (me && me.google) {
+      // The form honours ?next=; the Google button has to as well, or choosing Google
+      // silently discards where the visitor was headed.
+      var g = document.getElementById("googleBtn");
+      var n = nextUrl();
+      if (n && n !== "/") g.href = "/auth/google?next=" + encodeURIComponent(n);
+      g.hidden = false;
+      document.getElementById("orLine").hidden = false;
+    }
+  }).catch(function () {});
+
+  // Anything that went wrong on the way back from Google, said plainly.
+  var GOOGLE_ERRORS = {
+    google_denied: "You cancelled the Google sign-in.",
+    google_state: "That sign-in link expired. Try again.",
+    google_failed: "Google sign-in did not complete. Try again, or use an email and password.",
+    google_refused: "We could not use that Google account. It may have an unverified email, " +
+                    "or the address may already belong to a different account."
+  };
+  var oauthErr = new URLSearchParams(location.search).get("error");
+  if (oauthErr && GOOGLE_ERRORS[oauthErr]) {
+    var box = document.getElementById("formError");
+    box.textContent = GOOGLE_ERRORS[oauthErr];
+    box.style.display = "block";
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>

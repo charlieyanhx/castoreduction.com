@@ -1,0 +1,106 @@
+# render.yaml — one-click deploy for Castor research pipeline
+# https://render.com/docs/blueprint-spec
+#
+# To deploy:
+#   1. Push this repo to GitHub (already done)
+#   2. Go to https://dashboard.render.com/blueprints
+#   3. Click "New Blueprint Instance" and connect to this repo
+#   4. Render reads this file, provisions everything, and deploys
+#   5. Set the API key env vars in the Render dashboard (see "Secret env vars" below)
+
+services:
+  - type: web
+    name: castor-research
+    runtime: docker
+    repo: https://github.com/charlieyanhx/castoreduction.com
+    branch: master
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter             # $7/mo, always-on (free tier sleeps which breaks long /plan jobs)
+    region: oregon            # change to closest to you
+    healthCheckPath: /healthz
+    autoDeploy: true          # redeploy on every git push to master
+
+    # Persistent disk: SQLite caches survive across deploys
+    disk:
+      name: castor-data
+      mountPath: /data
+      sizeGB: 5
+
+    envVars:
+      # Public, non-secret — set inline
+      - key: PIPELINE_PROFILE
+        value: default
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # THE ONE THAT MATTERS. Unset, _current_owner falls back to LEGACY_OWNER and every
+      # visitor shares one library with no login at all — the cross-tenant hole #93 exists
+      # to close, re-opened by a missing env var. Production refuses an unauthenticated
+      # request instead.
+      - key: CASTOR_ENV
+        value: production
+      # WITHOUT THIS, ANTHROPIC IS SILENTLY SKIPPED. fallback_chain excludes paid backends
+      # unless the operator says otherwise, so a box with both ANTHROPIC_API_KEY and
+      # GEMINI_API_KEY set resolves to ['gemini'] alone: every user runs on a shared free
+      # tier at 15 req/min, and the reports are quietly not the ones you meant to sell.
+      # The guard exists so throttling never bills you by accident; in production, paying
+      # is the intent.
+      - key: LLM_ALLOW_PAID
+        value: "1"
+      # Render terminates TLS at its proxy, so every request arrives from the same address.
+      # Unset, the login limiter keys on that one address and ten wrong passwords from any
+      # stranger lock out every customer at once.
+      - key: CASTOR_TRUST_PROXY
+        value: "1"
+
+      # SECRET — set these manually in the Render dashboard after first deploy:
+      #   Dashboard → castor-research → Environment → "Add Environment Variable"
+      #   (sync: false here means Render won't try to autopopulate them)
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # REQUIRED under CASTOR_ENV=production: auth._session_secret() refuses to sign
+      # sessions with a generated key, so without this every login and signup 500s while
+      # /healthz stays green and the deploy looks successful.
+      - key: SESSION_SECRET
+        sync: false
+
+      # ---- payments. All six, or nothing is buyable (billing.configured()). ----------
+      # Webhook endpoint: POST https://<your-host>/billing/webhook
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_REPORT
+        sync: false
+      # The workshop pack (30 post-generation credits, $5).
+      - key: STRIPE_PRICE_WORKSHOP
+        sync: false
+
+      # ---- email. Needs CASTOR_PUBLIC_URL below, or the links are not links. ---------
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+
+      # ---- Google sign-in. All three, or the button hides itself. --------------------
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+
+      # THE ORIGIN EVERY EMAILED LINK IS BUILT FROM. Not inferable from a request: a
+      # Host header an attacker controls would point your reset links at their server.
+      # No trailing slash. mailer refuses to send at all without it.
+      - key: CASTOR_PUBLIC_URL
+        sync: false
+
+      # Run transcripts default to the image layer and vanish on redeploy. The progress
+      # page reads them, so put them on the disk mounted at /data.
+      - key: CASTOR_TRANSCRIPT_DIR
+        value: /data/transcripts
