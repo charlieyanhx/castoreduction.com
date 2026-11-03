@@ -62,25 +62,40 @@ def validate(brief: dict) -> None:
 
 
 def consistency_review(result: dict, verdicts: tuple) -> tuple[ReviewIssue, ...]:
-    """Two sections stating different figures for one topic (found in code), then the
-    model reviewer's internal-consistency pass. Claim-to-source auditing is deferred."""
+    """The model reviewer's internal-consistency pass, given the figure pairs the code
+    check found as candidates to judge. Claim-to-source auditing is deferred.
+
+    The code check pairs figures by nearby shared words, so it cannot tell "$54 for the
+    Starter tier" from "$59 for the Balance tier". Sent straight back as repairs, its
+    pairs opened 13 of the scorecard's correction rounds (2026-11-02), most of them
+    two different measures; the reviewer, which reads the whole report anyway, now
+    decides which pairs are real at no extra call."""
     if "prep" not in result:
         return ()  # The scheduler already records the failed prerequisite.
-    return number_review(result, verdicts) + _model_review(result, verdicts)
+    return _model_review(result, verdicts, number_review(result, verdicts, limit=3))
 
 
-def number_review(result: dict, verdicts: tuple = ()) -> tuple[ReviewIssue, ...]:
+def number_review(result: dict, verdicts: tuple = (), *, limit: int = 1) -> tuple[ReviewIssue, ...]:
     """Money or percentage figures two research sections state differently for one
-    topic, at a confidence of 0.8 or more (three shared topic words), one per round: a
-    repair reruns the section and everything built on it."""
+    topic, at a confidence of 0.8 or more (three shared topic words): candidates for the
+    model reviewer, or used alone as a review where no model may be called."""
     from .analysis.consistency import conflict_issues
 
     return tuple(ReviewIssue(i["code"], i["message"], tuple(i["repair"]))
                  for i in conflict_issues(result, model_written=set(_MODEL_WRITTEN),
-                                          min_confidence=0.8, limit=1))
+                                          min_confidence=0.8, limit=limit))
 
 
-def _model_review(result: dict, verdicts: tuple) -> tuple[ReviewIssue, ...]:
+_CANDIDATE_RULE = (
+    " The input's candidate_number_conflicts were found by a word-overlap check that often "
+    "pairs figures measuring different things (two tiers, two scenarios, a share and a "
+    "rate, a range end and an average). Raise one as an issue only when both figures "
+    "state the same quantity for the same thing over the same period and truly disagree; "
+    "otherwise ignore it.")
+
+
+def _model_review(result: dict, verdicts: tuple,
+                  candidates: tuple[ReviewIssue, ...] = ()) -> tuple[ReviewIssue, ...]:
     from treadle.llm import call_json
     import json
 
@@ -100,9 +115,12 @@ def _model_review(result: dict, verdicts: tuple) -> tuple[ReviewIssue, ...]:
         "Its selected source statements resolve customer-input precedence; the raw "
         "survey may retain superseded/provisional answers that must not be reinstated. "
         "Its readiness describes starting input coverage, not finished research. "
-        "Compare the report against that structure and disclose unfinished expansion.",
-        json.dumps({"report": result,
-                    "sections": [v.as_dict() for v in verdicts]}, ensure_ascii=False),
+        "Compare the report against that structure and disclose unfinished expansion."
+        + (_CANDIDATE_RULE if candidates else ""),
+        json.dumps({"report": result, "sections": [v.as_dict() for v in verdicts],
+                    **({"candidate_number_conflicts": [
+                        {"message": c.message, "sections": list(c.repair)} for c in candidates]}
+                       if candidates else {})}, ensure_ascii=False),
         max_tokens=2200, tier="critical", max_retries=0,
     )
     if not isinstance(payload, dict) or payload.get("_parse_error"):

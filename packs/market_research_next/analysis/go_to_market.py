@@ -85,14 +85,17 @@ def price_quotes(context: Mapping[str, Any]) -> dict:
 
 def produce(context: dict, *, model: Callable[..., dict] | None = None) -> dict:
     payload = _payload(context)
-    raw = base.call_model(_SYSTEM, payload, model=model, max_tokens=8000)
-    try:
-        prose = _prose(raw)
+
+    def parse(raw: dict) -> tuple[dict, dict]:
         data = {**{p: _p(raw.get(p)) for p in PS},
                 "positioning_link": _strip(raw.get("positioning_link")),
                 "price_quotes": payload["price_quotes"]}
         validate_data(data)
         _sources(data, set(payload["allowed_sources"]))
+        return _prose(raw), data
+
+    try:
+        prose, data = base.ask(_SYSTEM, payload, parse, model=model, max_tokens=8000)
     except ValueError as exc:
         raise base.AnalysisError(f"{KEY}: {exc}") from None
     return base.envelope(LABEL, prose["narrative"], data=data, findings=prose["findings"],

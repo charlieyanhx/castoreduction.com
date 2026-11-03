@@ -212,7 +212,8 @@ def test_failed_object_support_review_never_reaches_research():
     assert not report.ok
     assert "prep" not in report.result
     assert all(name not in report.result for name in REPORT_ORDER)
-    assert report.execution["usage"]["actual"]["model_calls"] == 5
+    # Four expansions, the review, and the review asked once more before PREP gives up.
+    assert report.execution["usage"]["actual"]["model_calls"] == 6
 
 
 def test_builder_and_spec_share_the_existing_global_call_budget():

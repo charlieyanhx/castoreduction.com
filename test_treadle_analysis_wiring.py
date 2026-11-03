@@ -160,3 +160,41 @@ def test_incomplete_upstream_is_one_plain_sentence():
     assert "simulated (" + base.section_label("multi_perspective") + ")" in notes[0]
     assert "carry that limit" not in notes[0] and "_" not in notes[0]
     assert base.incomplete_upstream(context, ("competitive_landscape",)) == []
+
+
+def test_number_pairs_go_to_the_reviewer_and_open_no_round_on_their_own(monkeypatch):
+    """Measured 2026-11-02: 13 rounds were opened by figure pairs that measured
+    different things. The reviewer now judges them inside its existing call."""
+    import json as _json
+    import treadle.llm
+    from packs.market_research_next import consistency_review
+
+    claim = "The serviceable market for independent physiotherapy clinics in Ontario is {}."
+    result = {"prep": {}, "market_size": _section(claim.format("$4.2M")),
+              "revenue": _section(claim.format("$9.8M"))}
+    seen = {}
+
+    def reviewer(system, user, **kwargs):
+        seen["system"], seen["user"] = system, _json.loads(user)
+        return {"issues": []}
+
+    monkeypatch.setattr(treadle.llm, "call_json", reviewer)
+    verdicts = (SectionResult("market_size", "ok"), SectionResult("revenue", "ok"))
+    assert consistency_review(result, verdicts) == ()
+    candidates = seen["user"]["candidate_number_conflicts"]
+    assert candidates and set(candidates[0]["sections"]) == {"market_size", "revenue"}
+    assert "word-overlap check" in seen["system"]
+
+
+def test_the_reviewer_gets_no_candidate_rule_when_the_check_finds_nothing(monkeypatch):
+    import json as _json
+    import treadle.llm
+    from packs.market_research_next import consistency_review
+
+    seen = {}
+    monkeypatch.setattr(treadle.llm, "call_json", lambda system, user, **k: (
+        seen.update(system=system, user=_json.loads(user)) or {"issues": []}))
+    consistency_review({"prep": {}, "market_size": _section("No figures here.")},
+                       (SectionResult("market_size", "ok"),))
+    assert "candidate_number_conflicts" not in seen["user"]
+    assert "word-overlap" not in seen["system"]

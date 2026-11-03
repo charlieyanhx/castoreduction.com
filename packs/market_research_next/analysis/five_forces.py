@@ -97,11 +97,15 @@ Return ONLY this JSON object:
 
 def produce(context: dict, *, model: Callable[..., dict] | None = None) -> dict:
     payload = _payload(context)
-    raw = _hoist(base.call_model(_SYSTEM, payload, model=model, max_tokens=12000))
-    try:
-        prose = _prose(raw)
+
+    def parse(raw: dict) -> tuple[dict, dict]:
+        raw = _hoist(raw)
         data = _normalise(raw)
         validate_data(data)
+        return _prose(raw), data
+
+    try:
+        prose, data = base.ask(_SYSTEM, payload, parse, model=model, max_tokens=12000)
     except ValueError as exc:
         raise base.AnalysisError(f"{KEY}: {exc}") from None
     return base.envelope(LABEL, prose["narrative"], data=data, findings=prose["findings"],

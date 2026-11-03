@@ -145,14 +145,16 @@ class BusinessBuilder(unittest.TestCase):
         result = build_business_object(STATEMENTS, model=FakeModel(expand))
         self.assertEqual(result["accepted"]["relationships"][0]["id"], "software_service")
 
-    def test_requeueing_a_visited_target_is_rejected_without_retry(self):
+    def test_requeueing_a_visited_target_is_rejected_after_one_reask(self):
         def expand(request):
             if request["target_id"] == "company":
                 return patch(request, nodes=[node("software")], expand_node_ids=["software"])
             return patch(request, expand_node_ids=["company"])
         result = build_business_object(STATEMENTS, model=FakeModel(expand))
         self.assertEqual(result["stop_reason"], "invalid_patch")
-        self.assertEqual(result["calls"], 3)
+        self.assertEqual(result["calls"], 4)
+        self.assertEqual([h["target_id"] for h in result["history"]],
+                         ["company", "software", "software", None])
 
     def test_noop_closes_target_without_incrementing_revision(self):
         result = build_business_object(STATEMENTS, model=FakeModel())
@@ -165,7 +167,7 @@ class BusinessBuilder(unittest.TestCase):
         def fail(_request):
             raise RuntimeError("provider unavailable")
         result = build_business_object(STATEMENTS, model=FakeModel(fail))
-        self.assertEqual(result["calls"], 2)
+        self.assertEqual(result["calls"], 3)  # the failed call is asked once more
         self.assertEqual(result["stop_reason"], "expansion_failed")
         self.assertEqual(result["support_review"]["status"], "complete")
         self.assertEqual(result["history"][0]["error"], "RuntimeError: model call failed")
@@ -178,7 +180,41 @@ class BusinessBuilder(unittest.TestCase):
                 result = build_business_object(STATEMENTS, model=FakeModel(lambda _: response))
                 self.assertEqual(result["stop_reason"], "invalid_patch")
                 self.assertEqual(result["revision"], 0)
-                self.assertEqual(result["calls"], 2)
+                self.assertEqual(result["calls"], 3)
+
+    def test_a_rejected_patch_is_asked_again_once_with_the_reason(self):
+        # Live 2026-11-02: one invalid first patch failed PREP and cost a whole round.
+        answers = iter([None])
+
+        def expand(request):
+            if next(answers, "valid") is None:
+                return {"nodes": []}
+            return patch(request)
+        model = FakeModel(expand)
+        result = build_business_object(STATEMENTS, model=model)
+        self.assertEqual(result["stop_reason"], "complete")
+        self.assertEqual(result["support_review"]["status"], "complete")
+        self.assertNotIn("previous_answer_rejected", model.requests[0])
+        self.assertIn("previous_answer_rejected", model.requests[1])
+        self.assertTrue(result["history"][0]["error"])
+        self.assertTrue(result["history"][1]["accepted"])
+
+    def test_no_reask_when_only_the_review_call_is_left(self):
+        result = build_business_object(STATEMENTS, model=FakeModel(lambda _: {}), max_calls=2)
+        self.assertEqual(result["calls"], 2)
+        self.assertEqual(result["stop_reason"], "invalid_patch")
+
+    def test_a_failed_review_is_asked_again_when_a_call_is_left(self):
+        replies = iter([{"assessments": []}])
+
+        def review(request):
+            return next(replies, None) or {"assessments": [
+                {"id": i, "status": "supported", "reason": "Supported."}
+                for i in request["assessment_ids"]]}
+        result = build_business_object(STATEMENTS, model=FakeModel(
+            lambda request: patch(request, nodes=[node("software")]), review=review))
+        self.assertEqual(result["support_review"]["status"], "complete")
+        self.assertEqual(result["calls"], 3)
 
     def test_patch_revision_target_and_global_ids_cannot_be_rewritten(self):
         changes = (

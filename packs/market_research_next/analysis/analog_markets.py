@@ -76,11 +76,14 @@ Return ONLY this JSON object:
 
 def produce(context: dict, *, model: Callable[..., dict] | None = None) -> dict:
     payload = _payload(context)
-    raw = base.call_model(_SYSTEM, payload, model=model, max_tokens=12000)
-    try:
-        prose = _prose(raw)
+
+    def parse(raw: dict) -> tuple[dict, dict]:
         data = _normalise(raw)
         validate_data(data)
+        return _prose(raw), data
+
+    try:
+        prose, data = base.ask(_SYSTEM, payload, parse, model=model, max_tokens=12000)
     except ValueError as exc:
         raise base.AnalysisError(f"{KEY}: {exc}") from None
     # The disclosure is written by code so no model wording can drop it.

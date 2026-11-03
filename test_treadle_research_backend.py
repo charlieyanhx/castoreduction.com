@@ -394,6 +394,21 @@ class TestResearchBackend(unittest.TestCase):
             LocalResearchBackend(unavailable)("summary", context("summary"))
         self.assertIsInstance(exc.exception.__cause__, TimeoutError)
 
+    def test_a_rejected_write_up_is_asked_again_once_with_the_reason(self):
+        # A bad write-up used to fail the section and cost a whole correction round.
+        calls = []
+
+        def model(system, user, **kwargs):
+            calls.append((system, json.loads(user)))
+            return {**valid_section(), "narrative": " "} if len(calls) == 1 else valid_section()
+
+        output = LocalResearchBackend(model)("summary", context("summary"))
+        self.assertEqual(output["narrative"], valid_section()["narrative"])
+        self.assertEqual(len(calls), 2)
+        self.assertNotIn("previous_answer_rejected", calls[0][1])
+        self.assertIn("no usable narrative", calls[1][1]["previous_answer_rejected"])
+        self.assertIn("previous_answer_rejected", calls[1][0])
+
     def test_planner_stop_without_answer_cannot_claim_completed_research(self):
         # The existing harness can set completed=True when its planner JSON fails.
         result = observed_result()

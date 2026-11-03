@@ -546,3 +546,40 @@ def test_go_to_market_quotes_the_per_item_median_when_there_is_no_monthly_one():
     with pytest.raises(base.AnalysisError, match="per-item category median"):
         go_to_market.produce(_per_walk_context(),
                              model=Fake(_gtm_answer("No category median was available.")))
+
+
+class Sequence:
+    """A model stand-in that gives its answers in turn, recording each request."""
+
+    def __init__(self, *answers):
+        self.answers, self.calls = list(answers), []
+
+    def __call__(self, system, user, **kwargs):
+        self.calls.append({"system": system, "user": json.loads(user)})
+        return copy.deepcopy(self.answers[len(self.calls) - 1])
+
+
+def test_a_rejected_answer_is_asked_again_once_with_the_reason():
+    # Measured 2026-11-02: a failed section cost a whole correction round 13 times.
+    bad = _forces_answer()
+    bad["forces"]["entry"]["subfactors"].pop()
+    fake = Sequence(bad, _forces_answer())
+    section = five_forces.produce(_context(), model=fake)
+    assert section["research_status"] == "derived" and len(fake.calls) == 2
+    assert "previous_answer_rejected" not in fake.calls[0]["user"]
+    assert "entry sub-factors" in fake.calls[1]["user"]["previous_answer_rejected"]
+    assert "previous_answer_rejected" in fake.calls[1]["system"]
+
+
+def test_a_second_rejection_still_fails_the_section():
+    bad = _gtm_answer("Start at $49 per month, median $45.50, with a $10 launch credit.")
+    fake = Sequence(bad, bad, bad)
+    with pytest.raises(base.AnalysisError, match="not in the supplied"):
+        go_to_market.produce(_full_context(), model=fake)
+    assert len(fake.calls) == 2
+
+
+def test_an_unusable_reply_is_asked_again_too():
+    fake = Sequence({"error": "overloaded"}, _analogs_answer())
+    analog_markets.produce(_context(), model=fake)
+    assert "no usable JSON" in fake.calls[1]["user"]["previous_answer_rejected"]

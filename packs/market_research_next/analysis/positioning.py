@@ -80,16 +80,19 @@ def assemble(fields: Mapping[str, Mapping[str, Any]]) -> str:
 
 def produce(context: dict, *, model: Callable[..., dict] | None = None) -> dict:
     payload = _payload(context)
-    raw = base.call_model(_SYSTEM, payload, model=model, max_tokens=8000)
     recommendation = ((base.upstream(context, "generic_strategy") or {}).get("data") or {}
                       ).get("recommendation")
-    try:
-        prose = _prose(raw)
+
+    def parse(raw: dict) -> tuple[dict, dict]:
         fields = _fields(raw.get("fields"))
         _check(fields, set(payload["allowed_sources"]), recommendation)
         data = {"fields": fields, "statement": assemble(fields),
                 "strategy": fields["strategy"]["text"]}
         validate_data(data)
+        return _prose(raw), data
+
+    try:
+        prose, data = base.ask(_SYSTEM, payload, parse, model=model, max_tokens=8000)
     except (ValueError, KeyError) as exc:
         raise base.AnalysisError(f"{KEY}: {exc}") from None
     return base.envelope(LABEL, prose["narrative"], data=data, findings=prose["findings"],

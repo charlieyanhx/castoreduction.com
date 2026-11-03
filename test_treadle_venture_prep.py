@@ -224,3 +224,38 @@ class VenturePrep(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_a_rejected_planning_answer_is_asked_again_once_with_the_reason():
+    # Live 2026-11-02: one failed PREP call cost the whole run a correction round.
+    from packs.market_research_next import prep as prep_module
+
+    good = {"venture": {f: None for f in prep_module.VENTURE_FIELDS},
+            "research_spec": {s: {"scope": "scope", "questions": ["q"], "assumptions_to_test": []}
+                              for s in prep_module.REPORT_SECTIONS}}
+    replies, users = [{"venture": {}}, good], []
+
+    def model(*, system, user):
+        users.append((system, user))
+        return replies[len(users) - 1]
+
+    prep_module._ask_validated(model, "system", "user")
+    assert len(users) == 2
+    assert "PREVIOUS ANSWER REJECTED" not in users[0][1]
+    assert "PREP model response must contain only venture and research_spec" in users[1][1]
+    assert "PREVIOUS ANSWER REJECTED" in users[1][0]
+
+
+def test_a_second_planning_failure_fails_prep_and_provider_text_is_not_echoed():
+    from packs.market_research_next import prep as prep_module
+
+    users = []
+
+    def model(*, system, user):
+        users.append(user)
+        raise RuntimeError("secret-token in provider text")
+
+    import pytest as _pytest
+    with _pytest.raises(RuntimeError):
+        prep_module._ask_validated(model, "system", "user")
+    assert len(users) == 2 and "secret-token" not in users[1]
