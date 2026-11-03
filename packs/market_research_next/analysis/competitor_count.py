@@ -4,9 +4,18 @@ One text search for "<category> in <location>" returns what a customer standing 
 place would find. Google's order is kept because it is the order a customer sees; closed
 venues are dropped because they compete with nobody. The section applies only to a venture
 that serves people in person somewhere; an online business has no local count.
+
+Google's text search also returns neighbours of other trades: "specialty coffee shop in NW
+23rd Avenue" brought back a dessert restaurant, bakeries and a chocolate shop (live,
+2026-10-30), which every later section then repeated as "20 direct competitors". Only places
+whose Google type shares a word with the category (or a listed alias: a cafe is a coffee
+place) are counted; the rest are listed as other nearby places. When no type matches at
+all, Google's matching stands and every place counts. A search returns 20 places a page;
+pages are followed up to MAX_PAGES, and a search stopped with more to come is a floor.
 """
 from __future__ import annotations
 
+import math
 import os
 import re
 from typing import Any
@@ -18,8 +27,20 @@ LABEL = "Local competitor count"
 URL = "https://places.googleapis.com/v1/places:searchText"
 FIELD_MASK = ",".join(f"places.{name}" for name in (
     "id", "displayName", "formattedAddress", "rating", "userRatingCount", "priceLevel",
-    "businessStatus", "primaryType", "websiteUri"))
+    "businessStatus", "primaryType", "websiteUri", "location")) + ",nextPageToken"
 MAX_RESULTS = 20
+MAX_PAGES = 3
+#: Later pages drift across town; a competitor is within this distance of the search area's
+#: centre (the median position of the first five places Google ranked), about a 20-minute
+#: walk. A place Google gave no position stays in.
+RADIUS_M = 1600
+#: A Google type word that also names these category words. Types are snake_case words
+#: (coffee_shop, hair_salon); a cafe is where coffee and tea are sold.
+_TYPE_ALIASES = {"cafe": {"coffee", "espresso", "tea", "cafe", "cafes"},
+                 "salon": {"hair", "nail", "beauty", "barber"},
+                 "gym": {"fitness", "gym", "yoga", "pilates", "training"}}
+#: Google type words too broad to name a trade: a bookshop typed "store" is no coffee shop.
+_BROAD = frozenset({"store", "shop", "establishment", "point", "of", "interest"})
 PRICE_LEVELS = {"PRICE_LEVEL_FREE": 0, "PRICE_LEVEL_INEXPENSIVE": 1, "PRICE_LEVEL_MODERATE": 2,
                 "PRICE_LEVEL_EXPENSIVE": 3, "PRICE_LEVEL_VERY_EXPENSIVE": 4}
 CATEGORY_WORDS = 6
@@ -120,6 +141,7 @@ def parse_places(payload: Any) -> tuple[list[dict], int]:
         if not isinstance(name, str) or not name.strip():
             continue
         reviews = base.finite_number(place.get("userRatingCount"))
+        spot = place.get("location") if isinstance(place.get("location"), dict) else {}
         competitors.append({
             "rank": len(competitors) + 1, "name": name.strip(),
             "address": _str(place.get("formattedAddress")),
@@ -129,12 +151,63 @@ def parse_places(payload: Any) -> tuple[list[dict], int]:
             "status": _str(place.get("businessStatus")),
             "category": _str(place.get("primaryType")),
             "website": _str(place.get("websiteUri")),
+            "lat": base.finite_number(spot.get("latitude")),
+            "lng": base.finite_number(spot.get("longitude")),
         })
     return competitors, len(places)
 
 
 def _str(value: Any) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _stem(word: str) -> str:
+    return word[:-1] if len(word) > 3 and word.endswith("s") else word
+
+
+def same_trade(category: str, places: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split places into the category's trade and others by Google type; re-rank both.
+
+    A type matches on its specific words only (chocolate_shop on "chocolate"), so a broad
+    word like store or shop never decides a trade.
+    """
+    words = {_stem(w) for w in re.findall(r"[a-z]+", category.lower())}
+
+    def matches(kind: str | None) -> bool:
+        parts = [p for p in (kind or "").lower().split("_") if p and p not in _BROAD]
+        return any(_stem(p) in words or words & _TYPE_ALIASES.get(p, set()) for p in parts)
+
+    direct = [p for p in places if matches(p.get("category"))]
+    if not direct:
+        direct, other = list(places), []
+    else:
+        other = [p for p in places if not matches(p.get("category"))]
+    return ([{**p, "rank": n} for n, p in enumerate(direct, start=1)],
+            [{**p, "rank": n} for n, p in enumerate(other, start=1)])
+
+
+def _distance_m(a: dict, b: tuple[float, float]) -> float:
+    lat1, lng1, lat2, lng2 = map(math.radians, (a["lat"], a["lng"], b[0], b[1]))
+    h = (math.sin((lat2 - lat1) / 2) ** 2
+         + math.cos(lat1) * math.cos(lat2) * math.sin((lng2 - lng1) / 2) ** 2)
+    return 2 * 6_371_000 * math.asin(math.sqrt(h))
+
+
+def local(places: list[dict]) -> tuple[list[dict], int]:
+    """Places once each (pages overlap), within RADIUS_M of the search area's centre."""
+    seen, unique = set(), []
+    for p in places:
+        key = (p["name"].lower(), (p.get("address") or "").lower())
+        if key not in seen:
+            seen.add(key)
+            unique.append(p)
+    placed = [p for p in unique[:5] if p.get("lat") is not None and p.get("lng") is not None]
+    if not placed:
+        return unique, 0
+    centre = (base.median(p["lat"] for p in placed), base.median(p["lng"] for p in placed))
+    near = [p for p in unique if p.get("lat") is None or p.get("lng") is None
+            or _distance_m(p, centre) <= RADIUS_M]
+    return near, len(unique) - len(near)
 
 
 def summarize(competitors: list[dict]) -> dict:
@@ -148,7 +221,8 @@ def summarize(competitors: list[dict]) -> dict:
 # --------------------------------------------------------------------------- produce
 def _unavailable(query: str | None, location: str | None, reason: str) -> dict:
     data = {"available": False, "query": query, "location": location, "competitors": [],
-            "count": None, "median_rating": None, "median_price_level": None,
+            "other_places": [], "count": None, "count_is_floor": False, "farther_away": 0,
+            "median_rating": None, "median_price_level": None,
             "price_level_counts": {str(n): 0 for n in range(5)}}
     return base.envelope(LABEL, f"No local competitor count was made. {reason}",
                          data=data, uncertainties=[reason], status="partial")
@@ -168,28 +242,57 @@ def produce(context: dict, *, model=None, session=None, env=None, now=None) -> d
     if not key:
         return _unavailable(query, location, "The Google Places key is not configured, "
                             "so no local search was made.")
+    places, more, token = [], False, None
     try:
-        payload = base.http_json(
-            "POST", URL, session=session,
-            headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": FIELD_MASK,
-                     "Content-Type": "application/json"},
-            json_body={"textQuery": query, "maxResultCount": MAX_RESULTS, "languageCode": "en"})
-        competitors, returned = parse_places(payload)
+        for _ in range(MAX_PAGES):
+            body = {"textQuery": query, "pageSize": MAX_RESULTS, "languageCode": "en"}
+            if token:
+                body["pageToken"] = token
+            payload = base.http_json(
+                "POST", URL, session=session,
+                headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": FIELD_MASK,
+                         "Content-Type": "application/json"}, json_body=body)
+            found, _ = parse_places(payload)
+            places.extend(found)
+            token = payload.get("nextPageToken")
+            more = isinstance(token, str) and bool(token)
+            if not more:
+                break
     except base.AnalysisError as exc:
-        # The message names only the host and status, never the provider's body.
-        return _unavailable(query, location, f"The Google Places search failed: {exc}.")
+        if not places:
+            # The message names only the host and status, never the provider's body.
+            return _unavailable(query, location, f"The Google Places search failed: {exc}.")
+        more = True     # a later page failed: what was read is a floor
+    places, farther = local(places)
+    competitors, other = same_trade(category, places)
     stats = summarize(competitors)
     data = {"available": True, "query": query, "location": location,
-            "competitors": competitors, **stats}
+            "competitors": competitors, "other_places": other, "count_is_floor": more,
+            "farther_away": farther, **stats}
     return base.envelope(LABEL, _narrative(data), data=data, status="completed",
                          findings=_findings(data), assumptions=_assumptions(),
-                         uncertainties=_uncertainties(data, returned),
-                         metrics={"count": stats["count"], "median_rating": stats["median_rating"],
+                         uncertainties=_uncertainties(data),
+                         metrics={"count": stats["count"], "count_is_floor": more,
+                                  "median_rating": stats["median_rating"],
                                   "median_price_level": stats["median_price_level"]})
 
 
+def _kinds(places: list[dict]) -> str:
+    kinds = sorted({(p.get("category") or "unlabelled place").replace("_", " ")
+                    for p in places})
+    return ", ".join(kinds[:-1]) + (" and " if len(kinds) > 1 else "") + kinds[-1]
+
+
 def _narrative(data: dict) -> str:
-    text = (f'Google Places lists {data["count"]} open businesses for "{data["query"]}".')
+    count = f'at least {data["count"]}' if data["count_is_floor"] else str(data["count"])
+    text = f'Google Places lists {count} open businesses of this kind for "{data["query"]}".'
+    if data.get("farther_away"):
+        text += (f' {data["farther_away"]} more place{"s" if data["farther_away"] > 1 else ""} '
+                 f"farther than {RADIUS_M / 1000:g} km from the search area were left out.")
+    if data["other_places"]:
+        n = len(data["other_places"])
+        text += (f" The search also returned {n} other place{'s' if n > 1 else ''} "
+                 f"({_kinds(data['other_places'])}), which are not counted as competitors.")
     if data["median_rating"] is not None:
         text += f' Their median rating is {data["median_rating"]:.1f}.'
     if data["median_price_level"] is not None:
@@ -198,21 +301,22 @@ def _narrative(data: dict) -> str:
 
 
 def _findings(data: dict) -> list[str]:
-    reviewed = sorted((c for c in data["competitors"] if c["reviews"]),
-                      key=lambda c: -c["reviews"])[:3]
-    return [f'{c["name"]}: {c["reviews"]} reviews, rating {c["rating"]}' for c in reviewed]
+    return [f'{c["name"]}: rating {c["rating"]}, {c["reviews"]} reviews'
+            if c["reviews"] else c["name"] for c in data["competitors"][:3]]
 
 
 def _assumptions() -> list[str]:
     return ["Google's text search decides which places match the category; its order is kept.",
+            "A place counts when its Google type matches the category; other trades the "
+            "search returned are listed apart.",
             "Permanently closed places are left out of the count."]
 
 
-def _uncertainties(data: dict, returned: int) -> list[str]:
+def _uncertainties(data: dict) -> list[str]:
     notes = []
-    if returned >= MAX_RESULTS:
-        notes.append(f"Google returns at most {MAX_RESULTS} places per search, so the real "
-                     "number of competitors is likely higher.")
+    if data["count_is_floor"]:
+        notes.append(f"Google had more results than the {MAX_PAGES * MAX_RESULTS} places read, "
+                     "so the real number of competitors is higher.")
     if not data["competitors"]:
         notes.append("No open place matched; the category wording may not match how Google "
                      "labels these businesses.")
@@ -235,6 +339,10 @@ def validate_data(data: dict) -> None:
             raise ValueError("every competitor needs a name")
         if item.get("price_level") not in (None, 0, 1, 2, 3, 4):
             raise ValueError("price_level must be 0 to 4 or null")
+    if not isinstance(data.get("other_places", []), list):
+        raise ValueError("other_places must be a list")
+    if not isinstance(data.get("count_is_floor", False), bool):
+        raise ValueError("count_is_floor must be true or false")
     if data["available"]:
         if not isinstance(data.get("query"), str) or data.get("count") != len(data["competitors"]):
             raise ValueError("an available count needs its query and a matching count")
@@ -246,8 +354,19 @@ def render_data(data: dict) -> str:
     if not data.get("available"):
         return "<p>No local search was made.</p>"
     level = {None: "", 0: "Free", 1: "$", 2: "$$", 3: "$$$", 4: "$$$$"}
-    rows = [(c["rank"], c["name"], c["address"] or "", c["rating"] if c["rating"] is not None else "",
-             c["reviews"] if c["reviews"] is not None else "", level.get(c["price_level"], ""))
-            for c in data["competitors"]]
-    head = f'<p>Search: {base.esc(data["query"])}. Open places: {base.esc(data["count"])}.</p>'
-    return head + base.render_table(("Rank", "Name", "Address", "Rating", "Reviews", "Price"), rows)
+
+    def rows(places):
+        return [(c["rank"], c["name"], c["address"] or "",
+                 c["rating"] if c["rating"] is not None else "",
+                 c["reviews"] if c["reviews"] is not None else "",
+                 level.get(c["price_level"], ""), (c.get("category") or "").replace("_", " "))
+                for c in places]
+
+    columns = ("Rank", "Name", "Address", "Rating", "Reviews", "Price", "Google type")
+    count = f'at least {data["count"]}' if data.get("count_is_floor") else data["count"]
+    html_out = (f'<p>Search: {base.esc(data["query"])}. Competitors of this kind: '
+                f'{base.esc(count)}.</p>' + base.render_table(columns, rows(data["competitors"])))
+    if data.get("other_places"):
+        html_out += ("<p>Other places the search returned, not counted:</p>"
+                     + base.render_table(columns, rows(data["other_places"])))
+    return html_out

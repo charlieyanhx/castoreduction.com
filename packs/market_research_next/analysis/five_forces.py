@@ -76,8 +76,10 @@ force keys, none missing, renamed or added:
 
 A sub-factor's rating is how much it adds to that force's pressure on industry profits
 (for entry, a weak barrier is High). Ratings are exactly "High", "Medium" or "Low". Each
-justification is one sentence and names the upstream section it rests on by its key
-(for example competitive_landscape), or says it is a judgement without supplied evidence.
+justification is one sentence saying why the pressure is at that level, in the rating's
+direction (for a High entry sub-factor, why the barrier is low), and names the upstream
+section it rests on by its key (for example competitive_landscape) or, resting on none,
+ends with "(judgement)".
 Government and technology are read through the five forces (for example Government
 policy under entry), never as a sixth force.
 
@@ -188,11 +190,7 @@ def _view(section: Mapping[str, Any], data_fields: tuple[str, ...]) -> dict:
 def _limits(context: Mapping[str, Any]) -> list[str]:
     notes = [f"The {key} section was not available, so ratings rest without it."
              for key in OPTIONAL if base.upstream(context, key) is None]
-    for key in (*REQUIRED, *OPTIONAL):
-        status = (base.upstream(context, key) or {}).get("research_status")
-        if status in ("partial", "simulated"):
-            notes.append(f"The {key} section is {status}; ratings resting on it carry that limit.")
-    return notes
+    return notes + base.incomplete_upstream(context, (*REQUIRED, *OPTIONAL))
 
 
 def _normalise(raw: Mapping[str, Any]) -> dict:

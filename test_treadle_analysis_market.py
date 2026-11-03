@@ -45,6 +45,16 @@ class Session:
 REDDIT_ENV = {"REDDIT_CLIENT_ID": "id", "REDDIT_CLIENT_SECRET": "secret"}
 
 
+def KEEP_ALL(system, user, **kwargs):
+    """A relevance screen that keeps every candidate."""
+    import json
+    return {"keep": [s["name"] for s in json.loads(user)["subreddits"]]}
+
+
+def discover(*args, **kwargs):
+    return cd.produce(*args, **{"model": KEEP_ALL, **kwargs})
+
+
 def signed(*responses):
     """A Reddit session that first grants an app-only token, then answers searches."""
     return Session(Resp({"access_token": "tok"}), *responses)
@@ -116,9 +126,9 @@ def test_places_request_parsing_ranking_and_price_levels():
     assert call["headers"]["X-Goog-FieldMask"] == (
         "places.id,places.displayName,places.formattedAddress,places.rating,"
         "places.userRatingCount,places.priceLevel,places.businessStatus,places.primaryType,"
-        "places.websiteUri")
+        "places.websiteUri,places.location,nextPageToken")
     assert call["json"] == {"textQuery": "specialty coffee shop in NW 23rd Avenue, Portland, Oregon",
-                            "maxResultCount": 20, "languageCode": "en"}
+                            "pageSize": 20, "languageCode": "en"}
     data = section["data"]
     assert [(c["rank"], c["name"]) for c in data["competitors"]] == [
         (1, "Coava"), (2, "Barista"), (3, "Free Tea"), (4, "Odd")]
@@ -129,10 +139,77 @@ def test_places_request_parsing_ranking_and_price_levels():
     assert section["research_status"] == "completed"
 
 
-def test_twenty_results_disclose_the_cap():
-    payload = {"places": [place(f"Cafe {n}") for n in range(20)]}
-    section = cc.produce(CAFE, session=Session(Resp(payload)), env=KEY_ENV)
-    assert any("at most 20" in u for u in section["uncertainties"])
+def test_pages_are_followed_and_a_stopped_search_is_a_floor():
+    full = {"places": [place(f"Cafe {n}") for n in range(20)], "nextPageToken": "more"}
+    last = {"places": [place(f"Late {n}") for n in range(5)]}
+    session = Session(Resp(full), Resp(last))
+    section = checked(cc, cc.produce(CAFE, session=session, env=KEY_ENV))
+    assert [c["json"].get("pageToken") for c in session.calls] == [None, "more"]
+    assert section["data"]["count"] == 25 and section["data"]["count_is_floor"] is False
+    assert not any("at least" in u for u in section["uncertainties"])
+    # Google still had more after the last page we may read: the count is a lower bound.
+    session = Session(*[Resp(full) for _ in range(cc.MAX_PAGES)])
+    section = checked(cc, cc.produce(CAFE, session=session, env=KEY_ENV))
+    assert len(session.calls) == cc.MAX_PAGES
+    data = section["data"]
+    assert data["count_is_floor"] is True and section["metrics"]["count_is_floor"] is True
+    assert f'at least {data["count"]}' in section["narrative"]
+
+
+def test_only_places_of_the_same_trade_are_counted():
+    payload = {"places": [
+        place("Barista", primaryType="cafe", userRatingCount=700),
+        place("Case Study", primaryType="coffee_shop", userRatingCount=185),
+        place("The Meadow", primaryType="chocolate_shop", userRatingCount=122),
+        place("Papa Haydn", primaryType="restaurant", userRatingCount=2298),
+        place("St. Honore", primaryType="bakery", userRatingCount=1664),
+        place("Sterling", primaryType="coffee_shop", userRatingCount=835)]}
+    section = checked(cc, cc.produce(CAFE, session=Session(Resp(payload)), env=KEY_ENV))
+    data = section["data"]
+    assert [c["name"] for c in data["competitors"]] == ["Barista", "Case Study", "Sterling"]
+    assert [c["rank"] for c in data["competitors"]] == [1, 2, 3]
+    assert data["count"] == 3 and section["metrics"]["count"] == 3
+    assert sorted(o["name"] for o in data["other_places"]) == ["Papa Haydn", "St. Honore",
+                                                               "The Meadow"]
+    assert "3 other places" in section["narrative"]
+    assert "bakery" in section["narrative"] and "restaurant" in section["narrative"]
+    # The findings keep Google's order among real competitors; review counts do not pick them.
+    assert section["findings"][0].startswith("Barista")
+    assert not any("Papa Haydn" in f for f in section["findings"])
+
+
+def test_a_generic_store_type_is_not_the_trade_and_repeats_count_once():
+    payload = {"places": [
+        place("Barista", primaryType="cafe", formattedAddress="823 NW 23rd"),
+        place("New Renaissance Bookshop", primaryType="store"),
+        place("Barista", primaryType="cafe", formattedAddress="823 NW 23rd")]}
+    data = cc.produce(CAFE, session=Session(Resp(payload)), env=KEY_ENV)["data"]
+    assert [c["name"] for c in data["competitors"]] == ["Barista"]
+    assert [o["name"] for o in data["other_places"]] == ["New Renaissance Bookshop"]
+
+
+def test_places_far_from_the_search_area_are_not_counted():
+    near = {"latitude": 45.5289, "longitude": -122.6985}       # NW 23rd and Glisan
+    payload = {"places": [
+        place("Barista", primaryType="cafe", location=near),
+        place("Case Study", primaryType="coffee_shop",
+              location={"latitude": 45.5335, "longitude": -122.6990}),   # ~0.5 km
+        place("PDX Coffee Club - Hillsdale", primaryType="coffee_shop",
+              location={"latitude": 45.4797, "longitude": -122.6912}),   # ~5.5 km
+        place("No location", primaryType="coffee_shop")]}
+    section = checked(cc, cc.produce(CAFE, session=Session(Resp(payload)), env=KEY_ENV))
+    data = section["data"]
+    assert [c["name"] for c in data["competitors"]] == ["Barista", "Case Study", "No location"]
+    assert data["farther_away"] == 1
+    assert "1 more" in section["narrative"] and "1.6 km" in section["narrative"]
+
+
+def test_when_no_type_matches_the_category_every_place_counts():
+    ctx = context({"product": "A dog grooming salon", "geography": "Austin, Texas"})
+    payload = {"places": [place("Wags", primaryType="pet_care"),
+                          place("Muddy Paws", primaryType="pet_store")]}
+    section = checked(cc, cc.produce(ctx, session=Session(Resp(payload)), env=KEY_ENV))
+    assert section["data"]["count"] == 2 and section["data"]["other_places"] == []
 
 
 def test_no_key_is_partial_and_makes_no_call():
@@ -164,7 +241,8 @@ def test_inapplicable_without_any_geography():
 
 
 def test_competitor_render_escapes_and_validate_rejects():
-    data = {"available": True, "query": "q", "location": "x", "count": 1,
+    data = {"available": True, "query": "q", "location": "x", "count": 1, "count_is_floor": False,
+            "other_places": [],
             "competitors": [{"rank": 1, "name": "<script>x</script>", "address": None,
                              "rating": None, "reviews": None, "price_level": None,
                              "status": None, "category": None, "website": None}],
@@ -211,9 +289,9 @@ def test_queries_never_carry_the_description():
     ctx = context({"product": "A specialty coffee shop on NW 23rd Avenue",
                    "geography": "NW 23rd Avenue, Portland, Oregon"},
                   description="Zebra quantum flamingo espresso bar for laptops.")
-    assert cd.build_queries(ctx) == ["specialty coffee shop", "specialty coffee shop portland"]
+    assert cd.build_queries(ctx) == ["coffee", "coffee portland"]
     session = signed(Resp({"data": {"children": []}}), Resp({"data": {"children": []}}))
-    cd.produce(ctx, session=session, env=REDDIT_ENV)
+    discover(ctx, session=session, env=REDDIT_ENV)
     grant, searches = session.calls[0], session.calls[1:]
     assert grant["url"] == cd.TOKEN_URL and grant["auth"] == ("id", "secret")
     assert grant["data"] == {"grant_type": "client_credentials"}
@@ -235,27 +313,64 @@ def test_ranking_merges_drops_nsfw_and_sorts():
     ]}}
     second = {"data": {"children": [sub("specialtycoffee", 5_000, "Specialty coffee"),
                                     sub("askportland", 80_000, "Portland questions")]}}
-    section = checked(cd, cd.produce(CAFE, session=signed(Resp(first), Resp(second)),
+    section = checked(cd, discover(CAFE, session=signed(Resp(first), Resp(second)),
                                      env=REDDIT_ENV))
     data = section["data"]
     names = [s["name"] for s in data["subreddits"]]
     assert "CoffeeShopNSFW" not in names and names.count("specialtycoffee") == 1
     scores = {s["name"]: s["confidence"] for s in data["subreddits"]}
-    # specialty coffee shop: 2 of 3 terms, <10k members x0.9.
-    assert scores["specialtycoffee"] == round(2 / 3 * 0.9, 3)
-    # pics: 2 of 3 x0.3 x1.1 for a million members.
-    assert scores["pics"] == round(2 / 3 * 0.3 * 1.1, 3)
-    assert scores["Coffee"] == round(1 / 3 * 1.1, 3)
-    # askportland: 1 of 4 terms in the city query.
-    assert scores["askportland"] == 0.25
-    assert names == ["specialtycoffee", "Coffee", "askportland", "pics"]
+    # The query is "coffee": "specialty" and "shop" are generic retail words, not terms.
+    # specialtycoffee: 1 of 1, <10k members x0.9.
+    assert scores["specialtycoffee"] == 0.9
+    # pics: 1 of 1 x0.3 generic x1.1 for a million members.
+    assert scores["pics"] == round(0.3 * 1.1, 3)
+    assert scores["Coffee"] == 1.0          # 1 of 1 x1.1, capped at 1
+    # askportland: 1 of 2 terms in the city query.
+    assert scores["askportland"] == 0.5
+    assert names == ["Coffee", "specialtycoffee", "askportland", "pics"]
     assert sum(data["tier_distribution"].values()) == len(names)
-    assert data["subreddits"][0]["url"] == "https://www.reddit.com/r/specialtycoffee/"
+    assert data["subreddits"][0]["url"] == "https://www.reddit.com/r/Coffee/"
+
+
+def test_a_model_screen_drops_lookalike_communities():
+    first = {"data": {"children": [
+        sub("Coffee", 2_000_000, "Coffee lovers"),
+        sub("coffeemeetsbagel", 22_000, "Discussion and tips related to CMB",
+            "coffee meets bagel dating app"),
+        sub("shoptitans", 27_000, "Shop Titans", "a coffee shop simulation game")]}}
+    seen = []
+
+    def screen(system, user, **kwargs):
+        import json
+        seen.append(json.loads(user))
+        return {"keep": ["Coffee", "NotACandidate"]}
+
+    section = checked(cd, cd.produce(CAFE, session=signed(Resp(first),
+                                                          Resp({"data": {"children": []}})),
+                                     env=REDDIT_ENV, model=screen))
+    assert [s["name"] for s in section["data"]["subreddits"]] == ["Coffee"]
+    assert section["data"]["screened"] is True
+    assert seen[0]["venture"]["category"] == "specialty coffee shop"
+    assert {s["name"] for s in seen[0]["subreddits"]} == {"Coffee", "coffeemeetsbagel",
+                                                          "shoptitans"}
+
+
+def test_a_failed_screen_keeps_the_ranked_list_and_says_so():
+    def broken(system, user, **kwargs):
+        raise RuntimeError("provider down")
+
+    first = {"data": {"children": [sub("Coffee", 2_000_000, "Coffee lovers")]}}
+    section = checked(cd, cd.produce(CAFE, session=signed(Resp(first),
+                                                          Resp({"data": {"children": []}})),
+                                     env=REDDIT_ENV, model=broken))
+    assert [s["name"] for s in section["data"]["subreddits"]] == ["Coffee"]
+    assert section["data"]["screened"] is False
+    assert any("Relevance could not be checked" in u for u in section["uncertainties"])
 
 
 def test_ties_sort_by_subscribers_and_keep_ten():
     children = [sub(f"coffee{n}", 1_000 * (n + 10), "specialty coffee shop") for n in range(14)]
-    section = cd.produce(CAFE, session=signed(Resp({"data": {"children": children}}),
+    section = discover(CAFE, session=signed(Resp({"data": {"children": children}}),
                                               Resp({"data": {"children": []}})), env=REDDIT_ENV)
     subs = section["data"]["subreddits"]
     assert len(subs) == 10 and subs[0]["name"] == "coffee13"
@@ -264,7 +379,7 @@ def test_ties_sort_by_subscribers_and_keep_ten():
 
 def test_network_failure_is_partial_not_an_error():
     session = Session(ConnectionError("down"))
-    section = checked(cd, cd.produce(CAFE, session=session, env=REDDIT_ENV))
+    section = checked(cd, discover(CAFE, session=session, env=REDDIT_ENV))
     assert section["research_status"] == "partial" and section["data"]["subreddits"] == []
     assert any("failed" in u for u in section["uncertainties"])
     assert len(session.calls) == 1       # a failed sign-in makes no searches
@@ -302,10 +417,10 @@ def test_without_credentials_the_open_archives_answer():
         prefixes={"coffee": [meta("Coffee", 2_000_000, "Coffee lovers"),
                              meta("CoffeeNSFW", 90_000, "coffee", over18=True)],
                   "portland": [meta("Portland", 600_000, "Portland, Oregon")]},
-        posts={"specialty coffee shop portland": ["askportland", "askportland", "nottheonion"]},
+        posts={"coffee portland": ["askportland", "askportland", "nottheonion"]},
         exact={"askportland": [meta("askportland", 80_000, "Portland questions",
                                     "coffee shop and neighbourhood advice")]})
-    section = checked(cd, cd.produce(ctx, session=archives, env={}))
+    section = checked(cd, discover(ctx, session=archives, env={}))
     urls = {c["url"] for c in archives.calls}
     assert cd.TOKEN_URL not in urls and cd.URL not in urls
     assert urls == {cd.ARCHIVE_SUBREDDITS, cd.ARCHIVE_POSTS}
@@ -328,7 +443,7 @@ def test_archive_keeps_real_matches_only():
         meta("doggrooming", 77_000, "Dog Grooming", "for dog groomers"),
         meta("dogecoin", 2_500_000, "Dogecoin", "the cryptocurrency"),
         meta("DogGroomersItaly", 180, "dog grooming", "dog groomers in Italy")]})
-    names = [s["name"] for s in cd.produce(ctx, session=archives, env={})["data"]["subreddits"]]
+    names = [s["name"] for s in discover(ctx, session=archives, env={})["data"]["subreddits"]]
     assert names == ["doggrooming"]   # a shared prefix is not a match; 180 members is too few
 
 
@@ -342,14 +457,14 @@ def test_archive_search_fits_one_section_tool_budget():
     many = [f"sub{n}" for n in range(12) for _ in range(3)]
     archives = Archives(posts={q: many for q in cd.build_queries(ctx)},
                         exact={f"sub{n}": [meta(f"sub{n}", 50_000, "bakery")] for n in range(12)})
-    cd.produce(ctx, session=archives, env={})
+    discover(ctx, session=archives, env={})
     assert len(archives.calls) <= cd.ARCHIVE_CALLS < ExecutionLimits().task_tool_calls
     assert any(c["url"] == cd.ARCHIVE_POSTS for c in archives.calls)
 
 
 def test_each_word_is_looked_up_once_across_queries():
     archives = Archives()
-    cd.produce(CAFE, session=archives, env={})
+    discover(CAFE, session=archives, env={})
     words = [c["params"]["subreddit_prefix"] for c in archives.calls
              if "subreddit_prefix" in (c["params"] or {})]
     assert sorted(words) == sorted(set(words))
@@ -358,7 +473,7 @@ def test_each_word_is_looked_up_once_across_queries():
 
 def test_archive_failure_is_partial_not_an_error():
     archives = Archives(fail=True)
-    section = checked(cd, cd.produce(CAFE, session=archives, env={}))
+    section = checked(cd, discover(CAFE, session=archives, env={}))
     assert section["research_status"] == "partial" and section["data"]["subreddits"] == []
     assert any("archive" in u.lower() for u in section["uncertainties"])
 
@@ -366,14 +481,14 @@ def test_archive_failure_is_partial_not_an_error():
 def test_with_credentials_the_archives_are_not_used():
     session = signed(Resp({"data": {"children": [sub("Coffee", 2_000_000, "coffee")]}}),
                      Resp({"data": {"children": []}}))
-    section = cd.produce(CAFE, session=session, env=REDDIT_ENV)
+    section = discover(CAFE, session=session, env=REDDIT_ENV)
     assert {c["url"] for c in session.calls} == {cd.TOKEN_URL, cd.URL}
     assert section["data"]["source"] == "reddit"
 
 
 def test_nothing_matched_is_partial_with_empty_list():
     session = signed(Resp({"data": {"children": []}}), Resp({"data": {"children": []}}))
-    section = checked(cd, cd.produce(CAFE, session=session, env=REDDIT_ENV))
+    section = checked(cd, discover(CAFE, session=session, env=REDDIT_ENV))
     assert section["research_status"] == "partial" and section["data"]["quality"] == "poor"
 
 
@@ -490,8 +605,8 @@ def test_missing_inputs_are_named_and_anchor_falls_back():
     data = size(FIGURES[0], facts={})["data"]
     bu = data["methods"]["bottom_up"]["tam"]
     assert bu["value"] is None
-    assert bu["note"] == ("not computed: customer_count, annual price per customer not found "
-                          "in any source")
+    assert bu["note"] == ("Not computed: no source gave a count of potential customers or a "
+                          "yearly spend per customer in this category.")
     assert data["anchor_method"] == "top_down"
     assert any("competitor count" in w for w in data["warnings"])
 
@@ -499,8 +614,19 @@ def test_missing_inputs_are_named_and_anchor_falls_back():
 def test_nothing_computable_is_partial():
     section = size()
     assert section["research_status"] == "partial" and section["data"]["anchor_method"] is None
-    assert section["narrative"].startswith("No market size could be computed")
-    assert any("market_value" in u for u in section["uncertainties"])
+    assert section["narrative"].startswith("No market size is computed")
+    assert any("total yearly spend in this market" in u for u in section["uncertainties"])
+    assert not any("market_value" in u or "not found in any source" in u
+                   for u in section["uncertainties"])
+
+
+def test_what_was_found_is_said_when_nothing_can_be_computed():
+    households = fig("customer_count", 14533, "https://data.census.gov/", unit="households")
+    section = size(households, facts={})
+    assert section["data"]["anchor_method"] is None
+    text = section["narrative"]
+    assert "14,533" in text and "yearly spend per customer in this category" in text
+    assert "rather than estimated" in text
 
 
 def test_bad_figures_are_skipped_with_warnings():

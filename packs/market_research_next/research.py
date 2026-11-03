@@ -112,6 +112,28 @@ source_tool; an item without either does not belong in metrics.
 When context holds computed sections (sizing, pricing, competitor_count), use their
 figures as computed, cite the section, and do not recompute or contradict them.
 Do not add status or completion claims; the backend supplies research status.
+
+Rigor rules, each from a live report that broke it:
+- Never apply a share, rate, price, attachment rate, day count or conversion that
+  neither the founder nor a supplied source states. When a calculation needs one, leave
+  the calculation out and name the missing input, or show it as a scenario with the
+  number called "assumed" in the text and listed under assumptions. Never call an
+  assumed number a benchmark, an industry figure or external data.
+- For market_size: report each sourced figure with what it counts, where and when, and
+  look for this category's own figures (the yearly spend in this market for the area, or
+  what one customer spends a year in this category). A broader category, such as all
+  food away from home, is context, not this market. Do not compute TAM, SAM or SOM and do
+  not turn money into transaction counts; the sizing section computes the market from
+  metrics.figures. Other sections take market size numbers from the sizing section; when
+  it computed none, say the market size is not established.
+- Keep each figure's period and label as given: a first-year target stays first-year,
+  a per-drink price stays per drink.
+- When an upstream section states a fact (an address, a count, a price, or a verdict
+  such as "no verified differentiator"), use it instead of the intake's wording or your
+  own, and do not contradict it.
+- Compare figures only when they measure the same thing over the same period.
+- Never mention reviews, review issues, flags, checks or reconciliation in the section.
+  When issues_to_address lists a problem, correct the content without saying so.
 """
 
 #: The typed metrics two sections must return, read by analysis/sizing and
@@ -119,7 +141,9 @@ Do not add status or completion claims; the backend supplies research status.
 METRICS_CONTRACTS = {
     "market_size": {"figures": [{
         "name": "what the figure measures",
-        "kind": "market_value | customer_count | price | serviceable_share | growth_rate | other",
+        "kind": "market_value (total yearly spend in this market) | customer_count | price "
+                "(what one customer spends per period in this category, the period in unit) "
+                "| serviceable_share | growth_rate | other (anything broader or different)",
         "value": "a number (shares as fractions, money in units, not thousands)",
         "unit": "e.g. USD per year, households, fraction",
         "geography": "where it applies", "year": "the year it describes, or null",
@@ -132,6 +156,11 @@ METRICS_CONTRACTS = {
         "name": "company or product name", "url": "its website, or null",
         "kind": "direct | indirect"}]},
 }
+
+
+#: What the reader is told when a section's research stopped short of its plan.
+PARTIAL_NOTICE = ("Research for this section stopped before covering everything it set out "
+                  "to; its findings rest only on the sources it did reach.")
 
 
 class ResearchError(ValueError):
@@ -359,7 +388,7 @@ class LocalResearchBackend:
 
     def research(self, section_key: str, context: dict, *, issues: Sequence = ()) -> dict:
         spec = _validate_context(section_key, context)
-        readiness, input_notices = _business_input(section_key, context)
+        readiness, _ = _business_input(section_key, context)
         request = {
             "section_key": section_key,
             "research_specification": spec,
@@ -427,11 +456,11 @@ class LocalResearchBackend:
                                                  request.get("external_research"))
         section["research_status"] = status
         section["research_note"] = note
-        if status == "partial":
-            section["uncertainties"].insert(0, note)
-        for notice in input_notices:
-            if notice not in section["uncertainties"]:
-                section["uncertainties"].append(notice)
+        # research_note keeps the run's own account (tool counts, stop reasons). The reader
+        # gets one plain sentence; the starting-input gaps and limitations already steered
+        # the model above and are engine notes, not the reader's open questions.
+        if status == "partial" and PARTIAL_NOTICE not in section["uncertainties"]:
+            section["uncertainties"].insert(0, PARTIAL_NOTICE)
         if status == "simulated":
             section["title"] += " (simulated)"
             section["narrative"] = SIMULATION_NOTICE + "\n\n" + section["narrative"]

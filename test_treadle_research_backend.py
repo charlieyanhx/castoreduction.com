@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from packs.market_research_next.research import (
-    EXTERNAL_CATEGORIES, EXTERNAL_TOOLS, LocalResearchBackend, ResearchError,
+    EXTERNAL_CATEGORIES, EXTERNAL_TOOLS, LocalResearchBackend, PARTIAL_NOTICE, ResearchError,
     SIMULATION_NOTICE,
 )
 from packs.market_research_next.render import render_html
@@ -147,9 +147,23 @@ class TestResearchBackend(unittest.TestCase):
         # needs_input is a starting-information gap, not a hard stop or a prompt
         # for the customer. External research still runs and can return findings.
         self.assertEqual(output["research_status"], "completed")
-        self.assertIn(business["limitations"][0], output["uncertainties"])
-        self.assertIn("Starting information did not answer: What are the membership and drop-in prices?",
-                      output["uncertainties"])
+        # The gaps and limitations steer the model (they are in its request above); they
+        # are engine notes, not the reader's uncertainties, and the readiness check can
+        # list a question the founder did answer (live cafe report, 2026-10-30).
+        self.assertNotIn(business["limitations"][0], output["uncertainties"])
+        self.assertFalse(any(u.startswith("Starting information did not answer")
+                             for u in output["uncertainties"]))
+
+    def test_cut_short_research_is_said_in_plain_words(self):
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result(completed=False)):
+            output = LocalResearchBackend(lambda *a, **kw: valid_section()).research(
+                "competitive_landscape", context("competitive_landscape"))
+        self.assertEqual(output["research_status"], "partial")
+        text = " ".join(output["uncertainties"])
+        self.assertNotIn("stop reason", text)
+        self.assertNotIn("tool result", text)
+        self.assertIn(PARTIAL_NOTICE, output["uncertainties"])
 
     def test_missing_questions_are_section_specific_and_not_technical_ids(self):
         ctx = complex_context("summary")
@@ -351,7 +365,7 @@ class TestResearchBackend(unittest.TestCase):
                         "customer_voice", context("customer_voice"),
                     )
                 self.assertEqual(output["research_status"], "partial")
-                self.assertIn("incomplete", output["uncertainties"][0])
+                self.assertEqual(output["uncertainties"][0], PARTIAL_NOTICE)
                 if failed:
                     self.assertIn("Tool failures: 1", output["research_note"])
 
@@ -460,6 +474,21 @@ class TestResearchBackend(unittest.TestCase):
         self.assertIn("r/Coffee_Shop", archive)
         self.assertNotIn("subreddit:", archive)
         self.assertNotIn("reddit_mentions", archive)
+
+
+class TestRigorRules(unittest.TestCase):
+    """The write-up rules each live failure of 2026-10-30 broke, as the model is told them."""
+
+    def test_the_rules_reach_every_write_up(self):
+        from packs.market_research_next.research import _SYSTEM
+
+        for phrase in ("Never apply a share, rate, price, attachment rate",
+                       "Never call an\n  assumed number a benchmark",
+                       "Do not compute TAM, SAM or SOM",
+                       "a first-year target stays first-year",
+                       "use it instead of the intake's wording",
+                       "Never mention reviews, review issues, flags, checks or reconciliation"):
+            self.assertIn(phrase, _SYSTEM)
 
 
 if __name__ == "__main__":

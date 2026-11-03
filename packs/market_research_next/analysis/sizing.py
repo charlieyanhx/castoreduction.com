@@ -117,9 +117,22 @@ def number(value: float | None, formula: str, inputs: dict, citations: list[dict
 
 
 def _missing(formula: str, names: list[str]) -> dict:
-    note = f"not computed: {', '.join(names)} not found in any source"
+    note = f"Not computed: no source gave {_either(names)}."
     return {"value": None, "formula": formula, "inputs": {}, "citations": [],
             "confidence": None, "verified": False, "note": note}
+
+
+#: What each missing input is, in the reader's words (the gap notes used the input names).
+NEED_WORDS = {"market_value": "a total yearly spend in this market",
+              "customer_count": "a count of potential customers",
+              "annual price per customer": "a yearly spend per customer in this category",
+              "comparable price": "a competitor's yearly price",
+              "a competitor count": "a competitor count"}
+
+
+def _either(names: list[str]) -> str:
+    words = [NEED_WORDS.get(n, n) for n in names]
+    return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " or " + words[-1]
 
 
 # --------------------------------------------------------------------------- inputs
@@ -267,8 +280,12 @@ def produce(context: dict, *, model=None, session=None, env=None, now=None) -> d
         warnings.append(DEFAULT_SHARE_WARNING)
     gaps = list(dict.fromkeys(methods[m]["tam"]["note"] for m in METHODS
                               if methods[m]["tam"]["value"] is None))
+    missing = list(dict.fromkeys(NEED_WORDS.get(n, n) for m in METHODS
+                                 for n in methods[m].get("needs", [])))
+    found = [f'{f["name"]}: {f["value"]:,.0f} ({f["citation"]["title"]})' for f in figures][:3]
     data = {"methods": methods, "anchor_method": anchor, "som_share": som_share,
-            "gaps": gaps, "warnings": list(dict.fromkeys(warnings))}
+            "gaps": gaps, "warnings": list(dict.fromkeys(warnings)),
+            "found": found, "missing": missing}
     cited = any(methods[m]["tam"]["value"] is not None and methods[m]["tam"]["citations"]
                 for m in METHODS)
     chosen = methods[anchor] if anchor else None
@@ -315,7 +332,8 @@ def _method(name: str, inputs: dict, founder: tuple, som_share: dict, now: datet
     if need:
         tam = _missing(formula, need)
         return {"tam": tam, "sam": _missing("SAM = TAM x serviceable_share", need),
-                "som": _missing("SOM = SAM x obtainable_share", need), "assumptions": []}
+                "som": _missing("SOM = SAM x obtainable_share", need), "assumptions": [],
+                "needs": need}
     tam = number(value, formula, ins, cites, now)
     share = sourced_share if sourced_share is not None else DEFAULT_SHARE
     if sourced_share is None:
@@ -344,8 +362,12 @@ def money(value: float | None) -> str:
 def narrative(data: dict) -> str:
     anchor = data["anchor_method"]
     if anchor is None:
-        why = "; ".join(data["gaps"]) or "no input was available"
-        return f"No market size could be computed ({why})."
+        found = data.get("found") or []
+        lead = (f"The research found {'; '.join(found)}, but no" if found else "No")
+        missing = data.get("missing") or ["a sourced input"]
+        return (f"No market size is computed. {lead} source gave "
+                f"{' or '.join(missing)}, so TAM, SAM and SOM are left out rather than "
+                "estimated.")
     m = data["methods"][anchor]
     share = m["sam"]["inputs"]["serviceable_share"]
     return (f"Anchored on the {anchor.replace('_', '-')} method, in USD: TAM {money(m['tam']['value'])} "
@@ -388,7 +410,7 @@ def validate_data(data: dict) -> None:
     if not isinstance(share, dict) or not isinstance(share.get("rationale"), str) or (
             share.get("value") is not None and base.finite_number(share["value"]) is None):
         raise ValueError("som_share needs a value or a reason it has none")
-    for field in ("gaps", "warnings"):
+    for field in ("gaps", "warnings", *[f for f in ("found", "missing") if f in data]):
         if not isinstance(data.get(field), list) or not all(isinstance(x, str) for x in data[field]):
             raise ValueError(f"{field} must be a list of text")
 

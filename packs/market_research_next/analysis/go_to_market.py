@@ -205,12 +205,7 @@ def _view(section: Mapping[str, Any], data_fields: tuple[str, ...]) -> dict:
 def _limits(context: Mapping[str, Any]) -> list[str]:
     notes = ["The pricing section was not available, so the price P quotes no category median."
              ] if base.upstream(context, "pricing") is None else []
-    for key in (*REQUIRED, *OPTIONAL):
-        status = (base.upstream(context, key) or {}).get("research_status")
-        if status in ("partial", "simulated"):
-            notes.append(f"The {key} section is {status}; "
-                         "the plan resting on it carries that limit.")
-    return notes
+    return notes + base.incomplete_upstream(context, (*REQUIRED, *OPTIONAL))
 
 
 def _prose(raw: Mapping[str, Any]) -> dict:

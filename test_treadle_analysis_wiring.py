@@ -123,3 +123,18 @@ def test_the_statement_uses_an_before_a_vowel():
 
     assert "is an in-person cafe that" in assemble(fields("in-person cafe"))
     assert "is a neighbourhood cafe that" in assemble(fields("neighbourhood cafe"))
+
+
+def test_incomplete_upstream_is_one_plain_sentence():
+    from packs.market_research_next.analysis import base
+
+    context = {"pricing": {"research_status": "partial"}, "sizing": {"research_status": "partial"},
+               "competitive_landscape": {"research_status": "completed"},
+               "multi_perspective": {"research_status": "simulated"}}
+    notes = base.incomplete_upstream(
+        context, ("pricing", "sizing", "competitive_landscape", "multi_perspective", "pricing"))
+    assert len(notes) == 1
+    assert base.section_label("pricing") in notes[0] and base.section_label("sizing") in notes[0]
+    assert "simulated (" + base.section_label("multi_perspective") + ")" in notes[0]
+    assert "carry that limit" not in notes[0] and "_" not in notes[0]
+    assert base.incomplete_upstream(context, ("competitive_landscape",)) == []

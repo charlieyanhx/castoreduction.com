@@ -246,6 +246,39 @@ def test_render_escapes_html():
     assert "Category median: USD 10 per month" in html
 
 
+def test_the_agent_can_open_pages_and_has_each_competitors_website():
+    # Live 2026-10-30: 0 of 5 cafe prices found; the agent could not open a page, and the
+    # websites Google Places returned never reached it.
+    assert "fetch_page" in pricing.AGENT_TOOLS
+    places = {"available": True, "price_level_counts": {"1": 2}, "median_price_level": 1,
+              "competitors": [{"name": "Barista", "website": "https://baristapdx.com/nob-hill"},
+                              {"name": "Sterling Coffee Roasters",
+                               "website": "http://sterling.coffee/"}]}
+    agent = Agent(_result([_hits("https://baristapdx.com/menu")]))
+    pricing.produce(_context([_comp("barista"), _comp("Case Study"),
+                              _comp("Sterling Coffee Roasters", url="https://sterling.coffee/")],
+                             levels=places), model=Model({"competitors": []}), agent=agent)
+    sent = json.loads(agent.calls[0]["context"])["competitors"]
+    assert {c["name"]: c["url"] for c in sent} == {
+        "barista": "https://baristapdx.com/nob-hill", "Sterling Coffee Roasters":
+        "https://sterling.coffee/", "Case Study": None}
+    assert [c["name"] for c in sent][-1] == "Case Study"   # a known site is tried first
+    assert "website" in agent.calls[0]["goal"] and "menu" in agent.calls[0]["goal"]
+
+
+def test_menu_prices_get_a_per_item_median():
+    urls = ["https://a.com/menu", "https://b.com/menu", "https://c.com/menu"]
+    entries = [_entry(n, [u], [_tier("Latte", p, "per_unit", unit="per drink")])
+               for n, u, p in (("A", urls[0], 5.0), ("B", urls[1], 6.0), ("C", urls[2], 4.5))]
+    out, _, _ = _run(entries, urls)
+    data = out["data"]
+    assert data["category_median_per_unit"] == {"unit": "per drink", "median": 5.0,
+                                                "range": [4.5, 6.0], "currency": "USD"}
+    assert "per drink the median is USD 5," in out["narrative"]
+    assert not any("not billed monthly" in u for u in out["uncertainties"])
+    assert not any("divided by 12" in a for a in out["assumptions"])
+
+
 # --------------------------------------------------------------------------- consistency
 def test_true_conflict_is_detected_with_confidence():
     out = consistency.find_number_conflicts({
@@ -302,6 +335,35 @@ def test_conflicts_are_deduplicated_by_pair_and_topic():
         "b": "Austin grooming salons charge $80 per visit.",
     })
     assert len(out) == 1
+
+
+def test_figures_over_different_periods_are_not_compared():
+    # Live 2026-10-30: "$2.00 to $3.00" per seat-hour against $123,188 a year was flagged,
+    # and the repair wrote the comparison into the summary.
+    assert consistency.find_number_conflicts({
+        "a": "Laptop workers bring pastry revenue of about $3 per seat-hour at the counter.",
+        "b": "Laptop workers bring pastry revenue of about $123,188 a year at the counter.",
+    }) == []
+    assert [n["rate"] for n in consistency._numbers(
+        "$6 a drink, $28,000 monthly, $50 per visit, $2 per seat-hour, $9 total")] == [
+        "drink", "month", "visit", "seat-hour", None]
+
+
+def test_figures_far_apart_in_size_are_different_quantities():
+    assert consistency.find_number_conflicts({
+        "a": "The Austin grooming salon earns pastry revenue of $3 here.",
+        "b": "The Austin grooming salon earns pastry revenue of $123,188 here.",
+    }) == []
+
+
+def test_repair_message_asks_for_a_silent_correction():
+    strong = "The Austin dog grooming salon market totals {} annually."
+    result = {"market_size": _section(strong.format("$1.2M")),
+              "revenue": _section(strong.format("$900K"))}
+    message = consistency.conflict_issues(result, model_written={"market_size", "revenue"})[0][
+        "message"]
+    assert "state why they differ" not in message
+    assert "do not mention this check" in message
 
 
 def _section(narrative, findings=()):

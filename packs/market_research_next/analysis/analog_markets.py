@@ -206,11 +206,7 @@ def _view(section: Mapping[str, Any], data_fields: tuple[str, ...]) -> dict:
 def _limits(context: Mapping[str, Any]) -> list[str]:
     notes = [f"The {key} section was not available to this analysis."
              for key in OPTIONAL if base.upstream(context, key) is None]
-    for key in (*REQUIRED, *OPTIONAL):
-        status = (base.upstream(context, key) or {}).get("research_status")
-        if status in ("partial", "simulated"):
-            notes.append(f"The {key} section is {status}; the venture profile carries that limit.")
-    return notes
+    return notes + base.incomplete_upstream(context, (*REQUIRED, *OPTIONAL))
 
 
 def _prose(raw: Mapping[str, Any]) -> dict:

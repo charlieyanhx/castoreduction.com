@@ -112,7 +112,8 @@ def gtm_model(system, user, **kwargs):
 
 PRODUCERS = {
     "competitor_count": partial(competitor_count.produce, env={}),
-    "community_discovery": partial(community_discovery.produce, session=OfflineReddit()),
+    "community_discovery": partial(community_discovery.produce, session=OfflineReddit(),
+                                   model=lambda *a, **k: {"keep": ["physiotherapy"]}),
     "pricing": partial(pricing.produce, agent=no_agent_found, model=pricing_model),
     "five_forces": partial(five_forces.produce, model=forces_model),
     "generic_strategy": partial(generic_strategy.produce, model=strategy_model),

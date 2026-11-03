@@ -49,6 +49,10 @@ so write each field as the phrase that fits its slot, without a final full stop:
 follows "who" (for example "lose hours to manual scheduling"), key_benefit follows
 "that", key_differentiator follows the product name (for example "is the only one
 that ..."). primary_competitor is a competitor or status quo named in the data.
+key_differentiator rests on the differentiators section and names it in "from". Use an
+advantage that section supports and set proven true; when it finds none verified, use the
+candidate it names and set proven false. Never present as an advantage something that
+section or another one calls a constraint or weakness.
 strategy is exactly the generic_strategy section's recommendation when that section is
 supplied. Every field names in "from" the keys of the sections it rests on, chosen only
 from allowed_sources ("prep" means the venture attributes).
@@ -56,7 +60,8 @@ from allowed_sources ("prep" means the venture attributes).
 Return ONLY this JSON object:
 {"fields": {"target_customer": {"text": "phrase", "from": ["target_personas"]},
   "need": {...}, "product": {...}, "category": {...}, "key_benefit": {...},
-  "primary_competitor": {...}, "key_differentiator": {...},
+  "primary_competitor": {...},
+  "key_differentiator": {"text": "phrase", "from": ["differentiators"], "proven": false},
   "strategy": {"text": "differentiation", "from": ["generic_strategy"]}},
  "narrative": "nonempty prose", "findings": ["finding naming its section"],
  "assumptions": ["assumption"], "uncertainties": ["unresolved question"]}
@@ -68,6 +73,8 @@ def assemble(fields: Mapping[str, Mapping[str, Any]]) -> str:
     category = values["category"]
     # "an in-person shop", not "a in-person shop": the article follows the first letter.
     article = "an" if category[:1].lower() in "aeiou" else "a"
+    if not fields["key_differentiator"].get("proven"):
+        values["key_differentiator"] += ", a difference not yet proven"
     return TEMPLATE.format(a_category=f"{article} {category}", **values)
 
 
@@ -103,8 +110,13 @@ def validate_data(data: dict) -> None:
 
 
 def render_data(data: dict) -> str:
-    rows = ((name.replace("_", " "), data["fields"][name]["text"],
-             ", ".join(data["fields"][name]["from"])) for name in FIELDS)
+    def text(name):
+        field = data["fields"][name]
+        unproven = name == "key_differentiator" and not field.get("proven")
+        return field["text"] + (" (not yet proven)" if unproven else "")
+
+    rows = ((name.replace("_", " "), text(name), ", ".join(data["fields"][name]["from"]))
+            for name in FIELDS)
     return (f"<blockquote>{base.esc(data['statement'])}</blockquote>"
             f"<p>Strategy: {base.esc(data['strategy'].replace('_', ' '))}.</p>"
             + base.render_table(("Field", "Text", "Rests on"), rows))
@@ -125,6 +137,11 @@ def _check(fields: Any, allowed: set[str] | frozenset[str], recommendation: Any)
         unknown = sorted(s for s in sources if s not in allowed)
         if unknown:
             raise ValueError(f"{name} names {len(unknown)} section(s) not supplied to it")
+    edge = fields["key_differentiator"]
+    if "differentiators" in allowed and "differentiators" not in edge["from"]:
+        raise ValueError("key_differentiator must rest on the differentiators section")
+    if not isinstance(edge.get("proven", False), bool):
+        raise ValueError("key_differentiator proven must be true or false")
     strategy = fields["strategy"]["text"]
     if strategy not in STRATEGIES:
         raise ValueError("strategy must be cost_leadership, differentiation or focus")
@@ -149,6 +166,9 @@ def _fields(raw: Any) -> Any:
         out[name] = {"text": text,
                      "from": [s.strip() for s in sources if isinstance(s, str)]
                      if isinstance(sources, list) else sources}
+        if name == "key_differentiator":
+            # Unproven unless the model says the differentiators section supports it.
+            out[name]["proven"] = field.get("proven") is True
     return out
 
 
@@ -176,11 +196,7 @@ def _view(section: Mapping[str, Any], data_fields: tuple[str, ...]) -> dict:
 def _limits(context: Mapping[str, Any]) -> list[str]:
     notes = [f"The {key} section was not available to this positioning."
              for key in OPTIONAL if base.upstream(context, key) is None]
-    for key in (*REQUIRED, *OPTIONAL):
-        status = (base.upstream(context, key) or {}).get("research_status")
-        if status in ("partial", "simulated"):
-            notes.append(f"The {key} section is {status}; fields resting on it carry that limit.")
-    return notes
+    return notes + base.incomplete_upstream(context, (*REQUIRED, *OPTIONAL))
 
 
 def _prose(raw: Mapping[str, Any]) -> dict:

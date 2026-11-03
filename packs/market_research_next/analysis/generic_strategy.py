@@ -18,7 +18,9 @@ LABEL = "Generic strategy"
 RATINGS = ("High", "Medium", "Low")
 STRATEGIES = ("cost_leadership", "differentiation", "focus")
 FOCUS_BASES = {"cost": "cost_leadership", "differentiation": "differentiation"}
-FIT_STATUSES = ("met", "partial", "unmet")
+#: not_relevant: Porter's list is written for firms of every size; "strong capability in
+#: basic research" for a single coffee shop is not a gap (live, 2026-10-30).
+FIT_STATUSES = ("met", "partial", "unmet", "not_relevant")
 REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "cost_leadership": (
         "sustained capital investment and access to capital", "process engineering skills",
@@ -85,15 +87,17 @@ that distinction and never present an inferred value as stated. Upstream section
 model-written analyses, not independent evidence; a partial or simulated section carries
 that limit into anything resting on it. Do not invent figures, prices, statistics,
 companies, quotes, sources or research activity; use only numbers present in the data.
-Every gap, note and finding names the upstream section it rests on by its key (for
-example five_forces), or says it is a judgement without supplied evidence.
+Every finding names the upstream section it rests on by its key (for example
+five_forces); a gap or note resting on no section ends with "(judgement)".
 
 recommendation is exactly cost_leadership, differentiation or focus. A focus strategy
 also gives focus_basis, cost or differentiation; otherwise focus_basis is null.
 requirements_fit rates every requirement of the chosen strategy, using exactly these
 texts (focus uses the list of its basis, directed at the particular strategic target):
 {_listing(REQUIREMENTS)}
-status is met, partial or unmet; gap says what is missing (empty only when met).
+status is met, partial or unmet, or not_relevant when the requirement does not apply to
+a business of this kind and size (a single shop does no basic research); gap says what is
+missing, or for not_relevant why it does not apply (empty only when met).
 risks rates every risk of the chosen strategy, using exactly these texts:
 {_listing(RISKS)}
 stuck_in_the_middle answers each of these six questions with flag true or false and a
@@ -183,7 +187,10 @@ def render_data(data: dict) -> str:
         "<h4>Requirements fit</h4>",
         base.render_table(("Requirement", "Status", "Gap"),
                           ((r["requirement"], r["status"], r["gap"])
-                           for r in data["requirements_fit"])),
+                           for r in data["requirements_fit"] if r["status"] != "not_relevant")),
+        "".join(f"<p>Not relevant to this business: {base.esc(r['requirement'])} "
+                f"({base.esc(r['gap'])}).</p>"
+                for r in data["requirements_fit"] if r["status"] == "not_relevant"),
         "<h4>Risks</h4>",
         base.render_table(("Risk", "Relevance", "Note"),
                           ((r["risk"], r["relevance"], r["note"]) for r in data["risks"])),
@@ -255,12 +262,7 @@ def _view(section: Mapping[str, Any], data_fields: tuple[str, ...]) -> dict:
 def _limits(context: Mapping[str, Any]) -> list[str]:
     notes = [f"The {key} section was not available; the recommendation rests without it."
              for key in OPTIONAL if base.upstream(context, key) is None]
-    for key in (*REQUIRED, *OPTIONAL):
-        status = (base.upstream(context, key) or {}).get("research_status")
-        if status in ("partial", "simulated"):
-            notes.append(f"The {key} section is {status}; "
-                         "conclusions resting on it carry that limit.")
-    return notes
+    return notes + base.incomplete_upstream(context, (*REQUIRED, *OPTIONAL))
 
 
 def _prose(raw: Mapping[str, Any]) -> dict:

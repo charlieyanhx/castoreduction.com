@@ -114,6 +114,8 @@ def _positioning_answer(strategy="differentiation", **overrides):
               "primary_competitor": "spreadsheets", "key_differentiator": "is made for one site",
               "strategy": strategy}
     out = {name: {"text": text, "from": ["target_personas", "prep"]} for name, text in fields.items()}
+    out["key_differentiator"] = {"text": fields["key_differentiator"],
+                                 "from": ["differentiators", "prep"], "proven": True}
     out.update(overrides)
     return {**PROSE, "fields": out}
 
@@ -428,7 +430,7 @@ def test_upstream_limits_are_disclosed():
     section = five_forces.produce(context, model=Fake(_forces_answer()))
     assert any("pricing section was not available" in u for u in section["uncertainties"])
     section = positioning.produce(_full_context(), model=Fake(_positioning_answer()))
-    assert any("target_personas section is simulated" in u for u in section["uncertainties"])
+    assert any("simulated (Target personas)" in u for u in section["uncertainties"])
 
 
 def test_no_em_dashes_in_the_modules():
@@ -447,3 +449,53 @@ def test_the_price_p_holds_money_to_the_data_but_not_durations_or_percentages():
     _check_price(ok, quotes)
     with pytest.raises(ValueError, match="price that is not in the supplied data"):
         _check_price({"summary": "Price at $39, later $59.", "actions": []}, quotes)
+
+
+def test_a_requirement_that_does_not_fit_the_business_is_set_aside():
+    # Live 2026-10-30: "strong capability in basic research: unmet" for a coffee shop.
+    context = _context()
+    context["five_forces"] = five_forces.produce(context, model=Fake(_forces_answer()))
+    answer = _strategy_answer()
+    answer["requirements_fit"][0] = {**answer["requirements_fit"][0], "status": "not_relevant",
+                                     "gap": "a single shop does no basic research"}
+    section = generic_strategy.produce(context, model=Fake(answer))
+    generic_strategy.validate_data(section["data"])
+    html = generic_strategy.render_data(section["data"])
+    first = answer["requirements_fit"][0]["requirement"]
+    assert "Not relevant to this business" in html and first in html
+    table = html.split("<h4>Risks</h4>")[0].split("Not relevant to this business")[0]
+    assert first not in table
+    answer["requirements_fit"][0]["gap"] = ""
+    with pytest.raises(Exception):
+        generic_strategy.validate_data(generic_strategy.produce(context, model=Fake(answer))["data"])
+
+
+def test_unsupported_judgements_are_marked_briefly():
+    for module in (five_forces, generic_strategy):
+        assert "(judgement)" in module._SYSTEM
+        assert "judgement without supplied evidence" not in module._SYSTEM
+    assert "why the barrier is low" in five_forces._SYSTEM
+
+
+def test_the_differentiator_comes_from_the_differentiators_section():
+    # Live 2026-10-30: positioning named seating as the edge that differentiators had
+    # called a constraint.
+    context = _full_context()
+    bad = _positioning_answer(key_differentiator={"text": "has seating", "from": ["prep"],
+                                                  "proven": True})
+    with pytest.raises(Exception):
+        positioning.produce(context, model=Fake(bad))
+
+
+def test_an_unproven_differentiator_says_so_in_the_statement():
+    context = _full_context()
+    unproven = _positioning_answer(key_differentiator={
+        "text": "is made for one site", "from": ["differentiators"], "proven": False})
+    section = positioning.produce(context, model=Fake(unproven))
+    positioning.validate_data(section["data"])
+    assert section["data"]["statement"].endswith(
+        "ShiftPal is made for one site, a difference not yet proven.")
+    proven = positioning.produce(context, model=Fake(_positioning_answer()))
+    assert proven["data"]["statement"].endswith("ShiftPal is made for one site.")
+    assert "not yet proven" in positioning.render_data(section["data"])
+    assert "proven true" in positioning._SYSTEM and "constraint" in positioning._SYSTEM

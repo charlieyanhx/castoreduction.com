@@ -42,6 +42,18 @@ them then there these they this those through under until very were what when wh
 while will with within would your thousand million billion trillion percent roughly nearly
 """.split())
 _WINDOW, _CONTEXT, _MIN_GAP, _MIN_SHARED = 50, 60, 0.05, 2
+#: Figures more than this many times apart measure different things, not one thing twice:
+#: a misstated figure is off by a few percent or a rounding, not by 40,000 times.
+_MAX_RATIO = 10.0
+#: What a figure is per: "$6 a drink", "$50 per visit", "$28,000 monthly". Two figures per
+#: different things (a seat-hour against a year) are not one quantity stated twice.
+_RATE_AFTER = re.compile(r"\s*(?:(?:usd|dollars?)\s+)?(?:(?:per|an?|each|every)\s+|/\s*)"
+                         r"([a-z][a-z-]*)", re.I)
+_RATE_WORD = re.compile(r"\s*(annual(?:ly)?|yearly|monthly|weekly|daily|hourly)\b", re.I)
+_RATE_BEFORE = re.compile(r"\b(annual|yearly|monthly|weekly|daily|hourly)\s+$", re.I)
+_PERIODS = {"annual": "year", "annually": "year", "yearly": "year", "yr": "year",
+            "annum": "year", "monthly": "month", "mo": "month", "weekly": "week",
+            "daily": "day", "hourly": "hour", "hr": "hour"}
 #: The units a repair is worth a correction round for: market sizes, prices, shares.
 _REVIEWED = frozenset({"money", "percent"})
 
@@ -63,7 +75,12 @@ def _numbers(text: str) -> list[dict]:
         kind = ("money" if cur else _CLASS_OF.get(unit) if unit
                 else "count" if scale else "bare")
         window = text[max(0, match.start() - _WINDOW):match.end() + _WINDOW]
+        rate = (_RATE_AFTER.match(text, match.end()) or _RATE_WORD.match(text, match.end())
+                or _RATE_BEFORE.search(text[max(0, match.start() - 20):match.start()]))
+        word = rate.group(1).lower() if rate else None
         found.append({"value": value, "kind": kind,
+                      "rate": _PERIODS.get(word, word.rstrip("s") if word and len(word) > 3
+                                           else word),
                       "tokens": {t.lower() for t in _TOKEN.findall(window)
                                  if len(t) > 3 and t.lower() not in _STOP},
                       "context": text[max(0, match.start() - _CONTEXT):
@@ -102,8 +119,13 @@ def find_number_conflicts(texts: Mapping[str, str],
                 if ((b["kind"], round(b["value"], 2)) in stated_a
                         or (a["kind"], round(a["value"], 2)) in stated_b):
                     continue  # each also states the other's figure: they agree
+                if a["rate"] != b["rate"]:
+                    continue  # per seat-hour against per year: different quantities
                 largest = max(abs(a["value"]), abs(b["value"]))
+                smallest = min(abs(a["value"]), abs(b["value"]))
                 if largest == 0 or abs(a["value"] - b["value"]) / largest < _MIN_GAP:
+                    continue
+                if smallest == 0 or largest / smallest > _MAX_RATIO:
                     continue
                 shared = a["tokens"] & b["tokens"]
                 if len(shared) < _MIN_SHARED:
@@ -151,6 +173,7 @@ def conflict_issues(result: Mapping[str, Any], *, model_written: set[str],
              "message": (f'{c["section_a"]} says "{c["context_a"]}" and {c["section_b"]} says '
                          f'"{c["context_b"]}". The figures {_figure(c["value_a"])} and '
                          f'{_figure(c["value_b"])} differ on the same topic ({c["topic"]}). '
-                         "Use one figure, or state why they differ."),
+                         "Correct whichever is wrong. If both are right, make plain in the "
+                         "text what each one measures; do not mention this check."),
              "repair": [c["section_a"], c["section_b"]]}
             for c in conflicts[:max(0, limit)]]
