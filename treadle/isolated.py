@@ -21,7 +21,7 @@ from typing import Any, Callable
 
 import cloudpickle
 
-from .execution_limits import (BudgetExceeded, _count, _duration, activate_budget,
+from .execution_limits import (BudgetExceeded, ProviderFatal, _count, _duration, activate_budget,
                                check_budget)
 
 _MAX_RECEIPT_BYTES = 16 * 1024 * 1024
@@ -138,7 +138,7 @@ class ManagedCall:
         if (not isinstance(raw, dict) or set(raw) !=
                 {"status", "value", "error", "usage", "pid", "llm_usage"}):
             raise ValueError("invalid receipt shape")
-        if raw["status"] not in ("ok", "error", "budget_exceeded"):
+        if raw["status"] not in ("ok", "error", "budget_exceeded", "provider_fatal"):
             raise ValueError("invalid receipt status")
         if type(raw["pid"]) is not int or raw["pid"] != self.pid:
             raise ValueError("invalid receipt pid")
@@ -248,6 +248,8 @@ def _worker(directory: str) -> None:
             error = type(exc).__name__[:100]
         try:
             scope.seal()
+        except ProviderFatal as exc:
+            value, status, error = None, "provider_fatal", exc.code
         except BudgetExceeded:
             value, status, error = None, "budget_exceeded", "BudgetExceeded"
         receipt = {"status": status, "value": value, "error": error,

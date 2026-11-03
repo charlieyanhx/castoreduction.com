@@ -13,6 +13,7 @@ import re
 from collections import Counter
 
 from . import base
+from ..open_tools import USER_AGENT, RedditUnavailable, reddit_search
 from .competitor_count import category_phrase, location_phrase
 
 KEY = "community_discovery"
@@ -40,7 +41,6 @@ ARCHIVE_MIN_MEMBERS = 1_000
 #: Every archive call is charged to the section's tool allowance (eight by default), and a
 #: section over its allowance stops the whole run, so the search never makes more than this.
 ARCHIVE_CALLS = 7
-USER_AGENT = "castor-research/1.0 (market research; contact via castor-advisory.com)"
 KEEP = 10
 MAX_TERMS = 4
 GENERIC = frozenset({"funny", "pics", "videos", "gifs", "memes", "aww", "news", "science"})
@@ -282,6 +282,23 @@ def _archive(params: dict, session, url: str = ARCHIVE_SUBREDDITS) -> list[dict]
     return [r for r in records if isinstance(r, dict)] if isinstance(records, list) else []
 
 
+def _posts_by_subreddit(posts: list[dict]) -> Counter:
+    return Counter(p["subreddit"] for p in posts
+                   if isinstance(p.get("subreddit"), str) and p["subreddit"])
+
+
+def _live_posts(query: str, session) -> list[dict]:
+    """Reddit's public search feed, charged like any outside call."""
+    from treadle.execution_limits import charge_tool_call, check_budget
+
+    check_budget()
+    charge_tool_call()
+    try:
+        return reddit_search(query, limit=POST_SAMPLE, session=session)
+    except RedditUnavailable as exc:
+        raise base.AnalysisError(str(exc)) from None
+
+
 def _split_name(name: str) -> set[str]:
     """SpecialtyCoffee, specialty_coffee -> {specialty, coffee}; a run-together name stays whole."""
     spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name).replace("_", " ")
@@ -309,20 +326,28 @@ def _search_archives(queries: list[str], _client: tuple[str, str],
     fetched, and at most LOOKUPS are fetched, so one stray post never makes the list.
     Every call counts against ARCHIVE_CALLS, failed ones too: post searches first, then
     word lookups leaving room for one subreddit lookup, then subreddit lookups.
+
+    Reddit's live feed allows one call a minute, so it gets the most specific query; the
+    post archive answers for every query only when that call fails.
     """
     results: dict[str, list[dict]] = {q: [] for q in queries}
     failures: list[str] = []
     found: dict[str, Counter] = {}
     spent = 0
-    for query in queries[:ARCHIVE_CALLS]:
+    if queries:
         spent += 1
+        specific = max(queries, key=lambda q: len(q.split()))
         try:
-            posts = _archive({"q": query, "size": POST_SAMPLE}, session, ARCHIVE_POSTS)
-        except base.AnalysisError as exc:
-            failures.append(f'The post archive search for "{query}" failed: {exc}.')
-            continue
-        found[query] = Counter(p["subreddit"] for p in posts
-                               if isinstance(p.get("subreddit"), str))
+            found[specific] = _posts_by_subreddit(_live_posts(specific, session))
+        except base.AnalysisError:
+            # PullPush answered 522 for days (2026-11), so it is the backup, not the path.
+            for query in queries[:ARCHIVE_CALLS - spent]:
+                spent += 1
+                try:
+                    found[query] = _posts_by_subreddit(
+                        _archive({"q": query, "size": POST_SAMPLE}, session, ARCHIVE_POSTS))
+                except base.AnalysisError as exc:
+                    failures.append(f'The post archive search for "{query}" failed: {exc}.')
     by_word: dict[str, list[dict]] = {}
     words = list(dict.fromkeys(w for q in queries for w in q.split()))
     for word in words[:max(0, ARCHIVE_CALLS - spent - 1)]:

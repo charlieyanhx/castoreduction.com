@@ -22,7 +22,7 @@ from typing import Optional
 from treadle.logger import get
 from treadle.execution_limits import (
     BudgetExceeded, bounded_execution_active, charge_model_call, check_budget,
-    remaining_seconds,
+    provider_fatal, remaining_seconds,
 )
 
 log = get("llm")
@@ -501,13 +501,20 @@ def _gemini_client():
                         **_gemini_http_options())
 
 
+#: One Gemini call's ceiling. A plain request to gemini-flash-latest stalled for 139 s
+#: (2026-11-03), and with the whole remaining task as its timeout one stall spent a
+#: section's 480 s deadline. The largest structured answer takes about a minute.
+GEMINI_CALL_TIMEOUT_S = 120.0
+
+
 def _gemini_http_options() -> dict:
     """Gemini timeouts are milliseconds; attempts includes the original request."""
     if not bounded_execution_active():
         return {}
     check_budget()
+    ceiling = min(GEMINI_CALL_TIMEOUT_S, remaining_seconds())
     return {"http_options": {"retry_options": {"attempts": 1},
-                             "timeout": max(1, int(remaining_seconds() * 1000))}}
+                             "timeout": max(1, int(ceiling * 1000))}}
 
 
 # Which models accept `thinking_config`, learned at runtime. Support is SPLIT across the
@@ -518,7 +525,9 @@ def _gemini_http_options() -> dict:
 # Before this, `thinking_config` was sent unconditionally and the primary model rejected
 # every request: the whole LLM layer returned _parse_error, reported to the user as
 # "the model is busy (rate limit)".
-_GEMINI_THINKING_OK: dict[str, bool] = {}
+#: flash-lite answers 400 to thinking_config. Known here, because every isolated worker is a
+#: new process and each would otherwise pay a charged model call to learn it again.
+_GEMINI_THINKING_OK: dict[str, bool] = {"gemini-flash-lite-latest": False}
 
 
 def _call_gemini(system: str, user: str, max_tokens: int, model: str,
@@ -598,6 +607,11 @@ def _call_gemini(system: str, user: str, max_tokens: int, model: str,
             if "503" in err_str or "UNAVAILABLE" in err_str:
                 log.info("gemini %s on %s — falling through", "503", m)
                 break
+            if isinstance(e, TimeoutError) or "timed out" in err_str.lower() \
+                    or "timeout" in type(e).__name__.lower():
+                # A stalled model usually stays stalled; the next has its own capacity.
+                log.info("gemini timeout on %s — falling through", m)
+                break
             if "404" in err_str or "NOT_FOUND" in err_str:
                 log.warning("gemini model %s not available, skipping", m)
                 break
@@ -627,6 +641,34 @@ def _strip_fences(text: str) -> str:
     return text
 
 
+class _BackendRefused(Exception):
+    """This backend refused on billing or auth; carries the code, never provider text."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+_BILLING_WORDS = ("credit balance", "insufficient_quota", "billing", "payment required")
+_AUTH_WORDS = ("api key not valid", "api_key_invalid", "invalid x-api-key",
+               "invalid api key", "authentication_error", "permission_denied")
+
+
+def fatal_provider_code(exc: BaseException) -> str | None:
+    """provider_billing or provider_auth when no retry can help; None otherwise.
+
+    Read before the transient check: that one matches substrings like "500" and "ssl",
+    which a request id can hold, so a refusal could pass for a server error.
+    """
+    status = getattr(exc, "status_code", None)
+    text = str(exc).lower()
+    if status == 402 or any(word in text for word in _BILLING_WORDS):
+        return "provider_billing"
+    if status in (401, 403) or any(word in text for word in _AUTH_WORDS):
+        return "provider_auth"
+    return None
+
+
 def _try_one_backend(backend: str, system: str, user: str, max_tokens: int,
                      tier: Optional[str] = None) -> tuple[str, int, int, str] | None:
     """Try a single backend. Return (text, in_tok, out_tok, model) on success, None on transient failure."""
@@ -652,6 +694,12 @@ def _try_one_backend(backend: str, system: str, user: str, max_tokens: int,
         raise
     except Exception as e:
         check_budget()
+        code = fatal_provider_code(e)
+        if code is not None:
+            log.warning("[llm] %s refused the call (%s)", backend, code)
+            _LAST_CHAIN_ERRORS.append(f"{backend}: {code}")
+            del _LAST_CHAIN_ERRORS[:-8]
+            raise _BackendRefused(code) from None
         es = str(e).lower()
         # Treat as transient: rate-limit, server error, timeout, AND transient network
         # faults. cycle36: the free Gemini tier frequently drops the TLS connection
@@ -692,6 +740,7 @@ def _chain_text(system: str, user: str, max_tokens: int,
     """
     primary, _ = _backend_and_model()
     chain = fallback_chain()
+    refused: dict[str, str] = {}
 
     _CHAIN_BACKOFF = (0.0, 3.0, 8.0, 15.0)  # backoff before attempts 1-4; free Gemini tier
     # can be unreachable for ~10s stretches, so a 4th attempt past that window matters
@@ -700,8 +749,14 @@ def _chain_text(system: str, user: str, max_tokens: int,
         if delay:
             _budget_sleep(delay)
         for backend in chain:
+            if backend in refused:
+                continue
             t0 = time.time()
-            out = _try_one_backend(backend, system, user, max_tokens, tier)
+            try:
+                out = _try_one_backend(backend, system, user, max_tokens, tier)
+            except _BackendRefused as exc:
+                refused[backend] = exc.code
+                continue
             check_budget()
             if out is None:
                 continue
@@ -720,6 +775,12 @@ def _chain_text(system: str, user: str, max_tokens: int,
                          backend, primary)
             check_budget()
             return text
+        usable = [backend for backend in chain if backend_configured(backend)]
+        if usable and all(backend in refused for backend in usable):
+            # Backing off cannot help. Legacy callers read None; a bounded run stops.
+            if bounded_execution_active():
+                provider_fatal(refused[usable[0]])
+            return None
         if attempt < len(_CHAIN_BACKOFF) - 1:
             log.info("[llm] chain exhausted (attempt %d/%d) — backing off %.0fs and retrying",
                      attempt + 1, len(_CHAIN_BACKOFF), _CHAIN_BACKOFF[attempt + 1])

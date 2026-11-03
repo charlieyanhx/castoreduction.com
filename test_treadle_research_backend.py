@@ -483,12 +483,10 @@ class TestResearchBackend(unittest.TestCase):
         with_keys = goal(found("reddit"))
         self.assertIn("r/Coffee_Shop", with_keys)
         self.assertIn("subreddit:", with_keys)
-        # Without Reddit credentials, reddit_mentions answers 403: name the communities,
-        # never send the agent to search inside them through Reddit.
+        # reddit_mentions reads Reddit's public feed, so it reaches them with no credentials.
         archive = goal(found("open_archive"))
         self.assertIn("r/Coffee_Shop", archive)
-        self.assertNotIn("subreddit:", archive)
-        self.assertNotIn("reddit_mentions", archive)
+        self.assertIn("subreddit:", archive)
 
 
 class TestRigorRules(unittest.TestCase):

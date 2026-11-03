@@ -6,6 +6,7 @@ against values worked out by hand from docs/treadle/AGENT_REVAMP.md's formulas.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,7 @@ from packs.market_research_next.analysis import community_discovery as cd
 from packs.market_research_next.analysis import competitor_count as cc
 from packs.market_research_next.analysis import sizing
 from packs.market_research_next.contracts import validate_section_output
+from packs.market_research_next.open_tools import REDDIT_RSS
 from packs.market_research_next.prep import VENTURE_FIELDS
 
 NOW = datetime(2026, 10, 28, tzinfo=timezone.utc)
@@ -423,7 +425,8 @@ def test_without_credentials_the_open_archives_answer():
     section = checked(cd, discover(ctx, session=archives, env={}))
     urls = {c["url"] for c in archives.calls}
     assert cd.TOKEN_URL not in urls and cd.URL not in urls
-    assert urls == {cd.ARCHIVE_SUBREDDITS, cd.ARCHIVE_POSTS}
+    # The live feed is tried first; this fake cannot answer it, so the archive backs it up.
+    assert urls == {REDDIT_RSS, cd.ARCHIVE_SUBREDDITS, cd.ARCHIVE_POSTS}
     sent = " ".join(str(v) for c in archives.calls for v in c["params"].values()).lower()
     assert not {"zebra", "quantum", "flamingo", "laptops"} & set(sent.split())
     assert all(c["headers"]["User-Agent"] == cd.USER_AGENT for c in archives.calls)
@@ -435,6 +438,28 @@ def test_without_credentials_the_open_archives_answer():
     assert not any(c["params"].get("subreddit") == "nottheonion" for c in archives.calls)
     assert data["source"] == "open_archive" and section["research_status"] == "completed"
     assert "archive" in section["narrative"].lower()
+
+
+def test_the_live_feed_answers_and_the_post_archive_is_not_called():
+    ctx = context({"product": "A specialty coffee shop on NW 23rd Avenue",
+                   "geography": "NW 23rd Avenue, Portland, Oregon"})
+
+    class Feed(Archives):
+        def request(self, method, url, **kwargs):
+            if url == REDDIT_RSS:
+                self.calls.append({"method": method, "url": url, **kwargs})
+                entries = "".join(
+                    f'<entry><id>t3_{i}</id><category term="askportland"/><title>t</title></entry>'
+                    for i in range(3))
+                return SimpleNamespace(status_code=200, headers={}, text=(
+                    f'<feed xmlns="http://www.w3.org/2005/Atom">{entries}</feed>'))
+            return super().request(method, url, **kwargs)
+
+    feed = Feed(exact={"askportland": [meta("askportland", 80_000, "Portland questions",
+                                            "coffee shop and neighbourhood advice")]})
+    section = checked(cd, discover(ctx, session=feed, env={}))
+    assert cd.ARCHIVE_POSTS not in {c["url"] for c in feed.calls}
+    assert "askportland" in [s["name"] for s in section["data"]["subreddits"]]
 
 
 def test_archive_keeps_real_matches_only():

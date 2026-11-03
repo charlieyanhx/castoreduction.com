@@ -13,6 +13,8 @@ from typing import Any
 from treadle.harness.agent import MAX_STEPS_CEILING, AgentResult, run_agent
 from treadle.workflow import ReviewIssue
 
+from .open_tools import research_tools
+
 
 SECTIONS = frozenset({
     "summary", "target_personas", "multi_perspective", "market_size", "revenue",
@@ -40,8 +42,10 @@ _SEARCH_TOOLS = (
 EXTERNAL_TOOLS = {
     "competitive_landscape": _SEARCH_TOOLS,
     "customer_voice": _SEARCH_TOOLS + (
+        # lobsters_mentions is left out: Lobsters' search answers 400 to every query
+        # (2026-11-03), so offering it only spends one of the section's tool calls.
         "reddit_mentions", "hackernews_mentions", "stackexchange_mentions",
-        "devto_mentions", "lobsters_mentions", "vertical_publication_mentions",
+        "devto_mentions", "vertical_publication_mentions",
     ),
     "market_size": _SEARCH_TOOLS + (
         "geocode_address", "acs_demographics", "census_land_area",
@@ -367,10 +371,6 @@ def _community_hint(section_key: str, context: dict) -> str:
         return ""
     listed = " Ranked communities where these customers talk: " + ", ".join(
         f"r/{name}" for name in names)
-    if (context.get("community_discovery") or {}).get("data", {}).get("source") == "open_archive":
-        # Found without Reddit credentials, so reddit_mentions would answer 403 here.
-        return (listed + ". Reddit's own search is not available in this run; use these "
-                "names to aim web searches at their discussions.")
     return (listed + ". Search inside them with reddit_mentions queries like "
                      "'subreddit:<name> <problem words>' before searching broadly.")
 
@@ -435,6 +435,7 @@ class LocalResearchBackend:
                     allowed_categories=list(EXTERNAL_CATEGORIES[section_key]),
                     max_steps=self.max_steps,
                     context=context_json,
+                    registry=research_tools(),
                 )
             except Exception as exc:
                 raise ResearchError(f"{section_key}: external research failed") from exc

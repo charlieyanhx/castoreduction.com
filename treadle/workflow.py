@@ -22,7 +22,7 @@ from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Callable, Iterable, Mapping, MutableMapping, Optional, Protocol, Sequence
 
 from .core.section import FAILED, FLAGGED, OK, SKIPPED, Section, SectionResult, _assemble_one, digest, plan
-from .execution_limits import ExecutionLimits, TaskContract
+from .execution_limits import PROVIDER_STOPS, ExecutionLimits, TaskContract
 from .isolated import ManagedCall
 
 
@@ -436,6 +436,11 @@ class _BoundedExecution:
             self.stop_reason = code
             self.abort_issue = ReviewIssue(code, message)
 
+    def _abort_for_provider(self, receipt: Any) -> None:
+        # The receipt's code is validated; an unknown one must not become a crash here.
+        self._abort(receipt.error, PROVIDER_STOPS.get(receipt.error, "The model provider "
+                                                      "refused the call."))
+
     def _finish(self, section: Section, verdict: SectionResult,
                 payload: Any = None, produced: bool = False) -> None:
         if produced and time.monotonic() >= self.deadline:
@@ -596,6 +601,8 @@ class _BoundedExecution:
             self._abort(code, f"Execution deadline exceeded while running {section.key}")
         elif receipt.status == "budget_exceeded":
             self._abort("call_budget", f"Model or tool call budget exceeded in {section.key}")
+        elif receipt.status == "provider_fatal":
+            self._abort_for_provider(receipt)
         if receipt.status != "ok":
             return (SectionResult(section.key, FAILED,
                                   f"worker {receipt.status}: {receipt.error or receipt.status}",
@@ -663,6 +670,9 @@ class _BoundedExecution:
             self._record("__review__", receipt, allocation, error)
             if call is not None:
                 call.close()
+        if receipt is not None and receipt.status == "provider_fatal":
+            self._abort_for_provider(receipt)
+            return tuple(issues + [self.abort_issue])
         if receipt is None or receipt.status != "ok":
             status = receipt.status if receipt else "launch_failed"
             code = ("run_deadline" if time.monotonic() >= self.deadline else

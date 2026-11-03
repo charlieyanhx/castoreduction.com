@@ -231,6 +231,11 @@ def _quarantine(document: dict, assessments: list[dict]) -> tuple[dict, list[dic
     return accepted, quarantined
 
 
+def _final(entry: dict) -> bool:
+    """A spent budget or a billing or auth refusal: asking again cannot help."""
+    return str(entry["error"]).startswith(("BudgetExceeded", "ProviderFatal"))
+
+
 def build_business_object(
     statements: list[dict], *, model: Callable[..., dict], company_alias: str = "Business",
     max_calls: int = 6, max_depth: int = 6,
@@ -265,8 +270,7 @@ def build_business_object(
 
     def may_reask(entry: dict) -> bool:
         # A spent budget is final; the scheduler's sticky gate reports it.
-        return (not reasked and calls < max_calls - 1
-                and not str(entry["error"]).startswith("BudgetExceeded"))
+        return not reasked and calls < max_calls - 1 and not _final(entry)
 
     def call(stage: str, target: str | None, system: str, payload: dict) -> tuple[Any, dict]:
         nonlocal calls
@@ -366,8 +370,7 @@ def build_business_object(
                 entry["error"] = f"{type(exc).__name__}: {exc}"[:1000]
                 accepted = empty_document(company_alias)
         # The review may be asked again only with a call still left in the budget.
-        if not entry["error"] or reasked or calls >= max_calls \
-                or str(entry["error"]).startswith("BudgetExceeded"):
+        if not entry["error"] or reasked or calls >= max_calls or _final(entry):
             break
         reasked, problem = True, entry["error"]
     if entry["error"]:

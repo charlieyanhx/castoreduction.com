@@ -283,3 +283,32 @@ def test_prep_model_rejects_prose_malformed_and_truncated_responses(raw, stop_re
          pytest.raises(ValueError):
         ExplicitPrepModel("chosen-model")(system="system", user="survey")
     assert client.messages.create.call_count == 1
+
+
+def test_prep_on_a_named_gemini_model_uses_no_paid_key_and_stays_strict(monkeypatch):
+    calls = []
+
+    def gemini(system, user, max_tokens, model):
+        calls.append(model)
+        return '{"ok":true}', 10, 4
+
+    monkeypatch.setattr("treadle.llm._call_gemini", gemini)
+    monkeypatch.setattr("treadle.llm.backend_configured", lambda backend: backend == "gemini")
+    with patch("anthropic.Anthropic") as paid:
+        assert ExplicitPrepModel("gemini-flash-latest")(system="s", user="u") == {"ok": True}
+    paid.assert_not_called()
+    assert calls == ["gemini-flash-latest"]
+    monkeypatch.setattr("treadle.llm._call_gemini", lambda *a: ('{"ok":tru', 1, 1))
+    with pytest.raises(ValueError):
+        ExplicitPrepModel("gemini-flash-latest")(system="s", user="u")
+
+
+def test_gemini_is_never_a_silent_fallback_for_a_paid_prep_model(monkeypatch):
+    monkeypatch.setattr("treadle.llm._call_gemini", lambda *a: pytest.fail("fell back"))
+    client = Mock()
+    client.messages.create.side_effect = TimeoutError("timed out")
+    with patch("treadle.llm.backend_configured", return_value=True), \
+         patch("treadle.llm.paid_backend_allowed", return_value=True), \
+         patch("anthropic.Anthropic", return_value=client):
+        with pytest.raises(TimeoutError):
+            ExplicitPrepModel("claude-opus-5-5")(system="s", user="u")

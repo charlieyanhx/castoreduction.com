@@ -64,12 +64,34 @@ class BudgetExceeded(RuntimeError):
     """A sticky call-budget or deadline failure, with a safe diagnostic reason."""
 
 
+#: Why a provider refused every call, in words the person running the report can act on.
+PROVIDER_STOPS = {
+    "provider_billing": "The model provider refused the call: the account is out of credits "
+                        "or over its billing limit. Add credits, then run this report again.",
+    "provider_auth": "The model provider refused the call: the API key was rejected or lacks "
+                     "access. Check the key, then run this report again.",
+}
+
+
+class ProviderFatal(BudgetExceeded):
+    """A billing or auth refusal: every further call would fail the same way.
+
+    A BudgetExceeded, so it travels the sticky path and no broad handler can lose it.
+    The message is ours; provider text can carry request details.
+    """
+
+    def __init__(self, code: str) -> None:
+        super().__init__(PROVIDER_STOPS[code])
+        self.code = code
+
+
 class _Budget:
     def __init__(self, model_calls: int, tool_calls: int, deadline: float) -> None:
         self.limits = {"model_calls": model_calls, "tool_calls": tool_calls}
         self.counts = {"model_calls": 0, "tool_calls": 0}
         self.deadline = deadline
         self.failure: str | None = None
+        self.fatal: str | None = None
         self.sealed = False
         self.lock = threading.Lock()
 
@@ -78,8 +100,14 @@ class _Budget:
             raise BudgetExceeded("execution scope closed")
         if self.failure is None and time.monotonic() >= self.deadline:
             self.failure = "execution deadline exceeded"
+        if self.fatal is not None:
+            raise ProviderFatal(self.fatal)
         if self.failure is not None:
             raise BudgetExceeded(self.failure)
+
+    def stop_for_provider(self, code: str) -> None:
+        with self.lock:
+            self.fatal = code
 
     def check(self) -> None:
         with self.lock:
@@ -129,6 +157,14 @@ def activate_budget(*, model_calls: int, tool_calls: int,
     finally:
         with _scope_lock:
             _active_budget = None
+
+
+def provider_fatal(code: str) -> None:
+    """Stop this task, and through its receipt the run, on a billing or auth refusal."""
+    scope = _active_budget
+    if scope is not None:
+        scope.stop_for_provider(code)
+    raise ProviderFatal(code)
 
 
 def bounded_execution_active() -> bool:
