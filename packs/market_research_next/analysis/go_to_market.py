@@ -21,7 +21,8 @@ REQUIRED = ("positioning", "target_personas")
 OPTIONAL = ("pricing",)
 KNOWN_SOURCES = frozenset((*REQUIRED, *OPTIONAL, "prep"))
 _DATA_FIELDS = {"positioning": ("statement", "strategy"),
-                "pricing": ("category_median_monthly", "competitors")}
+                "pricing": ("category_median_monthly", "category_median_per_unit",
+                            "competitors")}
 _VENTURE = ("product", "target_customer", "buyer", "business_model", "geography", "stage",
             "pricing", "monthly_cost_estimate", "constraints")
 _ENVELOPE_FIELDS = ("narrative", "findings", "assumptions", "uncertainties", "research_status")
@@ -43,10 +44,12 @@ statistics, companies, quotes, sources or research activity.
 Each P (product, price, place, promotion) has a summary, 2 to 5 concrete actions, and
 rests_on: the keys of the sections it rests on, chosen only from allowed_sources ("prep"
 means the venture attributes). Tie every P to the positioning statement and its strategy.
-The price P quotes price_quotes.category_median_monthly when it is not null and
-price_quotes.founder_price when it is not null, may cite price_quotes.competitor_prices,
-and contains no other number: write any count in words. Write for the founder: never
-name these input fields, and never mention a quote that is null; say instead that no
+The price P quotes price_quotes.category_median_monthly when it is not null; when it is
+null and price_quotes.category_median_per_unit is not null, it quotes that median with
+its unit (for example "per walk"). It quotes price_quotes.founder_price when it is not
+null, may cite price_quotes.competitor_prices, and contains no other number: write any
+count in words. Write for the founder: never name these input fields, and never mention
+a quote that is null; only when every median and the stated price are null, say that no
 category median or stated price was available. positioning_link is one sentence tying
 the plan to the positioning statement.
 
@@ -68,7 +71,13 @@ def price_quotes(context: Mapping[str, Any]) -> dict:
              for t in c["tiers"] if isinstance(t, dict)]
     prices = sorted({round(p, 2) for p in (base.finite_number(t.get("price")) for t in tiers)
                      if p is not None})
+    per_unit = pricing.get("category_median_per_unit")
+    per_unit = ({"median": base.finite_number(per_unit.get("median")),
+                 "unit": per_unit.get("unit"), "currency": per_unit.get("currency")}
+                if isinstance(per_unit, dict) and base.finite_number(per_unit.get("median"))
+                is not None and isinstance(per_unit.get("unit"), str) else None)
     return {"category_median_monthly": base.finite_number(pricing.get("category_median_monthly")),
+            "category_median_per_unit": per_unit,
             "founder_price": base.stated(context, "pricing")
             if founder.get("basis") == "customer_stated" else None,
             "competitor_prices": prices}
@@ -76,7 +85,7 @@ def price_quotes(context: Mapping[str, Any]) -> dict:
 
 def produce(context: dict, *, model: Callable[..., dict] | None = None) -> dict:
     payload = _payload(context)
-    raw = base.call_model(_SYSTEM, payload, model=model, max_tokens=3500)
+    raw = base.call_model(_SYSTEM, payload, model=model, max_tokens=8000)
     try:
         prose = _prose(raw)
         data = {**{p: _p(raw.get(p)) for p in PS},
@@ -131,6 +140,11 @@ def _check_quotes(quotes: Any) -> None:
         raise ValueError("the category median must be a finite number or null")
     if quotes.get("founder_price") is not None and not isinstance(quotes["founder_price"], str):
         raise ValueError("the founder's price must be text or null")
+    per_unit = quotes.get("category_median_per_unit")
+    if per_unit is not None and (not isinstance(per_unit, dict)
+                                 or base.finite_number(per_unit.get("median")) is None
+                                 or not isinstance(per_unit.get("unit"), str)):
+        raise ValueError("the per-item median must give a number and its unit")
     prices = quotes.get("competitor_prices")
     if not isinstance(prices, list) or any(base.finite_number(p) is None for p in prices):
         raise ValueError("competitor_prices must be a list of numbers")
@@ -148,6 +162,12 @@ def _check_price(price: Mapping[str, Any], quotes: Mapping[str, Any]) -> None:
         allowed |= {round(median, 2), float(round(median))}
         if not found & {round(median, 2), float(round(median))}:
             raise ValueError("the price P must quote the category median")
+    per_unit = quotes.get("category_median_per_unit")
+    if per_unit is not None:
+        item = per_unit["median"]
+        allowed |= {round(item, 2), float(round(item))}
+        if median is None and not found & {round(item, 2), float(round(item))}:
+            raise ValueError("the price P must quote the per-item category median")
     if founder and not _money(founder) <= found:
         raise ValueError("the price P must quote the founder's stated price")
     if _money(text) - allowed:

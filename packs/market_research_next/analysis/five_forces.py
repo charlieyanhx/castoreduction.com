@@ -51,7 +51,8 @@ SUBFACTORS: dict[str, tuple[str, ...]] = {
 }
 REQUIRED = ("competitive_landscape",)
 OPTIONAL = ("pricing", "sizing")
-_DATA_FIELDS = {"pricing": ("category_median_monthly", "competitors"),
+_DATA_FIELDS = {"pricing": ("category_median_monthly", "category_median_per_unit",
+                            "competitors"),
                 "sizing": ("methods", "anchor_method")}
 _VENTURE = ("product", "target_customer", "buyer", "business_model", "geography", "stage",
             "pricing", "differentiation", "named_competitors", "status_quo", "constraints")
@@ -96,7 +97,7 @@ Return ONLY this JSON object:
 
 def produce(context: dict, *, model: Callable[..., dict] | None = None) -> dict:
     payload = _payload(context)
-    raw = base.call_model(_SYSTEM, payload, model=model, max_tokens=6000)
+    raw = _hoist(base.call_model(_SYSTEM, payload, model=model, max_tokens=12000))
     try:
         prose = _prose(raw)
         data = _normalise(raw)
@@ -191,6 +192,25 @@ def _limits(context: Mapping[str, Any]) -> list[str]:
     notes = [f"The {key} section was not available, so ratings rest without it."
              for key in OPTIONAL if base.upstream(context, key) is None]
     return notes + base.incomplete_upstream(context, (*REQUIRED, *OPTIONAL))
+
+
+_TOP_LEVEL = ("governing_forces", "profit_potential", "implications", "narrative",
+              "findings", "assumptions", "uncertainties")
+
+
+def _hoist(raw: Mapping[str, Any]) -> dict:
+    """Top-level fields the model left inside an unclosed "forces" object, moved back out.
+
+    The model sometimes never closes "forces", so the repaired JSON nests narrative,
+    findings and the rest under it and the section fails on a missing narrative.
+    """
+    forces = raw.get("forces")
+    if not isinstance(forces, dict) or not set(forces) & set(_TOP_LEVEL):
+        return dict(raw)
+    # Only the answer's own top-level fields move; a sixth force stays put and fails.
+    stray = {k: v for k, v in forces.items() if k in _TOP_LEVEL and k not in raw}
+    kept = {k: v for k, v in forces.items() if k not in _TOP_LEVEL}
+    return {**raw, **stray, "forces": kept}
 
 
 def _normalise(raw: Mapping[str, Any]) -> dict:

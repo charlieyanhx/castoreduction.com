@@ -56,7 +56,10 @@ recall a price from memory. source_urls may contain only URLs from allowed_sourc
 show this competitor's prices. A competitor whose pricing the evidence does not show gets
 an empty tiers list and a note saying so. "custom" means contact sales; "usage" is metered.
 Menu items and per-visit services are tiers too: billing_model per_unit, the item as the
-name, and unit such as "per drink" or "per visit"."""
+name, and unit such as "per drink" or "per visit".
+billing_model is the period the price figure itself covers. A plan shown as "$5 per
+month, billed yearly" is monthly with price 5 (say "billed yearly" in the tier name);
+annual is only for a figure that is the whole year's price, such as "$60 per year"."""
 
 
 # --------------------------------------------------------------------------- inputs

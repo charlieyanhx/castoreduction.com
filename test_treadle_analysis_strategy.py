@@ -499,3 +499,50 @@ def test_an_unproven_differentiator_says_so_in_the_statement():
     assert proven["data"]["statement"].endswith("ShiftPal is made for one site.")
     assert "not yet proven" in positioning.render_data(section["data"])
     assert "proven true" in positioning._SYSTEM and "constraint" in positioning._SYSTEM
+
+
+# --------------------------------------------------------------------------- scorecard 2026-11-02
+def test_five_forces_reads_fields_left_inside_an_unclosed_forces_object():
+    # The model sometimes never closes "forces", so the repaired JSON nests the rest in it.
+    answer = _forces_answer()
+    top = {k: answer.pop(k) for k in list(answer) if k != "forces"}
+    answer["forces"].update(top)
+    section = five_forces.produce(_context(), model=Fake(answer))
+    assert section["narrative"].startswith("Narrative")
+    assert set(section["data"]["forces"]) == set(five_forces.SUBFACTORS)
+    assert section["data"]["governing_forces"] == ["rivalry"]
+
+
+def test_an_analog_naming_a_characteristic_value_is_read_as_its_key():
+    answer = _analogs_answer()
+    answer["analogs"][0] = _analog("Analog 0", ("business_model", "Network effects", "fragmented"))
+    data = analog_markets.produce(_context(), model=Fake(answer))["data"]
+    assert data["analogs"][0]["shared_characteristics"] == [
+        "business_model", "network_effects", "competitive_structure"]
+    # "platform" is a value of two characteristics, so it stays unreadable.
+    answer["analogs"][0] = _analog("Analog 0", ("business_model", "network_effects", "platform"))
+    with pytest.raises(base.AnalysisError, match="characteristic"):
+        analog_markets.produce(_context(), model=Fake(answer))
+
+
+def _per_walk_context():
+    context = _full_context()
+    pricing = context["pricing"]["data"]
+    context["pricing"]["data"] = {**pricing, "category_median_monthly": None,
+                                  "category_median_per_unit": {"unit": "per walk", "median": 30.0,
+                                                               "range": [23.0, 34.0],
+                                                               "currency": "CAD"}}
+    context["prep"]["venture"]["attributes"]["pricing"] = _attr("$25 a walk", "inferred")
+    return context
+
+
+def test_go_to_market_quotes_the_per_item_median_when_there_is_no_monthly_one():
+    fake = Fake(_gtm_answer("Price near the CAD 30 per walk median."))
+    section = go_to_market.produce(_per_walk_context(), model=fake)
+    quotes = fake.calls[0]["user"]["price_quotes"]
+    assert quotes["category_median_per_unit"] == {"median": 30.0, "unit": "per walk",
+                                                  "currency": "CAD"}
+    assert section["data"]["price_quotes"]["category_median_per_unit"]["median"] == 30.0
+    with pytest.raises(base.AnalysisError, match="per-item category median"):
+        go_to_market.produce(_per_walk_context(),
+                             model=Fake(_gtm_answer("No category median was available.")))

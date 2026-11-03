@@ -94,6 +94,28 @@ def test_the_smoke_runs_false_alarms_are_not_conflicts():
     assert find_number_conflicts(texts) == []
 
 
+def test_the_scorecards_unfixable_conflicts_are_not_raised():
+    """Measured 2026-11-02: every one of these was two different things sharing only unit
+    words (month, tier, rate, plan), and repairing them used up all five runs' rounds."""
+    from packs.market_research_next.analysis.consistency import _REVIEWED, find_number_conflicts
+
+    pairs = [
+        ("Jane App's pricing starts at approximately $54 per month for its Starter tier.",
+         "Jane App's Balance tier at $59 USD per month and Practice tier at $79 USD per month"),
+        ("An assumed dog-ownership rate of 18% to 25% is used as an illustrative scenario",
+         "around $25 for a 30-minute walk. Wag! extracts an estimated 40% take rate"),
+        ("$5 per plan at an assumed 2 plans per subscriber per month ($10/month)",
+         "annual plans at $49.00 per year, equivalent to $4.08 per month"),
+    ]
+    for a, b in pairs:
+        found = find_number_conflicts({"revenue": a, "summary": b}, _REVIEWED)
+        assert [c for c in found if c["confidence"] >= 0.8] == [], (a, b)
+    real = find_number_conflicts({"revenue": "Jane App Starter costs $54 per month for solo practitioners.",
+                                  "summary": "Jane App Starter costs $64 per month for solo practitioners."},
+                                 _REVIEWED)
+    assert [(c["value_a"], c["value_b"]) for c in real if c["confidence"] >= 0.8] == [(54.0, 64.0)]
+
+
 def test_a_dataset_figure_stays_only_when_its_tool_returned_data():
     material = {"evidence": [
         {"source": "acs_demographics", "count": 1, "error": "", "skeleton": False,

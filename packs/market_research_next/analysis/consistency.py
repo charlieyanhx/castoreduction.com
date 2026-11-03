@@ -40,7 +40,14 @@ between both could does doing down during each estimate estimated from further h
 here into just less like many more most much only other over same some such than that their
 them then there these they this those through under until very were what when where which
 while will with within would your thousand million billion trillion percent roughly nearly
+annual annually year years yearly month months monthly week weeks weekly daily hourly
+minute minutes rate rates range ranges plan plans tier tiers average generates starting
+starts
 """.split())
+#: The second block above is units and measure words, not topics: "$54 a month" and "$59
+#: a month" share "month" whatever they price, and the rate field already compares the
+#: period. Counting them tied a Starter tier to a Balance tier and a dog-ownership rate to
+#: a take rate, and those unfixable "conflicts" used up every correction round.
 _WINDOW, _CONTEXT, _MIN_GAP, _MIN_SHARED = 50, 60, 0.05, 2
 #: Figures more than this many times apart measure different things, not one thing twice:
 #: a misstated figure is off by a few percent or a rounding, not by 40,000 times.

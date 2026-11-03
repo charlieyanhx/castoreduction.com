@@ -124,7 +124,7 @@ def requirements_for(recommendation: str, focus_basis: str | None) -> tuple[str,
 
 def produce(context: dict, *, model: Callable[..., dict] | None = None) -> dict:
     payload = _payload(context)
-    raw = base.call_model(_SYSTEM, payload, model=model, max_tokens=5000)
+    raw = base.call_model(_SYSTEM, payload, model=model, max_tokens=10000)
     try:
         prose = _prose(raw)
         data = _normalise(raw)

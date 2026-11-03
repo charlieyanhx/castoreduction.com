@@ -80,7 +80,7 @@ def assemble(fields: Mapping[str, Mapping[str, Any]]) -> str:
 
 def produce(context: dict, *, model: Callable[..., dict] | None = None) -> dict:
     payload = _payload(context)
-    raw = base.call_model(_SYSTEM, payload, model=model, max_tokens=3000)
+    raw = base.call_model(_SYSTEM, payload, model=model, max_tokens=8000)
     recommendation = ((base.upstream(context, "generic_strategy") or {}).get("data") or {}
                       ).get("recommendation")
     try:

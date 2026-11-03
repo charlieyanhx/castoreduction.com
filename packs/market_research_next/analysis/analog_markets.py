@@ -76,7 +76,7 @@ Return ONLY this JSON object:
 
 def produce(context: dict, *, model: Callable[..., dict] | None = None) -> dict:
     payload = _payload(context)
-    raw = base.call_model(_SYSTEM, payload, model=model, max_tokens=6000)
+    raw = base.call_model(_SYSTEM, payload, model=model, max_tokens=12000)
     try:
         prose = _prose(raw)
         data = _normalise(raw)
@@ -169,7 +169,7 @@ def _normalise(raw: Mapping[str, Any]) -> dict:
     if isinstance(analogs, list):
         # Only the declared fields reach the report; anything else the model adds is dropped.
         analogs = [{**{k: _strip(a.get(k)) for k in ("name", "period", "vertical", "trajectory")},
-                    "shared_characteristics": _lowers(a.get("shared_characteristics")),
+                    "shared_characteristics": _shared(a.get("shared_characteristics")),
                     **{f: _strips(a.get(f)) for f in (*_ANALOG_LISTS, "sources")}}
                    if isinstance(a, dict) else a for a in analogs]
     lessons = raw.get("lessons")
@@ -180,6 +180,22 @@ def _normalise(raw: Mapping[str, Any]) -> dict:
                    if isinstance(x, dict) else x for x in lessons]
     return {"target_profile": profile, "analogs": analogs, "lessons": lessons,
             "non_transferable": _strips(raw.get("non_transferable"))}
+
+
+#: A value that belongs to one characteristic only, so a model that writes "fragmented"
+#: where the key competitive_structure belongs can be read without guessing.
+_KEY_OF_VALUE = {value: key for key, values in CHARACTERISTICS.items() for value in values
+                 if sum(value in v for v in CHARACTERISTICS.values()) == 1}
+
+
+def _shared(value: Any) -> Any:
+    """Characteristic keys, with a unique value read as its key and repeats dropped."""
+    keys = _lowers(value)
+    if not isinstance(keys, list):
+        return keys
+    keys = [k.replace(" ", "_") if isinstance(k, str) else k for k in keys]
+    keys = [k if k in CHARACTERISTICS else _KEY_OF_VALUE.get(k, k) for k in keys]
+    return list(dict.fromkeys(keys))
 
 
 def _payload(context: Mapping[str, Any]) -> dict:
