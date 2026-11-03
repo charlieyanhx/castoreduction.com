@@ -225,6 +225,24 @@ def test_prep_planning_call_has_room_for_every_section_and_time_to_finish():
     assert _DEFAULT_LIMITS.task_timeout_s >= 480
 
 
+def test_a_prep_call_may_run_past_two_minutes_within_the_task_deadline():
+    # Live 2026-11-02: the root business-object patch for the cafe brief hit the old
+    # 120 s client timeout and failed PREP, costing the run a whole correction round.
+    response = SimpleNamespace(
+        stop_reason="end_turn", content=[SimpleNamespace(type="text", text='{"ok":true}')],
+        usage=SimpleNamespace(input_tokens=10, output_tokens=4),
+    )
+    client = Mock()
+    client.messages.create.return_value = response
+    for remaining, expected in ((None, 240.0), (90.0, 90.0)):
+        with patch("treadle.llm.backend_configured", return_value=True), \
+             patch("treadle.llm.paid_backend_allowed", return_value=True), \
+             patch("packs.market_research_next.models.remaining_seconds", return_value=remaining), \
+             patch("anthropic.Anthropic", return_value=client) as factory:
+            ExplicitPrepModel("chosen-model")(system="system", user="survey")
+        assert factory.call_args.kwargs["timeout"] == expected
+
+
 @pytest.mark.parametrize("raw", [
     '{"ok":true}',
     ' \n```json\n{"ok":true}\n```\n ',

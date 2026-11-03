@@ -7,6 +7,12 @@ import os
 from treadle.execution_limits import charge_model_call, check_budget, remaining_seconds
 
 
+#: One PREP call's ceiling. The root business-object patch for a detailed brief ran past
+#: 120 s on 2026-11-02 and failed PREP for the whole round; the task's own deadline still
+#: bounds it through remaining_seconds().
+CALL_TIMEOUT_S = 240.0
+
+
 class ExplicitPrepModel:
     """Call the operator-selected high-capability model without a weaker fallback.
 
@@ -36,7 +42,7 @@ class ExplicitPrepModel:
         import anthropic
 
         remaining = remaining_seconds()
-        timeout = 120.0 if remaining is None else min(120.0, remaining)
+        timeout = CALL_TIMEOUT_S if remaining is None else min(CALL_TIMEOUT_S, remaining)
         client = anthropic.Anthropic(timeout=timeout, max_retries=0)
         charge_model_call()
         response = client.messages.create(
