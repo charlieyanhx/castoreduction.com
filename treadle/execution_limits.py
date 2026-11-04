@@ -35,7 +35,7 @@ class ExecutionLimits:
     max_model_calls: int = 120
     max_tool_calls: int = 60
     task_model_calls: int = 12
-    task_tool_calls: int = 8
+    task_tool_calls: int = 14
     review_model_calls: int = 3
 
     def __post_init__(self) -> None:

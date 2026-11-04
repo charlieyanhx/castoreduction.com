@@ -19,7 +19,7 @@ LABEL = "Sizing calculation"
 STALE_DAYS = 180
 METHODS = ("bottom_up", "top_down", "value_theory")  # also the anchor preference
 FIGURE_KINDS = frozenset({"market_value", "customer_count", "price", "serviceable_share",
-                          "growth_rate", "other"})
+                          "growth_rate", "broader_spend", "other"})
 STAGE_BASE = {"pre_launch": 0.02, "early_customers": 0.05, "scaling": 0.10}
 SATURATION = {"low": 1.25, "medium": 1.0, "high": 0.6}
 DEFAULT_SHARE = 0.30
@@ -48,6 +48,36 @@ _ADJACENT_PERIOD = re.compile(
     r"|\s*(?:usd\s*)?(monthly|annually|yearly|weekly)\b", re.I)
 _PERIOD_WORD = {"month": 12, "mo": 12, "monthly": 12, "year": 1, "yr": 1, "annum": 1,
                 "annually": 1, "yearly": 1, "week": 52, "wk": 52, "weekly": 52}
+#: The unit between a founder's amount and its period: "$39 per practitioner per month".
+_UNIT_THEN_PERIOD = re.compile(
+    r"\s*(?:usd\s*)?(?:/|per\s+|a\s+|an\s+|each\s+)(?!(?:month|mo|year|yr|annum|week|wk)\b)"
+    r"[a-z]+(?=\s*/|\s+(?:per|a|an|each)\s)", re.I)
+_PER_WORD = re.compile(r"\b(?:per|a|an|each)\s+([a-z]+)", re.I)
+#: The model sometimes returns digits as text. "50,883" is that number; "about 5k" is not.
+_PLAIN_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+#: What a count or a price counts. Figures in different families are never averaged: the
+#: median of 2,448 households and 4,108 residents counts nothing.
+_UNIT_FAMILIES = (
+    ("seats", r"practitioner|seat|licen[cs]e|clinician|therapist|employee|staff"),
+    ("businesses", r"establishment|business|compan|clinic|practice|firm|store|shop|"
+                   r"restaurant|venue"),
+    ("households", r"household|famil|home|consumer unit"),
+    ("people", r"resident|people|person|adult|population|individual|consumer|user|parent|"
+               r"member"),
+)
+_FAMILY_ORDER = ("businesses", "households", "people", "seats")
+_FAMILY_NOUN = {"businesses": "business", "households": "household", "people": "person",
+                "seats": "seat"}
+#: A count of these holds several of the other, so one each is the least it can be.
+_HOLDS = {("businesses", "seats"), ("households", "people")}
+#: A money-per-customer-per-year figure the writer left as "other".
+_SPEND_NAME = re.compile(r"spend|expenditure", re.I)
+_SPEND_UNIT = re.compile(r"per\s+(household|person|capita|consumer|resident)", re.I)
+_MONEY_UNIT = re.compile(r"usd|cad|eur|gbp|dollar|[$€£]", re.I)
+_FORECAST = re.compile(r"project|forecast|expected|estimated to reach", re.I)
+_RIVALS = re.compile(r"compet|rival", re.I)
+TOP_DOWN_WARNING = ("This is an analyst's figure for a whole category, so the share of it shown "
+                    "here is not a revenue forecast.")
 
 
 # --------------------------------------------------------------------------- pure methods
@@ -138,22 +168,30 @@ def _either(names: list[str]) -> str:
 # --------------------------------------------------------------------------- inputs
 def read_figure(raw: Any) -> tuple[dict | None, str | None]:
     """A usable figure with its value in USD (prices per year), or the reason it is skipped."""
-    if not isinstance(raw, dict) or raw.get("kind") not in FIGURE_KINDS:
+    # The writer sometimes copies the contract's description along with the kind.
+    kind = str(raw.get("kind") or "").split(" ")[0] if isinstance(raw, dict) else ""
+    if kind not in FIGURE_KINDS:
         return None, "a figure without a known kind was skipped"
-    kind, unit = raw["kind"], str(raw.get("unit") or "")
+    unit = str(raw.get("unit") or "")
     name = str(raw.get("name") or kind)
-    value, url = base.finite_number(raw.get("value")), raw.get("source_url")
+    value, url = _numeric(raw.get("value")), raw.get("source_url")
+    if kind == "other":
+        kind = _relabelled(name, unit)
+    if kind == "customer_count" and _RIVALS.search(name):
+        kind = "other"
     if value is None or value <= 0:
         return None, f'figure "{name}" has no positive number and was skipped'
     if not isinstance(url, str) or not url.startswith(("http://", "https://")) \
             or not base.registered_domain(url):
         return None, f'figure "{name}" has no source URL and was skipped'
-    if kind in ("market_value", "price") and _FOREIGN.search(unit):
+    if kind == "market_value" and _is_forecast(name, raw.get("year")):
+        return None, f'figure "{name}" is a forecast, not the market today, and was left out'
+    if kind in ("market_value", "price", "broader_spend") and _FOREIGN.search(unit):
         return None, f'figure "{name}" is not in USD and was not converted'
     scale = next((m for w, m in _SCALE.items() if re.search(rf"\b{w}s?\b", unit, re.I)), 1.0)
     if kind in ("market_value", "customer_count"):
         value *= scale
-    elif kind == "price":
+    elif kind in ("price", "broader_spend"):
         mult = _annual(unit)
         if mult is None:
             return None, f'price figure "{name}" has no billing period and was not annualized'
@@ -166,8 +204,36 @@ def read_figure(raw: Any) -> tuple[dict | None, str | None]:
     citation = {"url": url, "title": str(raw.get("source_title") or url),
                 "retrieved_at": raw.get("retrieved_at") if _parse_day(raw.get("retrieved_at")) else None,
                 "source_type": "web"}
-    return {"kind": kind, "name": name, "value": value,
+    return {"kind": kind, "name": name, "value": value, "unit": unit,
             "geography": str(raw.get("geography") or ""), "citation": citation}, None
+
+
+def _shown(figure: dict) -> str:
+    """A figure as a reader sees it; a rate as a percent, or it prints as 0."""
+    rate = figure["kind"] in ("growth_rate", "serviceable_share")
+    return f'{figure["value"]:.1%}' if rate else f'{figure["value"]:,.0f}'
+
+
+def _relabelled(name: str, unit: str) -> str:
+    """What a figure the writer left as "other" plainly is, read from its unit."""
+    if _SPEND_NAME.search(name) and _SPEND_UNIT.search(unit) and _annual(unit) is not None:
+        return "broader_spend"
+    return "customer_count" if _family(unit) and not _MONEY_UNIT.search(unit) else "other"
+
+
+def _is_forecast(name: str, year: Any) -> bool:
+    stated = _numeric(year)
+    return bool(_FORECAST.search(name)) or (stated is not None and stated > date.today().year)
+
+
+def _numeric(value: Any) -> float | None:
+    if isinstance(value, str) and _PLAIN_NUMBER.fullmatch(value.strip()):
+        value = float(value.strip().replace(",", ""))
+    return base.finite_number(value)
+
+
+def _family(unit: str) -> str | None:
+    return next((name for name, pattern in _UNIT_FAMILIES if re.search(pattern, unit, re.I)), None)
 
 
 def founder_price(context: dict) -> tuple[float | None, dict | None, str]:
@@ -176,6 +242,16 @@ def founder_price(context: dict) -> tuple[float | None, dict | None, str]:
     Only customer-stated answers count (an inferred attribute is not the founder's word),
     and unit_economics is never read: it mixes the price with what each sale costs.
     """
+    for label, value in _price_sources(context):
+        annual, amount = _price_from(value)
+        if annual is not None:
+            cite = {"url": "", "title": f"Founder's answer ({label})", "retrieved_at": None,
+                    "source_type": "founder"}
+            return annual, cite, f"Founder price {money(amount)} annualized to {money(annual)}."
+    return None, None, "The founder stated no single recurring price that can be annualized."
+
+
+def _price_sources(context: dict) -> list[tuple[str, Any]]:
     facts = base.intake_facts(context)
     sources = []
     for name in ("pricing", "business_model"):
@@ -183,13 +259,17 @@ def founder_price(context: dict) -> tuple[float | None, dict | None, str]:
         if record.get("basis") == "customer_stated":
             sources.append((f"{name} attribute", record.get("value")))
         sources.append((f"survey {name}", facts.get(name)))
-    for label, value in sources:
-        annual, amount = _price_from(value)
-        if annual is not None:
-            cite = {"url": "", "title": f"Founder's answer ({label})", "retrieved_at": None,
-                    "source_type": "founder"}
-            return annual, cite, f"Founder price {money(amount)} annualized to {money(annual)}."
-    return None, None, "The founder stated no single recurring price that can be annualized."
+    return sources
+
+
+def priced_per(context: dict) -> str | None:
+    """What the founder's price buys one of ("practitioner"), when the wording says."""
+    for _, value in _price_sources(context):
+        if _price_from(value)[0] is not None:
+            text = value.get("unit") if isinstance(value, dict) else value
+            words = [w.lower() for w in _PER_WORD.findall(str(text or ""))]
+            return next((w for w in words if w not in _PERIOD_WORD), None)
+    return None
 
 
 def _price_from(value: Any) -> tuple[float | None, float | None]:
@@ -203,7 +283,8 @@ def _price_from(value: Any) -> tuple[float | None, float | None]:
     matches = list(_AMOUNT.finditer(value))
     if len({m.group(1) for m in matches}) != 1:
         return None, None
-    period = _ADJACENT_PERIOD.match(value, matches[0].end())
+    unit = _UNIT_THEN_PERIOD.match(value, matches[0].end())
+    period = _ADJACENT_PERIOD.match(value, unit.end() if unit else matches[0].end())
     if period is None:
         return None, None
     mult = _PERIOD_WORD[(period.group(1) or period.group(2)).lower()]
@@ -229,6 +310,54 @@ def competitor_input(context: dict) -> tuple[int | None, str, str | None]:
 def _pooled(figures: list[dict], kind: str) -> tuple[float | None, list[dict]]:
     chosen = [f for f in figures if f["kind"] == kind]
     return base.median(f["value"] for f in chosen), [f["citation"] for f in chosen]
+
+
+def customer_base(figures: list[dict], prefer: str | None) -> tuple[list[dict], str | None]:
+    """The customer counts that measure one thing, and a warning when others were left out.
+
+    One family of unit only: the price's when a count of it exists, else businesses, then
+    households, then people. Sources for one place back each other; counts for different
+    places are different questions, so the widest is used and the choice is stated.
+    """
+    counts = [f for f in figures if f["kind"] == "customer_count"]
+    families: dict[str | None, list[dict]] = {}
+    for figure in counts:
+        families.setdefault(_family(figure["unit"]), []).append(figure)
+    family = next((k for k in (prefer, *_FAMILY_ORDER) if k and k in families), None)
+    group = families.get(family, [])
+    places = sorted({f["geography"] for f in group if f["geography"]})
+    if len(places) < 2:
+        return group, None
+    widest = max(group, key=lambda f: f["value"])
+    return [widest], (f"Customer counts cover different places ({', '.join(places)}); the widest, "
+                      f"{widest['geography']}, was used.")
+
+
+def unit_warning(count: dict, per: str | None) -> str | None:
+    """What it means when the customers counted are not what the price is per."""
+    counted, priced = _family(count["unit"]), _family(per or "")
+    if not counted or not priced or counted == priced:
+        return None
+    if (counted, priced) in _HOLDS:
+        return (f"The count is {count['unit']} but the price is per {per}, so this assumes one "
+                f"{per} in each and is a floor.")
+    return (f"The count is {count['unit']} but the price is per {per}, so the two do not "
+            "measure the same thing and the total may overstate the market.")
+
+
+def ceiling(figures: list[dict], customers: list[dict]) -> dict | None:
+    """Everything these customers spend on a wider category: an upper limit, never a TAM."""
+    spends = [f for f in figures if f["kind"] == "broader_spend"]
+    if not spends or not customers:
+        return None
+    spent_by = _family(f'{spends[0]["unit"]} {spends[0]["name"]}')
+    if spent_by != _family(customers[0]["unit"]):
+        return None
+    count, spend = base.median(f["value"] for f in customers), base.median(f["value"] for f in spends)
+    return {"value": round(count * spend, 2), "customers": count, "unit": customers[0]["unit"],
+            "spend": spend, "category": spends[0]["name"],
+            "geography": customers[0]["geography"],
+            "citations": [f["citation"] for f in customers + spends]}
 
 
 # --------------------------------------------------------------------------- produce
@@ -258,7 +387,12 @@ def produce(context: dict, *, model=None, session=None, env=None, now=None) -> d
         warnings.append(f"Market-value figures cover different places ({', '.join(sorted(geos))}); "
                         "their median mixes them.")
     inputs = {kind: _pooled(figures, kind) for kind in
-              ("market_value", "customer_count", "price", "serviceable_share")}
+              ("market_value", "price", "serviceable_share")}
+    per = priced_per(context)
+    customers, place_warning = customer_base(figures, _family(per or ""))
+    inputs["customer_count"] = (base.median(f["value"] for f in customers),
+                                [f["citation"] for f in customers])
+    warnings += [place_warning] if place_warning else []
     price, price_cite, price_note = founder_price(context)
     count, count_source, count_warning = competitor_input(context)
     warnings += [count_warning] if count_warning else []
@@ -278,14 +412,22 @@ def produce(context: dict, *, model=None, session=None, env=None, now=None) -> d
     anchor = next((m for m in METHODS if methods[m]["tam"]["value"] is not None), None)
     if anchor and inputs["serviceable_share"][0] is None:
         warnings.append(DEFAULT_SHARE_WARNING)
+    if anchor == "top_down":
+        warnings.append(TOP_DOWN_WARNING)
+    counted = any(methods[m]["tam"]["value"] is not None for m in ("bottom_up", "value_theory"))
+    if counted and price is not None and unit_warning(customers[0], per):
+        warnings.append(unit_warning(customers[0], per))
+    everyone = ([f"The count is every {_FAMILY_NOUN.get(_family(customers[0]['unit']), 'customer')} "
+                 "in the area, not only likely buyers."] if counted else [])
     gaps = list(dict.fromkeys(methods[m]["tam"]["note"] for m in METHODS
                               if methods[m]["tam"]["value"] is None))
     missing = list(dict.fromkeys(NEED_WORDS.get(n, n) for m in METHODS
                                  for n in methods[m].get("needs", [])))
-    found = [f'{f["name"]}: {f["value"]:,.0f} ({f["citation"]["title"]})' for f in figures][:3]
+    found = [f'{f["name"]}: {_shown(f)} ({f["citation"]["title"]})' for f in figures][:3]
     data = {"methods": methods, "anchor_method": anchor, "som_share": som_share,
             "gaps": gaps, "warnings": list(dict.fromkeys(warnings)),
-            "found": found, "missing": missing}
+            "found": found, "missing": missing,
+            "ceiling": None if anchor else ceiling(figures, customers)}
     cited = any(methods[m]["tam"]["value"] is not None and methods[m]["tam"]["citations"]
                 for m in METHODS)
     chosen = methods[anchor] if anchor else None
@@ -294,9 +436,11 @@ def produce(context: dict, *, model=None, session=None, env=None, now=None) -> d
         findings=[f"{m}: TAM {money(methods[m]['tam']['value'])} "
                   f"({methods[m]['tam']['confidence']} confidence)" for m in METHODS
                   if methods[m]["tam"]["value"] is not None],
-        assumptions=list(dict.fromkeys(a for m in METHODS for a in methods[m]["assumptions"])),
+        assumptions=list(dict.fromkeys(
+            [a for m in METHODS for a in methods[m]["assumptions"]] + everyone)),
         uncertainties=gaps + data["warnings"],
         metrics={"anchor_method": anchor, "currency": "USD",
+                 "ceiling": data["ceiling"]["value"] if data["ceiling"] else None,
                  **{k: chosen[k]["value"] if chosen else None for k in ("tam", "sam", "som")}})
 
 
@@ -359,22 +503,31 @@ def money(value: float | None) -> str:
     return f"${value:,.0f}"
 
 
+def ceiling_text(limit: dict) -> str:
+    place = f", {limit['geography']}" if limit["geography"] else ""
+    return (f"The upper limit is {money(limit['value'])}: {limit['customers']:,.0f} "
+            f"{limit['unit']} x {money(limit['spend'])} a year ({limit['category']}{place}). "
+            "This market is only part of that.")
+
+
 def narrative(data: dict) -> str:
     anchor = data["anchor_method"]
     if anchor is None:
         found = data.get("found") or []
         lead = (f"The research found {'; '.join(found)}, but no" if found else "No")
         missing = data.get("missing") or ["a sourced input"]
-        return (f"No market size is computed. {lead} source gave "
+        text = (f"No market size is computed. {lead} source gave "
                 f"{' or '.join(missing)}, so TAM, SAM and SOM are left out rather than "
                 "estimated.")
+        return f"{text} {ceiling_text(data['ceiling'])}" if data.get("ceiling") else text
     m = data["methods"][anchor]
     share = m["sam"]["inputs"]["serviceable_share"]
-    return (f"Anchored on the {anchor.replace('_', '-')} method, in USD: TAM {money(m['tam']['value'])} "
+    text = (f"Anchored on the {anchor.replace('_', '-')} method, in USD: TAM {money(m['tam']['value'])} "
             f"({m['tam']['formula']}), SAM {money(m['sam']['value'])} (TAM x {share:.0%}), "
             + (f"SOM {money(m['som']['value'])} (SAM x {data['som_share']['value']:.1%})."
                if data["som_share"]["value"] is not None
                else "SOM not computed: no competitor count was available."))
+    return f"{text} {TOP_DOWN_WARNING}" if anchor == "top_down" else text
 
 
 # --------------------------------------------------------------------------- data
@@ -410,6 +563,10 @@ def validate_data(data: dict) -> None:
     if not isinstance(share, dict) or not isinstance(share.get("rationale"), str) or (
             share.get("value") is not None and base.finite_number(share["value"]) is None):
         raise ValueError("som_share needs a value or a reason it has none")
+    limit = data.get("ceiling")
+    if limit is not None and (not isinstance(limit, dict)
+                              or base.finite_number(limit.get("value")) is None):
+        raise ValueError("ceiling needs a value")
     for field in ("gaps", "warnings", *[f for f in ("found", "missing") if f in data]):
         if not isinstance(data.get(field), list) or not all(isinstance(x, str) for x in data[field]):
             raise ValueError(f"{field} must be a list of text")
@@ -424,6 +581,8 @@ def render_data(data: dict) -> str:
                      money(m["som"]["value"]), conf, m["tam"]["note"] or m["tam"]["formula"]))
     html = base.render_table(("Method", "TAM", "SAM", "SOM", "Confidence", "Formula"), rows)
     html += f"<p>Obtainable share: {base.esc(data['som_share']['rationale'])}</p>"
+    if data.get("ceiling"):
+        html += f"<p>{base.esc(ceiling_text(data['ceiling']))}</p>"
     sources = {c["title"]: c for name in METHODS for c in data["methods"][name]["tam"]["citations"]}
     if sources:
         html += "<h4>Sources</h4>" + base.render_list(

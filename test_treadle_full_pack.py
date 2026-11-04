@@ -153,7 +153,9 @@ def test_every_section_runs_in_order_and_the_report_is_complete():
     sizing = report.result["sizing"]["data"]
     top_down = sizing["methods"]["top_down"]["tam"]
     assert top_down["value"] == 2.4e9 and top_down["citations"]
-    assert report.result["pricing"]["data"]["category_median_monthly"] == 79
+    # One competitor's price is that competitor's, not a category median.
+    assert report.result["pricing"]["data"]["category_median_monthly"] is None
+    assert report.result["pricing"]["data"]["category_range_monthly"] == [79, 79]
     # One landscape competitor: the obtainable share is computed from that count.
     assert sizing["som_share"]["value"] is not None
     assert report.result["positioning"]["data"]["statement"].startswith("For ")

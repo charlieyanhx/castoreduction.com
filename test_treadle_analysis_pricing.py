@@ -93,9 +93,6 @@ def test_selection_puts_direct_first_and_caps_at_five():
     out, agent, _ = _run([], ["https://a.com/p"], competitors=comps)
     sent = json.loads(agent.calls[0]["context"])["competitors"]
     assert [c["name"] for c in sent] == ["D1", "D2", "D3", "D4", "I1"]
-    call = agent.calls[0]
-    assert call["max_steps"] == 6 and call["allowed_categories"] == ["scrape"]
-    assert set(call["allowed_tools"]) == set(pricing.AGENT_TOOLS)
     assert [c["competitor"] for c in out["data"]["competitors"]] == ["D1", "D2", "D3", "D4", "I1"]
 
 
@@ -130,6 +127,74 @@ def test_the_landscape_list_wins_over_counted_places():
     context["competitor_count"] = {"data": {"available": True, "competitors": [
         {"name": "Mutts in the 6ix", "website": "https://mutts.example/"}]}}
     assert [c["name"] for c in pricing._selected(context)] == ["Rover"]
+
+
+def test_one_companys_tiers_are_not_a_category_median():
+    # Vague brief, 2026-11-03: Todoist's own two tiers were reported as a median of $7.50.
+    entry = _entry("Todoist", ["https://todoist.com/p"], [_tier(price=5), _tier("Biz", 10)])
+    out, _, _ = _run([entry, _entry("Motion", [], [])], ["https://todoist.com/p"])
+    assert out["data"]["category_median_monthly"] is None
+    assert out["data"]["category_range_monthly"] == [5, 10]
+    assert "the median is" not in out["narrative"] and "no category median" in out["narrative"]
+    assert "Only one competitor" in out["narrative"]
+    assert any("Todoist" in f for f in out["findings"])
+
+
+def test_two_companies_make_a_median():
+    entries = [_entry("A", ["https://a.com/p"], [_tier(price=5)]),
+               _entry("B", ["https://b.com/p"], [_tier(price=15)])]
+    out, _, _ = _run(entries, ["https://a.com/p", "https://b.com/p"])
+    assert out["data"]["category_median_monthly"] == 10
+
+
+def test_one_cafes_menu_is_not_a_per_item_median():
+    menu = [_tier("Latte", 5, "per_unit", unit="per drink"), _tier("Mocha", 6, "per_unit", unit="per drink")]
+    out, _, _ = _run([_entry("Acme", ["https://acme.com/p"], menu)], ["https://acme.com/p"])
+    assert out["data"]["category_median_per_unit"] is None
+
+
+def _read(name, url, content):
+    return SimpleNamespace(source="read_page", error=None, skeleton=False, count=1,
+                           payload={"url": url, "competitor": name, "content": content})
+
+
+def _with_page(entry, page):
+    agent = Agent(_result([page]))
+    return pricing.produce(_context([_comp(entry["competitor"])]), model=Model({"competitors": [entry]}),
+                           agent=agent)
+
+
+def test_a_price_found_on_the_page_read_is_verified_without_a_citation():
+    # B2B, 2026-11-03: Cliniko's six tiers were dropped because the writer cited no URL.
+    out = _with_page(_entry("Cliniko", [], [_tier(price=45)]),
+                     _read("Cliniko", "https://cliniko.com/pricing", "1 practitioner $45 a month"))
+    comp = out["data"]["competitors"][0]
+    assert comp["verified"] is True and comp["source_urls"] == ["https://cliniko.com/pricing"]
+
+
+def test_a_price_not_on_the_page_is_not_verified():
+    out = _with_page(_entry("Cliniko", [], [_tier(price=45)]),
+                     _read("Cliniko", "https://cliniko.com/pricing", "Plans from $450 a month"))
+    assert out["data"]["competitors"][0]["verified"] is False
+
+
+def test_another_companys_page_never_verifies_a_price():
+    out = _with_page(_entry("Cliniko", [], [_tier(price=45)]),
+                     _read("Jane App", "https://jane.app/pricing", "Pro $45 a month"))
+    assert out["data"]["competitors"][0]["verified"] is False
+
+
+def test_the_website_places_returned_beats_an_article_from_the_landscape():
+    context = _context([_comp("Barista", url="https://brewatlas.co/portland/barista")])
+    context["competitor_count"] = {"data": {"available": True, "competitors": [
+        {"name": "Barista", "website": "https://baristapdx.com/pages/nob-hill"}]}}
+    assert pricing._selected(context)[0]["url"] == "https://baristapdx.com/pages/nob-hill"
+
+
+def test_an_article_is_not_kept_as_a_competitors_website():
+    context = _context([_comp("Todoist", url="https://reclaim.ai/blog/apps"),
+                        _comp("Motion", url="https://usemotion.com/")])
+    assert [c["url"] for c in pricing._selected(context)] == [None, "https://usemotion.com/"]
 
 
 def test_hallucinated_source_url_is_dropped_with_a_warning():
@@ -257,8 +322,9 @@ def test_validate_data_rejects_bad_payloads():
 
 def test_render_escapes_html():
     tiers = [_tier("<b>Pro</b>", 10, unit="<i>seat</i>")]
-    out, _, _ = _run([_entry("<script>x</script>", ["https://acme.com/p"], tiers)],
-                     ["https://acme.com/p"], pricing_text="<img src=x>")
+    out, _, _ = _run([_entry("<script>x</script>", ["https://acme.com/p"], tiers),
+                      _entry("Other", ["https://other.com/p"], [_tier(price=10)])],
+                     ["https://acme.com/p", "https://other.com/p"], pricing_text="<img src=x>")
     html = pricing.render_data(out["data"])
     assert "<script>" not in html and "&lt;script&gt;" in html
     assert "<img" not in html and "<b>" not in html and "&lt;i&gt;seat" in html
@@ -268,7 +334,6 @@ def test_render_escapes_html():
 def test_the_agent_can_open_pages_and_has_each_competitors_website():
     # Live 2026-10-30: 0 of 5 cafe prices found; the agent could not open a page, and the
     # websites Google Places returned never reached it.
-    assert "fetch_page" in pricing.AGENT_TOOLS
     places = {"available": True, "price_level_counts": {"1": 2}, "median_price_level": 1,
               "competitors": [{"name": "Barista", "website": "https://baristapdx.com/nob-hill"},
                               {"name": "Sterling Coffee Roasters",

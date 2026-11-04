@@ -13,6 +13,11 @@ live check of every tool (2026-11-03):
 - bls_cex_spend: BLS has no coffee series, so "coffee" reads all food away from home ($4,142
   a year) by design. Nothing said so, and the figure could be reported as coffee spending.
   The result now says what the series covers.
+
+One addition, read_page, because research sections could only search. They were kept from
+fetch_page because it can start a browser outside the guarded network path, so on
+2026-11-03 market_size ran three searches, opened no page and wrote from snippets. This
+goes through the SSRF-guarded client and runs no page scripts.
 """
 from __future__ import annotations
 
@@ -22,11 +27,20 @@ import re
 import time
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urljoin
 
 from defusedxml import ElementTree
 
 from treadle.core import Evidence, Registry
+from treadle.execution_limits import BudgetExceeded
 
+#: What a planner or writer gets of one page.
+PAGE_CHARS = 6000
+#: The most a caller may ask for, which is what fetch_page allows.
+MAX_PAGE_CHARS = 200_000
+_MAX_LINKS = 40
+_TEXT_TYPES = ("text/html", "text/plain", "application/xhtml")
+HREF = re.compile(r"""href\s*=\s*["']([^"'#]+)["']""", re.I)
 REDDIT_RSS = "https://www.reddit.com/search.rss"
 USER_AGENT = "castor-research/1.0 (market research; contact via castor-advisory.com)"
 _ATOM = "{http://www.w3.org/2005/Atom}"
@@ -40,6 +54,11 @@ OVERPASS_MIRRORS = ("https://maps.mail.ru/osm/tools/overpass/api/interpreter",
                     "https://overpass.kumi.systems/api/interpreter")
 _OVERPASS_TIMEOUT_S = 25
 #: What each curated BLS series measures, for a series that stands in for a narrower trade.
+FOOD_AWAY_SERIES = "CXUFOODAWAYLB0101M"
+#: The host's keyword lookup reads "boutique" as apparel, so a "boutique cafe" got clothing
+#: spend. A food or drink venture goes to its series without that lookup.
+_FOOD_AND_DRINK = re.compile(r"coffee|caf[eé]|espresso|restaurant|bakery|\bbar\b|meal|food|drink",
+                             re.I)
 SERIES_COVERS = {
     "CXUFOODAWAYLB0101M": "all food away from home (restaurants, cafes, takeout)",
     "CXUFOODHOMELB0101M": "all food at home",
@@ -138,6 +157,8 @@ def _with_bounded_overpass(tool: Callable[..., Evidence]) -> Callable[..., Evide
 
 def _with_series_coverage(tool: Callable[..., Evidence]) -> Callable[..., Evidence]:
     def run(category: str | None = None, series_id: str | None = None) -> Evidence:
+        if series_id is None and category and _FOOD_AND_DRINK.search(category):
+            series_id = FOOD_AWAY_SERIES
         evidence = tool(category=category, series_id=series_id)
         payload = evidence.payload
         covers = SERIES_COVERS.get(payload.get("series_id")) if isinstance(payload, dict) else None
@@ -149,6 +170,50 @@ def _with_series_coverage(tool: Callable[..., Evidence]) -> Callable[..., Eviden
                              f"{covers}; never call it {category} spending.")
         return dataclasses.replace(evidence, payload={**payload, **note})
     return run
+
+
+def plain(text: str) -> str:
+    """Page text without tags, scripts or runs of whitespace."""
+    if "<" in text:
+        text = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", text)
+        text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", html.unescape(text)).strip()
+
+
+def _site_links(page: str, url: str) -> list[str]:
+    from .analysis.base import registered_domain
+
+    home = registered_domain(url)
+    found = dict.fromkeys(urljoin(url, href) for href in HREF.findall(page))
+    return [link for link in found if registered_domain(link) == home][:_MAX_LINKS]
+
+
+def read_page(url: str, max_chars: int = PAGE_CHARS, **_: Any) -> Evidence:
+    """Read one web page as text, with its links on the same site.
+
+    Use it on a result web_search found: search shows only a snippet, and this opens the
+    page. No browser runs, so a page built by scripts can come back empty.
+    """
+    from scrape.http import request
+
+    failed = lambda why: Evidence.empty("read_page", "scrape", error=why)  # noqa: E731
+    try:
+        response = request("GET", url)
+    except BudgetExceeded:
+        raise
+    except Exception as exc:
+        return failed(f"page could not be read ({type(exc).__name__})")
+    if response is None or getattr(response, "status_code", 0) != 200:
+        return failed(f"page answered {getattr(response, 'status_code', 'nothing')}")
+    kind = str(response.headers.get("Content-Type") or "text/html").lower()
+    if not kind.startswith(_TEXT_TYPES):
+        return failed("not a text page")
+    text = plain(response.text or "")
+    if not text:
+        return failed("page has no readable text")
+    return Evidence(source="read_page", category="scrape", count=1, payload={
+        "url": url, "content": text[:min(max_chars, MAX_PAGE_CHARS)],
+        "links": _site_links(response.text, url)})
 
 
 def research_tools() -> Registry:
@@ -165,4 +230,8 @@ def research_tools() -> Registry:
                "bls_cex_spend": _with_series_coverage(host["bls_cex_spend"].fn)}
     for name, fn in repairs.items():
         registry[name] = dataclasses.replace(host[name], fn=fn)
+    registry["read_page"] = dataclasses.replace(
+        host["fetch_via_wayback"], name="read_page", fn=read_page,
+        signature="(url: str, max_chars: int = 6000) -> Evidence",
+        docstring=read_page.__doc__, returns="{url, content, links}", args_model=None)
     return registry

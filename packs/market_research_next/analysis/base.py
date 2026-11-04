@@ -42,6 +42,36 @@ def repairing(messages: Iterable[str]) -> Iterator[None]:
         _REPAIR_NOTES.reset(token)
 
 
+#: The pipeline's own vocabulary, which means nothing to a founder reading the report.
+_READER_FIELDS = ("narrative", "findings", "assumptions", "uncertainties")
+_INTERNAL = re.compile(r"\bupstream\b|\baccepted (?:business|customer)\b|\bbusiness context\b|"
+                       r"\bcustomer inputs?\b|\bthis (?:report )?section\b|\bsynthesi[sz]es\b|"
+                       r"\b(?:the|your) intake\b|\bintake (?:form|survey|answers?|facts?|data)\b",
+                       re.I)
+_PREP_WORD = re.compile(r"\bPREP\b")
+READER_RULE = ("\n\nWrite for the founder, who has never seen how this report is made. Never "
+               "use the words upstream, accepted inputs, business context, customer inputs, "
+               "intake or PREP, and never refer to \"this section\" or say what the text "
+               "synthesizes. Name the thing itself: your pricing, the market sizing, what you "
+               "told us.")
+
+
+def internal_words(value: Mapping[str, Any]) -> str:
+    """The pipeline's words in the text a reader sees, named; empty when there are none."""
+    texts = [str(item) for field in _READER_FIELDS for item in (
+        value.get(field) if isinstance(value.get(field), list) else [value.get(field) or ""])]
+    found = [m.group(0).lower() for t in texts for m in _INTERNAL.finditer(t)]
+    found += [m.group(0) for t in texts for m in _PREP_WORD.finditer(t)]
+    return ", ".join(dict.fromkeys(found))
+
+
+def reader_problem(value: Mapping[str, Any]) -> str | None:
+    """The re-ask message for internal words in reader text; None when there are none."""
+    words = internal_words(value)
+    return (f"the text a founder reads uses this report's internal words ({words}); say "
+            "what is meant in the founder's terms" if words else None)
+
+
 class AnalysisError(ValueError):
     """A section could not be produced. The message never carries provider text."""
 
@@ -136,7 +166,7 @@ def call_model(system: str, payload: Mapping[str, Any], *,
         payload, system = {**payload, "previous_attempt_review_issues": list(notes)}, system + _REPAIR_RULE
     user = json.dumps(payload, ensure_ascii=False, allow_nan=False)
     try:
-        raw = model(system, user, max_tokens=max_tokens, tier=tier)
+        raw = model(system + READER_RULE, user, max_tokens=max_tokens, tier=tier)
     except AnalysisError:
         raise
     except Exception as exc:
@@ -157,6 +187,9 @@ def ask(system: str, payload: Mapping[str, Any], parse: Callable[[dict], Any], *
         tier: str = "reasoning", attempts: int = 2) -> Any:
     """parse() of the model's answer, re-asking once with the reason it was rejected.
 
+    Internal words in reader text earn the re-ask too, but never fail the section: a
+    plainly worded report is worth one call, not the loss of the section.
+
     The re-ask pattern of instructor (MIT, jxnl/instructor): a structured answer that
     fails validation goes back to the model with the validation message. Before this a
     rejected answer failed the section, and the run spent a whole correction round
@@ -169,7 +202,10 @@ def ask(system: str, payload: Mapping[str, Any], parse: Callable[[dict], Any], *
         try:
             raw = call_model(system if problem is None else system + _REASK_RULE, body,
                              model=model, max_tokens=max_tokens, tier=tier)
-            return parse(raw)
+            answer = parse(raw)
+            problem = reader_problem(raw) if attempt < attempts - 1 else None
+            if problem is None:
+                return answer
         except (ValueError, KeyError) as exc:
             if attempt == attempts - 1:
                 raise

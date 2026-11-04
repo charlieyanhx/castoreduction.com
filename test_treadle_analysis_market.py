@@ -674,6 +674,229 @@ def test_unit_scale_and_pricing_section_price():
     assert any(c["source_type"] == "section" for c in bu["citations"])
 
 
+@pytest.mark.parametrize("product,category", [
+    ("A platform connecting dog owners with local dog walkers, featuring online booking.",
+     "dog walkers"),
+    ("An app that matches parents with nearby babysitters.", "babysitters"),
+    ("A specialty coffee shop on NW 23rd Avenue.", "specialty coffee shop")])
+def test_the_search_names_the_trade_not_the_app(product, category):
+    assert cc.category_phrase(context({"product": product})) == category
+
+
+@pytest.mark.parametrize("text,place", [
+    ("Launching in the Annex and Little Italy neighbourhoods of Toronto",
+     "the Annex and Little Italy neighbourhoods of Toronto"),
+    ("Only Chicago's Lincoln Park neighbourhood.", "Chicago's Lincoln Park neighbourhood"),
+    ("Based in Portland, Oregon", "Portland, Oregon"),
+    ("Initially serving Austin; later Dallas", "Austin"),
+    ("Portland, Oregon", "Portland, Oregon")])
+def test_the_search_names_the_place_not_the_sentence(text, place):
+    assert cc.location_phrase(context({"geography": text})) == place
+
+
+def test_a_park_or_the_place_itself_is_not_a_competitor():
+    places = [{"name": "City Town Canine", "category": "pet_care"},
+              {"name": "Grace - College Parkette", "category": "park"},
+              {"name": "Little Italy", "category": None}]
+    kept = cc.businesses(places, "the Annex and Little Italy of Toronto")
+    assert [p["name"] for p in kept] == ["City Town Canine"]
+
+
+def test_a_kind_copied_with_its_explanation_is_still_that_kind():
+    # Vague, 2026-11-03: the writer copied the contract's whole description into "kind".
+    copied = fig("market_value (total yearly spend in this market)", 5e9, "https://a.com/x")
+    data = size(copied, facts={}, competitor_count=places(10))["data"]
+    assert data["methods"]["top_down"]["tam"]["value"] == 5e9
+
+
+def test_competing_businesses_are_not_customers():
+    # Cafe, 2026-11-03: 76 competing establishments outranked 15,062 households.
+    rivals = fig("customer_count", 76, "https://osm.org/x", unit="establishments",
+                 name="Competing food establishments")
+    homes = fig("customer_count", 15062, "https://census.gov/h", unit="households")
+    data = size(rivals, homes, facts={"business_model": "$10 per month"},
+                competitor_count=places(10))["data"]
+    assert data["methods"]["bottom_up"]["tam"]["inputs"]["customers"] == 15062
+
+
+def test_a_rate_is_never_reported_as_zero():
+    # Vague, 2026-11-03: 0.141 printed as "0", and five forces read that as no growth.
+    growth = fig("growth_rate", 0.141, "https://a.com/g", unit="fraction", name="Market growth")
+    homes = fig("customer_count", 100, "https://census.gov/h", unit="households")
+    section = size(growth, homes, facts={})
+    assert "Market growth: 0 " not in section["narrative"]
+    assert "Market growth: 14.1%" in section["narrative"]
+
+
+@pytest.mark.parametrize("product,category", [
+    ("Meal-planning service offered via a $20/month app subscription.", "Meal-planning service"),
+    ("Tutoring delivered through local libraries.", "Tutoring")])
+def test_the_search_stops_before_how_the_service_is_sold(product, category):
+    assert cc.category_phrase(context({"product": product})) == category
+
+
+def test_a_count_left_as_other_is_still_a_count():
+    # Cafe, 2026-11-03: households were labelled "other", so sizing saw no customers.
+    other = fig("other", 2448, "https://census.gov/h", unit="households")
+    income = fig("other", 69524, "https://census.gov/i", unit="USD per household")
+    data = size(other, income, facts={"business_model": "$10 per month"},
+                competitor_count=places(10))["data"]
+    assert data["methods"]["bottom_up"]["tam"]["inputs"]["customers"] == 2448
+
+
+@pytest.mark.parametrize("name,year", [("Projected global market size", 2025),
+                                       ("Global market forecast", 2025), ("Global market", 2031)])
+def test_a_forecast_is_not_todays_market(name, year):
+    # Vague brief, 2026-11-03: the median of today's and 2030's market gave a $110.5B TAM.
+    now = fig("market_value", 60e9, "https://a.com/x", name="Global market size")
+    later = fig("market_value", 150e9, "https://b.com/x", name=name, year=year)
+    data = size(now, later, facts={}, competitor_count=places(10))["data"]
+    assert data["methods"]["top_down"]["tam"]["value"] == 60e9
+    assert any("forecast" in w for w in data["warnings"])
+
+
+def test_a_top_down_share_is_never_presented_as_a_forecast():
+    section = size(FIGURES[0], facts={}, competitor_count=places(10))
+    assert any("not a revenue forecast" in w for w in section["data"]["warnings"])
+    assert "not a revenue forecast" in section["narrative"]
+
+
+def test_bls_spend_per_consumer_unit_matches_a_household_count():
+    spend = fig("broader_spend", 4142, "https://www.bls.gov/cex/", unit="USD per year",
+                name="All food away from home spending per consumer unit")
+    data = size(fig("customer_count", 100, "https://census.gov/h", unit="households"),
+                spend, facts={})["data"]
+    assert data["ceiling"]["value"] == 414_200
+
+
+def test_the_search_ignores_a_slash_between_container_words():
+    product = "A platform/app connecting dog owners with local dog walkers, featuring booking."
+    assert cc.category_phrase(context({"product": product})) == "dog walkers"
+
+
+def test_a_number_returned_as_text_is_still_the_number():
+    # B2B, 2026-11-03: "50883" was skipped and the report said no source gave a count.
+    data = size(fig("customer_count", "50,883", "https://census.gov/c", unit="establishments"),
+                facts={"business_model": "$10 per month"}, competitor_count=places(10))["data"]
+    assert data["methods"]["bottom_up"]["tam"]["value"] == 50_883 * 120
+
+
+@pytest.mark.parametrize("text", ["about 5k", "many", "", "1e400"])
+def test_text_that_is_not_a_plain_number_is_still_skipped(text):
+    data = size(fig("customer_count", text, "https://census.gov/c"))["data"]
+    assert any("no positive number" in w for w in data["warnings"])
+
+
+def test_counts_in_different_units_are_never_averaged():
+    # Cafe, 2026-11-03: the median of 2,448 households and 4,108 residents counts nothing.
+    data = size(fig("customer_count", 2448, "https://census.gov/h", unit="households"),
+                fig("customer_count", 4108, "https://census.gov/r", unit="residents"),
+                facts={"business_model": "$10 per month"}, competitor_count=places(10))["data"]
+    assert data["methods"]["bottom_up"]["tam"]["inputs"]["customers"] == 2448
+
+
+def test_counts_for_different_places_use_the_widest_and_say_so():
+    tract = fig("customer_count", 1438, "https://census.gov/t", unit="households",
+                geography="Census Tract 8325")
+    county = fig("customer_count", 2_066_248, "https://census.gov/c", unit="households",
+                 geography="Cook County")
+    data = size(tract, county, facts={"business_model": "$10 per month"},
+                competitor_count=places(10))["data"]
+    bu = data["methods"]["bottom_up"]["tam"]
+    assert bu["inputs"]["customers"] == 2_066_248
+    assert [c["url"] for c in bu["citations"] if c["source_type"] == "web"] == ["https://census.gov/c"]
+    assert any("Census Tract 8325" in w and "Cook County" in w for w in data["warnings"])
+
+
+def test_a_count_of_businesses_is_preferred_over_people_for_a_business_price():
+    people = fig("customer_count", 9_000_000, "https://census.gov/p", unit="residents")
+    clinics = fig("customer_count", 50_883, "https://census.gov/c", unit="establishments")
+    data = size(people, clinics, facts={"business_model": "$10 per clinic per month"},
+                competitor_count=places(10))["data"]
+    assert data["methods"]["bottom_up"]["tam"]["inputs"]["customers"] == 50_883
+
+
+@pytest.mark.parametrize("text,annual", [("$39 per practitioner per month", 468),
+                                         ("$39 a seat a month", 468), ("$120 per clinic per year", 120)])
+def test_a_price_per_unit_per_period_is_annualized(text, annual):
+    assert sizing.founder_price(context({}, {"pricing": text}))[0] == annual
+
+
+def test_a_per_item_price_and_a_volume_are_still_not_a_yearly_price():
+    assert sizing.founder_price(context({}, {"pricing": "$5 per latte, about 300 a week"}))[0] is None
+
+
+def test_a_count_and_price_in_different_units_are_a_labelled_floor():
+    # 50,883 clinics at a per-practitioner price is one practitioner per clinic: a floor.
+    data = size(fig("customer_count", 50_883, "https://census.gov/c", unit="establishments"),
+                facts={"pricing": "$39 per practitioner per month"},
+                competitor_count=places(10))["data"]
+    assert data["methods"]["bottom_up"]["tam"]["value"] == 50_883 * 468
+    assert any("per practitioner" in w and "floor" in w and "establishments" in w
+               for w in data["warnings"])
+
+
+def test_matching_units_carry_no_floor_warning():
+    data = size(fig("customer_count", 500, "https://census.gov/c", unit="clinics"),
+                facts={"pricing": "$39 per clinic per month"}, competitor_count=places(10))["data"]
+    assert not any("floor" in w for w in data["warnings"])
+
+
+def test_tam_says_it_counts_everyone_not_only_buyers():
+    section = size(fig("customer_count", 2448, "https://census.gov/h", unit="households"),
+                   facts={"business_model": "$10 per month"}, competitor_count=places(10))
+    assert any("every household" in a for a in section["assumptions"])
+
+
+def _spend(value=3699, **extra):
+    return fig("other", value, "https://www.bls.gov/cex/", unit="USD per household per year",
+               **{"name": "Household food away from home spend", **extra})
+
+
+def test_spend_on_a_wider_category_gives_a_ceiling_and_never_a_tam():
+    # Cafe, 2026-11-03: households and restaurant spend were both found, labelled "other".
+    section = size(fig("customer_count", 2448, "https://census.gov/h", unit="households",
+                       geography="Census Tract 47"), _spend(), facts={})
+    data = section["data"]
+    assert data["anchor_method"] is None and section["metrics"]["tam"] is None
+    assert data["ceiling"]["value"] == 2448 * 3699
+    assert section["metrics"]["ceiling"] == 2448 * 3699
+    assert section["research_status"] == "partial"
+    text = section["narrative"]
+    assert text.startswith("No market size is computed")
+    assert "$9.1M" in text and "upper limit" in text and "food away from home" in text
+    assert "$9.1M" in sizing.render_data(data)
+
+
+def test_a_ceiling_needs_matching_units():
+    data = size(fig("customer_count", 4108, "https://census.gov/r", unit="residents"),
+                _spend(), facts={})["data"]
+    assert data["ceiling"] is None
+
+
+def test_no_ceiling_when_a_market_size_exists():
+    data = size(*FIGURES, _spend(), competitor_count=places(10))["data"]
+    assert data["anchor_method"] and data["ceiling"] is None
+
+
+@pytest.mark.parametrize("name,unit", [("Median household income", "USD per year"),
+                                       ("Household spend", "USD"),
+                                       ("Tract income per household", "USD per household per year")])
+def test_other_figures_that_are_not_spend_stay_out_of_the_ceiling(name, unit):
+    other = fig("other", 69524, "https://census.gov/i", unit=unit, name=name)
+    data = size(fig("customer_count", 2448, "https://census.gov/h", unit="households"),
+                other, facts={})["data"]
+    assert data["ceiling"] is None
+
+
+def test_a_labelled_wider_spend_figure_counts():
+    wider = fig("broader_spend", 3000, "https://www.bls.gov/cex/",
+                unit="USD per household per year", name="Food away spend")
+    data = size(fig("customer_count", 100, "https://census.gov/h", unit="households"),
+                wider, facts={})["data"]
+    assert data["ceiling"]["value"] == 300_000
+
+
 def test_inferred_price_and_unit_economics_are_not_the_founders_price():
     ctx = context({"pricing": "$20 per month"}, {"unit_economics": "Costs $3 per user per month."})
     ctx["prep"]["venture"]["attributes"]["pricing"]["basis"] = "inferred"
@@ -719,7 +942,7 @@ def test_no_competitor_count_leaves_som_uncomputed_rather_than_assuming_none():
 
 @pytest.mark.parametrize("text,annual", [
     ("$5 per latte, about 300 a week", None), ("$40 per class, 2 classes a week", None),
-    ("$39 per practitioner per month", None), ("$29/month", 348.0), ("$29 a month", 348.0),
+    ("$39 per practitioner per month", 468.0), ("$29/month", 348.0), ("$29 a month", 348.0),
     ("$49 monthly", 588.0), ("$1,200 per year", 1200.0)])
 def test_a_founder_price_is_annualised_only_by_its_own_period(text, annual):
     assert sizing._price_from(text)[0] == annual

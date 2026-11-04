@@ -14,17 +14,15 @@ from collections import Counter
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from . import base
+from . import base, pricing_pages
 
 KEY = "pricing"
 LABEL = "Pricing"
 BILLING_MODELS = ("one_time", "per_unit", "monthly", "annual", "usage", "free", "custom")
 CONFIDENCES = ("none", "low", "medium", "high")
-#: fetch_page reads a competitor's live site; without it the agent saw search snippets and
-#: archived copies only, and found 0 of 5 cafe prices (live, 2026-10-30).
-AGENT_TOOLS = ("web_search", "fetch_page", "fetch_via_wayback", "extract_prices",
-               "extract_structured", "wayback_snapshot_url")
 MAX_COMPETITORS = 5
+#: A median needs a market: one company's own tiers say nothing about the category.
+MIN_COMPETITORS_FOR_MEDIAN = 2
 _URL_KEYS = frozenset({"url", "link", "href"})
 _URL = re.compile(r"https?://\S+")
 #: An archived copy counts as its original site, or every Wayback citation would collapse
@@ -117,12 +115,14 @@ def _selected(context: Mapping[str, Any]) -> list[dict]:
     """The competitors to price: the landscape's list, else the businesses Places counted."""
     sites = _sites(context)
     picked = _select(base.upstream(context, "competitive_landscape"), sites)
-    if picked:
-        return picked
-    data = (base.upstream(context, "competitor_count") or {}).get("data")
-    places = data.get("competitors") if isinstance(data, dict) else None
-    return _select({"metrics": {"competitors": places if isinstance(places, list) else None}},
-                   sites)
+    if not picked:
+        data = (base.upstream(context, "competitor_count") or {}).get("data")
+        places = data.get("competitors") if isinstance(data, dict) else None
+        picked = _select({"metrics": {"competitors": places if isinstance(places, list) else None}},
+                         sites)
+    # The writer sometimes gives the article that named a competitor as its website.
+    return [{**c, "url": c["url"] if pricing_pages.own_site(c["name"], c["url"])
+             else _site_for(c["name"], sites)} for c in picked]
 
 
 def _local_levels(context: Mapping[str, Any]) -> dict | None:
@@ -160,11 +160,7 @@ def _observed(result: Any) -> list[Any]:
             and getattr(e, "source", None) not in _NOT_OBSERVED]
 
 
-def _plain(text: str) -> str:
-    if "<" in text:
-        text = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", text)
-        text = re.sub(r"<[^>]+>", " ", text)
-    return re.sub(r"\s+", " ", text).strip()
+_plain = pricing_pages.plain
 
 
 def _model_payload(selected, founder, product, items, answer, urls) -> dict:
@@ -222,8 +218,31 @@ def _match(name: str, selected: list[dict]) -> dict | None:
         (c for c in selected if c["name"].casefold() in key or key in c["name"].casefold()), None)
 
 
-def _structure(raw: dict, selected: list[dict], allowed: set[str],
-               warnings: list[str]) -> list[dict]:
+def _pages_by_competitor(items: list[Any]) -> dict[str, list[dict]]:
+    pages: dict[str, list[dict]] = {}
+    for item in items:
+        payload = item.payload
+        if isinstance(payload, dict) and payload.get("competitor"):
+            pages.setdefault(payload["competitor"], []).append(payload)
+    return pages
+
+
+def _shows_price(text: str, price: float) -> bool:
+    return re.search(rf"(?<![\d.,]){re.escape(f'{price:g}')}(?![\d,]|\.\d)", text) is not None
+
+
+def _pages_showing(tiers: list[dict], pages: list[dict]) -> list[str]:
+    """The pages read for this competitor that show one of its prices.
+
+    Writers often leave source_urls empty. A figure found on the competitor's own page,
+    checked here in code, is better evidence than a URL the writer remembered to cite.
+    """
+    prices = [t["price"] for t in tiers if t["price"] is not None]
+    return [p["url"] for p in pages if any(_shows_price(p["content"], v) for v in prices)]
+
+
+def _structure(raw: dict, selected: list[dict], allowed: set[str], warnings: list[str],
+               pages: dict[str, list[dict]] | None = None) -> list[dict]:
     found: dict[str, dict] = {}
     for entry in raw.get("competitors") if isinstance(raw.get("competitors"), list) else []:
         name = _text_or_none(entry.get("competitor")) if isinstance(entry, dict) else None
@@ -242,6 +261,7 @@ def _structure(raw: dict, selected: list[dict], allowed: set[str],
         tiers = [_clean_tier(t, target["name"], warnings)
                  for t in (entry.get("tiers") if isinstance(entry.get("tiers"), list) else [])
                  if isinstance(t, dict)]
+        sources = sources or _pages_showing(tiers, (pages or {}).get(target["name"], []))
         found[target["name"]] = {"tiers": tiers, "source_urls": list(dict.fromkeys(sources)),
                                  "notes": _text_or_none(entry.get("notes"))}
     return [_score(c, found.get(c["name"])) for c in selected]
@@ -276,10 +296,11 @@ def _category(competitors: list[dict], warnings: list[str]) -> tuple:
     comparable = [(c, t) for c, t in priced if t["monthly_price"] is not None]
     counts = Counter(t["currency"] for _, t in comparable if t["currency"])
     currency = counts.most_common(1)[0][0] if counts else None
-    values = []
+    values, sellers = [], set()
     for c, t in comparable:
         if currency is None or t["currency"] == currency:
             values.append(t["monthly_price"])
+            sellers.add(c["competitor"])
         else:
             warnings.append(f"{c['competitor']} {t['name']} is priced in "
                             f"{t['currency'] or 'an unstated currency'} and is left out of the "
@@ -288,20 +309,24 @@ def _category(competitors: list[dict], warnings: list[str]) -> tuple:
                  "currency": t["currency"], "billing_model": t["billing_model"]}
                 for c, t in priced if t["monthly_price"] is None]
     span = [min(values), max(values)] if values else None
-    return base.median(values), span, currency, excluded
+    median = base.median(values) if len(sellers) >= MIN_COMPETITORS_FOR_MEDIAN else None
+    return median, span, currency, excluded
 
 
 def _per_unit(competitors: list[dict]) -> dict | None:
     """The median of menu-style prices for the most common unit ("per drink")."""
-    items = [t for c in competitors if c["verified"] for t in c["tiers"]
+    items = [(c, t) for c in competitors if c["verified"] for t in c["tiers"]
              if t["price"] is not None and t["billing_model"] == "per_unit" and t["unit"]]
     if not items:
         return None
-    unit = Counter(t["unit"].strip().lower() for t in items).most_common(1)[0][0]
-    same = [t for t in items if t["unit"].strip().lower() == unit]
-    found = Counter(t["currency"] for t in same if t["currency"]).most_common(1)
+    unit = Counter(t["unit"].strip().lower() for _, t in items).most_common(1)[0][0]
+    same = [(c, t) for c, t in items if t["unit"].strip().lower() == unit]
+    found = Counter(t["currency"] for _, t in same if t["currency"]).most_common(1)
     currency = found[0][0] if found else None
-    values = [t["price"] for t in same if currency is None or t["currency"] == currency]
+    kept = [(c, t) for c, t in same if currency is None or t["currency"] == currency]
+    if len({c["competitor"] for c, _ in kept}) < MIN_COMPETITORS_FOR_MEDIAN:
+        return None
+    values = [t["price"] for _, t in kept]
     return {"unit": unit, "median": round(base.median(values), 2),
             "range": [min(values), max(values)], "currency": currency}
 
@@ -337,6 +362,10 @@ def _levels_text(levels: dict) -> str:
                      if part)
 
 
+def _default_agent() -> Callable[..., Any]:
+    return pricing_pages.gather
+
+
 def produce(context: dict, *, model: Callable[..., dict] | None = None,
             agent: Callable[..., Any] | None = None, now: Any = None) -> dict:
     """The pricing section. `now` is accepted for the shared signature and unused."""
@@ -346,15 +375,12 @@ def produce(context: dict, *, model: Callable[..., dict] | None = None,
         return _partial(founder, levels, "No competitors were identified, so no competitor "
                         "pricing was researched.", ["No competitors were identified by the "
                                                     "competitive landscape section."])
-    if agent is None:
-        from treadle.harness.agent import run_agent as agent
+    agent = agent or _default_agent()
     product = base.stated(context, "product")
     try:
-        result = agent(_GOAL, allowed_tools=list(AGENT_TOOLS), allowed_categories=["scrape"],
-                       max_steps=6, context=json.dumps(
-                           {"competitors": selected,
-                            "venture": {"product": product, "pricing": founder}},
-                           ensure_ascii=False))
+        result = agent(_GOAL, context=json.dumps(
+            {"competitors": selected, "venture": {"product": product, "pricing": founder}},
+            ensure_ascii=False))
     except Exception:  # provider text never reaches the report
         return _partial(founder, levels, "External research failed, so no competitor prices "
                         "are reported.", ["external research failed"])
@@ -371,7 +397,7 @@ def produce(context: dict, *, model: Callable[..., dict] | None = None,
                                                   getattr(result, "answer", ""), urls),
                           model=model)
     warnings: list[str] = []
-    competitors = _structure(raw, selected, urls, warnings)
+    competitors = _structure(raw, selected, urls, warnings, _pages_by_competitor(items))
     median, span, currency, excluded = _category(competitors, warnings)
     return _assemble(founder, levels, competitors, median, span, currency, excluded,
                      warnings, result)
@@ -397,6 +423,10 @@ def _assemble(founder, levels, competitors, median, span, currency, excluded, wa
         narrative.append(f"Across monthly-comparable tiers the median is "
                          f"{_amount(median, currency)} per month, ranging from "
                          f"{_amount(span[0], currency)} to {_amount(span[1], currency)}.")
+    elif span:
+        narrative.append(f"Only one competitor published comparable prices, from "
+                         f"{_amount(span[0], currency)} to {_amount(span[1], currency)} per "
+                         "month, so no category median is given.")
     narrative.append(f'The founder states: "{founder}".' if founder
                      else "The founder has not stated a price.")
     if levels:

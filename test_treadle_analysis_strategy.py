@@ -559,6 +559,39 @@ class Sequence:
         return copy.deepcopy(self.answers[len(self.calls) - 1])
 
 
+@pytest.mark.parametrize("text,word", [
+    ("Per upstream analysis it works.", "upstream"), ("This report section synthesizes it.", "section"),
+    ("The accepted business context says so.", "accepted business"),
+    ("Accepted customer statements agree.", "accepted customer"),
+    ("PREP found a gap.", "PREP"), ("The intake form said so.", "intake"),
+    ("Based on the customer inputs.", "customer input")])
+def test_internal_words_are_named(text, word):
+    assert word.lower() in base.internal_words({"narrative": text}).lower()
+
+
+@pytest.mark.parametrize("value", [
+    {"narrative": "Your pricing sits above the market."}, {"narrative": "They prep meals on Sunday."},
+    {"rests_on": ["prep"]}, {"findings": ["A strong section of the market."]}, {}])
+def test_founder_language_passes(value):
+    assert base.internal_words(value) == ""
+
+
+@pytest.mark.parametrize("text", ["Patient intake takes ten minutes.", "Calorie intake matters."])
+def test_a_domain_use_of_intake_is_not_an_internal_word(text):
+    assert base.internal_words({"narrative": text}) == ""
+
+
+def test_an_analysis_section_with_internal_words_is_sent_back_once():
+    fake = Sequence({"narrative": "From the upstream sections."}, {"narrative": "Clean."})
+    assert base.ask("s", {"a": 1}, lambda raw: raw, model=fake)["narrative"] == "Clean."
+    assert "upstream" in fake.calls[1]["user"]["previous_answer_rejected"]
+
+
+def test_internal_words_alone_never_fail_an_analysis_section():
+    fake = Sequence({"narrative": "From upstream."}, {"narrative": "Still upstream."})
+    assert base.ask("s", {}, lambda raw: raw, model=fake)["narrative"] == "Still upstream."
+
+
 def test_a_median_spelled_in_words_is_sent_back_with_the_figure_in_digits():
     # Marketplace, 2026-11-03: the model wrote "USD twenty" and the digit check refused it
     # three times out of three, because the refusal never said what it was looking for.

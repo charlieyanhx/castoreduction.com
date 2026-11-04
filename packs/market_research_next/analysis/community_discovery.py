@@ -29,6 +29,8 @@ URL = "https://oauth.reddit.com/subreddits/search"
 #: successor to Pushshift). Their copies trail Reddit by days; the ranking is the same.
 ARCHIVE_SUBREDDITS = "https://arctic-shift.photon-reddit.com/api/subreddits/search"
 ARCHIVE_POSTS = "https://api.pullpush.io/reddit/search/submission/"
+#: Which lookup failed means nothing to a reader; that the list may be short does.
+ARCHIVE_FAILED = "A community archive lookup failed, so this list may be incomplete."
 PREFIX_LIMIT = 10
 POST_SAMPLE = 100
 #: A subreddit seen in fewer matching posts is noise, and only a few are looked up.
@@ -178,7 +180,7 @@ def produce(context: dict, *, model=None, session=None, env=None, now=None) -> d
             "tier_distribution": {name: sum(1 for s in subreddits if s["match_tier"] == name)
                                   for name in ("exact", "semantic", "adjacent", "peripheral")},
             "quality": quality(subreddits)}
-    uncertainties = list(failures)
+    uncertainties = list(dict.fromkeys(failures))
     if not queries:
         uncertainties.append("The venture's category is not known, so Reddit was not searched.")
     elif not subreddits and not failures:
@@ -346,16 +348,16 @@ def _search_archives(queries: list[str], _client: tuple[str, str],
                 try:
                     found[query] = _posts_by_subreddit(
                         _archive({"q": query, "size": POST_SAMPLE}, session, ARCHIVE_POSTS))
-                except base.AnalysisError as exc:
-                    failures.append(f'The post archive search for "{query}" failed: {exc}.')
+                except base.AnalysisError:
+                    failures.append(ARCHIVE_FAILED)
     by_word: dict[str, list[dict]] = {}
     words = list(dict.fromkeys(w for q in queries for w in q.split()))
     for word in words[:max(0, ARCHIVE_CALLS - spent - 1)]:
         spent += 1
         try:
             by_word[word] = _archive({"subreddit_prefix": word, "limit": PREFIX_LIMIT}, session)
-        except base.AnalysisError as exc:
-            failures.append(f'The subreddit archive lookup for "{word}" failed: {exc}.')
+        except base.AnalysisError:
+            failures.append(ARCHIVE_FAILED)
     for query in queries:
         terms = query.split()
         for word in terms:
@@ -372,8 +374,8 @@ def _search_archives(queries: list[str], _client: tuple[str, str],
     for name in leads:
         try:
             records = _archive({"subreddit": name}, session)
-        except base.AnalysisError as exc:
-            failures.append(f"The subreddit archive lookup for r/{name} failed: {exc}.")
+        except base.AnalysisError:
+            failures.append(ARCHIVE_FAILED)
             continue
         for query, counts in found.items():
             if counts.get(name, 0):

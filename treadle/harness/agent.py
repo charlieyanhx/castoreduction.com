@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from collections.abc import Callable
 from typing import Optional
 
 from treadle.logger import get
@@ -68,6 +69,14 @@ MAX_STEPS_CEILING = 25
 # it, a log whose *recent* entries alone exceed the budget would re-compact every
 # step, progressively digesting its own summaries into nothing.
 OBS_LOG_BUDGET_CHARS = 6000
+#: How much of a tool result the planner sees by default. A caller whose planner has to
+#: judge what a result says, not only that one came back, passes a larger figure.
+OBSERVATION_CHARS = 240
+#: Room for a final answer. At 600 a long one was cut mid-string, the decision failed to
+#: parse, and the run read as research that returned no answer.
+PLANNER_MAX_TOKENS = 2000
+#: How often before_done may send a planner back, so a check it cannot meet ends the run.
+MAX_SEND_BACKS = 2
 OBS_KEEP_RECENT = 4
 MAX_COMPACTIONS = 3
 
@@ -202,7 +211,7 @@ def _compact_observations(observations: list[str],
     return compact(observations, keep_recent=keep_recent, store=store)
 
 
-def _summarize_evidence(e: Evidence, limit: int = 240) -> str:
+def _summarize_evidence(e: Evidence, limit: int = OBSERVATION_CHARS) -> str:
     """Short, deterministic observation string fed back into the loop."""
     if e.error:
         return f"ERROR: {e.error}"
@@ -222,6 +231,8 @@ def run_agent(
     max_steps: int = 8,
     context: str = "",
     registry: Optional[Registry] = None,
+    observation_chars: int = OBSERVATION_CHARS,
+    before_done: Optional[Callable[[AgentResult], Optional[str]]] = None,
 ) -> AgentResult:
     """Run the agent loop to accomplish `goal`, return an AgentResult.
 
@@ -229,6 +240,9 @@ def run_agent(
       goal: what to accomplish (natural language).
       allowed_tools / allowed_categories: mask the tool surface. None = all.
       max_steps: per-run budget (clamped to MAX_STEPS_CEILING).
+      observation_chars: how much of each tool result the planner sees.
+      before_done: when the planner stops, says what is still missing, or None. The
+        planner is sent back with that text, at most MAX_SEND_BACKS times.
       registry: the tool set to run over. Defaults to the domain's; supply one to run
         this loop for a different report type, or a fixture set in a test.
       context: optional extra grounding injected once at the start.
@@ -259,6 +273,7 @@ def run_agent(
     from treadle.context.compaction import CompactionStore
     obs_store = CompactionStore()
 
+    send_backs = 0
     for i in range(budget):
         check_budget()
         # H13: compact the observation log when it outgrows the prompt budget.
@@ -286,6 +301,12 @@ def run_agent(
         decision = call_next(system, user)
         check_budget()
         if decision.get("done"):
+            missing = (before_done(result) if before_done and send_backs < MAX_SEND_BACKS
+                       and remaining > 1 else None)
+            if missing:
+                send_backs += 1
+                observations.append(f"step {i}: not finished: {missing}")
+                continue
             result.completed = True
             result.answer = str(decision.get("answer", "")).strip()
             result.stop_reason = "done"
@@ -316,7 +337,7 @@ def run_agent(
                                 count=0, payload=evidence)
 
         result.evidence.append(evidence)
-        summary = _summarize_evidence(evidence)
+        summary = _summarize_evidence(evidence, observation_chars)
         ok = evidence.error is None
         result.steps.append(Step(i, tool_name, args, ok, summary, error=evidence.error))
         observations.append(f"step {i}: {tool_name}({_args_str(args)}) → {summary}")
@@ -335,7 +356,7 @@ def run_agent(
 def call_next(system: str, user: str) -> dict:
     """One planner turn. Isolated so tests can patch it without an LLM."""
     from treadle.llm import call_json
-    out = call_json(system, user, max_tokens=600)
+    out = call_json(system, user, max_tokens=PLANNER_MAX_TOKENS)
     if not isinstance(out, dict) or out.get("_parse_error"):
         return {"done": True, "answer": "",
                 "_error": (out or {}).get("_parse_error", "non-dict decision")}

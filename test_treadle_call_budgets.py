@@ -320,3 +320,59 @@ def test_custom_registry_works_without_an_active_scope():
         result = run_agent("test", registry=registry_with(tool))
     assert result.completed
     tool.assert_called_once()
+
+
+# --------------------------------------------------------------------------- planner
+def _found(source="web_search", payload=None):
+    return Evidence(source=source, category="scrape", count=1, payload=payload or ["hit"])
+
+
+def _loop_registry():
+    from types import SimpleNamespace as Space
+    return {"web_search": Space(name="web_search", category="scrape", docstring="d",
+                                signature="(query)", returns="r", fn=lambda **_: _found())}
+
+
+def _run_loop(decisions, seen=None, **kwargs):
+    from treadle.harness import agent
+
+    def call_next(system, user):
+        if seen is not None:
+            seen.append(user)
+        return next(decisions)
+    original = agent.call_next
+    agent.call_next = call_next
+    try:
+        return agent.run_agent("goal", registry=_loop_registry(), max_steps=6, **kwargs)
+    finally:
+        agent.call_next = original
+
+
+TOOL = {"tool": "web_search", "args": {"query": "q"}}
+DONE = {"done": True, "answer": "finished"}
+
+
+def test_a_planner_stopping_early_is_sent_back_with_the_reason():
+    seen = []
+    checks = iter(["Read a page first.", None])
+    result = _run_loop(iter([DONE, TOOL, DONE]), seen,
+                       before_done=lambda result: next(checks))
+    assert result.completed and len(result.evidence) == 1
+    assert "Read a page first." in seen[1]
+
+
+def test_the_planner_is_sent_back_at_most_twice():
+    result = _run_loop(iter([DONE, DONE, DONE]), before_done=lambda result: "Read a page.")
+    assert result.completed and result.answer == "finished"
+
+
+def test_no_check_means_the_first_done_stands():
+    result = _run_loop(iter([DONE]))
+    assert result.completed and result.steps == []
+
+
+def test_a_longer_observation_reaches_the_planner_when_asked():
+    from treadle.harness import agent
+    long = _found(payload=["x" * 1000])
+    assert len(agent._summarize_evidence(long)) < 300
+    assert len(agent._summarize_evidence(long, 800)) > 800

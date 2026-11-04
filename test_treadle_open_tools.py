@@ -124,7 +124,7 @@ def test_only_the_named_tools_are_replaced():
     from treadle.defaults import default_tool_registry
 
     host, repaired = default_tool_registry(), open_tools.research_tools()
-    assert set(host) == set(repaired)
+    assert set(repaired) - set(host) == {"read_page"} and set(host) <= set(repaired)
     changed = {name for name in host if host[name].fn is not repaired[name].fn}
     assert changed == {"reddit_mentions", "osm_named_competitors", "poi_competition",
                        "bls_cex_spend"}
@@ -169,3 +169,75 @@ def test_a_stalled_gemini_model_falls_through_to_the_next(monkeypatch):
     text, _, _ = llm._call_gemini("system", "user", 10, "gemini-flash-latest")
     assert text == '{"ok": true}'
     assert tried == ["gemini-flash-latest", llm.GEMINI_CHAIN[0]]
+
+
+# --------------------------------------------------------------------------- read_page
+class _Page:
+    def __init__(self, text="", status=200, kind="text/html; charset=utf-8"):
+        self.text, self.status_code, self.headers = text, status, {"Content-Type": kind}
+
+
+def _served(monkeypatch, response):
+    import scrape.http
+    asked = []
+
+    def request(method, url, **kwargs):
+        asked.append((method, url))
+        return response
+    monkeypatch.setattr(scrape.http, "request", request)
+    return asked
+
+
+def test_read_page_returns_clean_text_and_its_own_links(monkeypatch):
+    html = ('<html><script>steal()</script><h1>Plans</h1><p>Pro  $9</p>'
+            '<a href="/menu">m</a><a href="https://other.com/x">o</a></html>')
+    asked = _served(monkeypatch, _Page(html))
+    out = open_tools.read_page("https://acme.com/start")
+    assert asked == [("GET", "https://acme.com/start")] and out.count == 1
+    assert out.payload["url"] == "https://acme.com/start"
+    assert out.payload["content"] == "Plans Pro $9 m o"
+    assert out.payload["links"] == ["https://acme.com/menu"]
+
+
+def test_read_page_cuts_to_its_limit(monkeypatch):
+    _served(monkeypatch, _Page("x" * 9000))
+    assert len(open_tools.read_page("https://a.com/").payload["content"]) == open_tools.PAGE_CHARS
+    assert len(open_tools.read_page("https://a.com/", max_chars=8000).payload["content"]) == 8000
+
+
+@pytest.mark.parametrize("response", [None, _Page("no", 403), _Page("%PDF", kind="application/pdf"),
+                                      _Page("<script>x</script>")])
+def test_read_page_reports_a_page_it_could_not_read(monkeypatch, response):
+    _served(monkeypatch, response)
+    out = open_tools.read_page("https://a.com/")
+    assert out.error and out.count == 0 and not out.payload
+
+
+def test_read_page_never_passes_a_failure_as_an_exception(monkeypatch):
+    import scrape.http
+
+    def boom(method, url, **kwargs):
+        raise RuntimeError("secret detail")
+    monkeypatch.setattr(scrape.http, "request", boom)
+    out = open_tools.read_page("https://a.com/")
+    assert out.error and "secret" not in out.error
+
+
+def test_the_pack_registry_offers_read_page_to_planners():
+    tool = open_tools.research_tools()["read_page"]
+    assert tool.name == "read_page" and tool.category == "scrape"
+    assert "web page" in tool.docstring and "url" in tool.signature
+
+
+@pytest.mark.parametrize("category,series", [
+    ("specialty coffee shop boutique", open_tools.FOOD_AWAY_SERIES), ("cafe", open_tools.FOOD_AWAY_SERIES),
+    ("meal delivery", open_tools.FOOD_AWAY_SERIES), ("clothing", None)])
+def test_food_and_drink_never_reach_the_keyword_lookup(category, series):
+    # Cafe, 2026-11-03: "boutique" in the category read as apparel spending.
+    seen = {}
+
+    def host(category=None, series_id=None):
+        seen.update(category=category, series_id=series_id)
+        return Evidence(source="bls_cex_spend", category="econ", count=1, payload={"value": 1})
+    open_tools._with_series_coverage(host)(category=category)
+    assert seen["series_id"] == series

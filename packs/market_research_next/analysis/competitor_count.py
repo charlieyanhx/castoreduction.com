@@ -53,7 +53,19 @@ _IN_PERSON = re.compile(r"\b(in[- ]person|on[- ]?site|face[- ]to[- ]face|walk(ed
                         r"mix(ed)?|hybrid|both|physical(ly)?|venue|door)\b", re.I)
 # The product phrase stops where it starts describing place, audience or mechanism.
 _CLAUSE_END = re.compile(r"\s(?:on|in|at|near|for|where|that|which|who|with|to|serving|"
-                         r"offering|located|based)\s", re.I)
+                         r"offering|located|based|connecting|matching|linking|helping|"
+                         r"letting|enabling|allowing|via|through|using|offered|delivered|"
+                         r"sold)\s", re.I)
+#: Where a sentence about the business stops describing who it serves.
+_TAIL_END = re.compile(r"\s(?:featuring|including|offering|providing|plus)\s", re.I)
+_LAST_PARTY = re.compile(r"\s(?:with|to)\s", re.I)
+#: How founders open a geography answer: "Launching in", "Only", "Based in".
+_PLACE_LEAD = re.compile(r"^(?:(?:launching|starting|based|operating|located|opening|serving|"
+                         r"initially|only|just|primarily|mainly)\s+(?:(?:in|on|at|around)\s+)?)+",
+                         re.I)
+#: Google types that are places, never businesses that could compete.
+_NOT_A_BUSINESS = frozenset({"park", "city_park", "national_park", "neighborhood", "locality",
+                             "sublocality", "political", "route"})
 _SENTENCE_END = re.compile(r"[.;:()]|\s-\s")
 _ARTICLE = frozenset({"a", "an", "the", "our", "my"})
 # How the venture is run, not what it is: dropped so the search names the business.
@@ -90,12 +102,13 @@ def category_phrase(context: dict) -> str | None:
     product = _text(context, "product")
     if not product:
         return None
-    sentence = _SENTENCE_END.split(product, maxsplit=1)[0].replace(",", " ")
+    sentence = _SENTENCE_END.split(product, maxsplit=1)[0].replace(",", " ").replace("/", " ")
     parts = _CLAUSE_END.split(f" {sentence} ", maxsplit=1)
     words = [w for w in parts[0].split()
              if w.lower() not in _ARTICLE and w.lower() not in _QUALIFIERS][-CATEGORY_WORDS:]
     if all(w.lower() in _GENERIC for w in words) and len(parts) > 1:
-        content = [w for w in parts[1].split() if w.lower() not in _FILLER]
+        tail = _LAST_PARTY.split(_TAIL_END.split(parts[1], maxsplit=1)[0])[-1]
+        content = [w for w in tail.split() if w.lower() not in _FILLER]
         words = content[-2:] or words
     return " ".join(words) or None
 
@@ -106,7 +119,14 @@ def location_phrase(context: dict) -> str | None:
     if not text:
         return None
     first = re.split(r"[.;\n]", text.strip(), maxsplit=1)[0].strip(" ,")
-    return first[:LOCATION_CHARS].strip() or None
+    return _PLACE_LEAD.sub("", first)[:LOCATION_CHARS].strip() or None
+
+
+def businesses(places: list[dict], location: str) -> list[dict]:
+    """Without parks and the like, or a result that is only the searched place's name."""
+    area = location.casefold()
+    return [p for p in places if p.get("category") not in _NOT_A_BUSINESS
+            and p["name"].casefold() not in area]
 
 
 def _delivery_mode(context: dict) -> str:
@@ -264,7 +284,7 @@ def produce(context: dict, *, model=None, session=None, env=None, now=None) -> d
             return _unavailable(query, location, f"The Google Places search failed: {exc}.")
         more = True     # a later page failed: what was read is a floor
     places, farther = local(places)
-    competitors, other = same_trade(category, places)
+    competitors, other = same_trade(category, businesses(places, location))
     stats = summarize(competitors)
     data = {"available": True, "query": query, "location": location,
             "competitors": competitors, "other_places": other, "count_is_floor": more,
