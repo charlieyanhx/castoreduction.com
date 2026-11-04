@@ -98,7 +98,7 @@ def test_category_and_location_rules():
     ("Single-site, in-person specialty coffee shop on NW 23rd Avenue, Portland. It serves.",
      "specialty coffee shop"),
     ("An app where dog owners book local dog walkers. Bookings are online.", "dog walkers"),
-    ("A meal-planning service for busy parents.", "meal-planning service"),
+    ("A meal-planning service for busy parents.", "meal planning service"),
     ("An online scheduling tool for small physiotherapy clinics.", "scheduling tool")])
 def test_category_rule_on_prep_shaped_products(product, category):
     assert cc.category_phrase(context({"product": product})) == category
@@ -729,10 +729,40 @@ def test_a_rate_is_never_reported_as_zero():
 
 
 @pytest.mark.parametrize("product,category", [
-    ("Meal-planning service offered via a $20/month app subscription.", "Meal-planning service"),
+    ("Meal-planning service offered via a $20/month app subscription.", "Meal planning service"),
     ("Tutoring delivered through local libraries.", "Tutoring")])
 def test_the_search_stops_before_how_the_service_is_sold(product, category):
     assert cc.category_phrase(context({"product": product})) == category
+
+
+@pytest.mark.parametrize("product", [
+    "An app where dog owners book local walkers. We take a cut.",
+    "A platform/app for booking local dog walkers online for in-person walks",
+    "A platform connecting dog owners with local dog walkers, featuring online booking."])
+def test_rewordings_of_one_business_search_for_the_same_trade(product):
+    # PREP rewords the product each run, and the query moved with it: 7 places, then 1.
+    assert cc.category_phrase(context({"product": product})) == "dog walkers"
+
+
+def test_a_figure_from_the_trade_area_outranks_the_writers_choice_of_place():
+    county = fig("customer_count", 343_370, "https://census.gov/c", unit="households",
+                 geography="Multnomah County")
+    area = fig("customer_count", 15_062, "https://data.census.gov/", unit="households",
+               geography="1.5 km around NW 23rd Avenue", trade_area=True)
+    data = size(county, area, facts={"business_model": "$10 per month"},
+                competitor_count=places(10))["data"]
+    assert data["methods"]["bottom_up"]["tam"]["inputs"]["customers"] == 15_062
+    assert not any("different places" in w for w in data["warnings"])
+
+
+def test_trade_area_spend_gives_the_ceiling():
+    area = fig("customer_count", 100, "https://data.census.gov/", unit="households", trade_area=True)
+    spend = fig("broader_spend", 4000, "https://www.bls.gov/cex/", unit="USD per household per year",
+                name="All food away from home", trade_area=True)
+    other = fig("broader_spend", 2000, "https://www.bls.gov/cex/", unit="USD per household per year",
+                name="Apparel")
+    data = size(area, spend, other, facts={})["data"]
+    assert data["ceiling"]["value"] == 400_000 and data["ceiling"]["category"] == "All food away from home"
 
 
 def test_a_count_left_as_other_is_still_a_count():
@@ -959,3 +989,91 @@ def test_a_share_given_as_a_fraction_is_never_divided_again():
     assert figure["value"] == 0.35
     figure, _ = sizing.read_figure(fig("serviceable_share", 35, "https://a.com/x", unit="%"))
     assert figure["value"] == 0.35
+
+
+# --- the same brief twice: figures that must not move with the model's wording
+def _market_figure(value, year, url, kind="market_value", name="Market", unit="USD per year"):
+    return {"kind": kind, "name": name, "value": value, "unit": unit, "year": year,
+            "geography": "Global", "source_url": url, "source_title": "Analyst"}
+
+
+def _sized(figures):
+    market = {"metrics": {"figures": figures}, "findings": [], "narrative": ""}
+    return sizing.produce({"market_size": market, "prep": {"venture": {"attributes": {}}}})
+
+
+def test_a_spend_named_after_restaurants_is_still_a_household_spend():
+    spend = {"kind": "broader_spend", "name": "All food away from home (restaurants, cafes)",
+             "value": 4142.0, "unit": "USD per household per year", "geography": "United States",
+             "citation": {}, "trade_area": True}
+    homes = {"kind": "customer_count", "name": "Households", "value": 27995.0,
+             "unit": "households", "geography": "1.5 km", "citation": {}, "trade_area": True}
+    assert sizing.ceiling([spend, homes], [homes])["value"] == round(27995.0 * 4142.0, 2)
+
+
+def test_a_whole_market_filed_as_broader_spend_is_a_market_value():
+    figure, _ = sizing.read_figure(_market_figure(59.9e9, 2023, "https://a.example/r",
+                                                  kind="broader_spend"))
+    assert figure["kind"] == "market_value"
+    per_clinic, _ = sizing.read_figure(_market_figure(9000, 2023, "https://a.example/r",
+                                                      kind="broader_spend",
+                                                      unit="USD per clinic per year"))
+    assert per_clinic["kind"] == "broader_spend"
+
+
+def test_one_source_counts_once_at_its_latest_year():
+    data = _sized([_market_figure(59.9e9, 2023, "https://a.example/r"),
+                   _market_figure(89.1e9, 2026, "https://a.example/r")])["data"]
+    assert data["methods"]["top_down"]["tam"]["value"] == 89.1e9
+
+
+def test_sources_that_disagree_are_called_a_range():
+    data = _sized([_market_figure(9.6e9, 2024, "https://a.example/r"),
+                   _market_figure(59.9e9, 2024, "https://b.example/r")])["data"]
+    assert any("$9.6B" in w and "$59.9B" in w for w in data["warnings"])
+    close = _sized([_market_figure(50e9, 2024, "https://a.example/r"),
+                    _market_figure(60e9, 2024, "https://b.example/r")])["data"]
+    assert not any("disagree" in w for w in close["warnings"])
+
+
+def test_a_hyphen_does_not_change_the_search():
+    assert (cc.category_phrase(context({"product": "meal-planning service"}))
+            == cc.category_phrase(context({"product": "meal planning service"})))
+
+
+def test_the_founder_first_market_is_counted_before_a_later_one():
+    # B2B, 2026-11-04: Canadian practitioners beat US clinics because the price is per
+    # practitioner, though the founder said the United States comes first.
+    us = {"kind": "customer_count", "name": "Clinics", "value": 50883.0,
+          "unit": "establishments", "geography": "United States", "citation": {},
+          "trade_area": False}
+    canada = {**us, "name": "Physios", "value": 32267.0, "unit": "physiotherapists",
+              "geography": "Canada"}
+    counted, _ = sizing.customer_base([us, canada], "seats", "United States first, then Canada.")
+    assert counted == [us]
+    assert sizing.customer_base([us, canada], "seats", None)[0] == [canada]
+
+
+@pytest.mark.parametrize("name, unit", [
+    ("Average annual household spend on coffee", "USD per year"),
+    ("Spend per daycare child", "USD per year"),
+    ("Coffee market spend per-household", "USD per year"),
+])
+def test_one_customers_spend_stays_a_spend(name, unit):
+    figure, _ = sizing.read_figure(_market_figure(4000, 2024, "https://a.example/r",
+                                                  kind="broader_spend", name=name, unit=unit))
+    assert figure["kind"] == "broader_spend"
+
+
+def test_one_source_keeps_a_figure_for_each_place():
+    us = {**_market_figure(10e9, 2023, "https://a.example/r"), "geography": "United States"}
+    world = {**_market_figure(40e9, 2024, "https://a.example/r"), "geography": "Global"}
+    data = _sized([us, world])["data"]
+    assert data["methods"]["top_down"]["tam"]["value"] == 25e9
+
+
+def test_a_short_place_name_does_not_match_inside_another():
+    count = {"kind": "customer_count", "name": "Clinics", "value": 10.0, "unit": "establishments",
+             "geography": "US", "citation": {}, "trade_area": False}
+    other = {**count, "value": 5.0, "geography": "Houston"}
+    assert sizing._first_market([count, other], "Houston first") == [other]

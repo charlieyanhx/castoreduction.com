@@ -118,15 +118,15 @@ def test_counted_places_stand_in_when_the_landscape_lists_no_competitors():
         {"name": "Mutts in the 6ix", "website": "https://mutts.example/"},
         {"name": "No Site Walkers"}]}}
     assert pricing._selected(context) == [
-        {"name": "Mutts in the 6ix", "url": "https://mutts.example/", "kind": None},
+        {"name": "Mutts in the 6ix", "url": "https://mutts.example/", "kind": "direct"},
         {"name": "No Site Walkers", "url": None, "kind": None}]
 
 
-def test_the_landscape_list_wins_over_counted_places():
+def test_places_without_websites_come_after_the_landscape():
     context = _context([_comp("Rover")])
     context["competitor_count"] = {"data": {"available": True, "competitors": [
-        {"name": "Mutts in the 6ix", "website": "https://mutts.example/"}]}}
-    assert [c["name"] for c in pricing._selected(context)] == ["Rover"]
+        {"name": "Mutts in the 6ix"}]}}
+    assert [c["name"] for c in pricing._selected(context)] == ["Rover", "Mutts in the 6ix"]
 
 
 def test_one_companys_tiers_are_not_a_category_median():
@@ -182,6 +182,17 @@ def test_another_companys_page_never_verifies_a_price():
     out = _with_page(_entry("Cliniko", [], [_tier(price=45)]),
                      _read("Jane App", "https://jane.app/pricing", "Pro $45 a month"))
     assert out["data"]["competitors"][0]["verified"] is False
+
+
+def test_a_local_venture_prices_the_businesses_places_found_first():
+    # Cafe: the landscape's list changed every run; Google's list for one query did not.
+    context = _context([_comp("Stumptown"), _comp("Coava")])
+    context["competitor_count"] = {"data": {"available": True, "competitors": [
+        {"name": "Barista", "website": "https://baristapdx.com/"},
+        {"name": "No Website Cafe"},
+        {"name": "Sterling Coffee", "website": "https://sterling.coffee/"}]}}
+    assert [c["name"] for c in pricing._selected(context)] == [
+        "Barista", "Sterling Coffee", "Stumptown", "Coava", "No Website Cafe"]
 
 
 def test_the_website_places_returned_beats_an_article_from_the_landscape():
@@ -344,8 +355,8 @@ def test_the_agent_can_open_pages_and_has_each_competitors_website():
                              levels=places), model=Model({"competitors": []}), agent=agent)
     sent = json.loads(agent.calls[0]["context"])["competitors"]
     assert {c["name"]: c["url"] for c in sent} == {
-        "barista": "https://baristapdx.com/nob-hill", "Sterling Coffee Roasters":
-        "https://sterling.coffee/", "Case Study": None}
+        "Barista": "https://baristapdx.com/nob-hill", "Sterling Coffee Roasters":
+        "http://sterling.coffee/", "Case Study": None}
     assert [c["name"] for c in sent][-1] == "Case Study"   # a known site is tried first
     assert "website" in agent.calls[0]["goal"] and "menu" in agent.calls[0]["goal"]
 

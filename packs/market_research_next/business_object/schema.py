@@ -226,7 +226,8 @@ def validate_document(document: dict, statements: list[dict]) -> dict:
                 source, target = nodes[record["from_id"]], nodes[record["to_id"]]
                 allowed_from, allowed_to = EDGE_ENDPOINTS[kind]
                 if source["id"] == target["id"] or source["kind"] not in allowed_from or target["kind"] not in allowed_to:
-                    raise ValueError(f"{record['id']} has invalid endpoints for {kind}")
+                    raise ValueError(f"{record['id']} has invalid endpoints for {kind}: from "
+                                     f"{sorted(allowed_from)} to {sorted(allowed_to)}")
                 signature = (collection, source["id"], target["id"], kind, qualifiers)
             if signature in signatures:
                 raise ValueError(f"duplicate {collection} claim: {record['id']}")
@@ -238,7 +239,8 @@ def validate_document(document: dict, statements: list[dict]) -> dict:
         _text(gap["question"], f"{gap['id']}.question", limit=2000)
         _strings(gap["section_ids"], f"{gap['id']}.section_ids")
         if not set(gap["section_ids"]) <= set(REPORT_SECTIONS):
-            raise ValueError(f"{gap['id']} references unknown report sections")
+            raise ValueError(f"{gap['id']} references unknown report sections; use only "
+                             f"{sorted(REPORT_SECTIONS)}")
     return {
         "node_count": len(nodes), "fact_count": len(document["facts"]),
         "relationship_count": len(document["relationships"]), "gap_count": len(document["gaps"]),

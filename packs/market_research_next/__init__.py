@@ -20,6 +20,7 @@ from treadle.execution_limits import ExecutionLimits
 from treadle.workflow import DeterministicWorkflow, ReviewIssue
 
 from .analysis import registry as analysis_registry
+from .analysis import trade_area
 from .contracts import task_contracts, validate_prep_input
 from .form import form, from_form
 from .models import ExplicitPrepModel
@@ -182,7 +183,8 @@ def build_report_type(*, key: str = "market_research_next", prep_model: Callable
         raise ValueError("business_max_calls must be an integer between 2 and 10")
     if type(business_max_depth) is not int or not 1 <= business_max_depth <= 12:
         raise ValueError("business_max_depth must be an integer between 1 and 12")
-    researcher = research if research is not None else LocalResearchBackend()
+    researcher = research if research is not None else LocalResearchBackend(
+        market_facts=trade_area.figures)
     extra = analysis_registry.ANALYSIS if analysis else ()
     producers = dict(analysis_producers or {})
     unknown = set(producers) - set(extra)

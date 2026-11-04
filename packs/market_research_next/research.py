@@ -7,6 +7,7 @@ It does not substitute plausible prose when research or structuring fails.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 from collections.abc import Callable, Sequence
@@ -149,7 +150,12 @@ Rigor rules, each from a live report that broke it:
   such as "no verified differentiator"), use it instead of the intake's wording or your
   own, and do not contradict it.
 - Compare figures only when they measure the same thing over the same period.
-- For revenue, do the arithmetic. From the founder's price, unit cost, fixed costs,
+- When the request holds trade_area_figures, they are this venture's customers and spend:
+  state them as given and do not put another area's count in their place.
+- For revenue, do the arithmetic. Count each cost once: fixed_cost leaves out anything
+  already in the unit cost, such as ingredients, and fixed_items lists what it does hold.
+  When the request holds founder_fixed_costs, those lines are the monthly fixed costs:
+  use them all, and no others. From the founder's price, unit cost, fixed costs,
   capacity and targets, work out break-even volume in metrics.break_even and Year 1, 2
   and 3 figures in metrics.years, and state them in the narrative. Never say figures
   will be determined later when the inputs to compute them are given. A year's volume no
@@ -189,6 +195,8 @@ METRICS_CONTRACTS = {
         "break_even": [{"units": "units needed in the period, a JSON number",
                         "unit": "what one unit is", "period": "day | month | year",
                         "fixed_cost": "fixed cost for that period, a JSON number",
+                        "fixed_items": [{"name": "one cost inside fixed_cost",
+                                         "amount": "its amount for that period, a JSON number"}],
                         "unit_margin": "price less the cost of one unit, a JSON number"}]},
 }
 
@@ -196,6 +204,7 @@ METRICS_CONTRACTS = {
 _HANDMADE_TAM = re.compile(r"\b(?:TAM|SAM|SOM)\b[^.]{0,80}\$\s?\d|\$\s?\d[^.]{0,40}\b(?:TAM|SAM|SOM)\b")
 #: Revenue rows may differ from units x price by this share: writers round.
 _TOLERANCE = 0.02
+_log = logging.getLogger(__name__)
 NO_YEARLY_REVENUE = "No yearly revenue figures could be worked out from what is known so far."
 #: What the reader is told when a section's research stopped short of its plan.
 PARTIAL_NOTICE = ("Research for this section stopped before covering everything it set out "
@@ -275,22 +284,51 @@ def _break_even_problem(row: Any) -> str | None:
     return None
 
 
+def _fixed_items_problem(row: Any, price: float | None) -> str | None:
+    from .analysis.founder_costs import PER_UNIT_COST
+
+    row = row if isinstance(row, dict) else {}
+    listed = row.get("fixed_items") if isinstance(row.get("fixed_items"), list) else []
+    items = [item for item in listed if isinstance(item, dict)]
+    fixed, margin = _money(row.get("fixed_cost")), _money(row.get("unit_margin"))
+    if not items or fixed is None:
+        return None
+    total = sum(_money(item.get("amount")) or 0 for item in items)
+    if abs(total - fixed) > _TOLERANCE * max(abs(fixed), 1):
+        return f"break-even: fixed_items add up to {total:g}, not the fixed_cost of {fixed:g}"
+    if price is None or margin is None or margin >= price:
+        return None  # No unit cost was taken off, so nothing is counted twice.
+    twice = [str(item.get("name")) for item in items if PER_UNIT_COST.search(str(item.get("name")))]
+    return (f"break-even: {', '.join(twice)} already sits in the unit cost, so take it out of "
+            "fixed_cost and work the break-even again" if twice else None)
+
+
+def _top_price(years: list) -> float | None:
+    prices = [_money(row.get("price")) for row in years if isinstance(row, dict)]
+    return max((p for p in prices if p is not None), default=None)
+
+
 def arithmetic_problem(metrics: Any) -> str | None:
-    """The first revenue row that does not multiply out; None when they all do."""
+    """The first revenue row that does not hold up; None when they all do."""
     metrics = metrics if isinstance(metrics, dict) else {}
-    checks = [(_year_problem, metrics.get("years")), (_break_even_problem, metrics.get("break_even"))]
-    return next((problem for check, rows in checks for row in rows or []
-                 if (problem := check(row))), None)
+    years, breaks = metrics.get("years") or [], metrics.get("break_even") or []
+    checks = [(_year_problem, years), (_break_even_problem, breaks)]
+    found = next((problem for check, rows in checks for row in rows if (problem := check(row))), None)
+    price = _top_price(years)
+    return found or next((problem for row in breaks
+                          if (problem := _fixed_items_problem(row, price))), None)
 
 
 def _sound_revenue(metrics: Any) -> dict:
     """Only the revenue rows that multiply out: code checks these, the model does not."""
     metrics = metrics if isinstance(metrics, dict) else {}
     years, breaks = metrics.get("years"), metrics.get("break_even")
+    price = _top_price(years if isinstance(years, list) else [])
     return {**metrics,
             "years": [r for r in years or [] if not _year_problem(r)]
             if isinstance(years, list) else [],
-            "break_even": [r for r in breaks or [] if not _break_even_problem(r)]
+            "break_even": [r for r in breaks or []
+                           if not _break_even_problem(r) and not _fixed_items_problem(r, price)]
             if isinstance(breaks, list) else []}
 
 
@@ -299,6 +337,14 @@ def _handmade_market_size(section: dict) -> str | None:
     text = " ".join([section["narrative"], *section["findings"]])
     return ("market_size: leave TAM, SAM and SOM amounts out; report the sourced figures and "
             "the sizing calculation works the market out" if _HANDMADE_TAM.search(text) else None)
+
+
+def _with_area(area: list[dict], figures: Any) -> list[dict]:
+    """Code's area figures first; a writer's copy of one would be counted twice."""
+    held = [(f["kind"], f["value"]) for f in area]
+    return area + [f for f in figures or []
+                   if not isinstance(f, dict)
+                   or (str(f.get("kind")).split(" ")[0], f.get("value")) not in held]
 
 
 def _section_problem(section_key: str, section: dict) -> str | None:
@@ -517,11 +563,13 @@ class LocalResearchBackend:
     for another provider or offline tests. No credentials are loaded at construction.
     """
 
-    def __init__(self, model: Callable[..., dict] | None = None, max_steps: int = 8):
+    def __init__(self, model: Callable[..., dict] | None = None, max_steps: int = 8,
+                 market_facts: Callable[[dict], list[dict]] | None = None):
         if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
             raise ValueError("max_steps must be a positive integer")
         self.model = model if model is not None else _default_model
         self.max_steps = min(max_steps, MAX_STEPS_CEILING)
+        self.market_facts = market_facts
 
     def __call__(self, section_key: str, context: dict, *, issues: Sequence = ()) -> dict:
         return self.research(section_key, context, issues=issues)
@@ -545,6 +593,14 @@ class LocalResearchBackend:
         note = "Analysis derived from PREP and supplied upstream section results."
         if section_key in METRICS_CONTRACTS:
             request["metrics_contract"] = METRICS_CONTRACTS[section_key]
+        from .analysis.founder_costs import fixed_lines
+
+        area = self._trade_area(context) if section_key == "market_size" else []
+        if area:
+            request["trade_area_figures"] = area
+        if section_key == "revenue" and (lines := fixed_lines(context)):
+            request["founder_fixed_costs"] = {"lines": lines,
+                                              "total_per_month": sum(l["amount"] for l in lines)}
         if section_key in EXTERNAL_CATEGORIES:
             goal = (
                 f"Research the {section_key} section for the venture in CONTEXT. "
@@ -564,6 +620,8 @@ class LocalResearchBackend:
                 "work from what they say. Return supported findings and identify evidence "
                 "gaps."
                 + _community_hint(section_key, context)
+                + (" The trade area's households and spend are already in "
+                   "trade_area_figures: do not look up counts for other areas." if area else "")
             )
             try:
                 result = run_agent(
@@ -589,6 +647,9 @@ class LocalResearchBackend:
         if section_key in METRICS_CONTRACTS and isinstance(section.get("metrics"), dict):
             section["metrics"] = _ground_metrics(section_key, section["metrics"],
                                                  request.get("external_research"))
+        if area:
+            metrics = section.get("metrics") if isinstance(section.get("metrics"), dict) else {}
+            section["metrics"] = {**metrics, "figures": _with_area(area, metrics.get("figures"))}
         if section_key == "revenue":
             section["metrics"] = _sound_revenue(section.get("metrics"))
             if not section["metrics"]["years"]:
@@ -607,13 +668,25 @@ class LocalResearchBackend:
             section["narrative"] = SIMULATION_NOTICE + "\n\n" + section["narrative"]
         return section
 
+    def _trade_area(self, context: dict) -> list[dict]:
+        """Code's figures for a local venture; the planner still works without them."""
+        from treadle.execution_limits import BudgetExceeded
+
+        try:
+            return list(self.market_facts(context)) if self.market_facts else []
+        except BudgetExceeded:
+            raise
+        except Exception as exc:
+            _log.warning("trade area figures failed: %s", type(exc).__name__)
+            return []
+
     def _write_up(self, section_key: str, request: dict) -> dict:
         """The section from the writing model, asked for once more with the reason when
         the answer fails its check. The research before it is not repeated; before this
         one bad write-up failed the section and cost a whole correction round."""
         from treadle.execution_limits import BudgetExceeded
 
-        problem = None
+        problem, earlier = None, {}
         for attempt in range(2):
             body = request if problem is None else {**request, "previous_answer_rejected": problem}
             try:
@@ -624,6 +697,9 @@ class LocalResearchBackend:
                     tier="critical" if section_key == "summary" else "reasoning",
                 )
                 section = _validate_section(section_key, raw)
+                if attempt and not section.get("metrics") and earlier.get("metrics"):
+                    section = {**section, "metrics": earlier["metrics"]}
+                earlier = section
                 problem = None if attempt else _section_problem(section_key, section)
                 if problem is None:
                     return section

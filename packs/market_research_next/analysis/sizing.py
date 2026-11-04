@@ -76,6 +76,12 @@ _SPEND_UNIT = re.compile(r"per\s+(household|person|capita|consumer|resident)", r
 _MONEY_UNIT = re.compile(r"usd|cad|eur|gbp|dollar|[$€£]", re.I)
 _FORECAST = re.compile(r"project|forecast|expected|estimated to reach", re.I)
 _RIVALS = re.compile(r"compet|rival", re.I)
+#: "per clinic", "/ household": one customer's spend, where "per year" alone is a whole market's.
+_PER_CUSTOMER = re.compile(r"(?:\bper[\s-]+|/\s*)(?!(?:year|yr|annum|month|mo|quarter|week|day)\b)\w",
+                           re.I)
+_WHOLE_MARKET = re.compile(r"\bmarket\b", re.I)
+#: Totals further apart than this are sources drawing the market differently.
+_SPREAD = 2
 TOP_DOWN_WARNING = ("This is an analyst's figure for a whole category, so the share of it shown "
                     "here is not a revenue forecast.")
 
@@ -177,6 +183,9 @@ def read_figure(raw: Any) -> tuple[dict | None, str | None]:
     value, url = _numeric(raw.get("value")), raw.get("source_url")
     if kind == "other":
         kind = _relabelled(name, unit)
+    if (kind == "broader_spend" and _WHOLE_MARKET.search(name)
+            and not _PER_CUSTOMER.search(f"{unit} {name}")):
+        kind = "market_value"
     if kind == "customer_count" and _RIVALS.search(name):
         kind = "other"
     if value is None or value <= 0:
@@ -205,7 +214,8 @@ def read_figure(raw: Any) -> tuple[dict | None, str | None]:
                 "retrieved_at": raw.get("retrieved_at") if _parse_day(raw.get("retrieved_at")) else None,
                 "source_type": "web"}
     return {"kind": kind, "name": name, "value": value, "unit": unit,
-            "geography": str(raw.get("geography") or ""), "citation": citation}, None
+            "geography": str(raw.get("geography") or ""), "citation": citation,
+            "year": _numeric(raw.get("year")), "trade_area": raw.get("trade_area") is True}, None
 
 
 def _shown(figure: dict) -> str:
@@ -307,19 +317,57 @@ def competitor_input(context: dict) -> tuple[int | None, str, str | None]:
                                "and SOM were not computed.")
 
 
+def _latest_per_source(figures: list[dict]) -> list[dict]:
+    """One source's estimates of a place over several years are one figure, at the latest."""
+    def source(figure: dict) -> tuple[str, str]:
+        return base.registered_domain(figure["citation"]["url"]), figure["geography"]
+
+    def year(figure: dict) -> float:
+        return figure.get("year") or 0
+
+    latest: dict[tuple[str, str], float] = {}
+    for figure in figures:
+        if figure["kind"] == "market_value":
+            latest[source(figure)] = max(latest.get(source(figure), 0), year(figure))
+    return [f for f in figures if f["kind"] != "market_value" or year(f) == latest[source(f)]]
+
+
+def source_spread(figures: list[dict]) -> str | None:
+    """What it means when the sources for one market are far apart."""
+    totals = [f["value"] for f in figures if f["kind"] == "market_value"]
+    if len(totals) < 2 or max(totals) <= _SPREAD * min(totals):
+        return None
+    return (f"Sources for this market disagree, from {money(min(totals))} to {money(max(totals))}, "
+            "so they likely draw it differently. Treat the total as a rough range.")
+
+
 def _pooled(figures: list[dict], kind: str) -> tuple[float | None, list[dict]]:
     chosen = [f for f in figures if f["kind"] == kind]
     return base.median(f["value"] for f in chosen), [f["citation"] for f in chosen]
 
 
-def customer_base(figures: list[dict], prefer: str | None) -> tuple[list[dict], str | None]:
+def _first_market(counts: list[dict], where: str | None) -> list[dict]:
+    """The counts for the place the founder names first; a later market is not the market."""
+    text = (where or "").lower()
+    named = {f["geography"]: text.find(f["geography"].lower()) for f in counts
+             if f["geography"] and f["geography"].lower() in text}
+    return [f for f in counts if f["geography"] == min(named, key=named.get)] if named else counts
+
+
+def customer_base(figures: list[dict], prefer: str | None,
+                  where: str | None = None) -> tuple[list[dict], str | None]:
     """The customer counts that measure one thing, and a warning when others were left out.
 
-    One family of unit only: the price's when a count of it exists, else businesses, then
-    households, then people. Sources for one place back each other; counts for different
-    places are different questions, so the widest is used and the choice is stated.
+    The founder's first market only. One family of unit: the price's when a count of it
+    exists, else businesses, then households, then people. Sources for one place back each
+    other; counts for different places are different questions, so the widest is used and
+    the choice is stated.
     """
     counts = [f for f in figures if f["kind"] == "customer_count"]
+    fixed = [f for f in counts if f["trade_area"]]
+    if fixed:
+        return fixed, None
+    counts = _first_market(counts, where)
     families: dict[str | None, list[dict]] = {}
     for figure in counts:
         families.setdefault(_family(figure["unit"]), []).append(figure)
@@ -348,9 +396,10 @@ def unit_warning(count: dict, per: str | None) -> str | None:
 def ceiling(figures: list[dict], customers: list[dict]) -> dict | None:
     """Everything these customers spend on a wider category: an upper limit, never a TAM."""
     spends = [f for f in figures if f["kind"] == "broader_spend"]
+    spends = [f for f in spends if f["trade_area"]] or spends
     if not spends or not customers:
         return None
-    spent_by = _family(f'{spends[0]["unit"]} {spends[0]["name"]}')
+    spent_by = _family(spends[0]["unit"]) or _family(spends[0]["name"])
     if spent_by != _family(customers[0]["unit"]):
         return None
     count, spend = base.median(f["value"] for f in customers), base.median(f["value"] for f in spends)
@@ -375,6 +424,7 @@ def produce(context: dict, *, model=None, session=None, env=None, now=None) -> d
             figures.append(figure)
         else:
             warnings.append(why)
+    figures = _latest_per_source(figures)
     pricing = ((base.upstream(context, "pricing") or {}).get("data") or {})
     monthly = base.finite_number(pricing.get("category_median_monthly"))
     if monthly and monthly > 0 and pricing.get("currency") in (None, "USD"):
@@ -389,7 +439,8 @@ def produce(context: dict, *, model=None, session=None, env=None, now=None) -> d
     inputs = {kind: _pooled(figures, kind) for kind in
               ("market_value", "price", "serviceable_share")}
     per = priced_per(context)
-    customers, place_warning = customer_base(figures, _family(per or ""))
+    where = base.stated(context, "geography") or base.intake_facts(context).get("geography")
+    customers, place_warning = customer_base(figures, _family(per or ""), where)
     inputs["customer_count"] = (base.median(f["value"] for f in customers),
                                 [f["citation"] for f in customers])
     warnings += [place_warning] if place_warning else []
@@ -414,6 +465,7 @@ def produce(context: dict, *, model=None, session=None, env=None, now=None) -> d
         warnings.append(DEFAULT_SHARE_WARNING)
     if anchor == "top_down":
         warnings.append(TOP_DOWN_WARNING)
+        warnings += [text for text in (source_spread(figures),) if text]
     counted = any(methods[m]["tam"]["value"] is not None for m in ("bottom_up", "value_theory"))
     if counted and price is not None and unit_warning(customers[0], per):
         warnings.append(unit_warning(customers[0], per))

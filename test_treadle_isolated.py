@@ -32,7 +32,7 @@ def await_receipt(call, timeout=8):
 class LimitsAndAccounting(unittest.TestCase):
     def test_limits_are_validated_and_immutable(self):
         limits = ExecutionLimits()
-        self.assertEqual(limits.task_model_calls, 12)
+        self.assertEqual(limits.task_model_calls, 16)
         with self.assertRaises(FrozenInstanceError):
             limits.max_model_calls = 7
         for field in ("run_timeout_s", "task_timeout_s", "review_timeout_s"):

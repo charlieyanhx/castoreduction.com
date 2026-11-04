@@ -133,10 +133,14 @@ def _readiness(document: dict, construction: dict) -> dict:
     })
 
 
+_USABLE_STOPS = frozenset({"complete", "call_budget", "depth_limit", "branch_rejected"})
+
+
 def _limitations(readiness: dict, construction: dict) -> list[str]:
     result = list(readiness["limitations"])
     if not construction["expansion_complete"]:
-        boundary = "call budget" if construction["stop_reason"] == "call_budget" else "depth limit"
+        boundary = {"call_budget": "call budget", "branch_rejected": "last accepted branch"}.get(
+            construction["stop_reason"], "depth limit")
         result.append(f"Business-object expansion reached its {boundary}; supplied details "
                       "may remain uncaptured. Treat the accepted object as partial input.")
     count = construction["quarantined_count"]
@@ -166,13 +170,18 @@ def build_context(brief: dict, *, model: Callable[..., dict], max_calls: int = 6
     check_budget()
     if artifact["support_review"]["status"] != "complete":
         raise ValueError("Business-object support review did not complete")
-    if artifact["stop_reason"] not in {"complete", "call_budget", "depth_limit"}:
-        raise ValueError("Business-object extraction failed: " + artifact["stop_reason"])
+    stop = artifact["stop_reason"]
+    # One rejected detail branch must not cost a report whose root was accepted: what was
+    # accepted stands and is marked partial. A rejected root, or a provider failure, stops.
+    if stop == "invalid_patch" and artifact["revision"] > 0:
+        stop = "branch_rejected"
+    if stop not in _USABLE_STOPS:
+        raise ValueError("Business-object extraction failed: " + stop)
     document = deepcopy(artifact["accepted"])
     accepted_ids = {node["id"] for node in document["nodes"]}
     construction = {
         "calls": artifact["calls"], "max_calls": max_calls, "max_depth": max_depth,
-        "revision": artifact["revision"], "stop_reason": artifact["stop_reason"],
+        "revision": artifact["revision"], "stop_reason": stop,
         "expansion_complete": artifact["expansion_complete"],
         "pending": [identifier for identifier in artifact["pending"] if identifier in accepted_ids],
         "support_review_status": "complete", "quarantined_count": len(artifact["quarantined"]),
@@ -218,7 +227,7 @@ def validate_context(context: dict, brief: dict) -> None:
     if construction["support_review_status"] != "complete":
         raise ValueError("Business context requires a completed support review")
     stop = construction["stop_reason"]
-    if stop not in {"complete", "call_budget", "depth_limit"}:
+    if stop not in _USABLE_STOPS:
         raise ValueError("Business context contains a failed extraction")
     if type(construction["expansion_complete"]) is not bool or (
         construction["expansion_complete"] != (stop == "complete")

@@ -5,7 +5,9 @@ from copy import deepcopy
 import json
 import unittest
 
-from packs.market_research_next.business_object.builder import build_business_object
+from packs.market_research_next.business_object.builder import (
+    _merge_patch, build_business_object, tidy_patch,
+)
 
 
 STATEMENTS = [{"id": "S1", "text": "We sell software and services to clinics."}]
@@ -215,6 +217,35 @@ class BusinessBuilder(unittest.TestCase):
         result = build_business_object(STATEMENTS, model=FakeModel(lambda _: {}), max_calls=6)
         self.assertEqual(result["stop_reason"], "invalid_patch")
         self.assertEqual(result["calls"], 4)
+
+    def test_pricing_unit_written_as_a_qualifier_is_the_unit_qualifier(self):
+        # Five briefs, 2026-11-04: pricing_unit is a fact key we send, and models used it
+        # as a qualifier on most price facts, which failed PREP at random.
+        def expand(request):
+            source = request["statements"][0]["id"]
+            price = {"id": "price", "node_id": "company", "key": "unit_price", "value": 39,
+                     "basis": "stated", "statement_ids": [source],
+                     "qualifiers": {"currency": "USD", "pricing_unit": "per seat"}}
+            return patch(request, facts=[price])
+        result = build_business_object(STATEMENTS, model=FakeModel(expand))
+        self.assertEqual(result["stop_reason"], "complete")
+        self.assertEqual(result["accepted"]["facts"][0]["qualifiers"],
+                         {"currency": "USD", "unit": "per seat"})
+
+    def test_a_stated_unit_is_kept_over_the_alias(self):
+        tidy = tidy_patch({"facts": [{"qualifiers": {"unit": "seat", "pricing_unit": "x"}}]})
+        self.assertEqual(tidy["facts"][0]["qualifiers"], {"unit": "seat"})
+
+    def test_tidying_leaves_the_answer_it_was_given_alone(self):
+        given = {"facts": [{"qualifiers": {"pricing_unit": "x"}}]}
+        tidy_patch(given)
+        self.assertEqual(given, {"facts": [{"qualifiers": {"pricing_unit": "x"}}]})
+        self.assertEqual(tidy_patch("not a patch"), "not a patch")
+
+    def test_the_patch_field_refusal_names_what_is_wrong(self):
+        with self.assertRaisesRegex(ValueError, "missing.*gaps"):
+            _merge_patch({}, {"nodes": []}, target="company", revision=0, statements=[],
+                         max_depth=3)
 
     def test_no_reask_when_only_the_review_call_is_left(self):
         result = build_business_object(STATEMENTS, model=FakeModel(lambda _: {}), max_calls=2)

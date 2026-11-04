@@ -285,7 +285,10 @@ def _system_prompt() -> str:
         "customer evidence. Return ONLY a JSON object with exactly two keys: venture and "
         "research_spec. venture must contain exactly these fields, each as text or null: "
         + ", ".join(VENTURE_FIELDS)
-        + ". Do not return basis or customer_stated labels. research_spec must contain "
+        + ". product names the trade in a short noun phrase using the founder's own words, "
+        "such as specialty coffee shop or dog walking app, with no features, prices or "
+        "places: searches are built from it, so it must not change with phrasing. "
+        "Do not return basis or customer_stated labels. research_spec must contain "
         "every report section ID from the supplied contract, and no other IDs. Each section "
         "must contain exactly {scope: nonempty text, questions: a nonempty list of "
         "nonempty strings, assumptions_to_test: a list of nonempty strings}. "

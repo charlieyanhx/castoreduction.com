@@ -9,7 +9,8 @@ from unittest.mock import patch
 
 from packs.market_research_next.research import (
     EXTERNAL_CATEGORIES, EXTERNAL_TOOLS, LocalResearchBackend, OBSERVATION_CHARS, PARTIAL_NOTICE,
-    ResearchError, SIMULATION_NOTICE, arithmetic_problem, reads_needed,
+    ResearchError, SIMULATION_NOTICE, _SYSTEM as SYSTEM_PROMPT, _sound_revenue, arithmetic_problem,
+    reads_needed,
 )
 from packs.market_research_next.open_tools import research_tools
 from packs.market_research_next.render import render_html
@@ -442,6 +443,42 @@ class TestResearchBackend(unittest.TestCase):
         self.assertEqual(output["research_status"], "derived")
         self.assertEqual(output["metrics"]["years"][0]["revenue"], 3900)
 
+    def test_a_cost_already_in_the_unit_cost_is_not_a_fixed_cost(self):
+        rows = {"units": 6087, "unit_margin": 4.6, "fixed_cost": 28000,
+                "fixed_items": [{"name": "rent", "amount": 7500},
+                                {"name": "beans and milk", "amount": 4000},
+                                {"name": "staff", "amount": 16500}]}
+        years = [{"year": "1", "units": 100, "price": 6, "revenue": 600}]
+        problem = arithmetic_problem({"years": years, "break_even": [rows]})
+        self.assertIn("beans and milk", problem)
+        # With no unit cost taken off, nothing is counted twice.
+        free = {**rows, "units": 5600, "unit_margin": 5.0}
+        self.assertIsNone(arithmetic_problem(
+            {"years": [{**years[0], "price": 5, "revenue": 500}], "break_even": [free]}))
+
+    def test_fixed_items_must_add_up_to_the_fixed_cost(self):
+        row = {"units": 100, "unit_margin": 10, "fixed_cost": 1000,
+               "fixed_items": [{"name": "rent", "amount": 700}]}
+        self.assertIn("add up", arithmetic_problem({"years": [], "break_even": [row]}))
+
+    def test_a_second_answer_does_not_lose_the_first_answers_figures(self):
+        backend = LocalResearchBackend(model=lambda *a, **k: None)
+        section = {"title": "T", "narrative": "N", "findings": [], "assumptions": [],
+                   "uncertainties": []}
+        first = {**section, "narrative": "The TAM is $5 billion.", "metrics": {"figures": [{"a": 1}]}}
+        answers = iter([first, section])
+        backend.model = lambda *a, **k: next(answers)
+        kept = backend._write_up("market_size", {})
+        self.assertEqual(kept["narrative"], "N")
+        self.assertEqual(kept["metrics"], first["metrics"])
+
+    def test_a_row_that_counts_a_cost_twice_is_not_kept(self):
+        row = {"units": 6087, "unit_margin": 4.6, "fixed_cost": 28000,
+               "fixed_items": [{"name": "rent", "amount": 24000},
+                               {"name": "beans and milk", "amount": 4000}]}
+        years = [{"year": "1", "units": 100, "price": 6, "revenue": 600}]
+        self.assertEqual(_sound_revenue({"years": years, "break_even": [row]})["break_even"], [])
+
     def test_a_break_even_is_checked_too(self):
         bad = {"units": 10, "unit": "drink", "period": "month", "fixed_cost": 28000,
                "unit_margin": 4.6}
@@ -484,6 +521,40 @@ class TestResearchBackend(unittest.TestCase):
             LocalResearchBackend(model)("market_size", context("market_size"))
         self.assertEqual(len(calls), 2)
         self.assertIn("TAM", calls[1]["previous_answer_rejected"])
+
+    def test_trade_area_figures_reach_the_writer_and_the_sizing(self):
+        calls, area = [], [{"name": "Households within 1.5 km", "kind": "customer_count",
+                            "value": 15062, "unit": "households", "trade_area": True,
+                            "source_url": "https://data.census.gov/"}]
+
+        def model(system, user, **kwargs):
+            calls.append(json.loads(user))
+            return {**valid_section(), "metrics": {"figures": []}}
+
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result()) as agent:
+            output = LocalResearchBackend(model, market_facts=lambda ctx: area)(
+                "market_size", context("market_size"))
+        self.assertEqual(calls[0]["trade_area_figures"], area)
+        self.assertEqual(output["metrics"]["figures"], area)
+        self.assertIn("trade area", agent.call_args.args[0])
+
+    def test_trade_area_failure_falls_back_to_the_planner(self):
+        def broken(ctx):
+            raise RuntimeError("census down")
+
+        def model(system, user, **kwargs):
+            return {**valid_section(), "metrics": {"figures": []}}
+
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result()):
+            output = LocalResearchBackend(model, market_facts=broken)(
+                "market_size", context("market_size"))
+        self.assertEqual(output["metrics"]["figures"], [])
+
+    def test_the_writer_counts_a_cost_once(self):
+        prompt = " ".join(SYSTEM_PROMPT.split())
+        self.assertIn("already in the unit cost", prompt)
 
     def test_internal_words_in_a_section_are_sent_back(self):
         calls = []

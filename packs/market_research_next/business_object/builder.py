@@ -66,7 +66,8 @@ Facts are atomic: one scalar value per independently addressable assertion.
 statement_ids must cite supplied statement IDs. Only organizational group nodes
 may omit statement IDs. basis is 'stated' or 'inferred'; preserve inference as such.
 qualifiers is {} when none; permitted keys are unit/currency/period/geography
-(strings) and conditions/includes/excludes (lists of nonempty strings). Preserve
+(strings) and conditions/includes/excludes (lists of nonempty strings). A price's
+charging unit goes in qualifiers.unit: pricing_unit is a fact key, not a qualifier. Preserve
 stated conditions, periods, units, and exclusions. Unknowns become questions, not
 facts, and questions do not assert their own answers.
 Prefer the supplied known_fact_keys where their meanings fit. The research
@@ -140,10 +141,32 @@ def _descendants(document: dict, node_id: str) -> set[str]:
         found.update(added)
 
 
+def tidy_patch(patch: Any) -> Any:
+    """A copy with pricing_unit, a fact key we send, moved to the qualifier it means.
+
+    Models wrote it as a qualifier on most price facts, which failed PREP at random. The
+    value is unchanged and readiness reads qualifiers.unit, so nothing is invented.
+    """
+    if not isinstance(patch, dict):
+        return patch
+    tidy = deepcopy(patch)
+    for key in ("facts", "relationships"):
+        for record in tidy.get(key) if isinstance(tidy.get(key), list) else []:
+            qualifiers = record.get("qualifiers") if isinstance(record, dict) else None
+            if isinstance(qualifiers, dict) and "pricing_unit" in qualifiers:
+                qualifiers.setdefault("unit", qualifiers.pop("pricing_unit"))
+                qualifiers.pop("pricing_unit", None)
+    return tidy
+
+
 def _merge_patch(document: dict, patch: Any, *, target: str, revision: int,
                  statements: list[dict], max_depth: int) -> tuple[dict, list[str], bool]:
-    if not isinstance(patch, dict) or set(patch) != _PATCH_FIELDS:
-        raise ValueError("Expansion response must have exactly the patch fields")
+    if not isinstance(patch, dict):
+        raise ValueError("Expansion response must be an object with the patch fields")
+    if set(patch) != _PATCH_FIELDS:
+        raise ValueError("Expansion response must have exactly the patch fields: missing "
+                         f"{sorted(_PATCH_FIELDS - set(patch))}, "
+                         f"not allowed {sorted(map(str, set(patch) - _PATCH_FIELDS))}")
     if type(patch["base_revision"]) is not int or patch["base_revision"] != revision:
         raise ValueError("Patch base_revision does not match the current revision")
     if patch["target_id"] != target:
@@ -322,7 +345,7 @@ def build_business_object(
             if failure is None:
                 try:
                     candidate, requested, changed = _merge_patch(
-                        document, response, target=target, revision=revision,
+                        document, tidy_patch(response), target=target, revision=revision,
                         statements=statements, max_depth=max_depth,
                     )
                 except Exception as exc:

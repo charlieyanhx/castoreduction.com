@@ -306,6 +306,21 @@ def test_extraction_or_support_errors_do_not_silently_continue(stage):
     assert "private response" not in str(error.value)
 
 
+def test_a_rejected_detail_branch_leaves_the_accepted_root_standing():
+    # Cafe, 2026-11-04: the root was accepted, a later branch was not, and PREP failed.
+    def expand(request):
+        if request["target_id"] == "company":
+            return patch(request, nodes=[node(request, "software")], expand_node_ids=["software"])
+        return {}
+
+    result = build_context(BRIEF, model=Model(expand))
+    assert result["construction"]["stop_reason"] == "branch_rejected"
+    assert result["construction"]["expansion_complete"] is False
+    assert result["construction"]["pending"] == ["software"]
+    assert any("partial input" in item for item in result["limitations"])
+    assert "software" in {n["id"] for n in result["object"]["nodes"]}
+
+
 def test_builder_cannot_swallow_sticky_global_model_budget_failure():
     inner = Model()
 

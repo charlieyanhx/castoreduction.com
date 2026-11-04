@@ -259,3 +259,9 @@ def test_a_second_planning_failure_fails_prep_and_provider_text_is_not_echoed():
     with _pytest.raises(RuntimeError):
         prep_module._ask_validated(model, "system", "user")
     assert len(users) == 2 and "secret-token" not in users[1]
+
+
+def test_prep_asks_for_the_trade_as_a_short_phrase():
+    # PREP reworded the product each run, and the local competitor search moved with it.
+    from packs.market_research_next.prep import _system_prompt
+    assert "short noun phrase" in " ".join(_system_prompt().split())

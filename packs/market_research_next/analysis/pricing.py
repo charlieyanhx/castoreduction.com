@@ -114,12 +114,16 @@ def _select(landscape: dict | None, sites: dict[str, str] | None = None) -> list
 def _selected(context: Mapping[str, Any]) -> list[dict]:
     """The competitors to price: the landscape's list, else the businesses Places counted."""
     sites = _sites(context)
-    picked = _select(base.upstream(context, "competitive_landscape"), sites)
-    if not picked:
-        data = (base.upstream(context, "competitor_count") or {}).get("data")
-        places = data.get("competitors") if isinstance(data, dict) else None
-        picked = _select({"metrics": {"competitors": places if isinstance(places, list) else None}},
-                         sites)
+    data = (base.upstream(context, "competitor_count") or {}).get("data")
+    places = data.get("competitors") if isinstance(data, dict) else None
+    places = places if isinstance(places, list) else []
+    # Businesses Places found with a website lead: one search gives the same list each run,
+    # and the landscape's list changed every run, so pricing did too.
+    located = [{"name": p.get("name"), "url": p["website"], "kind": "direct"} for p in places
+               if isinstance(p, dict) and isinstance(p.get("website"), str)]
+    landscape = ((base.upstream(context, "competitive_landscape") or {}).get("metrics") or {})
+    listed = landscape.get("competitors") if isinstance(landscape.get("competitors"), list) else []
+    picked = _select({"metrics": {"competitors": located + listed + places}}, sites)
     # The writer sometimes gives the article that named a competitor as its website.
     return [{**c, "url": c["url"] if pricing_pages.own_site(c["name"], c["url"])
              else _site_for(c["name"], sites)} for c in picked]

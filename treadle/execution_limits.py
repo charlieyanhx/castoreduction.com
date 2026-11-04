@@ -34,7 +34,7 @@ class ExecutionLimits:
     review_timeout_s: float = 90
     max_model_calls: int = 120
     max_tool_calls: int = 60
-    task_model_calls: int = 12
+    task_model_calls: int = 16
     task_tool_calls: int = 14
     review_model_calls: int = 3
 

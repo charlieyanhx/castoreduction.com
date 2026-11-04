@@ -69,11 +69,17 @@ _NOT_A_BUSINESS = frozenset({"park", "city_park", "national_park", "neighborhood
 _SENTENCE_END = re.compile(r"[.;:()]|\s-\s")
 _ARTICLE = frozenset({"a", "an", "the", "our", "my"})
 # How the venture is run, not what it is: dropped so the search names the business.
-_QUALIFIERS = frozenset({"single-site", "multi-site", "in-person", "online", "mobile", "local",
-                         "small", "new", "independent", "provisional"})
+_QUALIFIERS = frozenset({"single-site", "multi-site", "in-person", "online", "online-only",
+                         "mobile", "local", "small", "new", "independent", "provisional",
+                         "subscription"})
 # Container nouns that say nothing a map search can use on their own.
 _GENERIC = frozenset({"app", "platform", "tool", "service", "marketplace", "website", "site",
                       "business", "company", "startup", "product", "solution", "software"})
+#: Where "booking local dog walkers online for in-person walks" stops naming the trade.
+_AFTER_THE_PARTY = re.compile(r"\s(?:for|in|at|online)\s", re.I)
+#: "dog owners book local walkers": the trade is the owners' word plus what they book.
+_OWNERS_BOOK = re.compile(r"^(\S+)\s+(?:owners|users|customers|people|parents|residents)\s+\S+\s+"
+                          r"(.+)$", re.I)
 _FILLER = frozenset({"a", "an", "the", "and", "or", "of", "to", "in", "on", "at", "local",
                      "nearby", "their", "own", "more", "be", "is", "are", "can", "get"})
 
@@ -107,10 +113,15 @@ def category_phrase(context: dict) -> str | None:
     words = [w for w in parts[0].split()
              if w.lower() not in _ARTICLE and w.lower() not in _QUALIFIERS][-CATEGORY_WORDS:]
     if all(w.lower() in _GENERIC for w in words) and len(parts) > 1:
-        tail = _LAST_PARTY.split(_TAIL_END.split(parts[1], maxsplit=1)[0])[-1]
-        content = [w for w in tail.split() if w.lower() not in _FILLER]
+        tail = _LAST_PARTY.split(_TAIL_END.split(parts[1], maxsplit=1)[0])[-1].strip()
+        tail = _AFTER_THE_PARTY.split(tail, maxsplit=1)[0]
+        owners = _OWNERS_BOOK.match(tail)
+        content = [w for w in (owners.group(2) if owners else tail).split()
+                   if w.lower() not in _FILLER]
+        if owners and owners.group(1).lower() not in (w.lower() for w in content):
+            content.insert(0, owners.group(1))
         words = content[-2:] or words
-    return " ".join(words) or None
+    return " ".join(words).replace("-", " ") or None
 
 
 def location_phrase(context: dict) -> str | None:
