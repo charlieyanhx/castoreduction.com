@@ -1,0 +1,130 @@
+{
+  "scorecard": "treadle.scorecard/1",
+  "label": "quality4-cafe-2026-11-03",
+  "report_type": "market_research_next",
+  "corpus": "packs/market_research_next/eval/briefs.json",
+  "cases": {
+    "local_cafe": {
+      "run_id": "13576b497d2105d6a9b783414faf16e2",
+      "probe": "physical local business with concrete prices, capacity and costs",
+      "status": "completed",
+      "ok": true,
+      "seconds": 507,
+      "correction_rounds": 1,
+      "stop_reason": "completed",
+      "cost_usd": 0.0,
+      "tokens": {
+        "gemini-3.5-flash": {
+          "calls": 53,
+          "in": 812596,
+          "out": 51058
+        },
+        "gemini-flash-lite-latest": {
+          "calls": 1,
+          "in": 1245,
+          "out": 44
+        }
+      },
+      "model_calls": 54,
+      "tool_calls": 31,
+      "verdicts": {
+        "ok": 18
+      },
+      "object": {
+        "nodes": 17,
+        "facts": 18,
+        "relationships": 13,
+        "gaps": 2,
+        "quarantined": 2
+      },
+      "totals": {
+        "usable_evidence": 15,
+        "numbers": 418,
+        "metrics": 4,
+        "partial_sections": 1
+      },
+      "sections": {
+        "summary": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 8,
+          "uncertainties": 4,
+          "metrics": 0,
+          "numbers": 71
+        },
+        "target_personas": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 4,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 9
+        },
+        "multi_perspective": {
+          "research_status": "simulated",
+          "usable_evidence": null,
+          "findings": 5,
+          "uncertainties": 4,
+          "metrics": 0,
+          "numbers": 47
+        },
+        "market_size": {
+          "research_status": "partial",
+          "usable_evidence": 7,
+          "findings": 4,
+          "uncertainties": 3,
+          "metrics": 1,
+          "numbers": 49
+        },
+        "revenue": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 6,
+          "uncertainties": 3,
+          "metrics": 2,
+          "numbers": 104
+        },
+        "differentiators": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 5,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 58
+        },
+        "competitive_landscape": {
+          "research_status": "completed",
+          "usable_evidence": 4,
+          "findings": 5,
+          "uncertainties": 3,
+          "metrics": 1,
+          "numbers": 72
+        },
+        "customer_voice": {
+          "research_status": "completed",
+          "usable_evidence": 4,
+          "findings": 4,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 8
+        }
+      }
+    },
+    "b2b_saas": {
+      "run_id": "bef6450f941f157d43fe9a51b873ae8b",
+      "status": "missing"
+    },
+    "marketplace": {
+      "run_id": "bec42a671a81d82dd5ad7e987b536e39",
+      "status": "missing"
+    },
+    "vague": {
+      "run_id": "a5f9e040ff6628748bb1f43d62220bbb",
+      "status": "missing"
+    },
+    "conflicting": {
+      "run_id": "291aa42509a56cf758b2f73a7a342b2d",
+      "status": "missing"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "description": "FICTIONAL TEST BUSINESS: Northstar Learning runs in-person tutoring centres in Toronto and Vancouver, live online tutoring across Canada, a self-service learning subscription, and curriculum licensing for independent schools. Families pay for tutoring and subscriptions; schools buy annual licences. Workshop tickets are sold separately at both centres. Online and in-person tutoring share teaching staff, but software subscriptions and school licensing have different costs and sales cycles.",
+  "geography": "Canada",
+  "business_model": "Tutoring fees, monthly software subscriptions, workshop tickets, and annual school curriculum licences",
+  "locations": [
+    {"name": "Toronto centre", "delivery": "in person", "offerings": ["tutoring", "workshops"]},
+    {"name": "Vancouver centre", "delivery": "in person", "offerings": ["tutoring", "workshops"]}
+  ],
+  "channels": [
+    {"name": "physical centres", "offerings": ["tutoring", "workshops"]},
+    {"name": "online", "offerings": ["live tutoring", "learning subscription"]},
+    {"name": "school sales", "offerings": ["curriculum licensing"]}
+  ],
+  "pricing": {"unknown": true},
+  "stage": "Planning the next expansion",
+  "decision": "Compare expanding physical capacity, online subscriptions, and school licensing without combining incompatible revenue units.",
+  "intake": {
+    "confirmed": false,
+    "facts": {"buyer": "Possibly school district procurement teams"},
+    "unknowns": ["pricing", "monthly_cost_estimate"]
+  }
+}

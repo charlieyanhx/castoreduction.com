@@ -1,0 +1,37 @@
+{
+  "company": "Uber",
+  "snapshot": "FY2025, year ended 2025-12-31. Source-derived simulated customer input authored for this experiment, not a verbatim filing or actual customer input; deliberately incomplete. Company and product names are generalized in statements. Sources and expected checks are evaluator metadata only.",
+  "sources": [
+    {"id": "U1", "title": "Uber 2025 Form 10-K: Business, Platform Synergies, Revenue Recognition", "url": "https://www.sec.gov/Archives/edgar/data/1543151/000154315126000015/uber-20251231.htm"},
+    {"id": "U2", "title": "Uber fourth-quarter and full-year 2025 results, February 4, 2026: segment results, shared costs and metric definitions", "url": "https://investor.uber.com/news-events/news/press-release-details/2026/Uber-Announces-Results-for-Fourth-Quarter-and-Full-Year-2025/default.aspx"}
+  ],
+  "input_statements": [
+    {"id": "U-S01", "text": "We report Mobility, Delivery and Freight as our operating and reportable segments.", "source_ids": ["U1"]},
+    {"id": "U-S02", "text": "Mobility connects riders with drivers through transportation offerings that include ridesharing and taxis.", "source_ids": ["U1"]},
+    {"id": "U-S03", "text": "Delivery covers restaurant meals and a Grocery & Retail group spanning grocery, convenience and other retail purchases.", "source_ids": ["U1"]},
+    {"id": "U-S04", "text": "Delivery brings together ordering consumers, merchants preparing or selling goods, and couriers delivering the orders.", "source_ids": ["U1"]},
+    {"id": "U-S05", "text": "A white-label offering within Delivery lets restaurants and retailers use delivery services under their own brands.", "source_ids": ["U1"]},
+    {"id": "U-S06", "text": "Freight connects shippers and carriers and earns fees from brokerage, transportation management and related services for shippers.", "source_ids": ["U1"]},
+    {"id": "U-S07", "text": "Our consumer membership provides benefits across rides and Delivery, including grocery and retail orders.", "source_ids": ["U1"]},
+    {"id": "U-S08", "text": "Mobility revenue can come from driver service fees and consumer charges; the applicable arrangement depends on the market.", "source_ids": ["U1"]},
+    {"id": "U-S09", "text": "Shared platform research and development includes mapping, payments technology and internal infrastructure; these support the businesses and are not another reportable segment.", "source_ids": ["U2"]},
+    {"id": "U-S10", "text": "Gross Bookings measures ride and order values plus Freight revenue, including applicable taxes, tolls and fees; driver tips are excluded.", "source_ids": ["U2"]},
+    {"id": "U-S11", "text": "For rides and orders, Gross Bookings is measured before deductions for consumer discounts, refunds, participant earnings and driver incentives.", "source_ids": ["U2"]},
+    {"id": "U-S12", "text": "We report revenue separately from Gross Bookings for Mobility, Delivery and Freight; bookings therefore cannot be relabeled as our revenue.", "source_ids": ["U2"]}
+  ],
+  "expected_checks": [
+    {"id": "U-C01", "description": "Nest restaurant, grocery/retail and white-label offerings within Delivery.", "statement_ids": ["U-S01", "U-S03", "U-S05"]},
+    {"id": "U-C02", "description": "Distinguish rider, driver, consumer, merchant and courier roles.", "statement_ids": ["U-S02", "U-S04"]},
+    {"id": "U-C03", "description": "Connect Freight to shippers, carriers and shipper-paid services.", "statement_ids": ["U-S06"]},
+    {"id": "U-C04", "description": "Connect one membership across Mobility and Delivery.", "statement_ids": ["U-S07"]},
+    {"id": "U-C05", "description": "Preserve market-dependent fee payers without inventing prices.", "statement_ids": ["U-S08"]},
+    {"id": "U-C06", "description": "Represent mapping, payments and infrastructure as shared capabilities.", "statement_ids": ["U-S09"]},
+    {"id": "U-C07", "description": "Preserve Gross Bookings as a metric with stated inclusions/exclusions.", "statement_ids": ["U-S10", "U-S11", "U-S12"]}
+  ],
+  "deliberately_unspecified": [
+    "Exact fares, service-fee percentages, membership rates and contract prices.",
+    "Country-level availability and which revenue arrangements apply in each market.",
+    "Complete offering catalog, brands, legal entities and staffing classifications.",
+    "Booking totals, revenue totals, participant earnings and unit economics."
+  ]
+}

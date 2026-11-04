@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Building your report · Castor Research</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap">
+<link rel="stylesheet" href="/brand.css">
+<style>
+  /* [hidden] is a UA rule and ANY author `display:` beats it. See login.html. */
+  [hidden] { display: none !important; }
+
+  /* Same warm paper as the survey and the workspace. The founder has just come from the
+     survey, and handing them a different visual language at the moment they have committed
+     reads as being passed to a different company. */
+  :root {
+    --bg: var(--brand-paper);
+    --surface: var(--brand-surface);
+    --surface-2: var(--brand-surface-2);
+    --line: var(--brand-line);
+    --text: var(--brand-ink);
+    --text-dim: var(--brand-ink-dim);
+    --text-faint: var(--brand-ink-faint);
+    --shadow-1: var(--brand-shadow);
+    --shadow-2: 0 2px 4px oklch(30% 0.02 85 / .06), 0 14px 36px -12px oklch(30% 0.02 85 / .16);
+    --accent: var(--brand-accent-ink);
+    --accent-soft: var(--brand-accent-bg);
+    --warn-ink: var(--brand-warn);
+    --warn-bg: var(--brand-warn-bg);
+    --warn-line: var(--brand-warn-line);
+    --radius: var(--brand-r);
+    --serif: var(--brand-sans);
+    --sans: var(--brand-sans);
+    --mono: var(--brand-mono);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  body { font-family: var(--sans); font-size: 14px; line-height: 1.5; color: var(--text);
+         background: var(--bg); -webkit-font-smoothing: antialiased; }
+
+  .rail { position: sticky; top: 0; z-index: 20; display: flex; align-items: center;
+          gap: 14px; padding: 13px 24px; background: oklch(97.3% 0.006 85 / .88);
+          backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+  .brand { font-family: var(--serif); font-size: 16px; font-weight: var(--brand-display-weight);
+           letter-spacing: -.01em; text-decoration: none; color: var(--text); }
+  .brand span { color: var(--accent); }
+  .navlink { margin-left: auto; font-size: 12.5px; color: var(--text-dim);
+             text-decoration: none; }
+  .navlink:hover { color: var(--accent); }
+
+  main { max-width: 860px; margin: 0 auto; padding: 44px 24px 90px; }
+  h1 { font-family: var(--serif); font-size: clamp(26px, 1.4rem + 1.6vw, 36px);
+       font-weight: var(--brand-display-weight); letter-spacing: -.02em; line-height: 1.15; }
+  .sub { margin-top: 11px; font-size: 15px; color: var(--text-dim); max-width: 56ch; }
+  .clock { margin-left: 12px; font-family: var(--mono); font-size: .5em;
+           font-weight: 500; color: var(--text-faint); letter-spacing: 0;
+           vertical-align: middle; font-variant-numeric: tabular-nums; }
+
+  .track { margin-top: 30px; height: 6px; border-radius: 999px;
+           background: var(--surface-2); overflow: hidden; }
+  .track-fill { height: 100%; background: var(--accent); width: 0;
+                transition: width .6s cubic-bezier(0.16, 1, 0.3, 1); }
+
+  .phases { margin-top: 26px; }
+  .phase { display: grid; grid-template-columns: 22px minmax(0, 1fr);
+           gap: 13px; padding: 13px 0; border-top: 1px solid var(--line); }
+  .phase:first-child { border-top: none; }
+  .dot { width: 13px; height: 13px; margin-top: 4px; border-radius: 50%;
+         border: 2px solid var(--line); background: var(--surface); }
+  .phase.done .dot { border-color: var(--accent); background: var(--accent); }
+  .phase.live .dot { border-color: var(--accent); background: var(--surface);
+                     animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 18%, transparent); } }
+  .phase-name { font-size: 15px; letter-spacing: -.005em; color: var(--text-faint); }
+  .phase.done .phase-name, .phase.live .phase-name { color: var(--text); }
+  .phase.live .phase-name { font-weight: 600; }
+  .phase.issue .dot { border-color: var(--warn-ink); }
+  .phase.issue .phase-name, .phase.issue .phase-note { color: var(--warn-ink); }
+  .phase-note { margin-top: 2px; font-size: 12.5px; color: var(--text-faint); }
+
+  .feed { margin-top: 30px; padding: 18px 20px; background: var(--surface);
+          border: 1px solid var(--line); border-radius: var(--radius);
+          box-shadow: var(--shadow-1); }
+  .feed-lab { font-size: 10.5px; font-weight: 700; letter-spacing: .1em;
+              text-transform: uppercase; color: var(--text-faint); margin-bottom: 11px; }
+  .feed-list { max-height: 260px; overflow-y: auto; }
+  .ev { display: flex; gap: 10px; align-items: baseline; padding: 5px 0;
+        font-size: 13px; border-top: 1px solid var(--surface-2); }
+  .ev:first-child { border-top: none; }
+  .ev-what { color: var(--text); }
+  .ev-detail { color: var(--text-faint); font-size: 12px; }
+  .ev-ms { margin-left: auto; font-family: var(--mono); font-size: 11px;
+           color: var(--text-faint); font-variant-numeric: tabular-nums; }
+  .ev.bad .ev-what { color: var(--warn-ink); }
+  .feed-empty { font-size: 13px; color: var(--text-faint); }
+
+  .done-card { margin-top: 30px; padding: 26px 28px; background: var(--surface);
+               border: 1px solid var(--line); border-left: 3px solid var(--accent);
+               border-radius: var(--radius); box-shadow: var(--shadow-2); }
+  .done-card h2 { font-family: var(--serif); font-size: 22px; font-weight: var(--brand-display-weight);
+                  letter-spacing: -.015em; }
+  .done-card p { margin-top: 9px; font-size: 14.5px; color: var(--text-dim);
+                 max-width: 54ch; }
+  .open { display: inline-block; margin-top: 16px; padding: 11px 22px; font-size: 14px;
+          font-weight: 600; color: #fff; background: var(--accent); border-radius: 9px;
+          text-decoration: none; }
+  .open:hover { opacity: .92; }
+  .second { display: inline-block; margin-top: 16px; margin-left: 14px; font-size: 13.5px;
+            color: var(--text-dim); }
+  .bad-card { margin-top: 30px; padding: 20px 22px; background: var(--warn-bg);
+              border: 1px solid var(--warn-line); border-radius: var(--radius); }
+  .bad-card h2 { font-family: var(--serif); font-size: 19px; font-weight: var(--brand-display-weight);
+                 color: var(--warn-ink); }
+  .bad-card p { margin-top: 8px; font-size: 14px; color: var(--warn-ink); max-width: 56ch; }
+  .bad-card a { color: var(--warn-ink); }
+  .bad-card a.open { color: #fff; }
+  /* The description a stopped run was given, handed back verbatim. The interview it came
+     from is closed once a run is accepted, so this text is the only part of ten minutes of
+     answering that the founder can still get at. It has to be selectable, and long briefs
+     have to scroll rather than push the way out off the card. */
+  .brief { margin-top: 10px; padding: 12px 14px; max-width: 56ch; max-height: 190px;
+           overflow-y: auto; font-size: 13px; line-height: 1.55; color: var(--text-dim);
+           background: var(--surface); border: 1px solid var(--warn-line);
+           border-radius: 8px; white-space: pre-wrap; }
+
+  .aside { margin-top: 26px; font-size: 13px; color: var(--text-faint); }
+  .aside a { color: var(--accent); }
+
+  @media (max-width: 560px) {
+    .rail { padding: 11px 16px; }
+    main { padding: 28px 16px 60px; }
+    .feed-list { max-height: 200px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="rail">
+  {% with home = "/home" %}{% include "partials/brand_mark.html" %}{% endwith %}
+  <a class="navlink" id="libLink" href="/dashboard.html" hidden>Your library</a>
+</header>
+
+<main>
+  <h1 id="title">Building your report<span class="clock" id="clock">0:00</span></h1>
+  <div class="sub" id="sub">This takes about six minutes of live research. You can close
+    this tab and come back to it, the work carries on without you.</div>
+
+  <div class="track"><div class="track-fill" id="fill"></div></div>
+  <div class="phases" id="phases"></div>
+
+  <div class="feed">
+    <div class="feed-lab" id="feedLab">What it is doing right now</div>
+    <div class="feed-list" id="feed"><div class="feed-empty">Starting up…</div></div>
+  </div>
+
+  <div id="outcome"></div>
+
+  <div class="aside">Reports you have already run are in
+    <a href="/dashboard.html">your library</a>.</div>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  /* The pipeline's 18 steps, grouped into what a founder would recognise. The step keys
+     are ours; the labels must never be. The whole intake tree is built on the rule that
+     the founder never sees our taxonomy, and this page used to break it on every line:
+     "Van Westendorp PSM + benchmark", "Firmographic enrichment", "Max-Diff feature
+     ranking". Nobody waiting six minutes for an answer wants to be told that. */
+  var PHASES = [
+    { name: "Working out what you are",
+      note: "reading your description and placing the venture",
+      keys: ["profile", "market_scale"] },
+    { name: "Finding who you are up against",
+      note: "searching for real competitors, then checking each one exists",
+      keys: ["discover", "firmographics", "clustering", "differentiators",
+             "competitor_refinement"] },
+    { name: "Counting the customers",
+      note: "census data and real companies that match who you sell to",
+      keys: ["customer_universe", "audience", "personas", "reddit_signal",
+             "hn_signal", "multi_source_signal", "consumer_research"] },
+    { name: "Working out what people will pay",
+      note: "competitor prices, willingness to pay, and the unit economics",
+      keys: ["max_diff", "pricing", "economics", "place", "financials"] },
+    { name: "Sizing the market",
+      note: "the households, the spend, and what share of it you could reach",
+      keys: ["validation", "market_sizing"] },
+    { name: "Writing it up",
+      note: "the plan, the scoring, and the checks that can withhold it",
+      keys: ["four_ps", "segment_ranking", "viability"] }
+  ];
+  var TOTAL_STEPS = PHASES.reduce(function (n, p) { return n + p.keys.length; }, 0);
+  var TREADLE_PHASES = [
+    { key: "prep", name: "Building your business and research brief" },
+    { key: "target_personas", name: "Target personas" },
+    { key: "competitive_landscape", name: "Competitive landscape" },
+    { key: "customer_voice", name: "Customer voice" },
+    { key: "market_size", name: "Market size" },
+    { key: "differentiators", name: "Differentiators" },
+    { key: "revenue", name: "Three-year revenue" },
+    { key: "multi_perspective", name: "Multiple perspectives" },
+    { key: "summary", name: "Executive summary" }
+  ];
+  var activePipeline = "legacy";
+
+  /* Tool names in founder language. An unmapped tool degrades to its own name with the
+     underscores taken out, which is honest and readable rather than hidden. */
+  var TOOL_WORDS = {
+    web_search: "searched the web",
+    geocode_address: "located the site",
+    census_acs: "read census data",
+    census_cbp: "read business census data",
+    overture_places: "counted nearby venues",
+    osm_places: "counted nearby venues",
+    gmaps_ratings: "read local ratings",
+    fred_series: "pulled economic data",
+    reddit_search: "read customer discussions",
+    competitor_pricing: "read a competitor's prices",
+    scrape: "read a page"
+  };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var jobId = new URLSearchParams(location.search).get("job");
+
+  if (!jobId) {
+    $("title").textContent = "No report to show";
+    $("sub").innerHTML = 'That link is missing its report id. ' +
+      '<a href="/survey">Start a new one</a>.';
+    $("clock").remove();
+    return;
+  }
+
+  var createdAt = null;
+  var since = 0;
+
+  /* LOSING CONTACT IS NOT LOSING THE RUN, and it is not nothing either.
+     Every failed poll fell through to setTimeout(poll, 2500) with no counter and no
+     message, so a 5xx or a dropped connection meant this page said "Building your report"
+     at a server that was not answering, for as long as the tab stayed open. The comment
+     defending it was right that the work is server side; it did not follow that the reader
+     should be told nothing.
+     So: keep trying, say so once it is worth saying, and stop before the spinner becomes a
+     lie. GRACE is roughly 12s of silence, GIVE_UP roughly two minutes. */
+  var POLL_MS = 2500;
+  var GRACE_POLLS = 5;
+  var GIVE_UP_POLLS = 48;
+  var missed = 0;
+  var seen = [];
+  var finished = false;
+  /* The description this run was given. Kept because a stopped run's only useful exit is
+     handing it back: see fail(). */
+  var runDescription = "";
+
+  /* `pending` IS A REAL STATE, not the millisecond before `running`. Generation is
+     serialized process-wide by the run gate in jobs.py, so a job submitted while another
+     report is generating sits in `pending` for as long as that one takes, which can be
+     the whole six minutes. This page said "Building your report" throughout, with no
+     phase lighting up and no events in the feed: identical to what a hung run looks like.
+     Say it is queued, and say why, so the wait is explained rather than suspicious. */
+  var COPY = {
+    running: {
+      title: "Building your report",
+      sub: "This takes about six minutes of live research. You can close this tab and " +
+           "come back to it, the work carries on without you.",
+      lab: "What it is doing right now",
+      empty: "Warming up. The first searches start in a few seconds."
+    },
+    queued: {
+      title: "Your report is queued",
+      sub: "We run one report at a time, so this one starts as soon as the report ahead " +
+           "of it finishes. Nothing is lost by waiting, and you can close this tab and " +
+           "come back to it.",
+      lab: "Waiting to start",
+      empty: "Nothing yet. The first searches start once the report ahead of this one is done."
+    }
+  };
+  var TREADLE_COPY = {
+    running: {
+      title: "Building your Treadle report",
+      sub: "First we build a detailed picture of your business and the questions to " +
+           "research. Report sections then run as their inputs become available. " +
+           "Stage results appear after each research round, so the list may stay unchanged for several minutes. " +
+           "You can close this tab and return while the work continues.",
+      lab: "Research updates",
+      empty: "Waiting for the next update. Sections can run together and may be revisited."
+    },
+    queued: COPY.queued
+  };
+
+  function waitingCopy(queued) {
+    var copy = activePipeline === "treadle" ? TREADLE_COPY : COPY;
+    return queued ? copy.queued : copy.running;
+  }
+
+  function fmt(secs) {
+    var m = Math.floor(secs / 60), s = Math.floor(secs % 60);
+    return m + ":" + String(s).padStart(2, "0");
+  }
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function renderPhases(done, runFinished, queued) {
+    var set = {};
+    (done || []).forEach(function (k) { set[k] = 1; });
+    var host = $("phases");
+    host.innerHTML = "";
+
+    /* A phase is done when the run has MOVED PAST it, not when every key it lists came
+       back. Steps are conditional: reddit_signal, consumer_research and hn_signal do not
+       run for every venture, so `every key present` left finished runs showing half their
+       phases open and one still pulsing. The furthest key seen decides, and a finished run
+       closes everything. */
+    var lastTouched = -1;
+    PHASES.forEach(function (p, i) {
+      if (p.keys.some(function (k) { return set[k]; })) lastTouched = i;
+    });
+
+    var liveFound = false;
+    PHASES.forEach(function (p, i) {
+      var complete = runFinished || i < lastTouched ||
+                     (i === lastTouched && p.keys.every(function (k) { return set[k]; }));
+      var started = p.keys.some(function (k) { return set[k]; });
+      var cls = "phase";
+      if (complete) cls += " done";
+      // Nothing pulses while the job is queued. The pulsing dot is the page's one claim
+      // that work is happening this second, and on a `pending` job it was claiming that
+      // for minutes while the step never moved.
+      else if (!liveFound && !queued) { cls += " live"; liveFound = true; }
+      var row = el("div", cls);
+      row.appendChild(el("div", "dot"));
+      var body = el("div");
+      body.appendChild(el("div", "phase-name", p.name));
+      if (!complete) body.appendChild(el("div", "phase-note", p.note));
+      else if (started) body.appendChild(el("div", "phase-note", "done"));
+      row.appendChild(body);
+      host.appendChild(row);
+    });
+    var pct = Math.round(((done || []).length /
+                          Math.max(TOTAL_STEPS, (done || []).length)) * 100);
+    $("fill").style.width = Math.max(2, Math.min(100, pct)) + "%";
+  }
+
+  function renderTreadlePhases(result, state) {
+    result = result || {};
+    var progress = result._treadle_progress || {};
+    var report = result._treadle || {};
+    var sections = progress.sections || (report.sections && report.sections.sections) || [];
+    var verdicts = {};
+    if (Array.isArray(sections)) {
+      sections.forEach(function (section) {
+        if (section && typeof section.key === "string") verdicts[section.key] = section;
+      });
+    } else if (sections && typeof sections === "object") {
+      verdicts = sections;
+    }
+    var completed = {};
+    (result._steps_completed || []).forEach(function (key) { completed[key] = true; });
+    var terminal = state === "complete" || state === "error";
+    var doneCount = 0;
+    var host = $("phases");
+    host.innerHTML = "";
+    TREADLE_PHASES.forEach(function (phase) {
+      var verdict = verdicts[phase.key];
+      var status = typeof verdict === "string" ? verdict : verdict && verdict.status;
+      if (!status && completed[phase.key]) status = "ok";
+      var done = status === "ok";
+      if (done) doneCount += 1;
+      var issue = status === "failed" || status === "flagged" || status === "skipped";
+      var row = el("div", "phase" + (done ? " done" : issue ? " issue" : ""));
+      row.dataset.section = phase.key;
+      row.appendChild(el("div", "dot"));
+      var body = el("div");
+      body.appendChild(el("div", "phase-name", phase.name));
+      var note = done ? "Done" : status === "flagged" ? "Needs review"
+        : status === "failed" ? "Did not complete"
+        : status === "skipped" ? "Missing required input"
+        : status === "not_applicable" ? "Not applicable"
+        : terminal ? "No completed result" : state === "pending" ? "Queued" : "Waiting for a result";
+      body.appendChild(el("div", "phase-note", note));
+      row.appendChild(body);
+      host.appendChild(row);
+    });
+    // Count only reported successful stages. A later stage never implies an earlier
+    // one finished: these sections can run concurrently and be corrected independently.
+    $("fill").style.width = (doneCount / TREADLE_PHASES.length * 100) + "%";
+    var track = $("fill").parentElement;
+    track.setAttribute("role", "progressbar");
+    track.setAttribute("aria-label", "Research stages completed");
+    track.setAttribute("aria-valuemin", "0");
+    track.setAttribute("aria-valuemax", String(TREADLE_PHASES.length));
+    track.setAttribute("aria-valuenow", String(doneCount));
+  }
+
+  /* THE PROOF OF WORK. Six minutes of a spinner is six minutes of doubt; six minutes of
+     watching it read the census and price real competitors is the product demonstrating
+     that it goes outside and measures, which is the entire thing the founder just paid
+     for. The events are real: name, whether it worked, what it found, how long it took. */
+  function renderFeed(events) {
+    var host = $("feed");
+    // Tools and steps only. The `llm` events carry nothing but ok/true, so they rendered
+    // as a wall of "thought about it": noise that makes the real work harder to see and
+    // reads as filler. What earns trust here is the concrete outside work, named.
+    var shown = events.filter(function (e) {
+      return e.layer === "tool" || e.layer === "step";
+    });
+    if (!shown.length) return;
+    host.innerHTML = "";
+    shown.slice(-40).reverse().forEach(function (e) {
+      var row = el("div", "ev" + (e.ok === false ? " bad" : ""));
+      var stage = activePipeline === "treadle" && TREADLE_PHASES.find(function (phase) {
+        return phase.key === e.name;
+      });
+      var what = e.layer === "tool"
+        ? (TOOL_WORDS[e.name] || String(e.name || "").replace(/_/g, " "))
+        : "finished " + (stage ? stage.name : String(e.name || "").replace(/_/g, " "));
+      if (e.ok === false) what = "could not " + what;
+      row.appendChild(el("span", "ev-what", what));
+      if (e.detail) row.appendChild(el("span", "ev-detail", e.detail));
+      if (e.duration_s) row.appendChild(el("span", "ev-ms", e.duration_s.toFixed(1) + "s"));
+      host.appendChild(row);
+    });
+  }
+
+  var finishedNavigated = false;
+
+  /* A FINISHED RUN IS NOT ALWAYS A PUBLISHABLE ONE, and saying so is the product, not an
+     apology for it. The gates can withhold a report whose numbers are not sourced well
+     enough to stand behind; the report route already renders a proper page explaining
+     which checks blocked it. What was wrong was this screen announcing "your report is
+     ready" first, so the reader met the withhold as a broken promise instead of as the
+     guarantee they were given on the way in. */
+  function succeed(result) {
+    finished = true;
+    var v = (result && result.verification && result.verification.summary) || null;
+    var withheld = v && v.publishable === false;
+    var blocks = (v && v.block) || 0;
+
+    stopClock();          // the heading rewrite below deletes the #clock span
+    $("title").textContent = withheld ? "We are not publishing this one"
+                                      : "Your report is ready";
+    $("sub").textContent = withheld
+      ? "The research finished, but " + (blocks === 1 ? "one check" : blocks + " checks") +
+        " found figures we cannot source well enough to stand behind. We told you we would " +
+        "withhold rather than guess, so that is what this is."
+      : "Every figure in it carries where it came from, and anything we could not source " +
+        "is labelled rather than guessed at.";
+    $("feedLab").textContent = "What it did";
+    var card = el("div", withheld ? "bad-card" : "done-card");
+    card.appendChild(el("h2", null, withheld ? "Withheld" : "Done"));
+    card.appendChild(el("p", null, withheld
+      ? "Open it to see exactly which checks blocked it and what would fix them. Usually " +
+        "it is one missing input rather than anything wrong with the venture."
+      : "It is saved to your library, so this link keeps working and you can come back to it."));
+    var a = el("a", "open", withheld ? "See what was withheld" : "Open the report");
+    // ?annotate=1 opens the report with the WORKSHOP: the sidebar where the founder asks
+    // the analyst, explains and notes passages, rewrites, re-runs, and marks it final.
+    a.href = "/jobs/" + encodeURIComponent(jobId) + "/report.html?annotate=1";
+    card.appendChild(a);
+    card.appendChild(el("span", "second", "or press Enter"));
+    $("outcome").innerHTML = "";
+    $("outcome").appendChild(card);
+    quietFeed();
+    // No auto-redirect. The old page bounced after 1.5s, which throws away the one moment
+    // the reader is deciding whether the wait was worth it, and yanks the page out from
+    // under anyone mid-scroll. Enter opens it for the impatient.
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" && !finishedNavigated) { finishedNavigated = true; a.click(); }
+    });
+  }
+
+  function finishTreadle(job) {
+    var result = job.result || {};
+    if (!result._treadle || job.report_available !== true) {
+      return fail(job.error || "The run stopped before usable report sections were saved.");
+    }
+    finished = true;
+    stopClock();
+    var complete = job.state === "complete" && result._treadle_status === "complete";
+    $("title").textContent = complete ? "Your Treadle report is ready" : "Your Treadle report is partial";
+    $("sub").textContent = complete
+      ? "The report is assembled. Review its assumptions and uncertainties alongside the findings."
+      : "The run has stopped with incomplete research or unresolved findings. The available work is saved.";
+    $("feedLab").textContent = "What it did";
+    var card = el("div", complete ? "done-card" : "bad-card");
+    card.appendChild(el("h2", null, complete ? "Ready to read" : "Partial report available"));
+    card.appendChild(el("p", null, complete
+      ? "Open your full analysis below."
+      : "Open the partial report to see the available sections and the limitations that remain."));
+    if (!complete && job.error) card.appendChild(el("p", null,
+      String(job.error).replace(/^CustomerPipelineIncomplete:\s*/, "")));
+    card.appendChild(el("p", null,
+      "Source tracing is disabled in this version; the report does not verify every claim against its source."));
+    var a = el("a", "open", complete ? "Open the report" : "Open the partial report");
+    a.href = "/jobs/" + encodeURIComponent(jobId) + "/report.html";
+    card.appendChild(a);
+    card.appendChild(el("span", "second", "or press Enter"));
+    $("outcome").innerHTML = "";
+    $("outcome").appendChild(card);
+    quietFeed();
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" && !finishedNavigated) { finishedNavigated = true; a.click(); }
+    });
+  }
+
+  /* THIS PANEL PROMISED A DOOR THAT IS NOT THERE. It read "Your answers are saved" over a
+     link to a bare /survey, and survey.js only resumes an interview from ?s=<session id>,
+     so that link opened a blank first question. The session id is not recoverable here
+     either: the job's params carry the intake RECORD (facts, unknowns, warnings shown) and
+     never the session it came from. Nor is the interview sitting in the drafts notebook,
+     because a session is marked confirmed the moment /plan accepts the run and drafts()
+     deliberately skips confirmed sessions. So the honest statement is that this run cannot
+     be resumed. What does survive is the description the run was given, and that is worth
+     handing back: pasting it into the first box of a new interview is the real way out of
+     here, and it is the difference between losing ten minutes and losing one. */
+  function fail(message) {
+    finished = true;
+    stopClock();          // as in succeed(): the clock span does not survive this
+    $("title").textContent = "This run stopped early";
+    $("sub").textContent = "";
+    var card = el("div", "bad-card");
+    card.appendChild(el("h2", null, "It did not finish"));
+    card.appendChild(el("p", null, message ||
+      "Something went wrong partway through and the run was stopped."));
+    var p = el("p");
+    p.appendChild(document.createTextNode("This run cannot be picked up where it left off. You can "));
+    var a = document.createElement("a");
+    a.href = "/survey";
+    a.textContent = "start a new one";
+    p.appendChild(a);
+    p.appendChild(document.createTextNode(", which asks the questions again, and anything that finished is in "));
+    var lib = document.createElement("a");
+    lib.href = "/dashboard.html";
+    lib.textContent = "your library";
+    p.appendChild(lib);
+    p.appendChild(document.createTextNode("."));
+    card.appendChild(p);
+    if (runDescription) {
+      card.appendChild(el("p", null, "This is the description the run was working from. " +
+        "Paste it into the first box of the new interview and you will not have to type it again."));
+      card.appendChild(el("div", "brief", runDescription));
+    }
+    $("outcome").innerHTML = "";
+    $("outcome").appendChild(card);
+    // The pulsing dot is a claim that a step is running this second, so it cannot outlive
+    // the run. A stopped run kept one phase pulsing under "This run stopped early", which
+    // reads as the page having lost track of itself.
+    var live = $("phases").querySelector(".phase.live");
+    if (live) live.className = "phase";
+    quietFeed();
+  }
+
+  /* The run is over, so the feed must stop promising that searches are about to start.
+     Older jobs predate the transcript and have nothing to replay, which is worth saying
+     rather than leaving a stale line from the live state. */
+  function quietFeed() {
+    var empty = $("feed").querySelector(".feed-empty");
+    if (empty) {
+      empty.textContent = activePipeline === "treadle"
+        ? "No detailed activity was recorded for this run. The section results are shown above."
+        : "This run predates the live activity log, so there is nothing to replay here.";
+    }
+  }
+
+  /* Queued and running are the same screen with different promises on it, and a job moves
+     from one to the other mid-poll, so the copy is set from the state on every pass rather
+     than once. The clock span lives inside the h1, so only the leading text node is
+     rewritten; replacing textContent here would delete the clock. */
+  function setWaiting(queued) {
+    if (finished) return;
+    var c = waitingCopy(queued);
+    var head = $("title").firstChild;
+    if (head) head.nodeValue = c.title;
+    $("sub").textContent = c.sub;
+    $("feedLab").textContent = c.lab;
+    var empty = $("feed").querySelector(".feed-empty");
+    if (empty) empty.textContent = c.empty;
+  }
+
+  /* THE CLOCK STOPS WHEN THE RUN DOES, and it has to be stopped rather than merely
+     guarded. succeed() and fail() both set $("title").textContent, which deletes the
+     #clock span living inside that h1 — the hazard setWaiting() documents and avoids by
+     rewriting only the leading text node. Nothing stopped this interval, so every
+     finished report page threw an uncaught TypeError once a second for as long as the tab
+     stayed open, and kept a timer alive to do it.
+
+     The guard on the element stays as well: a second way for the span to disappear should
+     cost a skipped frame, not an error loop. */
+  var clockTimer = null;
+
+  function stopClock() {
+    if (clockTimer !== null) { clearInterval(clockTimer); clockTimer = null; }
+  }
+
+  function tick() {
+    if (!createdAt) return;
+    var c = $("clock");
+    if (!c) { stopClock(); return; }
+    c.textContent = fmt(Math.max(0, Date.now() / 1000 - createdAt));
+  }
+
+  /* THE LIBRARY LINK IS FOR SOMEONE WHO HAS ONE. A signed-out visitor watching their
+     first run has exactly one report, and it is on this screen: offering "your library"
+     tells them there is somewhere else to be, and the page it opens is empty. Ask who is
+     watching, and reveal it only for an account with something in it. Fire and forget:
+     nothing here may delay or disturb the poll below. */
+  (function revealLibrary() {
+    fetch("/auth/me").then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (me) {
+        if (me && me.authenticated && (me.reports || 0) > 0) {
+          var l = document.getElementById("libLink");
+          if (l) l.hidden = false;
+        }
+      })
+      .catch(function () { /* the link stays hidden, which is the safe default */ });
+  })();
+
+  /* What a failed poll does, in one place: both the 5xx branch and the dropped-connection
+     branch used to duplicate `tick(); setTimeout(poll, 2500)` and say nothing. Returns
+     false when it has given up, so the caller stops rescheduling. */
+  function pollFailed(why) {
+    missed += 1;
+    if (missed >= GIVE_UP_POLLS) {
+      stopClock();
+      var head = $("title").firstChild;
+      if (head) head.nodeValue = "We lost contact with the server";
+      $("sub").innerHTML =
+        "Your report may still be running: the work happens on our side, not in this tab. "
+        + "<a href=\"/dashboard.html\">Open your library</a> to see whether it finished, "
+        + "or reload this page to start watching again.";
+      return false;
+    }
+    if (missed === GRACE_POLLS) {
+      // Said once, not every 2.5 seconds. A line that rewrites itself constantly reads as
+      // a broken page rather than a patient one.
+      $("sub").textContent = "We have lost contact with the server. Your report is still "
+        + "running; this page will keep trying." + (why ? " (" + why + ")" : "");
+    }
+    return true;
+  }
+
+  async function poll() {
+    try {
+      // CHECK THE STATUS BEFORE TRUSTING THE BODY. A 404 or 401 answer has no `state`,
+      // so neither terminal branch below fires and the page re-polls forever: a permanent
+      // "Building your report" after a lost guest cookie, an expired session, a shared
+      // link or a typo. The event feed hides it too, because it answers 200 with an empty
+      // stream for an unknown id so it cannot be used to probe which ids exist.
+      var res = await fetch("/jobs/" + encodeURIComponent(jobId));
+      if (res.status === 404 || res.status === 401 || res.status === 403) {
+        tick();
+        return fail(res.status === 404
+          ? "We cannot find that report. It may belong to another account, or the link "
+            + "may be from a browser session that has since been cleared."
+          : "You are signed out. Sign in and open it from your library.");
+      }
+      if (!res.ok) {                                   // 5xx: keep trying, but say so
+        tick();
+        if (pollFailed("server error " + res.status)) setTimeout(poll, POLL_MS);
+        return;
+      }
+      missed = 0;                                      // answered: back to normal
+      var j = await res.json();
+      activePipeline = (j.params && j.params.pipeline === "treadle") ||
+        (j.result && j.result._pipeline === "treadle") ? "treadle" : "legacy";
+      if (j.created_at) createdAt = j.created_at;
+      // Kept for fail(): the description is the one piece of the interview a stopped run
+      // can still hand back.
+      if (j.params && j.params.description) runDescription = String(j.params.description);
+      var queued = j.state === "pending";
+      if (activePipeline === "treadle") renderTreadlePhases(j.result, j.state);
+      else renderPhases((j.result && j.result._steps_completed) || [],
+                        j.state === "complete", queued);
+      setWaiting(queued);
+
+      try {
+        var evRes = await fetch("/jobs/" + encodeURIComponent(jobId) +
+                                "/events?since=" + since);
+        // CHECK THE STATUS HERE TOO. A 5xx answers with a JSON error detail, which parses
+        // fine and simply has no `events`, so a failing stream fell through to the empty
+        // line below and rendered as "Warming up" for the length of the run.
+        var ev = evRes.ok ? await evRes.json() : null;
+        if (ev && ev.events && ev.events.length) {
+          seen = seen.concat(ev.events);
+          since = ev.next_since || since;
+          renderFeed(seen);
+        } else if (!seen.length) {
+          $("feed").innerHTML = "";
+          $("feed").appendChild(el("div", "feed-empty",
+            finished ? "This run predates the live activity log, so there is nothing to replay here."
+            : !evRes.ok ? "The activity log is not answering right now. The run itself carries on."
+            : waitingCopy(queued).empty));
+        }
+      } catch (e) { /* the event stream is a bonus, never the thing that breaks the page */ }
+
+      if (activePipeline === "treadle" && (j.state === "complete" || j.state === "error")) {
+        tick();
+        return finishTreadle(j);
+      }
+      if (j.state === "complete") { tick(); return succeed(j.result); }
+      if (j.state === "error") { tick(); return fail(j.error); }
+    } catch (e) {
+      // A dropped poll is not a failed run. Keep polling; the work is server side. But a
+      // page that has been told nothing for two minutes should stop pretending.
+      tick();
+      if (pollFailed("no connection")) setTimeout(poll, POLL_MS);
+      return;
+    }
+    tick();
+    setTimeout(poll, POLL_MS);
+  }
+
+  renderPhases([]);
+  clockTimer = setInterval(tick, 1000);
+  poll();
+})();
+</script>
+<script src="/account.js" defer></script>
+</body>
+</html>

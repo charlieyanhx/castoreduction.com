@@ -1,0 +1,102 @@
+{# ------------------------------------------------------------------ the workshop sidebar.
+   THE SESSION AFTER THE REPORT (owner decision, 2026-09-14): one chat with the analyst
+   who wrote the report, over the fact layer and the report itself; a selected passage
+   becomes an Explain (one credit, a turn seeded with the passage) or a Note (free, kept
+   for the next rewrite); a Rewrite runs the writing again with the notes (ten credits);
+   a Re-run recomputes the facts from corrected inputs as a new report (twenty credits,
+   and what the pool has left moves with it). One pool of post-generation credits pays
+   for all of it, and the balance is always on screen.
+
+   Included from report.html for the OWNER only (annotate and not public): it is chrome,
+   never content, so nothing here reaches a PDF, a shared copy or the sample. Everything
+   it shows comes from GET /jobs/{id}/iteration and the workshop routes; the page never
+   types a price, a cost or a pack size. #}
+<link rel="stylesheet" href="/workshop.css">
+<aside class="ws no-print" id="ws" aria-label="Workshop">
+  {# a div, not a <header>: account.js mounts its sign-in control in the page's first
+     <header>, and this panel must not be it #}
+  <div class="ws-head">
+    <div>
+      <div class="ws-title">Workshop</div>
+      <span class="ws-sub">with the analyst</span>
+    </div>
+    <div class="ws-bal" id="wsBal" aria-live="polite"><span id="wsBalN">&ndash;</span><i>credits</i></div>
+    <button class="ws-x" id="wsClose" type="button" aria-label="Close the workshop">
+      <svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+  </div>
+
+  <div class="ws-body" id="wsBody">
+    <div class="ws-intro" id="wsIntro">
+      <p>Ask about anything in this report. The analyst answers from the report's own
+        evidence and cites the numbers it uses; where the research did not look, it says so.</p>
+      <p>Select any passage on the page to <b>explain</b> it or leave a <b>note</b> for the
+        next rewrite. Each answer costs one credit; notes are free.</p>
+      <div class="ws-chips" id="wsChips"></div>
+    </div>
+    <div id="wsTurns" aria-live="polite"></div>
+  </div>
+
+  <div class="ws-foot">
+    <div class="ws-offer" id="wsOffer" hidden></div>
+    <div class="ws-err" id="wsErr" hidden role="status"></div>
+    <form class="ws-compose" id="wsForm">
+      <div class="ws-qbox" id="wsQbox" hidden><span id="wsQtext"></span>
+        <button type="button" id="wsQdrop" aria-label="Drop the selected passage">&times;</button></div>
+      <div class="ws-mode" id="wsMode" hidden>
+        <label><input type="radio" name="wsVerb" value="explain" checked> Explain it <span id="wsExplainCost"></span></label>
+        <label><input type="radio" name="wsVerb" value="note"> Leave a note (free)</label>
+      </div>
+      <div class="ws-in">
+        <textarea id="wsInput" rows="1" placeholder="Ask about this report" aria-label="Your question"></textarea>
+        <button class="ws-btn" id="wsSend" type="submit">Ask</button>
+      </div>
+    </form>
+    <div class="ws-tools">
+      <div class="ws-row">
+        <span class="ws-lab">Notes for the rewrite</span>
+        <button class="ws-link" id="wsNotesToggle" type="button" aria-expanded="false">0</button>
+        <span style="flex:1"></span>
+        <span class="ws-lab" id="wsHistory" hidden></span>
+      </div>
+      <div class="ws-notes" id="wsNotes" hidden></div>
+      <div class="ws-rw">
+        <button class="ws-btn" id="wsRewrite" type="button">Rewrite with my notes</button>
+        <select id="wsStyle" aria-label="Report style for the rewrite"></select>
+        <span class="ws-hint" id="wsRewriteHint"></span>
+      </div>
+      <details class="ws-rerun" id="wsRerun">
+        <summary>Re-run the research <span class="ws-hint" id="wsRerunHint"></span></summary>
+        <div class="ws-rerun-body">
+          <p>A re-run recomputes every number from corrected inputs, as a new report, and
+            takes about fifteen minutes. Your notes ride along as corrections. Change any
+            answer below first.</p>
+          <div id="wsFixes"></div>
+          <div class="ws-row" style="padding:4px 0 0">
+            <button class="ws-btn quiet" id="wsRerunGo" type="button">Re-run</button>
+            <span class="ws-hint" id="wsRerunCost" style="flex:1"></span>
+          </div>
+          <div id="wsRerunConfirm"></div>
+        </div>
+      </details>
+      <div class="ws-row ws-final">
+        <button class="ws-link" id="wsFinal" type="button">Mark this report as final</button>
+        <span class="ws-hint" id="wsFinalHint"></span>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<div class="ws-sel" id="wsSel" hidden role="toolbar" aria-label="Selected passage">
+  <button type="button" data-verb="explain">Explain</button>
+  <button type="button" data-verb="note">Note</button>
+</div>
+
+<script>
+  window.WORKSHOP = {
+    job: {{ job_id|tojson }},
+    facts: {{ (intake_facts or {})|tojson }},
+    style: {{ ((synthesis.provenance.style if synthesis and synthesis.provenance else "") or "")|tojson }},
+    hasWriting: {{ (1 if synthesis else 0)|tojson }}
+  };
+</script>
+<script src="/workshop.js" defer></script>

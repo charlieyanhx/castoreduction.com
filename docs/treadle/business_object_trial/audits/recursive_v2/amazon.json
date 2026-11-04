@@ -1,0 +1,533 @@
+{
+  "company": "Amazon",
+  "summary": {
+    "evaluated_output": "docs/treadle/business_object_trial/runs/recursive_v2_bounded/amazon/accepted.json",
+    "basis": "Independent model audit of accepted.json, candidate.json, artifact.json and readiness.json against the twelve supplied input_statements only. No web research or company-memory facts used. Internal reviewer decisions were checked independently; organizational parent links were not treated as factual classification claims.",
+    "rubric": "Same seven expected_checks as v1. Pass retains the required distinction or mechanism; partial retains only part or leaves the required separately addressable graph structure absent; fail omits or contradicts it. Counts are exploratory rubric results, not a factual-accuracy percentage or human benchmark.",
+    "check_counts": {
+      "total": 7,
+      "pass": 6,
+      "partial": 1,
+      "fail": 0
+    },
+    "baseline_check_counts": {
+      "total": 7,
+      "pass": 4,
+      "partial": 3,
+      "fail": 0
+    },
+    "inspection": {
+      "node_count": 34,
+      "factual_node_count": 29,
+      "fact_count": 63,
+      "relationship_count": 28,
+      "gap_count": 0,
+      "node_ids_reviewed": [
+        "company",
+        "grp_reported_segments",
+        "seg_north_america",
+        "seg_international",
+        "seg_cloud_services",
+        "grp_offerings",
+        "off_stores",
+        "off_seller_programs",
+        "off_advertising",
+        "off_consumer_membership",
+        "off_cloud_services",
+        "grp_actors",
+        "actor_consumers",
+        "actor_third_party_sellers",
+        "grp_revenue_and_measures",
+        "rev_seller_services",
+        "metric_paid_units",
+        "actor_developers",
+        "actor_enterprises",
+        "actor_advertising_customers",
+        "actor_vendors",
+        "actor_publishers",
+        "actor_authors",
+        "off_online_stores",
+        "off_physical_stores",
+        "off_digital_media_purchases",
+        "off_fulfillment_services",
+        "off_membership_shipping_benefits",
+        "off_membership_entertainment_access",
+        "off_digital_subscriptions",
+        "cap_shared_tech_infrastructure",
+        "rev_subscription_services",
+        "rev_online_store_sales",
+        "rev_physical_store_sales"
+      ],
+      "fact_ids_reviewed": [
+        "fact_company_operating_segment_count",
+        "fact_seller_programs_seller_of_record",
+        "fact_paid_units_counting_unit",
+        "fact_paid_units_relation_to_revenue",
+        "fact_consumers_role",
+        "fact_consumers_product_source",
+        "fact_sellers_role",
+        "fact_sellers_service_used",
+        "fact_developers_role",
+        "fact_enterprises_role",
+        "fact_ad_customers_role",
+        "fact_vendors_role",
+        "fact_publishers_role",
+        "fact_authors_role",
+        "fact_stores_product_source",
+        "fact_online_stores_pickup_classification",
+        "fact_physical_stores_sales_scope",
+        "fact_digital_media_purchases_classification",
+        "fact_seller_programs_function",
+        "fact_fulfillment_rev_fulfillment_fees",
+        "fact_advertising_format_sponsored",
+        "fact_advertising_format_display",
+        "fact_advertising_format_video",
+        "fact_membership_fee_classification",
+        "fact_entertainment_content_movies",
+        "fact_entertainment_content_series",
+        "fact_entertainment_content_live_sports",
+        "fact_digital_subs_type_video",
+        "fact_digital_subs_type_music",
+        "fact_digital_subs_type_audiobook",
+        "fact_digital_subs_type_ebook",
+        "fact_digital_subs_revenue_classification",
+        "fact_digital_subs_classification_rule",
+        "fact_cloud_provider_division",
+        "fact_cloud_subs_excluded_from_subscription_rev",
+        "fact_shared_infra_internal_use",
+        "fact_seg_na_segment_type",
+        "fact_seg_na_offering_scope",
+        "fact_seg_na_activity_retail_sales",
+        "fact_seg_na_activity_seller_activity",
+        "fact_seg_na_activity_advertising",
+        "fact_seg_na_activity_subscriptions",
+        "fact_seg_intl_segment_type",
+        "fact_seg_intl_offering_scope",
+        "fact_seg_intl_activity_retail_sales",
+        "fact_seg_intl_activity_seller_activity",
+        "fact_seg_intl_activity_advertising",
+        "fact_seg_intl_activity_subscriptions",
+        "fact_seg_cloud_segment_type",
+        "fact_seller_rev_component_commissions",
+        "fact_seller_rev_component_fulfillment_fees",
+        "fact_seller_rev_component_shipping_fees",
+        "fact_seller_rev_service_scope",
+        "fact_sub_rev_component_membership_fees",
+        "fact_sub_rev_component_digital_video",
+        "fact_sub_rev_component_music",
+        "fact_sub_rev_component_audiobook",
+        "fact_sub_rev_component_ebook",
+        "fact_sub_rev_exclusion_cloud",
+        "fact_sub_rev_classification_rule",
+        "fact_online_sales_rule_digital_media",
+        "fact_online_sales_rule_store_pickup",
+        "fact_physical_sales_scope"
+      ],
+      "relationship_ids_reviewed": [
+        "rel_seg_cloud_offers_cloud_services",
+        "rel_stores_serves_consumers",
+        "rel_seller_programs_serves_sellers",
+        "rel_cloud_serves_developers",
+        "rel_cloud_serves_enterprises",
+        "rel_advertising_serves_ad_customers",
+        "rel_membership_serves_consumers",
+        "rel_membership_bundles_shipping",
+        "rel_membership_bundles_entertainment",
+        "rel_fulfillment_serves_sellers",
+        "rel_fulfillment_generates_seller_rev",
+        "rel_cloud_uses_shared_infra",
+        "rel_company_uses_shared_infra_internal",
+        "rel_seg_na_offers_stores",
+        "rel_seg_na_offers_seller_programs",
+        "rel_seg_na_offers_advertising",
+        "rel_seg_na_offers_membership",
+        "rel_seg_na_offers_digital_subs",
+        "rel_seg_intl_offers_stores",
+        "rel_seg_intl_offers_seller_programs",
+        "rel_seg_intl_offers_advertising",
+        "rel_seg_intl_offers_membership",
+        "rel_seg_intl_offers_digital_subs",
+        "rel_membership_generates_sub_rev",
+        "rel_digital_subs_generates_sub_rev",
+        "rel_online_stores_generates_online_sales",
+        "rel_digital_media_generates_online_sales",
+        "rel_physical_stores_generates_physical_sales"
+      ],
+      "quarantined_ids_reviewed": [
+        "fact_seller_programs_rev_commissions",
+        "fact_fulfillment_rev_shipping_fees",
+        "rel_seller_programs_generates_seller_rev",
+        "rel_sellers_pay_seller_rev",
+        "rel_paid_units_measures_stores",
+        "rel_advertising_serves_sellers",
+        "rel_consumers_pay_sub_rev"
+      ]
+    },
+    "expansion": {
+      "calls": 6,
+      "expansion_complete": true,
+      "pending": [],
+      "stop_reason": "complete",
+      "interpretation": "The queue completed after five expansion calls and one support-review call; queue completion did not establish complete extraction, as the cloud-service subdivision remains missing."
+    }
+  },
+  "checks": [
+    {
+      "id": "A-C01",
+      "description": "Separate regional segment classifications from offering hierarchy.",
+      "status": "pass",
+      "finding": "Reported regional segments are separate from the offering hierarchy. Atomic encompassed_activity facts preserve all four activities in each region; cross-segment offering links are explicitly inferred.",
+      "node_ids": [
+        "seg_north_america",
+        "seg_international",
+        "grp_offerings"
+      ],
+      "fact_ids": [
+        "fact_seg_na_activity_retail_sales",
+        "fact_seg_na_activity_seller_activity",
+        "fact_seg_na_activity_advertising",
+        "fact_seg_na_activity_subscriptions",
+        "fact_seg_intl_activity_retail_sales",
+        "fact_seg_intl_activity_seller_activity",
+        "fact_seg_intl_activity_advertising",
+        "fact_seg_intl_activity_subscriptions"
+      ],
+      "relationship_ids": [
+        "rel_seg_na_offers_stores",
+        "rel_seg_intl_offers_stores"
+      ],
+      "reason": "Reported regional segments are separate from the offering hierarchy. Atomic encompassed_activity facts preserve all four activities in each region; cross-segment offering links are explicitly inferred."
+    },
+    {
+      "id": "A-C02",
+      "description": "Distinguish consumers, third-party sellers and advertising customers.",
+      "status": "pass",
+      "finding": "Consumers, independent third-party sellers and advertising customers are separately represented with role facts and serves edges. Vendors, publishers and authors are retained. The seller-as-advertising-customer overlap was removed by internal review, so that role detail remains an omission beyond the core distinction.",
+      "node_ids": [
+        "actor_consumers",
+        "actor_third_party_sellers",
+        "actor_advertising_customers",
+        "actor_vendors",
+        "actor_publishers",
+        "actor_authors"
+      ],
+      "fact_ids": [
+        "fact_consumers_role",
+        "fact_sellers_role",
+        "fact_ad_customers_role",
+        "fact_vendors_role",
+        "fact_publishers_role",
+        "fact_authors_role"
+      ],
+      "relationship_ids": [
+        "rel_stores_serves_consumers",
+        "rel_seller_programs_serves_sellers",
+        "rel_advertising_serves_ad_customers"
+      ],
+      "reason": "Consumers, independent third-party sellers and advertising customers are separately represented with role facts and serves edges. Vendors, publishers and authors are retained. The seller-as-advertising-customer overlap was removed by internal review, so that role detail remains an omission beyond the core distinction."
+    },
+    {
+      "id": "A-C03",
+      "description": "Nest computing, storage and databases under cloud services.",
+      "status": "partial",
+      "finding": "Computing, storage and database services remain in a single cloud-services label. There are no three separately addressable service nodes or facts nested beneath a cloud-services offering, so recursive expansion did not resolve this baseline omission.",
+      "node_ids": [
+        "off_cloud_services"
+      ],
+      "fact_ids": [
+        "fact_cloud_provider_division"
+      ],
+      "relationship_ids": [
+        "rel_seg_cloud_offers_cloud_services"
+      ],
+      "reason": "Computing, storage and database services remain in a single cloud-services label. There are no three separately addressable service nodes or facts nested beneath a cloud-services offering, so recursive expansion did not resolve this baseline omission."
+    },
+    {
+      "id": "A-C04",
+      "description": "Represent shared infrastructure serving internal operations and cloud customers.",
+      "status": "pass",
+      "finding": "One infrastructure capability has an inferred cloud-services uses edge and a stated company uses edge explicitly qualified by internal needs. Developer and enterprise customer edges connect the external side.",
+      "node_ids": [
+        "off_cloud_services",
+        "cap_shared_tech_infrastructure",
+        "company",
+        "actor_developers",
+        "actor_enterprises"
+      ],
+      "fact_ids": [
+        "fact_shared_infra_internal_use"
+      ],
+      "relationship_ids": [
+        "rel_cloud_uses_shared_infra",
+        "rel_company_uses_shared_infra_internal",
+        "rel_cloud_serves_developers",
+        "rel_cloud_serves_enterprises"
+      ],
+      "reason": "One infrastructure capability has an inferred cloud-services uses edge and a stated company uses edge explicitly qualified by internal needs. Developer and enterprise customer edges connect the external side."
+    },
+    {
+      "id": "A-C05",
+      "description": "Connect membership to shipping and entertainment benefits.",
+      "status": "pass",
+      "finding": "Membership has separately addressable shipping and entertainment benefits connected by explicit bundles edges. Movies, series and live sports are atomic entertainment facts, and membership fees connect to subscription revenue.",
+      "node_ids": [
+        "off_consumer_membership",
+        "off_membership_shipping_benefits",
+        "off_membership_entertainment_access"
+      ],
+      "fact_ids": [
+        "fact_entertainment_content_movies",
+        "fact_entertainment_content_series",
+        "fact_entertainment_content_live_sports",
+        "fact_membership_fee_classification"
+      ],
+      "relationship_ids": [
+        "rel_membership_bundles_shipping",
+        "rel_membership_bundles_entertainment",
+        "rel_membership_generates_sub_rev"
+      ],
+      "reason": "Membership has separately addressable shipping and entertainment benefits connected by explicit bundles edges. Movies, series and live sports are atomic entertainment facts, and membership fees connect to subscription revenue."
+    },
+    {
+      "id": "A-C06",
+      "description": "Keep seller fees and paid-unit metrics distinct.",
+      "status": "pass",
+      "finding": "Seller-service commissions, fulfillment fees and shipping fees are separate revenue-component facts. Paid units remain a metric with an item counting unit, first- and third-party inclusions, and explicit separation from net-sales categories.",
+      "node_ids": [
+        "rev_seller_services",
+        "metric_paid_units"
+      ],
+      "fact_ids": [
+        "fact_seller_rev_component_commissions",
+        "fact_seller_rev_component_fulfillment_fees",
+        "fact_seller_rev_component_shipping_fees",
+        "fact_paid_units_counting_unit",
+        "fact_paid_units_relation_to_revenue"
+      ],
+      "relationship_ids": [],
+      "reason": "Seller-service commissions, fulfillment fees and shipping fees are separate revenue-component facts. Paid units remain a metric with an item counting unit, first- and third-party inclusions, and explicit separation from net-sales categories."
+    },
+    {
+      "id": "A-C07",
+      "description": "Preserve transaction-versus-subscription and order-channel classification rules.",
+      "status": "pass",
+      "finding": "Atomic rules retain individual-media versus ongoing-rights classifications, membership and digital subscriptions, the cloud-subscription exclusion, online pickup treatment and in-store selection treatment. Revenue edges reinforce the rules.",
+      "node_ids": [
+        "off_digital_media_purchases",
+        "off_digital_subscriptions",
+        "rev_subscription_services",
+        "rev_online_store_sales",
+        "rev_physical_store_sales"
+      ],
+      "fact_ids": [
+        "fact_digital_media_purchases_classification",
+        "fact_digital_subs_classification_rule",
+        "fact_sub_rev_exclusion_cloud",
+        "fact_online_sales_rule_store_pickup",
+        "fact_physical_sales_scope"
+      ],
+      "relationship_ids": [
+        "rel_digital_media_generates_online_sales",
+        "rel_digital_subs_generates_sub_rev",
+        "rel_physical_stores_generates_physical_sales"
+      ],
+      "reason": "Atomic rules retain individual-media versus ongoing-rights classifications, membership and digital subscriptions, the cloud-subscription exclusion, online pickup treatment and in-store selection treatment. Revenue edges reinforce the rules."
+    }
+  ],
+  "unsupported_claims": [],
+  "omissions": [
+    {
+      "finding": "Computing, storage and database services are still combined in one leaf label rather than separately addressable children or atomic service-type facts.",
+      "node_ids": [
+        "off_cloud_services"
+      ],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "statement_ids": [
+        "A-S05"
+      ]
+    },
+    {
+      "finding": "The accepted object loses the stated seller category within advertising customers. The candidate represented the overlap by an inferred serves edge, which the internal reviewer quarantined.",
+      "node_ids": [
+        "actor_third_party_sellers",
+        "actor_advertising_customers",
+        "off_advertising"
+      ],
+      "fact_ids": [],
+      "relationship_ids": [
+        "rel_advertising_serves_sellers"
+      ],
+      "statement_ids": [
+        "A-S08"
+      ],
+      "record_location": "quarantined"
+    },
+    {
+      "finding": "The accepted graph has no payer edges after seller-service and consumer-membership payment inferences were quarantined. The underlying fee facts remain, so monetization detail is not wholly absent, but payer relationships are lost.",
+      "node_ids": [
+        "actor_third_party_sellers",
+        "actor_consumers",
+        "rev_seller_services",
+        "rev_subscription_services"
+      ],
+      "fact_ids": [
+        "fact_seller_rev_service_scope",
+        "fact_sub_rev_component_membership_fees"
+      ],
+      "relationship_ids": [
+        "rel_sellers_pay_seller_rev",
+        "rel_consumers_pay_sub_rev"
+      ],
+      "statement_ids": [
+        "A-S06",
+        "A-S07",
+        "A-S09"
+      ],
+      "record_location": "relationships quarantined; cited facts accepted"
+    }
+  ],
+  "schema_limitations": [
+    "No unambiguous unsupported accepted factual node, fact or edge was identified. Inferred regional offering links are plausible category mappings, not proof of each product being available in every geography; their inferred basis must remain visible.",
+    "Most operational distinctions now exist as atomic facts or explicit edges, but computing/storage/database and digital subscription products remain combined offering nodes. Recursion by organizational branch does not itself guarantee finer business decomposition.",
+    "The value of fact_company_operating_segment_count is the string \"3\", not a numeric scalar. Its meaning is correct, but consumers cannot assume numeric concepts are consistently typed.",
+    "Classification and revenue rules remain free-text values under several related keys, with some duplication on offerings and revenue streams. This preserves meaning for an LLM reader but does not provide a normalized machine-executable rule language.",
+    "An empty pending queue and expansion_complete=true mean the requested traversal finished; they do not prove that all supplied semantic distinctions were extracted.",
+    "Readiness uses all-offering coverage gates: although six stated serves edges and several revenue links are accepted, summary.actor, target_personas.actor and revenue.monetization are wholly unavailable when some leaves lack coverage. This underreports partial knowledge and treats bundled benefits or organizational offering containers as separate businesses requiring their own customer and revenue edges."
+  ],
+  "internal_review": {
+    "status": "complete",
+    "quarantined_count": 7,
+    "overrejects": [
+      {
+        "id": "rel_sellers_pay_seller_rev",
+        "finding": "The candidate explicitly marks this inferred. Ordinary reading of seller-service commissions and fees for services provided to third-party sellers supports sellers as likely payers; requiring the literal statement that they pay is too strict for an inference. Preserve its inferred status rather than promote it to stated.",
+        "statement_ids": [
+          "A-S07"
+        ]
+      },
+      {
+        "id": "rel_consumers_pay_sub_rev",
+        "finding": "The candidate is inferred and restricted to consumer membership fees. Consumer membership plus membership fees supports this ordinary payment inference; the reviewer demands an explicit payer sentence despite the inferred basis.",
+        "statement_ids": [
+          "A-S06",
+          "A-S09"
+        ]
+      },
+      {
+        "id": "rel_advertising_serves_sellers",
+        "finding": "The supplied narrative already describes independent third-party sellers and then names sellers as advertising customers. Linking these contextual roles is a reasonable explicitly marked inference; deleting it loses an input distinction without replacing it with a separate seller-advertiser actor.",
+        "statement_ids": [
+          "A-S03",
+          "A-S04",
+          "A-S08"
+        ]
+      }
+    ],
+    "reasonable_quarantines": [
+      {
+        "id": "fact_fulfillment_rev_shipping_fees",
+        "finding": "The input assigns shipping fees to seller-service revenue, not specifically to fulfillment services. The aggregate fee fact remains accepted."
+      },
+      {
+        "id": "fact_seller_programs_rev_commissions",
+        "finding": "Commissions are stated at the seller-service revenue level; attributing them specifically to the seller-program offering with basis stated is more specific than the cited statement. It could be considered for a separately labeled inference."
+      },
+      {
+        "id": "rel_seller_programs_generates_seller_rev",
+        "finding": "The link is plausible, but labeling the specific offering-to-category mapping stated is stronger than the isolated cited statement. Retyping to inferred could preserve utility; quarantine avoids asserting the narrower classification as direct input."
+      },
+      {
+        "id": "rel_paid_units_measures_stores",
+        "finding": "The metric counts items sold, while the stores endpoint names a broad offering/container. The inference is plausible, but the target is a coarse proxy and risks suggesting a channel scope not fully specified. A measurement-subject fact would express the input more precisely."
+      }
+    ],
+    "missed_unsupported_claims": [],
+    "missed_coverage_issues": [
+      {
+        "id": "off_cloud_services",
+        "finding": "Support review verifies existing records but does not detect the missing decomposition into three cloud-service types."
+      }
+    ]
+  },
+  "report_readiness": {
+    "ready": false,
+    "reason": "The supplied input supports a substantially improved qualitative business and revenue-mechanism map. It still provides no market-size geography/date/denominator, prices, financial totals, adoption assumptions, competitor evidence or customer quotations. A complete eight-section research report is not supported by extraction alone.",
+    "readiness_output_report_ready": false,
+    "ready_for_research_sections": [
+      "multi_perspective",
+      "differentiators"
+    ],
+    "caution": "The readiness result is conservative but loses partial actor/monetization coverage. Gaps should be attached to specific missing offerings while preserving available facts for research planning."
+  },
+  "over_rejections": [
+    {
+      "id": "rel_sellers_pay_seller_rev",
+      "finding": "The candidate explicitly marks this inferred. Ordinary reading of seller-service commissions and fees for services provided to third-party sellers supports sellers as likely payers; requiring the literal statement that they pay is too strict for an inference. Preserve its inferred status rather than promote it to stated.",
+      "statement_ids": [
+        "A-S07"
+      ]
+    },
+    {
+      "id": "rel_consumers_pay_sub_rev",
+      "finding": "The candidate is inferred and restricted to consumer membership fees. Consumer membership plus membership fees supports this ordinary payment inference; the reviewer demands an explicit payer sentence despite the inferred basis.",
+      "statement_ids": [
+        "A-S06",
+        "A-S09"
+      ]
+    },
+    {
+      "id": "rel_advertising_serves_sellers",
+      "finding": "The supplied narrative already describes independent third-party sellers and then names sellers as advertising customers. Linking these contextual roles is a reasonable explicitly marked inference; deleting it loses an input distinction without replacing it with a separate seller-advertiser actor.",
+      "statement_ids": [
+        "A-S03",
+        "A-S04",
+        "A-S08"
+      ]
+    }
+  ],
+  "readiness_mapping_loss": [
+    {
+      "requirement_ids": [
+        "summary.actor",
+        "target_personas.actor",
+        "customer_voice.actor"
+      ],
+      "accepted_record_ids": [
+        "actor_consumers",
+        "actor_third_party_sellers",
+        "actor_advertising_customers",
+        "actor_developers",
+        "actor_enterprises",
+        "rel_stores_serves_consumers",
+        "rel_seller_programs_serves_sellers",
+        "rel_cloud_serves_developers",
+        "rel_cloud_serves_enterprises",
+        "rel_advertising_serves_ad_customers",
+        "rel_fulfillment_serves_sellers"
+      ],
+      "finding": "All these actor/serves records are accepted and stated, but the three actor requirements remain wholly unavailable because other offering nodes lack complete coverage. Customer_voice asks which customer group to hear despite several supported choices. Preserve those choices and identify gaps by specific offering."
+    },
+    {
+      "requirement_ids": [
+        "summary.monetization",
+        "revenue.monetization"
+      ],
+      "accepted_record_ids": [
+        "rev_seller_services",
+        "rev_subscription_services",
+        "rev_online_store_sales",
+        "rev_physical_store_sales",
+        "rel_fulfillment_generates_seller_rev",
+        "rel_membership_generates_sub_rev",
+        "rel_digital_subs_generates_sub_rev",
+        "rel_digital_media_generates_online_sales",
+        "rel_physical_stores_generates_physical_sales",
+        "fact_seller_rev_component_commissions",
+        "fact_seller_rev_component_fulfillment_fees",
+        "fact_seller_rev_component_shipping_fees"
+      ],
+      "finding": "These revenue categories, component facts and stated generation edges survive review. The all-offering gate marks monetization unavailable instead of surfacing partial mappings. Missing cloud/advertising revenue and uncovered leaf nodes should not erase supported mappings."
+    }
+  ]
+}

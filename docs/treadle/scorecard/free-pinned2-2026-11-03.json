@@ -1,0 +1,540 @@
+{
+  "scorecard": "treadle.scorecard/1",
+  "label": "free-pinned2-2026-11-03",
+  "report_type": "market_research_next",
+  "corpus": "packs/market_research_next/eval/briefs.json",
+  "cases": {
+    "local_cafe": {
+      "run_id": "fe8b82032cdeeff4de90e58e74a43a19",
+      "probe": "physical local business with concrete prices, capacity and costs",
+      "status": "completed",
+      "ok": true,
+      "seconds": 404,
+      "correction_rounds": 0,
+      "stop_reason": "completed",
+      "cost_usd": 0.0,
+      "tokens": {
+        "gemini-3.5-flash": {
+          "calls": 42,
+          "in": 543330,
+          "out": 35132
+        },
+        "gemini-flash-lite-latest": {
+          "calls": 1,
+          "in": 1124,
+          "out": 27
+        }
+      },
+      "model_calls": 46,
+      "tool_calls": 25,
+      "verdicts": {
+        "ok": 18
+      },
+      "object": {
+        "nodes": 18,
+        "facts": 11,
+        "relationships": 8,
+        "gaps": 1,
+        "quarantined": 0
+      },
+      "totals": {
+        "usable_evidence": 10,
+        "numbers": 251,
+        "metrics": 3,
+        "partial_sections": 1
+      },
+      "sections": {
+        "summary": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 5,
+          "uncertainties": 4,
+          "metrics": 0,
+          "numbers": 53
+        },
+        "target_personas": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 4,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 17
+        },
+        "multi_perspective": {
+          "research_status": "simulated",
+          "usable_evidence": null,
+          "findings": 3,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 4
+        },
+        "market_size": {
+          "research_status": "partial",
+          "usable_evidence": 4,
+          "findings": 5,
+          "uncertainties": 4,
+          "metrics": 1,
+          "numbers": 53
+        },
+        "revenue": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 4,
+          "uncertainties": 8,
+          "metrics": 1,
+          "numbers": 28
+        },
+        "differentiators": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 4,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 23
+        },
+        "competitive_landscape": {
+          "research_status": "completed",
+          "usable_evidence": 3,
+          "findings": 5,
+          "uncertainties": 2,
+          "metrics": 1,
+          "numbers": 59
+        },
+        "customer_voice": {
+          "research_status": "completed",
+          "usable_evidence": 3,
+          "findings": 5,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 14
+        }
+      }
+    },
+    "b2b_saas": {
+      "run_id": "daeda6eaa0cd46693eb6d4d40f975982",
+      "probe": "online B2B subscription with a named buyer and price",
+      "status": "completed",
+      "ok": true,
+      "seconds": 311,
+      "correction_rounds": 1,
+      "stop_reason": "completed",
+      "cost_usd": 0.0,
+      "tokens": {
+        "gemini-3.5-flash": {
+          "calls": 43,
+          "in": 511687,
+          "out": 40627
+        },
+        "gemini-flash-lite-latest": {
+          "calls": 1,
+          "in": 1389,
+          "out": 5
+        }
+      },
+      "model_calls": 47,
+      "tool_calls": 22,
+      "verdicts": {
+        "ok": 17,
+        "not_applicable": 1
+      },
+      "object": {
+        "nodes": 14,
+        "facts": 12,
+        "relationships": 10,
+        "gaps": 2,
+        "quarantined": 3
+      },
+      "totals": {
+        "usable_evidence": 9,
+        "numbers": 136,
+        "metrics": 2,
+        "partial_sections": 1
+      },
+      "sections": {
+        "summary": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 7,
+          "uncertainties": 6,
+          "metrics": 0,
+          "numbers": 10
+        },
+        "target_personas": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 5,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 2
+        },
+        "multi_perspective": {
+          "research_status": "simulated",
+          "usable_evidence": null,
+          "findings": 5,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 8
+        },
+        "market_size": {
+          "research_status": "partial",
+          "usable_evidence": 3,
+          "findings": 4,
+          "uncertainties": 4,
+          "metrics": 1,
+          "numbers": 27
+        },
+        "revenue": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 6,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 62
+        },
+        "differentiators": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 5,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 10
+        },
+        "competitive_landscape": {
+          "research_status": "completed",
+          "usable_evidence": 3,
+          "findings": 4,
+          "uncertainties": 2,
+          "metrics": 1,
+          "numbers": 14
+        },
+        "customer_voice": {
+          "research_status": "completed",
+          "usable_evidence": 3,
+          "findings": 4,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 3
+        }
+      }
+    },
+    "marketplace": {
+      "run_id": "f47ff5893d444aee9cc38629dec40616",
+      "probe": "two-sided marketplace with a cold-start problem",
+      "status": "completed",
+      "ok": true,
+      "seconds": 303,
+      "correction_rounds": 0,
+      "stop_reason": "completed",
+      "cost_usd": 0.0,
+      "tokens": {
+        "gemini-3.5-flash": {
+          "calls": 38,
+          "in": 397692,
+          "out": 25149
+        },
+        "gemini-flash-lite-latest": {
+          "calls": 1,
+          "in": 1131,
+          "out": 53
+        }
+      },
+      "model_calls": 39,
+      "tool_calls": 21,
+      "verdicts": {
+        "ok": 18
+      },
+      "object": {
+        "nodes": 6,
+        "facts": 6,
+        "relationships": 4,
+        "gaps": 3,
+        "quarantined": 2
+      },
+      "totals": {
+        "usable_evidence": 9,
+        "numbers": 183,
+        "metrics": 2,
+        "partial_sections": 1
+      },
+      "sections": {
+        "summary": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 6,
+          "uncertainties": 4,
+          "metrics": 0,
+          "numbers": 32
+        },
+        "target_personas": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 4,
+          "uncertainties": 2,
+          "metrics": 0,
+          "numbers": 20
+        },
+        "multi_perspective": {
+          "research_status": "simulated",
+          "usable_evidence": null,
+          "findings": 4,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 15
+        },
+        "market_size": {
+          "research_status": "partial",
+          "usable_evidence": 3,
+          "findings": 3,
+          "uncertainties": 4,
+          "metrics": 1,
+          "numbers": 20
+        },
+        "revenue": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 4,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 37
+        },
+        "differentiators": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 4,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 14
+        },
+        "competitive_landscape": {
+          "research_status": "completed",
+          "usable_evidence": 3,
+          "findings": 5,
+          "uncertainties": 3,
+          "metrics": 1,
+          "numbers": 29
+        },
+        "customer_voice": {
+          "research_status": "completed",
+          "usable_evidence": 3,
+          "findings": 4,
+          "uncertainties": 2,
+          "metrics": 0,
+          "numbers": 16
+        }
+      }
+    },
+    "vague": {
+      "run_id": "df4b337b8d073b171efb00dc885a904d",
+      "probe": "a one-line brief with every question skipped",
+      "status": "completed",
+      "ok": true,
+      "seconds": 253,
+      "correction_rounds": 0,
+      "stop_reason": "completed",
+      "cost_usd": 0.0,
+      "tokens": {
+        "gemini-3.5-flash": {
+          "calls": 37,
+          "in": 270468,
+          "out": 18351
+        },
+        "gemini-flash-lite-latest": {
+          "calls": 1,
+          "in": 733,
+          "out": 40
+        }
+      },
+      "model_calls": 39,
+      "tool_calls": 20,
+      "verdicts": {
+        "ok": 17,
+        "not_applicable": 1
+      },
+      "object": {
+        "nodes": 3,
+        "facts": 1,
+        "relationships": 2,
+        "gaps": 2,
+        "quarantined": 0
+      },
+      "totals": {
+        "usable_evidence": 10,
+        "numbers": 98,
+        "metrics": 2,
+        "partial_sections": 0
+      },
+      "sections": {
+        "summary": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 6,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 17
+        },
+        "target_personas": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 4,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 3
+        },
+        "multi_perspective": {
+          "research_status": "simulated",
+          "usable_evidence": null,
+          "findings": 4,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 0
+        },
+        "market_size": {
+          "research_status": "completed",
+          "usable_evidence": 3,
+          "findings": 4,
+          "uncertainties": 3,
+          "metrics": 1,
+          "numbers": 11
+        },
+        "revenue": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 4,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 66
+        },
+        "differentiators": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 5,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 0
+        },
+        "competitive_landscape": {
+          "research_status": "completed",
+          "usable_evidence": 4,
+          "findings": 4,
+          "uncertainties": 3,
+          "metrics": 1,
+          "numbers": 1
+        },
+        "customer_voice": {
+          "research_status": "completed",
+          "usable_evidence": 3,
+          "findings": 4,
+          "uncertainties": 2,
+          "metrics": 0,
+          "numbers": 0
+        }
+      }
+    },
+    "conflicting": {
+      "run_id": "59415fb3a06b89aeaca1cf243736fa35",
+      "probe": "answers that contradict the description and each other",
+      "status": "completed",
+      "ok": true,
+      "seconds": 429,
+      "correction_rounds": 0,
+      "stop_reason": "completed",
+      "cost_usd": 0.0,
+      "tokens": {
+        "gemini-3.5-flash": {
+          "calls": 39,
+          "in": 361877,
+          "out": 28935
+        },
+        "gemini-flash-lite-latest": {
+          "calls": 1,
+          "in": 1417,
+          "out": 43
+        }
+      },
+      "model_calls": 43,
+      "tool_calls": 26,
+      "verdicts": {
+        "ok": 18
+      },
+      "object": {
+        "nodes": 5,
+        "facts": 5,
+        "relationships": 6,
+        "gaps": 3,
+        "quarantined": 0
+      },
+      "totals": {
+        "usable_evidence": 10,
+        "numbers": 324,
+        "metrics": 2,
+        "partial_sections": 1
+      },
+      "sections": {
+        "summary": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 7,
+          "uncertainties": 4,
+          "metrics": 0,
+          "numbers": 68
+        },
+        "target_personas": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 5,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 10
+        },
+        "multi_perspective": {
+          "research_status": "simulated",
+          "usable_evidence": null,
+          "findings": 5,
+          "uncertainties": 3,
+          "metrics": 0,
+          "numbers": 48
+        },
+        "market_size": {
+          "research_status": "partial",
+          "usable_evidence": 3,
+          "findings": 5,
+          "uncertainties": 4,
+          "metrics": 1,
+          "numbers": 31
+        },
+        "revenue": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 5,
+          "uncertainties": 4,
+          "metrics": 0,
+          "numbers": 92
+        },
+        "differentiators": {
+          "research_status": "derived",
+          "usable_evidence": null,
+          "findings": 3,
+          "uncertainties": 2,
+          "metrics": 0,
+          "numbers": 20
+        },
+        "competitive_landscape": {
+          "research_status": "completed",
+          "usable_evidence": 4,
+          "findings": 3,
+          "uncertainties": 2,
+          "metrics": 1,
+          "numbers": 49
+        },
+        "customer_voice": {
+          "research_status": "completed",
+          "usable_evidence": 3,
+          "findings": 4,
+          "uncertainties": 2,
+          "metrics": 0,
+          "numbers": 6
+        }
+      }
+    }
+  }
+}

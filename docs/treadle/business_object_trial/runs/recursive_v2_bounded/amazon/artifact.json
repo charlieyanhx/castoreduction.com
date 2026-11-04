@@ -1,0 +1,3648 @@
+{
+  "candidate": {
+    "version": "market_research.business/2",
+    "company_alias": "Company A",
+    "nodes": [
+      {
+        "id": "company",
+        "kind": "company",
+        "label": "Company A",
+        "parent_id": null,
+        "statement_ids": []
+      },
+      {
+        "id": "grp_reported_segments",
+        "kind": "group",
+        "label": "Reported operating segments",
+        "parent_id": "company",
+        "statement_ids": []
+      },
+      {
+        "id": "seg_north_america",
+        "kind": "reported_segment",
+        "label": "North America",
+        "parent_id": "grp_reported_segments",
+        "statement_ids": [
+          "A-S01",
+          "A-S02"
+        ]
+      },
+      {
+        "id": "seg_international",
+        "kind": "reported_segment",
+        "label": "International",
+        "parent_id": "grp_reported_segments",
+        "statement_ids": [
+          "A-S01",
+          "A-S02"
+        ]
+      },
+      {
+        "id": "seg_cloud_services",
+        "kind": "reported_segment",
+        "label": "Cloud-services business segment",
+        "parent_id": "grp_reported_segments",
+        "statement_ids": [
+          "A-S01"
+        ]
+      },
+      {
+        "id": "grp_offerings",
+        "kind": "group",
+        "label": "Offerings",
+        "parent_id": "company",
+        "statement_ids": []
+      },
+      {
+        "id": "off_stores",
+        "kind": "offering",
+        "label": "Online and physical stores",
+        "parent_id": "grp_offerings",
+        "statement_ids": [
+          "A-S03",
+          "A-S11"
+        ]
+      },
+      {
+        "id": "off_seller_programs",
+        "kind": "offering",
+        "label": "Seller programs and fulfillment services",
+        "parent_id": "grp_offerings",
+        "statement_ids": [
+          "A-S04",
+          "A-S07"
+        ]
+      },
+      {
+        "id": "off_advertising",
+        "kind": "offering",
+        "label": "Advertising (sponsored, display, video)",
+        "parent_id": "grp_offerings",
+        "statement_ids": [
+          "A-S08"
+        ]
+      },
+      {
+        "id": "off_consumer_membership",
+        "kind": "offering",
+        "label": "Consumer membership",
+        "parent_id": "grp_offerings",
+        "statement_ids": [
+          "A-S06"
+        ]
+      },
+      {
+        "id": "off_cloud_services",
+        "kind": "offering",
+        "label": "Cloud computing, storage and database services",
+        "parent_id": "grp_offerings",
+        "statement_ids": [
+          "A-S05"
+        ]
+      },
+      {
+        "id": "grp_actors",
+        "kind": "group",
+        "label": "Actors",
+        "parent_id": "company",
+        "statement_ids": []
+      },
+      {
+        "id": "actor_consumers",
+        "kind": "actor",
+        "label": "Consumers",
+        "parent_id": "grp_actors",
+        "statement_ids": [
+          "A-S03"
+        ]
+      },
+      {
+        "id": "actor_third_party_sellers",
+        "kind": "actor",
+        "label": "Independent third-party sellers",
+        "parent_id": "grp_actors",
+        "statement_ids": [
+          "A-S03",
+          "A-S04"
+        ]
+      },
+      {
+        "id": "grp_revenue_and_measures",
+        "kind": "group",
+        "label": "Revenue categories and operating measures",
+        "parent_id": "company",
+        "statement_ids": []
+      },
+      {
+        "id": "rev_seller_services",
+        "kind": "revenue_stream",
+        "label": "Seller-service revenue",
+        "parent_id": "grp_revenue_and_measures",
+        "statement_ids": [
+          "A-S07"
+        ]
+      },
+      {
+        "id": "metric_paid_units",
+        "kind": "metric",
+        "label": "Paid units",
+        "parent_id": "grp_revenue_and_measures",
+        "statement_ids": [
+          "A-S12"
+        ]
+      },
+      {
+        "id": "actor_developers",
+        "kind": "actor",
+        "label": "Developers",
+        "parent_id": "grp_actors",
+        "statement_ids": [
+          "A-S05"
+        ]
+      },
+      {
+        "id": "actor_enterprises",
+        "kind": "actor",
+        "label": "Enterprises",
+        "parent_id": "grp_actors",
+        "statement_ids": [
+          "A-S05"
+        ]
+      },
+      {
+        "id": "actor_advertising_customers",
+        "kind": "actor",
+        "label": "Advertising customers",
+        "parent_id": "grp_actors",
+        "statement_ids": [
+          "A-S08"
+        ]
+      },
+      {
+        "id": "actor_vendors",
+        "kind": "actor",
+        "label": "Vendors",
+        "parent_id": "actor_advertising_customers",
+        "statement_ids": [
+          "A-S08"
+        ]
+      },
+      {
+        "id": "actor_publishers",
+        "kind": "actor",
+        "label": "Publishers",
+        "parent_id": "actor_advertising_customers",
+        "statement_ids": [
+          "A-S08"
+        ]
+      },
+      {
+        "id": "actor_authors",
+        "kind": "actor",
+        "label": "Authors",
+        "parent_id": "actor_advertising_customers",
+        "statement_ids": [
+          "A-S08"
+        ]
+      },
+      {
+        "id": "off_online_stores",
+        "kind": "offering",
+        "label": "Online stores",
+        "parent_id": "off_stores",
+        "statement_ids": [
+          "A-S03",
+          "A-S11"
+        ]
+      },
+      {
+        "id": "off_physical_stores",
+        "kind": "offering",
+        "label": "Physical stores",
+        "parent_id": "off_stores",
+        "statement_ids": [
+          "A-S03",
+          "A-S11"
+        ]
+      },
+      {
+        "id": "off_digital_media_purchases",
+        "kind": "offering",
+        "label": "Individual digital-media purchases",
+        "parent_id": "off_online_stores",
+        "statement_ids": [
+          "A-S10"
+        ]
+      },
+      {
+        "id": "off_fulfillment_services",
+        "kind": "offering",
+        "label": "Fulfillment services for third-party sellers",
+        "parent_id": "off_seller_programs",
+        "statement_ids": [
+          "A-S04",
+          "A-S07"
+        ]
+      },
+      {
+        "id": "off_membership_shipping_benefits",
+        "kind": "offering",
+        "label": "Membership shipping benefits",
+        "parent_id": "off_consumer_membership",
+        "statement_ids": [
+          "A-S06"
+        ]
+      },
+      {
+        "id": "off_membership_entertainment_access",
+        "kind": "offering",
+        "label": "Membership entertainment access",
+        "parent_id": "off_consumer_membership",
+        "statement_ids": [
+          "A-S06"
+        ]
+      },
+      {
+        "id": "off_digital_subscriptions",
+        "kind": "offering",
+        "label": "Digital video, music, audiobook and ebook subscriptions",
+        "parent_id": "grp_offerings",
+        "statement_ids": [
+          "A-S09",
+          "A-S10"
+        ]
+      },
+      {
+        "id": "cap_shared_tech_infrastructure",
+        "kind": "capability",
+        "label": "Shared technology infrastructure",
+        "parent_id": "off_cloud_services",
+        "statement_ids": [
+          "A-S05"
+        ]
+      },
+      {
+        "id": "rev_subscription_services",
+        "kind": "revenue_stream",
+        "label": "Subscription revenue",
+        "parent_id": "grp_revenue_and_measures",
+        "statement_ids": [
+          "A-S09",
+          "A-S10"
+        ]
+      },
+      {
+        "id": "rev_online_store_sales",
+        "kind": "revenue_stream",
+        "label": "Online-store sales",
+        "parent_id": "grp_revenue_and_measures",
+        "statement_ids": [
+          "A-S10",
+          "A-S11"
+        ]
+      },
+      {
+        "id": "rev_physical_store_sales",
+        "kind": "revenue_stream",
+        "label": "Physical-store sales",
+        "parent_id": "grp_revenue_and_measures",
+        "statement_ids": [
+          "A-S11"
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "fact_company_operating_segment_count",
+        "node_id": "company",
+        "key": "operating_segment_count",
+        "value": "3",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S01"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seller_programs_seller_of_record",
+        "node_id": "off_seller_programs",
+        "key": "seller_of_record",
+        "value": "Company A is not the seller of record for third-party seller sales",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_paid_units_counting_unit",
+        "node_id": "metric_paid_units",
+        "key": "counting_unit",
+        "value": "items sold",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S12"
+        ],
+        "qualifiers": {
+          "includes": [
+            "items sold by Company A",
+            "items sold by third-party sellers"
+          ]
+        }
+      },
+      {
+        "id": "fact_paid_units_relation_to_revenue",
+        "node_id": "metric_paid_units",
+        "key": "relation_to_revenue",
+        "value": "Paid-unit item counts are distinct from net-sales revenue categories",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S12"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_consumers_role",
+        "node_id": "actor_consumers",
+        "key": "role",
+        "value": "Buy products through Company A's online and physical stores",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_consumers_product_source",
+        "node_id": "actor_consumers",
+        "key": "product_source",
+        "value": "Products bought may be sold by Company A or by independent third-party sellers",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sellers_role",
+        "node_id": "actor_third_party_sellers",
+        "key": "role",
+        "value": "Sell products in Company A's stores through its seller programs",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S03",
+          "A-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sellers_service_used",
+        "node_id": "actor_third_party_sellers",
+        "key": "service_used",
+        "value": "Company A fulfillment services",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_developers_role",
+        "node_id": "actor_developers",
+        "key": "role",
+        "value": "Buyer of Company A cloud computing, storage and database services",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_enterprises_role",
+        "node_id": "actor_enterprises",
+        "key": "role",
+        "value": "Buyer of Company A cloud computing, storage and database services",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_ad_customers_role",
+        "node_id": "actor_advertising_customers",
+        "key": "role",
+        "value": "Can buy sponsored, display and video advertising",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_vendors_role",
+        "node_id": "actor_vendors",
+        "key": "role",
+        "value": "Advertising customer",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_publishers_role",
+        "node_id": "actor_publishers",
+        "key": "role",
+        "value": "Advertising customer",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_authors_role",
+        "node_id": "actor_authors",
+        "key": "role",
+        "value": "Advertising customer",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_stores_product_source",
+        "node_id": "off_stores",
+        "key": "product_source",
+        "value": "Products may be sold by Company A or by independent third-party sellers",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_online_stores_pickup_classification",
+        "node_id": "off_online_stores",
+        "key": "reporting_classification_rule",
+        "value": "Online orders collected at physical stores remain online-store sales",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S11"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_physical_stores_sales_scope",
+        "node_id": "off_physical_stores",
+        "key": "reporting_classification_rule",
+        "value": "Physical-store sales cover products customers select while visiting a store",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S11"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_digital_media_purchases_classification",
+        "node_id": "off_digital_media_purchases",
+        "key": "reporting_classification_rule",
+        "value": "Individual digital-media purchases count as online-store sales",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S10"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seller_programs_function",
+        "node_id": "off_seller_programs",
+        "key": "function",
+        "value": "Lets third parties sell in Company A's stores",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seller_programs_rev_commissions",
+        "node_id": "off_seller_programs",
+        "key": "revenue_component",
+        "value": "Sales commissions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_fulfillment_rev_fulfillment_fees",
+        "node_id": "off_fulfillment_services",
+        "key": "revenue_component",
+        "value": "Fulfillment fees",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_fulfillment_rev_shipping_fees",
+        "node_id": "off_fulfillment_services",
+        "key": "revenue_component",
+        "value": "Shipping fees",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_advertising_format_sponsored",
+        "node_id": "off_advertising",
+        "key": "ad_format",
+        "value": "Sponsored advertising",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_advertising_format_display",
+        "node_id": "off_advertising",
+        "key": "ad_format",
+        "value": "Display advertising",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_advertising_format_video",
+        "node_id": "off_advertising",
+        "key": "ad_format",
+        "value": "Video advertising",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_membership_fee_classification",
+        "node_id": "off_consumer_membership",
+        "key": "revenue_classification",
+        "value": "Consumer membership fees are included in subscription revenue",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_entertainment_content_movies",
+        "node_id": "off_membership_entertainment_access",
+        "key": "content_type",
+        "value": "Movies",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_entertainment_content_series",
+        "node_id": "off_membership_entertainment_access",
+        "key": "content_type",
+        "value": "Series",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_entertainment_content_live_sports",
+        "node_id": "off_membership_entertainment_access",
+        "key": "content_type",
+        "value": "Live sports",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_digital_subs_type_video",
+        "node_id": "off_digital_subscriptions",
+        "key": "subscription_type",
+        "value": "Digital video",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_digital_subs_type_music",
+        "node_id": "off_digital_subscriptions",
+        "key": "subscription_type",
+        "value": "Music",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_digital_subs_type_audiobook",
+        "node_id": "off_digital_subscriptions",
+        "key": "subscription_type",
+        "value": "Audiobook",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_digital_subs_type_ebook",
+        "node_id": "off_digital_subscriptions",
+        "key": "subscription_type",
+        "value": "Ebook",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_digital_subs_revenue_classification",
+        "node_id": "off_digital_subscriptions",
+        "key": "revenue_classification",
+        "value": "Included in subscription revenue",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_digital_subs_classification_rule",
+        "node_id": "off_digital_subscriptions",
+        "key": "reporting_classification_rule",
+        "value": "Subscriptions granting ongoing viewing or usage rights count as subscription services",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S10"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_cloud_provider_division",
+        "node_id": "off_cloud_services",
+        "key": "provider_unit",
+        "value": "Cloud division",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_cloud_subs_excluded_from_subscription_rev",
+        "node_id": "off_cloud_services",
+        "key": "revenue_classification",
+        "value": "Cloud-service subscriptions are excluded from subscription revenue",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_shared_infra_internal_use",
+        "node_id": "cap_shared_tech_infrastructure",
+        "key": "internal_use",
+        "value": "Shared technology infrastructure also serves Company A's internal needs",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_na_segment_type",
+        "node_id": "seg_north_america",
+        "key": "segment_type",
+        "value": "Regional segment",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_na_offering_scope",
+        "node_id": "seg_north_america",
+        "key": "offering_scope",
+        "value": "Spans multiple offerings",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_na_activity_retail_sales",
+        "node_id": "seg_north_america",
+        "key": "encompassed_activity",
+        "value": "Retail sales",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_na_activity_seller_activity",
+        "node_id": "seg_north_america",
+        "key": "encompassed_activity",
+        "value": "Seller activity",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_na_activity_advertising",
+        "node_id": "seg_north_america",
+        "key": "encompassed_activity",
+        "value": "Advertising",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_na_activity_subscriptions",
+        "node_id": "seg_north_america",
+        "key": "encompassed_activity",
+        "value": "Subscriptions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_intl_segment_type",
+        "node_id": "seg_international",
+        "key": "segment_type",
+        "value": "Regional segment",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_intl_offering_scope",
+        "node_id": "seg_international",
+        "key": "offering_scope",
+        "value": "Spans multiple offerings",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_intl_activity_retail_sales",
+        "node_id": "seg_international",
+        "key": "encompassed_activity",
+        "value": "Retail sales",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_intl_activity_seller_activity",
+        "node_id": "seg_international",
+        "key": "encompassed_activity",
+        "value": "Seller activity",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_intl_activity_advertising",
+        "node_id": "seg_international",
+        "key": "encompassed_activity",
+        "value": "Advertising",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_intl_activity_subscriptions",
+        "node_id": "seg_international",
+        "key": "encompassed_activity",
+        "value": "Subscriptions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_cloud_segment_type",
+        "node_id": "seg_cloud_services",
+        "key": "segment_type",
+        "value": "Cloud-services business",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S01"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seller_rev_component_commissions",
+        "node_id": "rev_seller_services",
+        "key": "revenue_component",
+        "value": "Sales commissions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seller_rev_component_fulfillment_fees",
+        "node_id": "rev_seller_services",
+        "key": "revenue_component",
+        "value": "Fulfillment fees",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seller_rev_component_shipping_fees",
+        "node_id": "rev_seller_services",
+        "key": "revenue_component",
+        "value": "Shipping fees",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seller_rev_service_scope",
+        "node_id": "rev_seller_services",
+        "key": "service_scope",
+        "value": "Fees relate to services provided to third-party sellers",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sub_rev_component_membership_fees",
+        "node_id": "rev_subscription_services",
+        "key": "revenue_component",
+        "value": "Consumer membership fees",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sub_rev_component_digital_video",
+        "node_id": "rev_subscription_services",
+        "key": "revenue_component",
+        "value": "Digital video subscriptions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sub_rev_component_music",
+        "node_id": "rev_subscription_services",
+        "key": "revenue_component",
+        "value": "Music subscriptions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sub_rev_component_audiobook",
+        "node_id": "rev_subscription_services",
+        "key": "revenue_component",
+        "value": "Audiobook subscriptions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sub_rev_component_ebook",
+        "node_id": "rev_subscription_services",
+        "key": "revenue_component",
+        "value": "Ebook subscriptions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sub_rev_exclusion_cloud",
+        "node_id": "rev_subscription_services",
+        "key": "revenue_exclusion",
+        "value": "Cloud-service subscriptions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sub_rev_classification_rule",
+        "node_id": "rev_subscription_services",
+        "key": "reporting_classification_rule",
+        "value": "Subscriptions granting ongoing viewing or usage rights count as subscription services",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S10"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_online_sales_rule_digital_media",
+        "node_id": "rev_online_store_sales",
+        "key": "reporting_classification_rule",
+        "value": "Individual digital-media purchases count as online-store sales",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S10"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_online_sales_rule_store_pickup",
+        "node_id": "rev_online_store_sales",
+        "key": "reporting_classification_rule",
+        "value": "Online orders collected at physical stores remain online-store sales",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S11"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_physical_sales_scope",
+        "node_id": "rev_physical_store_sales",
+        "key": "reporting_classification_rule",
+        "value": "Covers products customers select while visiting a store",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S11"
+        ],
+        "qualifiers": {
+          "excludes": [
+            "Online orders collected at physical stores"
+          ]
+        }
+      }
+    ],
+    "relationships": [
+      {
+        "id": "rel_seg_cloud_offers_cloud_services",
+        "from_id": "seg_cloud_services",
+        "to_id": "off_cloud_services",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S01",
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_stores_serves_consumers",
+        "from_id": "off_stores",
+        "to_id": "actor_consumers",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seller_programs_serves_sellers",
+        "from_id": "off_seller_programs",
+        "to_id": "actor_third_party_sellers",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seller_programs_generates_seller_rev",
+        "from_id": "off_seller_programs",
+        "to_id": "rev_seller_services",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_sellers_pay_seller_rev",
+        "from_id": "actor_third_party_sellers",
+        "to_id": "rev_seller_services",
+        "kind": "pays",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_paid_units_measures_stores",
+        "from_id": "metric_paid_units",
+        "to_id": "off_stores",
+        "kind": "measures",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S03",
+          "A-S12"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_cloud_serves_developers",
+        "from_id": "off_cloud_services",
+        "to_id": "actor_developers",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_cloud_serves_enterprises",
+        "from_id": "off_cloud_services",
+        "to_id": "actor_enterprises",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_advertising_serves_ad_customers",
+        "from_id": "off_advertising",
+        "to_id": "actor_advertising_customers",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_advertising_serves_sellers",
+        "from_id": "off_advertising",
+        "to_id": "actor_third_party_sellers",
+        "kind": "serves",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_membership_serves_consumers",
+        "from_id": "off_consumer_membership",
+        "to_id": "actor_consumers",
+        "kind": "serves",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_membership_bundles_shipping",
+        "from_id": "off_consumer_membership",
+        "to_id": "off_membership_shipping_benefits",
+        "kind": "bundles",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_membership_bundles_entertainment",
+        "from_id": "off_consumer_membership",
+        "to_id": "off_membership_entertainment_access",
+        "kind": "bundles",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_fulfillment_serves_sellers",
+        "from_id": "off_fulfillment_services",
+        "to_id": "actor_third_party_sellers",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_fulfillment_generates_seller_rev",
+        "from_id": "off_fulfillment_services",
+        "to_id": "rev_seller_services",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_cloud_uses_shared_infra",
+        "from_id": "off_cloud_services",
+        "to_id": "cap_shared_tech_infrastructure",
+        "kind": "uses",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_company_uses_shared_infra_internal",
+        "from_id": "company",
+        "to_id": "cap_shared_tech_infrastructure",
+        "kind": "uses",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "internal needs"
+          ]
+        }
+      },
+      {
+        "id": "rel_seg_na_offers_stores",
+        "from_id": "seg_north_america",
+        "to_id": "off_stores",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_na_offers_seller_programs",
+        "from_id": "seg_north_america",
+        "to_id": "off_seller_programs",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_na_offers_advertising",
+        "from_id": "seg_north_america",
+        "to_id": "off_advertising",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_na_offers_membership",
+        "from_id": "seg_north_america",
+        "to_id": "off_consumer_membership",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02",
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_na_offers_digital_subs",
+        "from_id": "seg_north_america",
+        "to_id": "off_digital_subscriptions",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02",
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_intl_offers_stores",
+        "from_id": "seg_international",
+        "to_id": "off_stores",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_intl_offers_seller_programs",
+        "from_id": "seg_international",
+        "to_id": "off_seller_programs",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_intl_offers_advertising",
+        "from_id": "seg_international",
+        "to_id": "off_advertising",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_intl_offers_membership",
+        "from_id": "seg_international",
+        "to_id": "off_consumer_membership",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02",
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_intl_offers_digital_subs",
+        "from_id": "seg_international",
+        "to_id": "off_digital_subscriptions",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02",
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_membership_generates_sub_rev",
+        "from_id": "off_consumer_membership",
+        "to_id": "rev_subscription_services",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {
+          "includes": [
+            "Consumer membership fees"
+          ]
+        }
+      },
+      {
+        "id": "rel_digital_subs_generates_sub_rev",
+        "from_id": "off_digital_subscriptions",
+        "to_id": "rev_subscription_services",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_online_stores_generates_online_sales",
+        "from_id": "off_online_stores",
+        "to_id": "rev_online_store_sales",
+        "kind": "generates",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S11"
+        ],
+        "qualifiers": {
+          "includes": [
+            "Online orders collected at physical stores"
+          ]
+        }
+      },
+      {
+        "id": "rel_digital_media_generates_online_sales",
+        "from_id": "off_digital_media_purchases",
+        "to_id": "rev_online_store_sales",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S10"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_physical_stores_generates_physical_sales",
+        "from_id": "off_physical_stores",
+        "to_id": "rev_physical_store_sales",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S11"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "Products selected while visiting a store"
+          ]
+        }
+      },
+      {
+        "id": "rel_consumers_pay_sub_rev",
+        "from_id": "actor_consumers",
+        "to_id": "rev_subscription_services",
+        "kind": "pays",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S06",
+          "A-S09"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "Consumer membership fees"
+          ]
+        }
+      }
+    ],
+    "gaps": []
+  },
+  "accepted": {
+    "version": "market_research.business/2",
+    "company_alias": "Company A",
+    "nodes": [
+      {
+        "id": "company",
+        "kind": "company",
+        "label": "Company A",
+        "parent_id": null,
+        "statement_ids": []
+      },
+      {
+        "id": "grp_reported_segments",
+        "kind": "group",
+        "label": "Reported operating segments",
+        "parent_id": "company",
+        "statement_ids": []
+      },
+      {
+        "id": "seg_north_america",
+        "kind": "reported_segment",
+        "label": "North America",
+        "parent_id": "grp_reported_segments",
+        "statement_ids": [
+          "A-S01",
+          "A-S02"
+        ]
+      },
+      {
+        "id": "seg_international",
+        "kind": "reported_segment",
+        "label": "International",
+        "parent_id": "grp_reported_segments",
+        "statement_ids": [
+          "A-S01",
+          "A-S02"
+        ]
+      },
+      {
+        "id": "seg_cloud_services",
+        "kind": "reported_segment",
+        "label": "Cloud-services business segment",
+        "parent_id": "grp_reported_segments",
+        "statement_ids": [
+          "A-S01"
+        ]
+      },
+      {
+        "id": "grp_offerings",
+        "kind": "group",
+        "label": "Offerings",
+        "parent_id": "company",
+        "statement_ids": []
+      },
+      {
+        "id": "off_stores",
+        "kind": "offering",
+        "label": "Online and physical stores",
+        "parent_id": "grp_offerings",
+        "statement_ids": [
+          "A-S03",
+          "A-S11"
+        ]
+      },
+      {
+        "id": "off_seller_programs",
+        "kind": "offering",
+        "label": "Seller programs and fulfillment services",
+        "parent_id": "grp_offerings",
+        "statement_ids": [
+          "A-S04",
+          "A-S07"
+        ]
+      },
+      {
+        "id": "off_advertising",
+        "kind": "offering",
+        "label": "Advertising (sponsored, display, video)",
+        "parent_id": "grp_offerings",
+        "statement_ids": [
+          "A-S08"
+        ]
+      },
+      {
+        "id": "off_consumer_membership",
+        "kind": "offering",
+        "label": "Consumer membership",
+        "parent_id": "grp_offerings",
+        "statement_ids": [
+          "A-S06"
+        ]
+      },
+      {
+        "id": "off_cloud_services",
+        "kind": "offering",
+        "label": "Cloud computing, storage and database services",
+        "parent_id": "grp_offerings",
+        "statement_ids": [
+          "A-S05"
+        ]
+      },
+      {
+        "id": "grp_actors",
+        "kind": "group",
+        "label": "Actors",
+        "parent_id": "company",
+        "statement_ids": []
+      },
+      {
+        "id": "actor_consumers",
+        "kind": "actor",
+        "label": "Consumers",
+        "parent_id": "grp_actors",
+        "statement_ids": [
+          "A-S03"
+        ]
+      },
+      {
+        "id": "actor_third_party_sellers",
+        "kind": "actor",
+        "label": "Independent third-party sellers",
+        "parent_id": "grp_actors",
+        "statement_ids": [
+          "A-S03",
+          "A-S04"
+        ]
+      },
+      {
+        "id": "grp_revenue_and_measures",
+        "kind": "group",
+        "label": "Revenue categories and operating measures",
+        "parent_id": "company",
+        "statement_ids": []
+      },
+      {
+        "id": "rev_seller_services",
+        "kind": "revenue_stream",
+        "label": "Seller-service revenue",
+        "parent_id": "grp_revenue_and_measures",
+        "statement_ids": [
+          "A-S07"
+        ]
+      },
+      {
+        "id": "metric_paid_units",
+        "kind": "metric",
+        "label": "Paid units",
+        "parent_id": "grp_revenue_and_measures",
+        "statement_ids": [
+          "A-S12"
+        ]
+      },
+      {
+        "id": "actor_developers",
+        "kind": "actor",
+        "label": "Developers",
+        "parent_id": "grp_actors",
+        "statement_ids": [
+          "A-S05"
+        ]
+      },
+      {
+        "id": "actor_enterprises",
+        "kind": "actor",
+        "label": "Enterprises",
+        "parent_id": "grp_actors",
+        "statement_ids": [
+          "A-S05"
+        ]
+      },
+      {
+        "id": "actor_advertising_customers",
+        "kind": "actor",
+        "label": "Advertising customers",
+        "parent_id": "grp_actors",
+        "statement_ids": [
+          "A-S08"
+        ]
+      },
+      {
+        "id": "actor_vendors",
+        "kind": "actor",
+        "label": "Vendors",
+        "parent_id": "actor_advertising_customers",
+        "statement_ids": [
+          "A-S08"
+        ]
+      },
+      {
+        "id": "actor_publishers",
+        "kind": "actor",
+        "label": "Publishers",
+        "parent_id": "actor_advertising_customers",
+        "statement_ids": [
+          "A-S08"
+        ]
+      },
+      {
+        "id": "actor_authors",
+        "kind": "actor",
+        "label": "Authors",
+        "parent_id": "actor_advertising_customers",
+        "statement_ids": [
+          "A-S08"
+        ]
+      },
+      {
+        "id": "off_online_stores",
+        "kind": "offering",
+        "label": "Online stores",
+        "parent_id": "off_stores",
+        "statement_ids": [
+          "A-S03",
+          "A-S11"
+        ]
+      },
+      {
+        "id": "off_physical_stores",
+        "kind": "offering",
+        "label": "Physical stores",
+        "parent_id": "off_stores",
+        "statement_ids": [
+          "A-S03",
+          "A-S11"
+        ]
+      },
+      {
+        "id": "off_digital_media_purchases",
+        "kind": "offering",
+        "label": "Individual digital-media purchases",
+        "parent_id": "off_online_stores",
+        "statement_ids": [
+          "A-S10"
+        ]
+      },
+      {
+        "id": "off_fulfillment_services",
+        "kind": "offering",
+        "label": "Fulfillment services for third-party sellers",
+        "parent_id": "off_seller_programs",
+        "statement_ids": [
+          "A-S04",
+          "A-S07"
+        ]
+      },
+      {
+        "id": "off_membership_shipping_benefits",
+        "kind": "offering",
+        "label": "Membership shipping benefits",
+        "parent_id": "off_consumer_membership",
+        "statement_ids": [
+          "A-S06"
+        ]
+      },
+      {
+        "id": "off_membership_entertainment_access",
+        "kind": "offering",
+        "label": "Membership entertainment access",
+        "parent_id": "off_consumer_membership",
+        "statement_ids": [
+          "A-S06"
+        ]
+      },
+      {
+        "id": "off_digital_subscriptions",
+        "kind": "offering",
+        "label": "Digital video, music, audiobook and ebook subscriptions",
+        "parent_id": "grp_offerings",
+        "statement_ids": [
+          "A-S09",
+          "A-S10"
+        ]
+      },
+      {
+        "id": "cap_shared_tech_infrastructure",
+        "kind": "capability",
+        "label": "Shared technology infrastructure",
+        "parent_id": "off_cloud_services",
+        "statement_ids": [
+          "A-S05"
+        ]
+      },
+      {
+        "id": "rev_subscription_services",
+        "kind": "revenue_stream",
+        "label": "Subscription revenue",
+        "parent_id": "grp_revenue_and_measures",
+        "statement_ids": [
+          "A-S09",
+          "A-S10"
+        ]
+      },
+      {
+        "id": "rev_online_store_sales",
+        "kind": "revenue_stream",
+        "label": "Online-store sales",
+        "parent_id": "grp_revenue_and_measures",
+        "statement_ids": [
+          "A-S10",
+          "A-S11"
+        ]
+      },
+      {
+        "id": "rev_physical_store_sales",
+        "kind": "revenue_stream",
+        "label": "Physical-store sales",
+        "parent_id": "grp_revenue_and_measures",
+        "statement_ids": [
+          "A-S11"
+        ]
+      }
+    ],
+    "facts": [
+      {
+        "id": "fact_company_operating_segment_count",
+        "node_id": "company",
+        "key": "operating_segment_count",
+        "value": "3",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S01"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seller_programs_seller_of_record",
+        "node_id": "off_seller_programs",
+        "key": "seller_of_record",
+        "value": "Company A is not the seller of record for third-party seller sales",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_paid_units_counting_unit",
+        "node_id": "metric_paid_units",
+        "key": "counting_unit",
+        "value": "items sold",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S12"
+        ],
+        "qualifiers": {
+          "includes": [
+            "items sold by Company A",
+            "items sold by third-party sellers"
+          ]
+        }
+      },
+      {
+        "id": "fact_paid_units_relation_to_revenue",
+        "node_id": "metric_paid_units",
+        "key": "relation_to_revenue",
+        "value": "Paid-unit item counts are distinct from net-sales revenue categories",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S12"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_consumers_role",
+        "node_id": "actor_consumers",
+        "key": "role",
+        "value": "Buy products through Company A's online and physical stores",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_consumers_product_source",
+        "node_id": "actor_consumers",
+        "key": "product_source",
+        "value": "Products bought may be sold by Company A or by independent third-party sellers",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sellers_role",
+        "node_id": "actor_third_party_sellers",
+        "key": "role",
+        "value": "Sell products in Company A's stores through its seller programs",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S03",
+          "A-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sellers_service_used",
+        "node_id": "actor_third_party_sellers",
+        "key": "service_used",
+        "value": "Company A fulfillment services",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_developers_role",
+        "node_id": "actor_developers",
+        "key": "role",
+        "value": "Buyer of Company A cloud computing, storage and database services",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_enterprises_role",
+        "node_id": "actor_enterprises",
+        "key": "role",
+        "value": "Buyer of Company A cloud computing, storage and database services",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_ad_customers_role",
+        "node_id": "actor_advertising_customers",
+        "key": "role",
+        "value": "Can buy sponsored, display and video advertising",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_vendors_role",
+        "node_id": "actor_vendors",
+        "key": "role",
+        "value": "Advertising customer",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_publishers_role",
+        "node_id": "actor_publishers",
+        "key": "role",
+        "value": "Advertising customer",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_authors_role",
+        "node_id": "actor_authors",
+        "key": "role",
+        "value": "Advertising customer",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_stores_product_source",
+        "node_id": "off_stores",
+        "key": "product_source",
+        "value": "Products may be sold by Company A or by independent third-party sellers",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_online_stores_pickup_classification",
+        "node_id": "off_online_stores",
+        "key": "reporting_classification_rule",
+        "value": "Online orders collected at physical stores remain online-store sales",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S11"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_physical_stores_sales_scope",
+        "node_id": "off_physical_stores",
+        "key": "reporting_classification_rule",
+        "value": "Physical-store sales cover products customers select while visiting a store",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S11"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_digital_media_purchases_classification",
+        "node_id": "off_digital_media_purchases",
+        "key": "reporting_classification_rule",
+        "value": "Individual digital-media purchases count as online-store sales",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S10"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seller_programs_function",
+        "node_id": "off_seller_programs",
+        "key": "function",
+        "value": "Lets third parties sell in Company A's stores",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_fulfillment_rev_fulfillment_fees",
+        "node_id": "off_fulfillment_services",
+        "key": "revenue_component",
+        "value": "Fulfillment fees",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_advertising_format_sponsored",
+        "node_id": "off_advertising",
+        "key": "ad_format",
+        "value": "Sponsored advertising",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_advertising_format_display",
+        "node_id": "off_advertising",
+        "key": "ad_format",
+        "value": "Display advertising",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_advertising_format_video",
+        "node_id": "off_advertising",
+        "key": "ad_format",
+        "value": "Video advertising",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_membership_fee_classification",
+        "node_id": "off_consumer_membership",
+        "key": "revenue_classification",
+        "value": "Consumer membership fees are included in subscription revenue",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_entertainment_content_movies",
+        "node_id": "off_membership_entertainment_access",
+        "key": "content_type",
+        "value": "Movies",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_entertainment_content_series",
+        "node_id": "off_membership_entertainment_access",
+        "key": "content_type",
+        "value": "Series",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_entertainment_content_live_sports",
+        "node_id": "off_membership_entertainment_access",
+        "key": "content_type",
+        "value": "Live sports",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_digital_subs_type_video",
+        "node_id": "off_digital_subscriptions",
+        "key": "subscription_type",
+        "value": "Digital video",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_digital_subs_type_music",
+        "node_id": "off_digital_subscriptions",
+        "key": "subscription_type",
+        "value": "Music",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_digital_subs_type_audiobook",
+        "node_id": "off_digital_subscriptions",
+        "key": "subscription_type",
+        "value": "Audiobook",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_digital_subs_type_ebook",
+        "node_id": "off_digital_subscriptions",
+        "key": "subscription_type",
+        "value": "Ebook",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_digital_subs_revenue_classification",
+        "node_id": "off_digital_subscriptions",
+        "key": "revenue_classification",
+        "value": "Included in subscription revenue",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_digital_subs_classification_rule",
+        "node_id": "off_digital_subscriptions",
+        "key": "reporting_classification_rule",
+        "value": "Subscriptions granting ongoing viewing or usage rights count as subscription services",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S10"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_cloud_provider_division",
+        "node_id": "off_cloud_services",
+        "key": "provider_unit",
+        "value": "Cloud division",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_cloud_subs_excluded_from_subscription_rev",
+        "node_id": "off_cloud_services",
+        "key": "revenue_classification",
+        "value": "Cloud-service subscriptions are excluded from subscription revenue",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_shared_infra_internal_use",
+        "node_id": "cap_shared_tech_infrastructure",
+        "key": "internal_use",
+        "value": "Shared technology infrastructure also serves Company A's internal needs",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_na_segment_type",
+        "node_id": "seg_north_america",
+        "key": "segment_type",
+        "value": "Regional segment",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_na_offering_scope",
+        "node_id": "seg_north_america",
+        "key": "offering_scope",
+        "value": "Spans multiple offerings",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_na_activity_retail_sales",
+        "node_id": "seg_north_america",
+        "key": "encompassed_activity",
+        "value": "Retail sales",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_na_activity_seller_activity",
+        "node_id": "seg_north_america",
+        "key": "encompassed_activity",
+        "value": "Seller activity",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_na_activity_advertising",
+        "node_id": "seg_north_america",
+        "key": "encompassed_activity",
+        "value": "Advertising",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_na_activity_subscriptions",
+        "node_id": "seg_north_america",
+        "key": "encompassed_activity",
+        "value": "Subscriptions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_intl_segment_type",
+        "node_id": "seg_international",
+        "key": "segment_type",
+        "value": "Regional segment",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_intl_offering_scope",
+        "node_id": "seg_international",
+        "key": "offering_scope",
+        "value": "Spans multiple offerings",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_intl_activity_retail_sales",
+        "node_id": "seg_international",
+        "key": "encompassed_activity",
+        "value": "Retail sales",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_intl_activity_seller_activity",
+        "node_id": "seg_international",
+        "key": "encompassed_activity",
+        "value": "Seller activity",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_intl_activity_advertising",
+        "node_id": "seg_international",
+        "key": "encompassed_activity",
+        "value": "Advertising",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_intl_activity_subscriptions",
+        "node_id": "seg_international",
+        "key": "encompassed_activity",
+        "value": "Subscriptions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seg_cloud_segment_type",
+        "node_id": "seg_cloud_services",
+        "key": "segment_type",
+        "value": "Cloud-services business",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S01"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seller_rev_component_commissions",
+        "node_id": "rev_seller_services",
+        "key": "revenue_component",
+        "value": "Sales commissions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seller_rev_component_fulfillment_fees",
+        "node_id": "rev_seller_services",
+        "key": "revenue_component",
+        "value": "Fulfillment fees",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seller_rev_component_shipping_fees",
+        "node_id": "rev_seller_services",
+        "key": "revenue_component",
+        "value": "Shipping fees",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_seller_rev_service_scope",
+        "node_id": "rev_seller_services",
+        "key": "service_scope",
+        "value": "Fees relate to services provided to third-party sellers",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sub_rev_component_membership_fees",
+        "node_id": "rev_subscription_services",
+        "key": "revenue_component",
+        "value": "Consumer membership fees",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sub_rev_component_digital_video",
+        "node_id": "rev_subscription_services",
+        "key": "revenue_component",
+        "value": "Digital video subscriptions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sub_rev_component_music",
+        "node_id": "rev_subscription_services",
+        "key": "revenue_component",
+        "value": "Music subscriptions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sub_rev_component_audiobook",
+        "node_id": "rev_subscription_services",
+        "key": "revenue_component",
+        "value": "Audiobook subscriptions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sub_rev_component_ebook",
+        "node_id": "rev_subscription_services",
+        "key": "revenue_component",
+        "value": "Ebook subscriptions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sub_rev_exclusion_cloud",
+        "node_id": "rev_subscription_services",
+        "key": "revenue_exclusion",
+        "value": "Cloud-service subscriptions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_sub_rev_classification_rule",
+        "node_id": "rev_subscription_services",
+        "key": "reporting_classification_rule",
+        "value": "Subscriptions granting ongoing viewing or usage rights count as subscription services",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S10"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_online_sales_rule_digital_media",
+        "node_id": "rev_online_store_sales",
+        "key": "reporting_classification_rule",
+        "value": "Individual digital-media purchases count as online-store sales",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S10"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_online_sales_rule_store_pickup",
+        "node_id": "rev_online_store_sales",
+        "key": "reporting_classification_rule",
+        "value": "Online orders collected at physical stores remain online-store sales",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S11"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "fact_physical_sales_scope",
+        "node_id": "rev_physical_store_sales",
+        "key": "reporting_classification_rule",
+        "value": "Covers products customers select while visiting a store",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S11"
+        ],
+        "qualifiers": {
+          "excludes": [
+            "Online orders collected at physical stores"
+          ]
+        }
+      }
+    ],
+    "relationships": [
+      {
+        "id": "rel_seg_cloud_offers_cloud_services",
+        "from_id": "seg_cloud_services",
+        "to_id": "off_cloud_services",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S01",
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_stores_serves_consumers",
+        "from_id": "off_stores",
+        "to_id": "actor_consumers",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S03"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seller_programs_serves_sellers",
+        "from_id": "off_seller_programs",
+        "to_id": "actor_third_party_sellers",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_cloud_serves_developers",
+        "from_id": "off_cloud_services",
+        "to_id": "actor_developers",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_cloud_serves_enterprises",
+        "from_id": "off_cloud_services",
+        "to_id": "actor_enterprises",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_advertising_serves_ad_customers",
+        "from_id": "off_advertising",
+        "to_id": "actor_advertising_customers",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_membership_serves_consumers",
+        "from_id": "off_consumer_membership",
+        "to_id": "actor_consumers",
+        "kind": "serves",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_membership_bundles_shipping",
+        "from_id": "off_consumer_membership",
+        "to_id": "off_membership_shipping_benefits",
+        "kind": "bundles",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_membership_bundles_entertainment",
+        "from_id": "off_consumer_membership",
+        "to_id": "off_membership_entertainment_access",
+        "kind": "bundles",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S06"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_fulfillment_serves_sellers",
+        "from_id": "off_fulfillment_services",
+        "to_id": "actor_third_party_sellers",
+        "kind": "serves",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S04"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_fulfillment_generates_seller_rev",
+        "from_id": "off_fulfillment_services",
+        "to_id": "rev_seller_services",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_cloud_uses_shared_infra",
+        "from_id": "off_cloud_services",
+        "to_id": "cap_shared_tech_infrastructure",
+        "kind": "uses",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_company_uses_shared_infra_internal",
+        "from_id": "company",
+        "to_id": "cap_shared_tech_infrastructure",
+        "kind": "uses",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S05"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "internal needs"
+          ]
+        }
+      },
+      {
+        "id": "rel_seg_na_offers_stores",
+        "from_id": "seg_north_america",
+        "to_id": "off_stores",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_na_offers_seller_programs",
+        "from_id": "seg_north_america",
+        "to_id": "off_seller_programs",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_na_offers_advertising",
+        "from_id": "seg_north_america",
+        "to_id": "off_advertising",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_na_offers_membership",
+        "from_id": "seg_north_america",
+        "to_id": "off_consumer_membership",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02",
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_na_offers_digital_subs",
+        "from_id": "seg_north_america",
+        "to_id": "off_digital_subscriptions",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02",
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_intl_offers_stores",
+        "from_id": "seg_international",
+        "to_id": "off_stores",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_intl_offers_seller_programs",
+        "from_id": "seg_international",
+        "to_id": "off_seller_programs",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_intl_offers_advertising",
+        "from_id": "seg_international",
+        "to_id": "off_advertising",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_intl_offers_membership",
+        "from_id": "seg_international",
+        "to_id": "off_consumer_membership",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02",
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_seg_intl_offers_digital_subs",
+        "from_id": "seg_international",
+        "to_id": "off_digital_subscriptions",
+        "kind": "offers",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S02",
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_membership_generates_sub_rev",
+        "from_id": "off_consumer_membership",
+        "to_id": "rev_subscription_services",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {
+          "includes": [
+            "Consumer membership fees"
+          ]
+        }
+      },
+      {
+        "id": "rel_digital_subs_generates_sub_rev",
+        "from_id": "off_digital_subscriptions",
+        "to_id": "rev_subscription_services",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S09"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_online_stores_generates_online_sales",
+        "from_id": "off_online_stores",
+        "to_id": "rev_online_store_sales",
+        "kind": "generates",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S11"
+        ],
+        "qualifiers": {
+          "includes": [
+            "Online orders collected at physical stores"
+          ]
+        }
+      },
+      {
+        "id": "rel_digital_media_generates_online_sales",
+        "from_id": "off_digital_media_purchases",
+        "to_id": "rev_online_store_sales",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S10"
+        ],
+        "qualifiers": {}
+      },
+      {
+        "id": "rel_physical_stores_generates_physical_sales",
+        "from_id": "off_physical_stores",
+        "to_id": "rev_physical_store_sales",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S11"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "Products selected while visiting a store"
+          ]
+        }
+      }
+    ],
+    "gaps": []
+  },
+  "quarantined": [
+    {
+      "collection": "facts",
+      "id": "fact_seller_programs_rev_commissions",
+      "status": "uncertain",
+      "reason": "A-S07 places sales commissions in seller-service revenue but does not attribute them to seller programs specifically.",
+      "record": {
+        "id": "fact_seller_programs_rev_commissions",
+        "node_id": "off_seller_programs",
+        "key": "revenue_component",
+        "value": "Sales commissions",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      }
+    },
+    {
+      "collection": "facts",
+      "id": "fact_fulfillment_rev_shipping_fees",
+      "status": "uncertain",
+      "reason": "A-S07 includes shipping fees in seller-service revenue but does not tie them specifically to fulfillment services.",
+      "record": {
+        "id": "fact_fulfillment_rev_shipping_fees",
+        "node_id": "off_fulfillment_services",
+        "key": "revenue_component",
+        "value": "Shipping fees",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      }
+    },
+    {
+      "collection": "relationships",
+      "id": "rel_seller_programs_generates_seller_rev",
+      "status": "uncertain",
+      "reason": "A-S07 does not name seller programs as a source of seller-service revenue; the link is inferred but labeled as stated.",
+      "record": {
+        "id": "rel_seller_programs_generates_seller_rev",
+        "from_id": "off_seller_programs",
+        "to_id": "rev_seller_services",
+        "kind": "generates",
+        "basis": "stated",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      }
+    },
+    {
+      "collection": "relationships",
+      "id": "rel_sellers_pay_seller_rev",
+      "status": "uncertain",
+      "reason": "A-S07 says the fees are for services provided to sellers but never states who pays them.",
+      "record": {
+        "id": "rel_sellers_pay_seller_rev",
+        "from_id": "actor_third_party_sellers",
+        "to_id": "rev_seller_services",
+        "kind": "pays",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S07"
+        ],
+        "qualifiers": {}
+      }
+    },
+    {
+      "collection": "relationships",
+      "id": "rel_paid_units_measures_stores",
+      "status": "uncertain",
+      "reason": "A-S12 counts items sold but does not tie the measure to the stores offering.",
+      "record": {
+        "id": "rel_paid_units_measures_stores",
+        "from_id": "metric_paid_units",
+        "to_id": "off_stores",
+        "kind": "measures",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S03",
+          "A-S12"
+        ],
+        "qualifiers": {}
+      }
+    },
+    {
+      "collection": "relationships",
+      "id": "rel_advertising_serves_sellers",
+      "status": "uncertain",
+      "reason": "A-S08 lists 'sellers' among advertising customers but does not confirm they are the independent third-party sellers node.",
+      "record": {
+        "id": "rel_advertising_serves_sellers",
+        "from_id": "off_advertising",
+        "to_id": "actor_third_party_sellers",
+        "kind": "serves",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S08"
+        ],
+        "qualifiers": {}
+      }
+    },
+    {
+      "collection": "relationships",
+      "id": "rel_consumers_pay_sub_rev",
+      "status": "uncertain",
+      "reason": "A-S06 and A-S09 classify membership fees as subscription revenue but never state that consumers are the payers.",
+      "record": {
+        "id": "rel_consumers_pay_sub_rev",
+        "from_id": "actor_consumers",
+        "to_id": "rev_subscription_services",
+        "kind": "pays",
+        "basis": "inferred",
+        "statement_ids": [
+          "A-S06",
+          "A-S09"
+        ],
+        "qualifiers": {
+          "conditions": [
+            "Consumer membership fees"
+          ]
+        }
+      }
+    }
+  ],
+  "support_review": {
+    "status": "complete",
+    "assessments": [
+      {
+        "id": "seg_north_america",
+        "status": "supported",
+        "reason": "A-S01 names North America as one of three operating segments."
+      },
+      {
+        "id": "seg_international",
+        "status": "supported",
+        "reason": "A-S01 names International as an operating segment."
+      },
+      {
+        "id": "seg_cloud_services",
+        "status": "supported",
+        "reason": "A-S01 names the cloud-services business as the third operating segment."
+      },
+      {
+        "id": "off_stores",
+        "status": "supported",
+        "reason": "A-S03 describes the company's online and physical stores."
+      },
+      {
+        "id": "off_seller_programs",
+        "status": "supported",
+        "reason": "A-S04 describes seller programs that let third parties sell and use fulfillment services."
+      },
+      {
+        "id": "off_advertising",
+        "status": "supported",
+        "reason": "A-S08 describes sponsored, display and video advertising."
+      },
+      {
+        "id": "off_consumer_membership",
+        "status": "supported",
+        "reason": "A-S06 describes the consumer membership."
+      },
+      {
+        "id": "off_cloud_services",
+        "status": "supported",
+        "reason": "A-S05: the cloud division sells computing, storage and database services."
+      },
+      {
+        "id": "actor_consumers",
+        "status": "supported",
+        "reason": "A-S03 identifies consumers who buy through the stores."
+      },
+      {
+        "id": "actor_third_party_sellers",
+        "status": "supported",
+        "reason": "A-S03 and A-S04 identify independent third-party sellers."
+      },
+      {
+        "id": "rev_seller_services",
+        "status": "supported",
+        "reason": "A-S07 defines seller-service revenue."
+      },
+      {
+        "id": "metric_paid_units",
+        "status": "supported",
+        "reason": "A-S12 describes paid-unit measures as item counts."
+      },
+      {
+        "id": "actor_developers",
+        "status": "supported",
+        "reason": "A-S05 names developers as cloud customers."
+      },
+      {
+        "id": "actor_enterprises",
+        "status": "supported",
+        "reason": "A-S05 names enterprises as cloud customers."
+      },
+      {
+        "id": "actor_advertising_customers",
+        "status": "supported",
+        "reason": "A-S08 refers to advertising customers."
+      },
+      {
+        "id": "actor_vendors",
+        "status": "supported",
+        "reason": "A-S08 says advertising customers include vendors."
+      },
+      {
+        "id": "actor_publishers",
+        "status": "supported",
+        "reason": "A-S08 says advertising customers include publishers."
+      },
+      {
+        "id": "actor_authors",
+        "status": "supported",
+        "reason": "A-S08 says advertising customers include authors."
+      },
+      {
+        "id": "off_online_stores",
+        "status": "supported",
+        "reason": "A-S03 and A-S11 refer to online stores."
+      },
+      {
+        "id": "off_physical_stores",
+        "status": "supported",
+        "reason": "A-S03 and A-S11 refer to physical stores."
+      },
+      {
+        "id": "off_digital_media_purchases",
+        "status": "supported",
+        "reason": "A-S10 says individual digital-media purchases count as online-store sales, which supports placing them under online stores."
+      },
+      {
+        "id": "off_fulfillment_services",
+        "status": "supported",
+        "reason": "A-S04 says third-party sellers use the company's fulfillment services."
+      },
+      {
+        "id": "off_membership_shipping_benefits",
+        "status": "supported",
+        "reason": "A-S06: the membership combines shipping benefits with entertainment access."
+      },
+      {
+        "id": "off_membership_entertainment_access",
+        "status": "supported",
+        "reason": "A-S06: the membership includes access to entertainment."
+      },
+      {
+        "id": "off_digital_subscriptions",
+        "status": "supported",
+        "reason": "A-S09 lists digital video, music, audiobook and ebook subscriptions."
+      },
+      {
+        "id": "cap_shared_tech_infrastructure",
+        "status": "supported",
+        "reason": "A-S05 says shared technology infrastructure 'also' serves internal needs, which implies it underlies the cloud services."
+      },
+      {
+        "id": "rev_subscription_services",
+        "status": "supported",
+        "reason": "A-S09 defines subscription revenue."
+      },
+      {
+        "id": "rev_online_store_sales",
+        "status": "supported",
+        "reason": "A-S10 and A-S11 refer to online-store sales as a category."
+      },
+      {
+        "id": "rev_physical_store_sales",
+        "status": "supported",
+        "reason": "A-S11 defines physical-store sales."
+      },
+      {
+        "id": "fact_company_operating_segment_count",
+        "status": "supported",
+        "reason": "A-S01: three operating segments."
+      },
+      {
+        "id": "fact_seller_programs_seller_of_record",
+        "status": "supported",
+        "reason": "A-S04: 'we are not the seller of record.'"
+      },
+      {
+        "id": "fact_paid_units_counting_unit",
+        "status": "supported",
+        "reason": "A-S12: paid units include items sold by the company and by third-party sellers."
+      },
+      {
+        "id": "fact_paid_units_relation_to_revenue",
+        "status": "supported",
+        "reason": "A-S12: these item counts are distinct from net-sales revenue categories."
+      },
+      {
+        "id": "fact_consumers_role",
+        "status": "supported",
+        "reason": "A-S03: consumers buy through online and physical stores."
+      },
+      {
+        "id": "fact_consumers_product_source",
+        "status": "supported",
+        "reason": "A-S03: products may be sold by the company or by third-party sellers."
+      },
+      {
+        "id": "fact_sellers_role",
+        "status": "supported",
+        "reason": "A-S04: seller programs let third parties sell in the company's stores."
+      },
+      {
+        "id": "fact_sellers_service_used",
+        "status": "supported",
+        "reason": "A-S04: third parties use the company's fulfillment services."
+      },
+      {
+        "id": "fact_developers_role",
+        "status": "supported",
+        "reason": "A-S05: computing, storage and database services are sold to developers."
+      },
+      {
+        "id": "fact_enterprises_role",
+        "status": "supported",
+        "reason": "A-S05: the services are also sold to enterprises."
+      },
+      {
+        "id": "fact_ad_customers_role",
+        "status": "supported",
+        "reason": "A-S08: advertising customers can buy sponsored, display and video advertising."
+      },
+      {
+        "id": "fact_vendors_role",
+        "status": "supported",
+        "reason": "A-S08 lists vendors among advertising customers."
+      },
+      {
+        "id": "fact_publishers_role",
+        "status": "supported",
+        "reason": "A-S08 lists publishers among advertising customers."
+      },
+      {
+        "id": "fact_authors_role",
+        "status": "supported",
+        "reason": "A-S08 lists authors among advertising customers."
+      },
+      {
+        "id": "fact_stores_product_source",
+        "status": "supported",
+        "reason": "A-S03 states that products may be sold by the company or by third-party sellers."
+      },
+      {
+        "id": "fact_online_stores_pickup_classification",
+        "status": "supported",
+        "reason": "A-S11 states this rule directly."
+      },
+      {
+        "id": "fact_physical_stores_sales_scope",
+        "status": "supported",
+        "reason": "A-S11 states this scope directly."
+      },
+      {
+        "id": "fact_digital_media_purchases_classification",
+        "status": "supported",
+        "reason": "A-S10 states this classification directly."
+      },
+      {
+        "id": "fact_seller_programs_function",
+        "status": "supported",
+        "reason": "A-S04: seller programs let third parties sell in the company's stores."
+      },
+      {
+        "id": "fact_seller_programs_rev_commissions",
+        "status": "uncertain",
+        "reason": "A-S07 places sales commissions in seller-service revenue but does not attribute them to seller programs specifically."
+      },
+      {
+        "id": "fact_fulfillment_rev_fulfillment_fees",
+        "status": "supported",
+        "reason": "A-S07 includes fulfillment fees for services provided to third-party sellers, consistent with the fulfillment services."
+      },
+      {
+        "id": "fact_fulfillment_rev_shipping_fees",
+        "status": "uncertain",
+        "reason": "A-S07 includes shipping fees in seller-service revenue but does not tie them specifically to fulfillment services."
+      },
+      {
+        "id": "fact_advertising_format_sponsored",
+        "status": "supported",
+        "reason": "A-S08 lists sponsored advertising."
+      },
+      {
+        "id": "fact_advertising_format_display",
+        "status": "supported",
+        "reason": "A-S08 lists display advertising."
+      },
+      {
+        "id": "fact_advertising_format_video",
+        "status": "supported",
+        "reason": "A-S08 lists video advertising."
+      },
+      {
+        "id": "fact_membership_fee_classification",
+        "status": "supported",
+        "reason": "A-S09 includes consumer membership fees in subscription revenue."
+      },
+      {
+        "id": "fact_entertainment_content_movies",
+        "status": "supported",
+        "reason": "A-S06 lists movies."
+      },
+      {
+        "id": "fact_entertainment_content_series",
+        "status": "supported",
+        "reason": "A-S06 lists series."
+      },
+      {
+        "id": "fact_entertainment_content_live_sports",
+        "status": "supported",
+        "reason": "A-S06 lists live sports."
+      },
+      {
+        "id": "fact_digital_subs_type_video",
+        "status": "supported",
+        "reason": "A-S09 lists digital video subscriptions."
+      },
+      {
+        "id": "fact_digital_subs_type_music",
+        "status": "supported",
+        "reason": "A-S09 lists music subscriptions."
+      },
+      {
+        "id": "fact_digital_subs_type_audiobook",
+        "status": "supported",
+        "reason": "A-S09 lists audiobook subscriptions."
+      },
+      {
+        "id": "fact_digital_subs_type_ebook",
+        "status": "supported",
+        "reason": "A-S09 lists ebook subscriptions."
+      },
+      {
+        "id": "fact_digital_subs_revenue_classification",
+        "status": "supported",
+        "reason": "A-S09 includes these subscriptions in subscription revenue."
+      },
+      {
+        "id": "fact_digital_subs_classification_rule",
+        "status": "supported",
+        "reason": "A-S10 states this rule."
+      },
+      {
+        "id": "fact_cloud_provider_division",
+        "status": "supported",
+        "reason": "A-S05: 'Our cloud division sells...'"
+      },
+      {
+        "id": "fact_cloud_subs_excluded_from_subscription_rev",
+        "status": "supported",
+        "reason": "A-S09 excludes cloud-service subscriptions from subscription revenue."
+      },
+      {
+        "id": "fact_shared_infra_internal_use",
+        "status": "supported",
+        "reason": "A-S05 states that shared technology infrastructure also serves internal needs."
+      },
+      {
+        "id": "fact_seg_na_segment_type",
+        "status": "supported",
+        "reason": "A-S02 refers to the regional segments, which per A-S01 are North America and International."
+      },
+      {
+        "id": "fact_seg_na_offering_scope",
+        "status": "supported",
+        "reason": "A-S02: each reporting segment spans multiple offerings."
+      },
+      {
+        "id": "fact_seg_na_activity_retail_sales",
+        "status": "supported",
+        "reason": "A-S02: both regional segments encompass retail sales."
+      },
+      {
+        "id": "fact_seg_na_activity_seller_activity",
+        "status": "supported",
+        "reason": "A-S02: both regional segments encompass seller activity."
+      },
+      {
+        "id": "fact_seg_na_activity_advertising",
+        "status": "supported",
+        "reason": "A-S02: both regional segments encompass advertising."
+      },
+      {
+        "id": "fact_seg_na_activity_subscriptions",
+        "status": "supported",
+        "reason": "A-S02: both regional segments encompass subscriptions."
+      },
+      {
+        "id": "fact_seg_intl_segment_type",
+        "status": "supported",
+        "reason": "A-S02 refers to the regional segments, which include International."
+      },
+      {
+        "id": "fact_seg_intl_offering_scope",
+        "status": "supported",
+        "reason": "A-S02: each reporting segment spans multiple offerings."
+      },
+      {
+        "id": "fact_seg_intl_activity_retail_sales",
+        "status": "supported",
+        "reason": "A-S02: both regional segments encompass retail sales."
+      },
+      {
+        "id": "fact_seg_intl_activity_seller_activity",
+        "status": "supported",
+        "reason": "A-S02: both regional segments encompass seller activity."
+      },
+      {
+        "id": "fact_seg_intl_activity_advertising",
+        "status": "supported",
+        "reason": "A-S02: both regional segments encompass advertising."
+      },
+      {
+        "id": "fact_seg_intl_activity_subscriptions",
+        "status": "supported",
+        "reason": "A-S02: both regional segments encompass subscriptions."
+      },
+      {
+        "id": "fact_seg_cloud_segment_type",
+        "status": "supported",
+        "reason": "A-S01 calls the third segment the cloud-services business."
+      },
+      {
+        "id": "fact_seller_rev_component_commissions",
+        "status": "supported",
+        "reason": "A-S07 includes sales commissions in seller-service revenue."
+      },
+      {
+        "id": "fact_seller_rev_component_fulfillment_fees",
+        "status": "supported",
+        "reason": "A-S07 includes fulfillment fees."
+      },
+      {
+        "id": "fact_seller_rev_component_shipping_fees",
+        "status": "supported",
+        "reason": "A-S07 includes shipping fees."
+      },
+      {
+        "id": "fact_seller_rev_service_scope",
+        "status": "supported",
+        "reason": "A-S07: the fees are for services provided to third-party sellers."
+      },
+      {
+        "id": "fact_sub_rev_component_membership_fees",
+        "status": "supported",
+        "reason": "A-S09 includes consumer membership fees."
+      },
+      {
+        "id": "fact_sub_rev_component_digital_video",
+        "status": "supported",
+        "reason": "A-S09 includes digital video subscriptions."
+      },
+      {
+        "id": "fact_sub_rev_component_music",
+        "status": "supported",
+        "reason": "A-S09 includes music subscriptions."
+      },
+      {
+        "id": "fact_sub_rev_component_audiobook",
+        "status": "supported",
+        "reason": "A-S09 includes audiobook subscriptions."
+      },
+      {
+        "id": "fact_sub_rev_component_ebook",
+        "status": "supported",
+        "reason": "A-S09 includes ebook subscriptions."
+      },
+      {
+        "id": "fact_sub_rev_exclusion_cloud",
+        "status": "supported",
+        "reason": "A-S09 excludes cloud-service subscriptions."
+      },
+      {
+        "id": "fact_sub_rev_classification_rule",
+        "status": "supported",
+        "reason": "A-S10: subscriptions granting ongoing rights count as subscription services."
+      },
+      {
+        "id": "fact_online_sales_rule_digital_media",
+        "status": "supported",
+        "reason": "A-S10 states this rule."
+      },
+      {
+        "id": "fact_online_sales_rule_store_pickup",
+        "status": "supported",
+        "reason": "A-S11 states this rule."
+      },
+      {
+        "id": "fact_physical_sales_scope",
+        "status": "supported",
+        "reason": "A-S11 defines this scope, and the exclusion follows from online pickup orders remaining online-store sales."
+      },
+      {
+        "id": "rel_seg_cloud_offers_cloud_services",
+        "status": "supported",
+        "reason": "Inference is supported: A-S01 names a cloud-services segment and A-S05 says the cloud division sells these services."
+      },
+      {
+        "id": "rel_stores_serves_consumers",
+        "status": "supported",
+        "reason": "A-S03: consumers buy through the online and physical stores."
+      },
+      {
+        "id": "rel_seller_programs_serves_sellers",
+        "status": "supported",
+        "reason": "A-S04: seller programs let third parties sell."
+      },
+      {
+        "id": "rel_seller_programs_generates_seller_rev",
+        "status": "uncertain",
+        "reason": "A-S07 does not name seller programs as a source of seller-service revenue; the link is inferred but labeled as stated."
+      },
+      {
+        "id": "rel_sellers_pay_seller_rev",
+        "status": "uncertain",
+        "reason": "A-S07 says the fees are for services provided to sellers but never states who pays them."
+      },
+      {
+        "id": "rel_paid_units_measures_stores",
+        "status": "uncertain",
+        "reason": "A-S12 counts items sold but does not tie the measure to the stores offering."
+      },
+      {
+        "id": "rel_cloud_serves_developers",
+        "status": "supported",
+        "reason": "A-S05: the services are sold to developers."
+      },
+      {
+        "id": "rel_cloud_serves_enterprises",
+        "status": "supported",
+        "reason": "A-S05: the services are sold to enterprises."
+      },
+      {
+        "id": "rel_advertising_serves_ad_customers",
+        "status": "supported",
+        "reason": "A-S08: advertising customers can buy these formats."
+      },
+      {
+        "id": "rel_advertising_serves_sellers",
+        "status": "uncertain",
+        "reason": "A-S08 lists 'sellers' among advertising customers but does not confirm they are the independent third-party sellers node."
+      },
+      {
+        "id": "rel_membership_serves_consumers",
+        "status": "supported",
+        "reason": "Inference is supported: A-S06 describes it as a consumer membership."
+      },
+      {
+        "id": "rel_membership_bundles_shipping",
+        "status": "supported",
+        "reason": "A-S06: the membership combines shipping benefits."
+      },
+      {
+        "id": "rel_membership_bundles_entertainment",
+        "status": "supported",
+        "reason": "A-S06: the membership combines entertainment access."
+      },
+      {
+        "id": "rel_fulfillment_serves_sellers",
+        "status": "supported",
+        "reason": "A-S04: third parties use the fulfillment services."
+      },
+      {
+        "id": "rel_fulfillment_generates_seller_rev",
+        "status": "supported",
+        "reason": "A-S07 includes fulfillment fees for services provided to sellers in seller-service revenue."
+      },
+      {
+        "id": "rel_cloud_uses_shared_infra",
+        "status": "supported",
+        "reason": "Inference is supported: A-S05 says the shared infrastructure 'also' serves internal needs, implying it underpins the cloud services."
+      },
+      {
+        "id": "rel_company_uses_shared_infra_internal",
+        "status": "supported",
+        "reason": "A-S05: shared infrastructure serves internal needs."
+      },
+      {
+        "id": "rel_seg_na_offers_stores",
+        "status": "supported",
+        "reason": "Inference is supported: A-S02 says the regional segments encompass retail sales."
+      },
+      {
+        "id": "rel_seg_na_offers_seller_programs",
+        "status": "supported",
+        "reason": "Inference is supported: A-S02 says the regional segments encompass seller activity."
+      },
+      {
+        "id": "rel_seg_na_offers_advertising",
+        "status": "supported",
+        "reason": "Inference is supported: A-S02 says the regional segments encompass advertising."
+      },
+      {
+        "id": "rel_seg_na_offers_membership",
+        "status": "supported",
+        "reason": "Inference is supported: A-S02 covers subscriptions and A-S09 includes membership fees in subscription revenue."
+      },
+      {
+        "id": "rel_seg_na_offers_digital_subs",
+        "status": "supported",
+        "reason": "Inference is supported: A-S02 covers subscriptions and A-S09 lists the digital subscriptions."
+      },
+      {
+        "id": "rel_seg_intl_offers_stores",
+        "status": "supported",
+        "reason": "Inference is supported: A-S02 says the regional segments encompass retail sales."
+      },
+      {
+        "id": "rel_seg_intl_offers_seller_programs",
+        "status": "supported",
+        "reason": "Inference is supported: A-S02 says the regional segments encompass seller activity."
+      },
+      {
+        "id": "rel_seg_intl_offers_advertising",
+        "status": "supported",
+        "reason": "Inference is supported: A-S02 says the regional segments encompass advertising."
+      },
+      {
+        "id": "rel_seg_intl_offers_membership",
+        "status": "supported",
+        "reason": "Inference is supported: A-S02 covers subscriptions and A-S09 includes membership fees in subscription revenue."
+      },
+      {
+        "id": "rel_seg_intl_offers_digital_subs",
+        "status": "supported",
+        "reason": "Inference is supported: A-S02 covers subscriptions and A-S09 lists the digital subscriptions."
+      },
+      {
+        "id": "rel_membership_generates_sub_rev",
+        "status": "supported",
+        "reason": "A-S09 includes consumer membership fees in subscription revenue."
+      },
+      {
+        "id": "rel_digital_subs_generates_sub_rev",
+        "status": "supported",
+        "reason": "A-S09 includes the digital subscriptions in subscription revenue."
+      },
+      {
+        "id": "rel_online_stores_generates_online_sales",
+        "status": "supported",
+        "reason": "Inference is supported: A-S11 says online orders, including those picked up at stores, remain online-store sales."
+      },
+      {
+        "id": "rel_digital_media_generates_online_sales",
+        "status": "supported",
+        "reason": "A-S10: individual digital-media purchases count as online-store sales."
+      },
+      {
+        "id": "rel_physical_stores_generates_physical_sales",
+        "status": "supported",
+        "reason": "A-S11: physical-store sales cover products selected while visiting a store."
+      },
+      {
+        "id": "rel_consumers_pay_sub_rev",
+        "status": "uncertain",
+        "reason": "A-S06 and A-S09 classify membership fees as subscription revenue but never state that consumers are the payers."
+      }
+    ],
+    "error": null
+  },
+  "inferred_ids": [
+    "rel_seg_cloud_offers_cloud_services",
+    "rel_membership_serves_consumers",
+    "rel_cloud_uses_shared_infra",
+    "rel_seg_na_offers_stores",
+    "rel_seg_na_offers_seller_programs",
+    "rel_seg_na_offers_advertising",
+    "rel_seg_na_offers_membership",
+    "rel_seg_na_offers_digital_subs",
+    "rel_seg_intl_offers_stores",
+    "rel_seg_intl_offers_seller_programs",
+    "rel_seg_intl_offers_advertising",
+    "rel_seg_intl_offers_membership",
+    "rel_seg_intl_offers_digital_subs",
+    "rel_online_stores_generates_online_sales"
+  ],
+  "expansion_complete": true,
+  "pending": [],
+  "stop_reason": "complete",
+  "calls": 6,
+  "history": [
+    {
+      "call": 1,
+      "stage": "expansion",
+      "target_id": "company",
+      "request_digest": "d2c370af2fd1d578c2f9752caaa008bfb86c4058fc6f89975ddb00210d7ce21b",
+      "accepted": true,
+      "error": null,
+      "revision_before": 0,
+      "revision_after": 1
+    },
+    {
+      "call": 2,
+      "stage": "expansion",
+      "target_id": "grp_actors",
+      "request_digest": "9066b77f2d561312152c00fd1b6a4aaf4128e4778f5dd2b61edc197104e68e4c",
+      "accepted": true,
+      "error": null,
+      "revision_before": 1,
+      "revision_after": 2
+    },
+    {
+      "call": 3,
+      "stage": "expansion",
+      "target_id": "grp_offerings",
+      "request_digest": "283e6a13f2acb812600fe99c96b94d71241b0be1f1458e2e57294475e4d92868",
+      "accepted": true,
+      "error": null,
+      "revision_before": 2,
+      "revision_after": 3
+    },
+    {
+      "call": 4,
+      "stage": "expansion",
+      "target_id": "grp_reported_segments",
+      "request_digest": "4f518357ad8c7f7be06c4cbd68c02592c5477a63ee68ff9250e0964eee1bee74",
+      "accepted": true,
+      "error": null,
+      "revision_before": 3,
+      "revision_after": 4
+    },
+    {
+      "call": 5,
+      "stage": "expansion",
+      "target_id": "grp_revenue_and_measures",
+      "request_digest": "9ddcac54036c77d89917b2fe93af1094e1807a88f5f406a3870101b773e34949",
+      "accepted": true,
+      "error": null,
+      "revision_before": 4,
+      "revision_after": 5
+    },
+    {
+      "call": 6,
+      "stage": "support_review",
+      "target_id": null,
+      "request_digest": "7fc641f65285e1e976b114b17400f9bde00c7fe09f5c9ad7d4125758a0120961",
+      "accepted": true,
+      "error": null,
+      "revision_before": 5,
+      "revision_after": 5
+    }
+  ],
+  "revision": 5,
+  "limits": {
+    "max_calls": 6,
+    "max_depth": 6,
+    "root_patch_limits": {
+      "nodes": 16,
+      "facts": 6,
+      "relationships": 6,
+      "gaps": 0,
+      "expand_node_ids": 4
+    }
+  },
+  "input_fingerprint": "3c07df8a74cfbcc4862e3db63e623a7a0a0c382fd1b2d7d5be9f33bcf5eb4585"
+}

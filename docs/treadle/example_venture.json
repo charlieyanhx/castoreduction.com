@@ -1,0 +1,14 @@
+{
+  "description": "An AI receptionist for independent dental clinics that answers calls and helps schedule appointments.",
+  "decision": "Choose an initial customer segment and assess whether to launch a pilot.",
+  "intake": {
+    "facts": {
+      "product": "AI phone receptionist for dental clinics",
+      "target_customer": "Independent dental clinics",
+      "geography": "United States",
+      "stage": "Pre-launch"
+    },
+    "unknowns": ["pricing", "monthly_cost_estimate"],
+    "confirmed": true
+  }
+}

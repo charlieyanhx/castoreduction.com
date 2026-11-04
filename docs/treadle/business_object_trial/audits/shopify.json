@@ -1,0 +1,212 @@
+{
+  "company": "Shopify",
+  "summary": {
+    "evaluated_output": "docs/treadle/business_object_trial/runs/normalized/shopify/object.json",
+    "basis": "Only input_statements; sources and company familiarity were not used. Normalized output removes only the complete outer Markdown fence; raw output remains unchanged.",
+    "rubric": "Pass means the stated distinction/mechanism is retained. Partial means some required graph nesting or connection is absent although labels preserve part or all of the fact. Fail means the required fact is absent or contradicted. Exact check counts are not a factual-accuracy score.",
+    "check_counts": {
+      "total": 7,
+      "pass": 7,
+      "partial": 0,
+      "fail": 0
+    },
+    "inspection": {
+      "node_count": 32,
+      "relationship_count": 24,
+      "node_ids_reviewed": [
+        "company",
+        "single_reporting_segment",
+        "subscription_solutions_revenue",
+        "merchant_solutions_revenue",
+        "payment_processing_fees",
+        "currency_conversion_fees",
+        "offline_revenue",
+        "offerings_group",
+        "commerce_platform",
+        "subscription_solutions_group",
+        "platform_subscription_plans",
+        "higher_tier_plan",
+        "b2b_selling_feature",
+        "premium_pos_subscription",
+        "apps",
+        "themes",
+        "domain_registration",
+        "merchant_solutions_group",
+        "merchant_payment_service",
+        "physical_commerce_payment_services",
+        "lending_services",
+        "shipping_label_sales",
+        "pos_hardware_sales",
+        "advertising_offerings",
+        "integrated_back_end",
+        "gross_merchandise_volume",
+        "actors_group",
+        "merchants",
+        "buyers",
+        "app_developers",
+        "theme_designers",
+        "service_partners"
+      ],
+      "relationship_positions_reviewed": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24
+      ],
+      "relationship_position_basis": "One-based order in normalized object.json"
+    },
+    "missing_details_review": {
+      "total_questions": 13,
+      "focused_report_gaps": [
+        "Payer identity, fee basis, revenue split, plan pricing, unresolved physical-payment identity, market size, merchant mix, partner economics, differentiators, competitors and customer evidence are relevant report gaps.",
+        "q_physical_payments_relation is especially useful: it recognizes an entity-identity question rather than silently merging services."
+      ],
+      "secondary_or_overbroad": [
+        "q_gmv_value is activity/trend context and cannot by itself fill market_size.",
+        "q_subscription_pricing asks for every tier and price, which may exceed what a concise revenue explanation requires."
+      ],
+      "remaining_gaps": [
+        "Requested revenue, GMV and market figures lack consistent date, geography and currency boundaries.",
+        "Persona coverage includes roles and merchant size but lacks buying needs and decision criteria.",
+        "Customer feedback questions should request attributable evidence and collection context.",
+        "The report needs comparative evidence before any projected feature can be called a differentiator."
+      ]
+    }
+  },
+  "checks": [
+    {
+      "id": "S-C01",
+      "description": "Distinguish revenue components from the single reporting segment.",
+      "status": "pass",
+      "finding": "One reporting-segment node contains subscription and merchant-solution revenue streams; neither revenue component is mislabeled as a reported segment.",
+      "node_ids": [
+        "single_reporting_segment",
+        "subscription_solutions_revenue",
+        "merchant_solutions_revenue"
+      ]
+    },
+    {
+      "id": "S-C02",
+      "description": "Keep merchants, buyers and ecosystem partners distinct.",
+      "status": "pass",
+      "finding": "Merchants, buyers, app developers, theme designers and service partners are distinct nodes; merchant-to-buyer service and partner-to-merchant service direction is retained.",
+      "node_ids": [
+        "merchants",
+        "buyers",
+        "app_developers",
+        "theme_designers",
+        "service_partners"
+      ]
+    },
+    {
+      "id": "S-C03",
+      "description": "Separate subscription, payment and hardware revenue mechanisms.",
+      "status": "pass",
+      "finding": "Subscription offerings generate subscription revenue; the payment service generates distinct processing and currency-conversion fee nodes; hardware is a sale offering generating merchant-solution revenue. No unsupported rate or percentage-of-GMV claim is added.",
+      "node_ids": [
+        "platform_subscription_plans",
+        "premium_pos_subscription",
+        "merchant_payment_service",
+        "payment_processing_fees",
+        "currency_conversion_fees",
+        "pos_hardware_sales",
+        "subscription_solutions_revenue",
+        "merchant_solutions_revenue"
+      ]
+    },
+    {
+      "id": "S-C04",
+      "description": "Represent shared back-end capabilities across sales channels.",
+      "status": "pass",
+      "finding": "One integrated-back-end capability preserves inventory, transactions and buyer relationships across sales channels and is used by the commerce platform, whose label names online and physical channels.",
+      "node_ids": [
+        "integrated_back_end",
+        "commerce_platform"
+      ]
+    },
+    {
+      "id": "S-C05",
+      "description": "Treat offline as a cross-offering classification.",
+      "status": "pass",
+      "finding": "Offline revenue explicitly spans physical-payment services, POS subscriptions and hardware, with incoming relationships from all three. It is not modeled as an offering or reportable segment.",
+      "node_ids": [
+        "offline_revenue",
+        "physical_commerce_payment_services",
+        "premium_pos_subscription",
+        "pos_hardware_sales"
+      ]
+    },
+    {
+      "id": "S-C06",
+      "description": "Separate GMV from company revenue.",
+      "status": "pass",
+      "finding": "GMV is a metric explicitly describing merchant activity rather than company revenue; it retains net refunds and shipping, handling, duty and VAT inclusions.",
+      "node_ids": [
+        "gross_merchandise_volume",
+        "subscription_solutions_revenue",
+        "merchant_solutions_revenue"
+      ]
+    },
+    {
+      "id": "S-C07",
+      "description": "Attach business-to-business functionality to the stated subscription tier.",
+      "status": "pass",
+      "finding": "The B2B feature is nested under the higher-tier plan within platform subscription plans and its label retains higher-tier availability. No unstated named plan or exclusive-only availability is added.",
+      "node_ids": [
+        "platform_subscription_plans",
+        "higher_tier_plan",
+        "b2b_selling_feature"
+      ]
+    }
+  ],
+  "unsupported_claims": [
+    {
+      "finding": "physical_commerce_payment_services is placed under the Merchant solutions offerings group, but its cited S-S09 establishes only offline-revenue coverage. S-S05 identifies an integrated merchant payment service without establishing its identity with physical-commerce payments. The tree assigns a revenue-component grouping that the input has not expressly resolved; q_physical_payments_relation itself acknowledges that relationship is unknown.",
+      "node_ids": [
+        "physical_commerce_payment_services",
+        "merchant_solutions_group",
+        "merchant_payment_service"
+      ],
+      "statement_ids": [
+        "S-S05",
+        "S-S09"
+      ],
+      "relationships": []
+    }
+  ],
+  "omissions": [],
+  "schema_limitations": [
+    "All 32 nodes and 24 typed edges were inspected against supplied statements. The additional tree-grouping issue is listed separately from the seven expected-check results; passing those checks does not establish that every assertion is supported.",
+    "offline_revenue sits beside the two revenue components under the single segment. Its label and cross-offering edges correctly show overlap, but a renderer treating all sibling revenue nodes as an additive partition would double count. No typed overlapping-classification relation prevents this.",
+    "merchant_payment_service and physical_commerce_payment_services may be a shared entity or separate offerings. The input does not settle that; q_physical_payments_relation appropriately asks. This is unresolved identity, not a proven duplicate, and should remain visible until clarified.",
+    "b2b_selling_feature -> merchants (serves) has no edge-level eligibility condition. Higher-tier availability is preserved in the node label/tree, and must travel with any downstream use of that edge.",
+    "Merchant customer status does not by itself settle every fee payer. q_payer_of_fees correctly keeps precise payer arrangements unresolved; the object adds no unsupported pays edges.",
+    "Capability subfunctions, sales channels and GMV inclusions/exclusions remain labels rather than queryable typed fields. They are retained semantically, which is sufficient for the corresponding preservation checks.",
+    "The revenue projection includes all three overlapping revenue classifications and GMV. The renderer must retain the GMV/company-revenue distinction and avoid summing offline revenue with its component totals.",
+    "Shared back end, B2B functionality and cross-channel commerce are supported features, not proven comparative advantages. GMV is company-facilitated merchant activity and is not itself addressable market size."
+  ],
+  "report_readiness": {
+    "ready": false,
+    "reason": "Not ready for a full eight-section report despite passing all seven fixture checks. The 201-word fixture supports a qualitative commerce, revenue and participant model, but no revenue/GMV amounts, addressable-market estimates, competitor comparisons or customer quotations. The physical-payment grouping also needs clarification."
+  }
+}

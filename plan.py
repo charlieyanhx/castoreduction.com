@@ -1,0 +1,2794 @@
+"""
+The full spec pipeline — chains all 14 steps into a single runnable function.
+
+Input: raw company/startup description (user text)
+Output: 4Ps plan + viability score 1-100
+
+Steps (spec mapping):
+  1. Accept description (caller)
+  2. Extract company profile           → profile.extract_company_profile
+  3a/3b/3c/3d. Competitive intel       → discover.discover
+  4. Consolidate context store         → (embedded in result)
+  5/6. Customer segments               → taste.decode_taste (for top competitor)
+  7/8. Opportunity scoring             → _score in discover
+  9a. Max-Diff features                → pricing.simulate_max_diff
+  9b. Van Westendorp PSM               → pricing.simulate_van_westendorp
+  10. Pricing framework                → pricing.compute_break_even
+  11. Place analysis                   → place.analyze + place.recommend_place
+  12. Validation gate                  → computed inline
+  13. 4Ps plan                         → four_ps.assemble_4ps_split
+  14. Viability score                  → four_ps.score_viability
+"""
+from __future__ import annotations
+import os
+import re
+import time
+
+from capabilities.scheduler import run_labeled
+
+from four_ps import assemble_4ps_split
+from market_sizing import estimate_market_size, validation_sources_for
+from logger import get
+
+log = get("plan")
+
+
+# Wave 3 item 5: the step machinery moved to orchestrator/steps/ so an extracted
+# step can use it without importing plan (plan imports the steps — the reverse
+# would be a cycle). Re-exported under the old private names: the "+shim" the
+# wave calls for, so existing callers and tests keep working untouched.
+# The triangulation cluster now lives beside the sizing skills it serves (#87). Re-exported
+# here, not just imported: callers across the codebase — and tests that patch
+# `plan.triangulate_sizing` — resolve the name through this module, and a move that breaks
+# them is a refactor that changed behaviour.
+# Brief parsing — the location the trade area is drawn around and the price every volume
+# figure derives from (#87 wave 3). Re-exported: tests patch `plan.extract_location` and
+# `plan.extract_stated_price`, and a move that breaks a patch site changed behaviour rather
+# than location.
+from brief import (  # noqa: F401
+    _PLACE_RE, _SENTENCE_END, _STATED_PRICE_RE, _STREET_RE, _trim_at_sentence_end,
+    extract_location, extract_location_count, extract_price, extract_stated_price)
+from brief import UNIT_NOUNS as _BRIEF_UNIT_NOUNS
+# Category -> OSM tag/radius resolution now lives with the sizing skills (#87 wave 2).
+from skills.sizing.osm_tags import (  # noqa: F401
+    _OSM_TAG_BY_CATEGORY, _RADIUS_BY_OSM_VALUE, _radius_for_osm_value,
+    _resolve_osm_amenity, _resolve_osm_tag)
+from skills.sizing.triangulation import (  # noqa: F401
+    _fmt_tam_short, _renormalize_segmentation, _resync_sam_after_triangulation,
+    _rewrite_tam_tokens, triangulate_sizing)
+from orchestrator.steps import (  # noqa: F401 — compatibility exports used by callers/tests
+                                record_dropped_output, run_with_timeout as _run_with_timeout,
+                                skip_step as _skip_step, step_done as _step_done)
+from orchestrator.steps.clustering import run_clustering_step
+from orchestrator.steps.competitors import run_discover_step
+from orchestrator.steps.competitor_refinement import run_competitor_refinement_step
+from orchestrator.steps.differentiators import run_differentiators_step
+from orchestrator.steps.economics_step import ensure_nonpriced_economics, run_economics_step
+from orchestrator.steps.evidence import run_evidence_step
+# _enrich_economics_at_som moved to the financials step with its only caller; re-exported
+# here because ~9 tests and any future caller reach for plan._enrich_economics_at_som.
+from orchestrator.steps.financials_step import (_enrich_economics_at_som,  # noqa: F401
+                                                run_financials_step)
+from orchestrator.steps.firmographics import run_firmographics_step
+from orchestrator.steps.max_diff import run_max_diff_step
+from orchestrator.steps.personas import run_personas_step
+from orchestrator.steps.pricing_sim import run_pricing_sim_step
+from orchestrator.steps.profile import run_profile_step
+from orchestrator.sections import (apply as apply_sections,
+                                   check_reads_are_still_current,
+                                   customer_universe_section,
+                                   research_brief_section,
+                                   segment_ranking_section, synthesis_section,
+                                   viability_section)
+
+
+def _validation_gate(result: dict) -> dict:
+    """Step 12 — surface data quality flags. cycle30: stricter thresholds; pipeline
+    should NEVER report 100% confidence with 0 flags unless every signal is strong."""
+    flags = []
+    confidence = 1.0
+
+    opps = (result.get("discover", {}).get("synthesis", {}) or {}).get("ranked_opportunities", [])
+    if len(opps) < 3:
+        flags.append(f"Only {len(opps)} competitors found — expand search")
+        confidence -= 0.15
+
+    audience = result.get("audience") or {}
+    ac_raw = audience.get("confidence")
+    if ac_raw is None:
+        flags.append("Audience taste confidence not reported by LLM — using heuristic fallback")
+        confidence -= 0.05
+    else:
+        ac = float(ac_raw)
+        # cycle30: tightened — was <0.5; now any audience below 0.7 is worth flagging
+        if ac < 0.3:
+            flags.append(f"Audience taste confidence VERY LOW ({ac:.2f}) — treat results as directional only")
+            confidence -= 0.25
+        elif ac < 0.5:
+            flags.append(f"Audience taste confidence is low ({ac:.2f}) — results may be weak")
+            confidence -= 0.15
+        elif ac < 0.7:
+            flags.append(f"Audience taste confidence is moderate ({ac:.2f}) — additional voice sources recommended")
+            confidence -= 0.05
+
+    pricing = result.get("pricing", {})
+    if pricing.get("error") or not pricing.get("psm"):
+        flags.append("Pricing simulation failed — no PSM data")
+        confidence -= 0.1
+
+    place = result.get("place", {}) or {}
+    if place.get("error") or not place.get("primary_channel"):
+        flags.append("Place analysis incomplete")
+        confidence -= 0.05
+
+    # cycle30 NEW: customer-voice source breadth — flag if too few sources returned data.
+    # cycle38 follow-up (#70): the denominator counts only sources actually QUERIED. The dev
+    # forums are deliberately skipped for non-tech ventures, and their zeros used to sit in
+    # `counts` indistinguishable from real empty results — run9 (a cafe) was flagged "Only 1
+    # customer-voice sources returned data" and docked 0.10 confidence for having no Stack
+    # Overflow presence. The expectation bar scales with how many sources were queried, so a
+    # venture is never penalised for a source the pipeline chose not to ask.
+    sources_with_data = 0
+    sources_queried = 2          # reddit_signal + hn_signal are always attempted
+    if (result.get("reddit_signal") or {}).get("threads_found", 0) > 0:
+        sources_with_data += 1
+    if (result.get("hn_signal") or {}).get("hits_found", 0) > 0:
+        sources_with_data += 1
+    _mss = result.get("multi_source_signal") or {}
+    ms_counts = _mss.get("counts") or {}
+    ms_queried = _mss.get("queried") or {k: True for k in ms_counts}   # legacy artifacts
+    ms_unavailable = _mss.get("unavailable") or {}
+    _n_unavailable = 0
+    for name, v in ms_counts.items():
+        if not ms_queried.get(name, True):
+            continue             # skipped by design — not evidence of thin signal
+        if ms_unavailable.get(name):
+            # R5 (88b416f6): queried and the FETCH FAILED — an outage, not thin
+            # opinion. It neither counts against the venture nor pads the denominator.
+            _n_unavailable += 1
+            continue
+        sources_queried += 1
+        if (v or 0) > 0:
+            sources_with_data += 1
+    if _n_unavailable:
+        flags.append(f"{_n_unavailable} customer-voice source(s) unavailable (fetch "
+                     "failed) — an infrastructure outage, not evidence of thin signal")
+    _voice_bar = min(3, max(1, sources_queried - 1))
+    if sources_with_data < _voice_bar:
+        flags.append(f"Only {sources_with_data} of {sources_queried} queried customer-voice "
+                     f"sources returned data — opinion signals are thin")
+        confidence -= 0.10
+
+    # cycle30 NEW: TAM 3-method completion check. cycle36: ONLY applies to the national
+    # 3-method (top-down/bottom-up/analog) sizing. Hyperlocal trade-area sizing
+    # (households × spend) is single-method BY DESIGN — flagging it "0/3 methods" is a
+    # false alarm, so skip the check entirely for that path.
+    ms_for_flags = result.get("market_sizing") or {}
+    tam = ms_for_flags.get("tam") or {}
+    # city_scan is single-method by design too (households × spend at county scale) —
+    # without it here, every city-only run is flagged "0/3 methods" and docked 0.08.
+    is_trade_area = ms_for_flags.get("method") in ("trade_area_catchment", "city_scan")
+    if not is_trade_area:
+        n_tam_methods = sum(
+            1 for k in ("method_top_down", "method_bottom_up", "method_analog")
+            if (tam.get(k) or {}).get("value_usd")
+        )
+        if n_tam_methods < 3:
+            flags.append(f"TAM only has {n_tam_methods}/3 methods filled — triangulation incomplete")
+            confidence -= 0.08
+    # cycle31-r2 (BUG B): market_sizing returned EMPTY tam.mid silently — surface it
+    if "market_sizing" in (result.get("_steps_completed") or []) and not tam.get("mid"):
+        flags.append("Market sizing produced no headline TAM (all 3 methods returned no usable values)")
+        confidence -= 0.30
+    # cycle31-r2: financial scenarios empty / non-monotonic
+    fin = result.get("financials") or {}
+    scenarios = fin.get("scenarios") or {}
+    if "financials" in (result.get("_steps_completed") or []) and not scenarios:
+        flags.append("Growth scenarios were not produced — financials block empty")
+        confidence -= 0.10
+
+    # cycle30 NEW: segment scoring quality — flag when scores were fabricated/defaulted
+    sr = result.get("segment_ranking") or {}
+    n_defaulted = sum(1 for r in (sr.get("ranked") or []) if r.get("_scores_were_defaulted"))
+    if n_defaulted > 0:
+        flags.append(f"{n_defaulted} segment(s) scored using 0.5 defaults — LLM declined to rate")
+        confidence -= 0.05
+
+    # cycle30 NEW: viability skipped (the user's specific bug)
+    viability = result.get("viability") or {}
+    if viability.get("error"):
+        flags.append(f"Viability scoring failed: {viability.get('error')}")
+        confidence -= 0.20
+    elif "viability" not in (result.get("_steps_completed") or []):
+        flags.append("Viability step was skipped or did not complete")
+        confidence -= 0.20
+
+    # cycle30 NEW: differentiator coverage — if 0 found, that's a critical finding
+    diffs = (result.get("differentiators") or {}).get("differentiators") or []
+    if len(diffs) == 0:
+        _fc = (result.get("differentiators") or {}).get("founder_claimed")
+        if _fc:
+            flags.append("No differentiators confirmed — the founder's claimed "
+                         f"differentiation ({str(_fc)[:80]}) could not be verified "
+                         "against the competitor roster")
+        else:
+            flags.append("No differentiators identified — venture may be a commodity copycat")
+        confidence -= 0.10
+
+    return {
+        "flags": flags,
+        "confidence_score": round(max(0.0, confidence), 2),
+    }
+
+
+#: Agencies whose name in a source string is an authority claim a reader will act on. Kept
+#: in step with gates._AGENCIES — the gate detects the claim, this demotes it, and the two
+#: reading different vocabularies would put the fix and its check out of sync.
+_AGENCY_CLAIM_RE = re.compile(
+    r"\b(census|acs\b|cbp\b|susb|bls\b|qcew|cex\b|oes\b|eurostat|"
+    r"office for national statistics|statcan|world bank|imf\b|oecd|fred\b)", re.I)
+#: Phrasings that already DISCLOSE rather than assert (gates._DISCLOSED). A second
+#: disclosure appended to one of these is noise, and a reader who sees two trusts neither.
+_ALREADY_DISCLOSED_RE = re.compile(
+    r"unsourced|llm estimate|llm-estimate|model(?:led|ed)?\s|estimate only|"
+    r"validate\s+(?:vs|against)|compare\s+(?:to|vs|against)|to be validated|"
+    r"not\s+(?:yet\s+)?sourced|placeholder|not fetched", re.I)
+#: Origins that record an actual fetch. Anything else — "llm", "unattributed", absent — is a
+#: figure whose agency name the pipeline cannot stand behind.
+_FETCHED_ORIGINS = frozenset({"census", "acs", "cbp", "susb", "bls", "qcew", "cex",
+                              "scrape", "stated", "osm", "api", "fetched", "derived"})
+
+
+def _demote_unfetched_agency_claim(block: dict) -> dict:
+    """Turn an agency ASSERTION into an agency SUGGESTION when no fetch backs it.
+
+    MEASURED on the three live runs generated for #98, 2 of 3 failed D53 — the gate whose
+    own docstring calls this the worst defect in the codebase:
+
+        method_bottom_up  data_origin=llm  source="US Census County Business Patterns 2022"
+        TAM_regional      data_origin=unattributed  cites 'Census'
+
+    A wrong number can be checked; a number wearing the Census Bureau's name defeats
+    checking, because the reader's next move — look the agency up — confirms it exists and
+    stops there.
+
+    THE MODEL'S CITATION IS KEPT. D53 already passes on "LLM estimate (UNSOURCED — validate
+    vs US Census ACS)", which names the agency as something to check AGAINST. So the honest
+    repair is not to delete the reference or invent another one — it is to demote the claim,
+    in Python, wherever the recorded origin says the fetch did not happen. Same move as C4's
+    BLS proxy label: keep the figure, fix what it claims about itself.
+
+    Deliberately does not touch `value_usd` or `calculation`. This corrects a claim, not a
+    number, and altering the arithmetic would make the output unauditable against the run
+    that produced it.
+    """
+    src = str(block.get("source") or "")
+    if not src or not _AGENCY_CLAIM_RE.search(src):
+        return block
+    if _ALREADY_DISCLOSED_RE.search(src):
+        return block
+    origin = ""
+    for key in ("data_origin", "origin", "count_origin", "arpu_origin"):
+        if block.get(key):
+            origin = str(block[key]).strip().lower()
+            break
+    if origin in _FETCHED_ORIGINS:
+        return block                      # the call really happened; say so plainly
+    return {**block,
+            "source": f"{src} — NOT FETCHED for this figure (recorded origin: "
+                      f"{origin or 'unattributed'}); cited by the model as a reference to "
+                      f"validate against, not as a source consulted",
+            "agency_claim_demoted": True}
+
+
+def gate_and_annotate_sizing(sizing: dict, scale_decision: dict | None) -> dict:
+    """Run legacy sizing output through the numbers-right validation gate.
+
+    Non-mutating contract: returns a new dict (sizing + validation + scale_decision
+    + physical-venture caveat). The legacy tam/sam/som shape is left untouched so
+    downstream readers (som.mid, etc.) keep working. cycle33.
+    """
+    out = dict(sizing or {})
+    # G2 (D04): re-enforce SOM ≤ SAM ≤ TAM *here*, at the END of the sizing chain.
+    # estimate_market_size clamps once, but ground_sizing_bottom_up / triangulate_sizing
+    # rewrite tam.mid afterwards — if triangulation pulls TAM below SAM, the funnel broke
+    # silently (baseline: 3 national-path reports shipped SAM > TAM). The clamp itself
+    # discloses via clamp_note + weakest_assumptions.
+    try:
+        from market_sizing import _enforce_sizing_ordering
+        out = _enforce_sizing_ordering(out)
+    except Exception as e:
+        log.warning("[plan] final ordering enforcement failed (non-fatal): %s", e)
+    try:
+        from skills.sizing.validate import validate_numbers
+        tam_block = out.get("tam") or {}
+        # C7: feed the per-method figures (with their calculation as the formula)
+        # and the segmentation into the gate, so formula-reconciliation and
+        # segmentation-sum checks actually run on live reports — not just unit tests.
+        figures = []
+        for key in ("method_top_down", "method_bottom_up", "method_analog"):
+            blk = tam_block.get(key) or {}
+            if isinstance(blk.get("value_usd"), (int, float)):
+                figures.append({
+                    "value_usd": float(blk["value_usd"]), "label": f"TAM_{key}",
+                    "source": blk.get("source") or "estimate_market_size",
+                    "formula": blk.get("calculation") or "",
+                    # Real provenance travels WITH the figure, or the F6 external
+                    # cross-check can never see it — validate classifies grounded
+                    # strictly by origin now, never by substrings of source prose.
+                    "origin": blk.get("data_origin") or "llm",
+                })
+        adapted = {
+            "tam_usd": tam_block.get("mid"),
+            "sam_usd": (out.get("sam") or {}).get("mid"),
+            "som_usd": (out.get("som") or {}).get("mid"),
+            "figures": figures,
+            "segmentation": out.get("segmentation") or [],
+        }
+        v = validate_numbers(adapted)
+        out["validation"] = v.payload
+        # Persist the figures we just validated (audit high #5). They used to live and die
+        # inside `adapted`, so `market_sizing.figures` never existed on a digital or
+        # regional report — and report/verifier.py's layer-2 formula check reads exactly
+        # that key, so it silently found nothing to check on 10 of 16 corpus reports: every
+        # size_national_digital and size_regional one, i.e. precisely the reports whose
+        # arithmetic an LLM wrote rather than Python computed. C7 inside validate_numbers
+        # did run on them (30/30 method figures, catching both real contradictions in the
+        # corpus); this makes the same figures re-checkable by the second, independent
+        # checker instead of leaving it blind.
+        #
+        # Never CLOBBER: this gate runs on every sizing, and a hyperlocal one has no
+        # `method_*` blocks, so `figures` comes back empty for it — while size_hyperlocal
+        # has already published its own three (TAM_local/SAM_local/SOM_obtainable). An
+        # unconditional assignment would delete exactly the figures the verifier can
+        # currently read.
+        out["figures"] = figures or out.get("figures") or []
+        # C3 (audit remediation): a failed gate makes the sizing UNPUBLISHABLE.
+        # The renderer hard-banners this and downstream consumers can refuse it —
+        # "validate loud" now actually blocks instead of silently annotating.
+        out["publishable"] = bool(v.payload.get("passed"))
+        if not v.payload["passed"]:
+            log.warning("[plan] SIZING BLOCKED by validation gate (unpublishable): %s", v.error)
+    except Exception as e:  # gate machinery failure is non-fatal, but mark unknown
+        log.warning("[plan] sizing validation failed (non-fatal): %s", e)
+        out["publishable"] = out.get("publishable", True)
+
+    # Item 2: every figure ships WITH an origin key. A missing key is indistinguishable from
+    # a fetched number to everything downstream -- the trace, the gates, the reader. Measured:
+    # 14 of 15 agency-citing figures across the corpus carried no origin at all. Where the
+    # producer recorded nothing, the honest label is "unattributed" -- not "llm", which would
+    # assert a provenance we equally cannot prove, and not a silent absence.
+    _figs = out.get("figures")
+    if isinstance(_figs, list):
+        out["figures"] = [
+            (_demote_unfetched_agency_claim(
+                {**f, "data_origin": (f.get("data_origin") or f.get("origin")
+                                      or "unattributed")})
+             if isinstance(f, dict) else f)
+            for f in _figs
+        ]
+    # THE SAME RULE ON THE THREE-METHOD TAM. A method block carries its own `source`, and
+    # the model writes it: measured on a live run, method_bottom_up said "US Census County
+    # Business Patterns 2022" with data_origin=llm. D53 calls this the worst defect in the
+    # codebase and it failed 2 of 3 live runs.
+    _tam = out.get("tam")
+    if isinstance(_tam, dict):
+        for _name in ("method_top_down", "method_bottom_up", "method_analog"):
+            if isinstance(_tam.get(_name), dict):
+                _tam[_name] = _demote_unfetched_agency_claim(_tam[_name])
+
+    if scale_decision:
+        out["scale_decision"] = scale_decision
+        skill = scale_decision.get("sizing_skill") or ""
+        if scale_decision.get("scale") in ("hyperlocal", "regional", "national_physical"):
+            # Did the skill the classifier NAMED actually produce these numbers? Its output
+            # carries a trade-area footprint; LLM sizing has none. Measured on a real run:
+            # the classifier demanded size_hyperlocal, it never ran, and the LLM's
+            # $31,050,000 shipped as publishable citing "Census ACS & BLS QCEW" with
+            # data_origin=None and zero Census calls. A decision nothing enforces is
+            # decoration, and the silence was the whole defect.
+            ran = bool(out.get("trade_area_households") is not None or out.get("radius_m")
+                       or out.get("catchment_km2") is not None)
+            out["scale_skill_ran"] = ran
+            if not ran:
+                out["publishable"] = False
+                out["notes"] = list(out.get("notes") or []) + [
+                    f"NOT GROUNDED: this is a {scale_decision.get('scale')} venture, so its "
+                    f"sizing must come from {skill or 'the trade-area model'}, which did not "
+                    "run — no street address was available (a neighbourhood name geocodes to "
+                    "points kilometres apart, so it cannot stand in for one). The figures "
+                    "below are model-narrated upper bounds, not a measured trade area. "
+                    "Provide a street address for a defensible SOM."]
+            else:
+                # THREE states, not two. "The skill ran" and "the skill produced numbers" are
+                # different facts: on a fresh run size_hyperlocal computed a real 1500m/
+                # 7.07km2 catchment and then could not finish, because ACS households need a
+                # CENSUS_API_KEY. Claiming "figures are measured from the catchment" beside
+                # zero figures and no TAM would be a smaller version of the same overclaim
+                # this gate exists to stop.
+                _has_numbers = bool((out.get("tam") or {}).get("mid")
+                                    or (out.get("figures") or []))
+                if _has_numbers:
+                    out["notes"] = list(out.get("notes") or []) + [
+                        f"Trade-area sizing via {skill or 'size_hyperlocal'}: figures are "
+                        "measured from the catchment, not national top-down."]
+                else:
+                    out["publishable"] = False
+                    out["notes"] = list(out.get("notes") or []) + [
+                        f"{skill or 'The trade-area model'} ran and measured the catchment "
+                        f"({out.get('radius_m')}m radius"
+                        + (f", {out.get('catchment_km2')} km2" if out.get("catchment_km2")
+                           else "")
+                        + "), but could not size it: the household and spend inputs are "
+                        "unavailable. No market size is published rather than substituting "
+                        "a national estimate for a trade area."]
+    return out
+
+
+# cycle37: a per-TRANSACTION stated price ("$6 per drink", "$6/cup", "$15 a cut"). The monthly
+# _STATED_PRICE_RE misses these, so a transactional venture used to fall back to the PSM monthly
+# point ($38) as its "unit price" — a $38 drink. This captures the real per-unit price.
+_UNIT_PRICE_RE = re.compile(
+    r"\$\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:/|per|a|an|each)?\s*"
+    r"(?:drink|cup|coffee|latte|espresso|beverage|pour[- ]?over|meal|plate|dish|entree|entr[ée]e|"
+    r"cover|visit|ticket|session|class|lesson|ride|trip|haircut|cut|treatment|item|slice|pint|"
+    r"glass|scoop|cone|order|night|booking|appointment|round|game|head|person|guest)\b",
+    re.IGNORECASE)
+
+
+def extract_unit_price(text: str) -> float | None:
+    """Pull a per-transaction stated price ($6 per drink, $15/cut). Returns the value or None."""
+    if not text:
+        return None
+    m = _UNIT_PRICE_RE.search(text)
+    if not m:
+        return None
+    try:
+        return float(m.group(1).replace(",", ""))
+    except ValueError:
+        return None
+
+
+# B2/D17: a hybrid hardware+subscription price ("$199 device plus $5/mo app"). The
+# monthly _STATED_PRICE_RE greedily matched the $5/mo phrase and returned it as the
+# venture's "unit price" — against real hardware COGS that's a negative margin,
+# economics errors, and financials silently fell back to the subscription model
+# (churn-annualizing a one-time hardware sale). This looks for a $ figure near a
+# device noun that is NOT itself a /mo phrase.
+_DEVICE_PRICE_RE = re.compile(
+    r"\$\s*(\d[\d,]*\.?\d*)\s*(?:\w+\s+){0,3}?"
+    r"(?:device|hardware|unit|kit|sensor|monitor|gadget|appliance)\b",
+    re.IGNORECASE)
+_MONTHLY_WORD_RE = re.compile(r"/|\bper\b|\bmonth(?:ly)?\b|\bmo\b", re.I)
+
+
+_NON_RECURRING_KINDS = {"transactional", "ecommerce", "services", "hybrid", "marketplace"}
+
+
+def _pricing_is_recurring(biz_kind: str) -> bool:
+    """C3/D06-extend: which business-model kinds get '/month per <unit>' benchmark
+    labels. Real R4 catch (174ae091 R5 CRITICAL): a marketplace's per-booking price
+    ("$350/booking") rendered as "$350/mo per account" — the call site derived
+    recurring=not is_transactional, and is_transactional is False for marketplace
+    too (it isn't in business_model.PER_UNIT_KINDS), so "not per-unit -> must be
+    recurring" was wrong for the one other genuinely-non-recurring kind. Only
+    'subscription' is a true recurring seat/account fee; ad_supported is free to the
+    user (no price to label at all in this path, but never recurring either)."""
+    return biz_kind not in _NON_RECURRING_KINDS and biz_kind != "ad_supported"
+
+
+def _modeled_price_is_not_monthly(biz_kind: str | None) -> bool:
+    """True when a MODELED optimal price must not be multiplied by 12 to get annual revenue.
+
+    MEASURED: this guard used `is_per_unit(kind)`, which answers a DIFFERENT question —
+    "is revenue price x volume?" — and is False for marketplace and ad_supported. Both are
+    also non-recurring, so both fell through and had their modeled per-booking (or entirely
+    phantom) price annualised into a fake ARPU, which grounded_bottom_up then stamped
+    `count_origin: census`. A marketplace TAM of $42.1B shipped as $19.1B under a note saying
+    it was "grounded in live Census count ... x $5,400/yr". A wrong number wearing a federal
+    citation is the worst thing this codebase can produce.
+
+    AN UNKNOWN KIND COUNTS AS NOT-MONTHLY, and that is why this is a named function rather
+    than `not _pricing_is_recurring(kind)`: _pricing_is_recurring("") is True, because an
+    empty string is not in the non-recurring set, so the bare substitution would START
+    annualising unclassified ventures. The safe reading of a modeled price has always been
+    "unit unspecified", and it stays that way.
+    """
+    return not biz_kind or not _pricing_is_recurring(biz_kind)
+
+
+def _reconciliation_unit(biz_kind: str | None, psm_unit: str | None) -> str:
+    """The unit label the stated-vs-recommended price comparison is written in.
+
+    "/mo" is only true for a real subscription. MEASURED on a marketplace: the reconciliation
+    read "you stated $29/mo, WTP suggests $450/mo (+1452%)" where $450 is the value of one
+    homeowner's JOB, not a monthly fee — and D39 then reported that same line as
+    not-applicable, so nothing caught it.
+    """
+    if _pricing_is_recurring(biz_kind):
+        return "/mo"
+    return f"/{psm_unit}" if psm_unit else "/unit"
+
+
+def extract_device_price(text: str) -> float | None:
+    """Pull the one-time hardware/device price from a hybrid venture's description
+    ('$199 device plus a $5 per month app' -> 199.0). Returns None when the only
+    dollar figure near a device noun is ITSELF a monthly phrase (e.g. '$5 per month
+    device fee'), or no device noun is present at all."""
+    if not text:
+        return None
+    for m in _DEVICE_PRICE_RE.finditer(text):
+        if _MONTHLY_WORD_RE.search(m.group(0)):
+            continue  # the words between $ and the device noun say this IS monthly
+        try:
+            return float(m.group(1).replace(",", ""))
+        except ValueError:
+            continue
+    return None
+
+
+def reconcile_wtp_with_price(wtp: dict | None, recommended: float | None,
+                             interviews: list | None = None) -> dict | None:
+    """B3/D18 + R4 rank 11: flag a recommended price that sits ABOVE the top of the
+    simulated willingness-to-pay range — a price no simulated segment said they'd pay.
+
+    The old check compared the recommendation to the WTP MEDIAN inside a 0.1x-10x
+    deadband, so a price 3-9x the median, or a price above the band's high, sailed
+    through as long as recommended/median stayed under 10x (800c261b, e55db08e,
+    4a755faa — 83-156x gaps were caught, but the subtler over-ceiling cases were not).
+    Now the comparison is against the CEILING (the band's high, or the single point):
+    a price at or below the ceiling is defensible — someone would pay it; a price above
+    it is flagged, with how many simulated segments actually named a price that high
+    (the honest "0 of N" the report never showed). Returns None when either number is
+    missing or the recommendation is within the range."""
+    if not wtp or not recommended:
+        return None
+    center = wtp.get("median") if wtp.get("median") is not None else wtp.get("point")
+    ceiling = wtp.get("high") if wtp.get("high") is not None else center
+    try:
+        recommended = float(recommended)
+        center = float(center) if center is not None else None
+        ceiling = float(ceiling) if ceiling is not None else center
+    except (TypeError, ValueError):
+        return None
+    if not ceiling or ceiling <= 0 or recommended <= 0:
+        return None
+    if recommended <= ceiling:
+        return None  # within what at least one simulated segment would pay
+
+    # How many simulated segments named a price at or above the recommendation.
+    n_named = n_at_or_above = None
+    if interviews:
+        named = [float(w) for iv in interviews
+                 if isinstance((w := iv.get("willingness_to_pay_usd")), (int, float))
+                 and not isinstance(w, bool) and w > 0]
+        n_named = len(named)
+        n_at_or_above = sum(1 for v in named if v >= recommended)
+
+    anchor = center if center is not None else ceiling
+    ratio = round(recommended / anchor, 1) if anchor else None
+    count_clause = (f" — {n_at_or_above} of {n_named} simulated segments named a price "
+                    f"that high" if n_at_or_above is not None else "")
+    return {
+        "wtp": anchor,
+        "wtp_ceiling": ceiling,
+        "recommended": recommended,
+        "ratio": ratio,
+        "n_named": n_named,
+        "n_at_or_above": n_at_or_above,
+        "note": (
+            f"The recommended price (${recommended:,.0f}) is above the top of the "
+            f"simulated willingness-to-pay range (${ceiling:,.0f}){count_clause}. These "
+            "may reflect different buyer framings; do NOT average the two or silently "
+            "pick one — validate willingness-to-pay with real buyer interviews before "
+            "pricing."
+        ),
+    }
+
+
+def reconcile_pricing(stated: float | None, recommended,
+                      unit_label: str = "/mo") -> dict | None:
+    """Compare the user's stated price to the model's recommendation, visibly.
+
+    Returns a reconciliation dict (or None if nothing to reconcile) so the report
+    can show "you said $X, model recommends $Y, here's the gap" instead of silently
+    re-pricing. cycle33 / C5 — the gap Manus handled and Castor didn't.
+    """
+    try:
+        rec = float(recommended)
+    except (TypeError, ValueError):
+        return None
+    if stated is None or stated <= 0 or rec <= 0:
+        return None
+    # R4 rank 16: render prices in the venture's OWN unit, not a hardcoded "/mo" — an
+    # $18,500-per-project consultancy read "$18,500/mo", a per-coffee cafe "$6/mo".
+    u = unit_label or "/mo"
+    delta_pct = round((rec - stated) / stated * 100, 1)
+    if abs(delta_pct) <= 15:
+        verdict = "aligned"
+        note = (f"Your ${stated:,.0f}{u} aligns with the model's recommended "
+                f"${rec:,.0f}{u} ({delta_pct:+.0f}%).")
+    elif rec < stated:
+        verdict = "model_suggests_lower"
+        note = (f"You stated ${stated:,.0f}{u}; the model's price simulation suggests "
+                f"${rec:,.0f}{u} ({delta_pct:+.0f}%) may capture more of the market. "
+                f"Validate before changing.")
+    else:
+        verdict = "model_suggests_higher"
+        note = (f"You stated ${stated:,.0f}{u}; willingness-to-pay analysis suggests "
+                f"${rec:,.0f}{u} ({delta_pct:+.0f}%) — you may be under-pricing.")
+    return {"stated_usd": stated, "recommended_usd": rec,
+            "delta_pct": delta_pct, "verdict": verdict, "note": note}
+
+
+def price_from_brief(description, unit_noun, opt, is_transactional) -> dict:
+    """Brief text -> the price of record. THE call site, callable outside run_plan.
+
+    This logic lived inline in run_plan, so the only way to measure it was to reassemble it
+    in a scratch script — and a scratch script that reassembles a call site measures the
+    script. It read 4 of 20 ordinary phrasings and I confirmed that number twice against a
+    harness I had written myself; the second confirmation was worth nothing. A function the
+    tests and the pipeline both call is the only honest way to state an accuracy figure.
+
+    `brief.extract_price` is the primary reader — one vocabulary, shared with the unit
+    resolver. The three legacy extractors stay as the fallback rung: each encodes a narrow
+    case paid for in production (the /mo-adjacent device guard, B2/D17), and retiring them
+    in the same change that widens the primary path would make any regression
+    unattributable. They are reached only when the shared reader returns nothing.
+    """
+    price = extract_price(description, unit_noun)
+    recurring = bool(price and price.get("period"))
+    unit_price = (price["value"] if price and not recurring else None) \
+        or extract_unit_price(description)
+    stated = (price["value"] if recurring else None) or extract_stated_price(description)
+    return price_of_record(unit_price, extract_device_price(description), stated, opt,
+                           unit_noun, is_transactional,
+                           currency=(price or {}).get("currency"))
+
+
+def price_of_record(unit_price, device_price, stated, opt, unit_noun,
+                    is_transactional, currency=None) -> dict:
+    """R4 rank 16: ONE disclosed price of record + its provenance. The price fed to
+    economics/financials was a bare fallback chain (unit_price or device_price or stated
+    or opt) that could differ from the PSM optimal shown elsewhere, unreconciled. This
+    records which source won, the PSM optimal, and whether they materially (>15%) differ
+    so a second price of record can never hide.
+
+    `differs_from_psm` USED TO LIE when nothing was extracted. The chain fell through to
+    the PSM optimal, and the comparison then ran |opt - opt| / opt > 0.15 -> False: the
+    report stated that the model agrees with the founder's price, having read no price at
+    all. MEASURED across 20 ordinary phrasings, 13 landed in exactly that state. It is now
+    None — "not tested" — beside an explicit `no_stated_price`, because a reconciliation
+    that never happened must not render as one that passed.
+    """
+    chain = [("stated per-unit price", unit_price),
+             ("one-time device/hardware price", device_price),
+             ("stated price", stated)]
+    stated_value = next((v for _b, v in chain if v), None)
+    if is_transactional:
+        value, basis = next(((v, b) for b, v in chain if v), (opt, "PSM optimal"))
+    else:
+        # A recurring model keeps the PSM point as the price DRIVING the economics: the
+        # instrument simulates monthly willingness, so it is the comparable figure, and
+        # rerouting subscription economics onto a stated price is a change this one is not.
+        value, basis = opt, "PSM optimal"
+    no_stated_price = stated_value is None
+    try:
+        value = float(value) if value is not None else None
+    except (TypeError, ValueError):
+        value = None
+    try:
+        psm = float(opt) if opt is not None else None
+    except (TypeError, ValueError):
+        psm = None
+    # Compare what the FOUNDER SAID against the model, not the winner against the model.
+    # MEASURED with the winner: a brief reading "$499 per seat per month" produced
+    # `differs_from_psm: False` beside a $38 modelled point — because a subscription's
+    # winner IS the modelled point, so the comparison was $38 against $38. The report
+    # asserted agreement with a price it had read and then discarded, which is the same
+    # lie as asserting agreement with a price it never read.
+    try:
+        stated_value = float(stated_value) if stated_value is not None else None
+    except (TypeError, ValueError):
+        stated_value = None
+    differs = None if stated_value is None else bool(
+        psm is not None and psm > 0 and abs(stated_value - psm) / psm > 0.15)
+    cur = (currency or "USD").upper()
+    return {"value": value, "unit": unit_noun, "basis": basis,
+            "psm_optimal": psm, "differs_from_psm": differs,
+            # What the brief actually said, kept separately from what drives the economics.
+            # On a recurring model those are different figures and the reader is entitled
+            # to both rather than to the one that happens to win.
+            "stated_value": stated_value,
+            # The founder said a price and the pipeline could not read it, or they said
+            # none at all. Either way the figure below is the MODEL's, and the page has to
+            # say so rather than presenting it as a reconciled number.
+            "no_stated_price": no_stated_price,
+            "currency": cur,
+            # Detection, never conversion. Every sizing figure in this report is USD; a
+            # EUR 3.50 pastry silently becoming a modelled $7.50 was the failure, and the
+            # honest fix is to say the figure was read in EUR and not converted.
+            "currency_unconverted": cur != "USD"}
+
+
+# A per-transaction price phrase ("$6 per drink", "$15/cut") makes the natural WTP unit
+# the purchase unit, NOT a month — labeling a per-visit cafe's WTP "/mo" produces the
+# nonsensical "$5/mo < $6/drink". Recurring signals keep the monthly unit.
+_PER_UNIT_RE = re.compile(
+    r"(?:per|/|each|a)\s+"
+    r"(drink|cup|coffee|latte|espresso|beverage|meal|plate|dish|entree|entr[ée]e|cover|"
+    r"visit|ticket|session|class|lesson|ride|trip|haircut|cut|treatment|item|bag|slice|"
+    r"pint|glass|scoop|cone|order|box|night|booking|appointment|seat|round|game)\b",
+    re.I)
+_RECURRING_RE = re.compile(
+    r"\b(subscription|subscribe|saas|membership|member|per\s+month|/\s*mo\b|monthly|"
+    r"recurring|per\s+seat|per\s+user|retainer)\b", re.I)
+
+
+def infer_wtp_unit(description: str, profile: dict | None = None) -> str:
+    """Pick the willingness-to-pay unit for the consumer research. A stated per-purchase
+    price ('$6 per drink') wins → '/drink'; else a recurring signal → '/mo'; else '/mo'
+    (the safe default for digital/unspecified). cycle36."""
+    text = f"{description or ''} {(profile or {}).get('summary', '')}"
+    m = _PER_UNIT_RE.search(text)
+    if m:
+        return f"/{m.group(1).lower()}"
+    if _RECURRING_RE.search(text):
+        return "/mo"
+    return "/mo"
+
+
+# The ECONOMICS unit noun (distinct from the WTP unit). A per-unit venture must NEVER be sized
+# in "/mo" — that recreates subscription bleed in the spine ($45/mo serum, "84 mos/mo" for a gym).
+# Broader phrase set than _PER_UNIT_RE, plus category + kind fallbacks.
+# Built from brief.UNIT_NOUNS — the SAME vocabulary brief.extract_price reads prices in.
+# It was a second hand-maintained list, and the two disagreed in the direction that hurts:
+# this one could name a venture's unit "sprint", "jar", "engagement" or "kit" and no
+# extractor could read a price in any of them, so the report stated a unit it could not
+# price. Adding a noun in one place now makes it both nameable and priceable.
+_UNIT_NOUN_RE = re.compile(
+    r"(?:per|/|each|a|an)\s+"
+    r"(" + "|".join(
+        re.escape(n).replace(r"\ ", r"\s?") for n in
+        sorted(_BRIEF_UNIT_NOUNS, key=len, reverse=True)) + r")s?\b",
+    re.I)
+_UNIT_DEFAULT_BY_KIND = {"services": "project", "ecommerce": "order",
+                         "hybrid": "unit", "transactional": "visit"}
+_UNIT_CATEGORY_HINTS = (
+    ("coffee", "drink"), ("cafe", "drink"), ("café", "drink"), ("tea", "drink"),
+    ("restaurant", "cover"), ("eatery", "cover"), ("diner", "cover"), ("bistro", "cover"),
+    ("salad", "bowl"), ("bakery", "item"), ("food truck", "plate"), ("salon", "cut"),
+    ("barber", "cut"), ("spa", "treatment"), ("gym", "class"), ("fitness", "class"),
+    ("yoga", "class"), ("serum", "bottle"), ("skincare", "bottle"), ("cosmetic", "unit"),
+    ("apparel", "item"), ("device", "unit"), ("hardware", "unit"), ("gadget", "unit"),
+    ("agency", "project"), ("consult", "engagement"), ("design studio", "project"),
+)
+
+
+def unit_for_model(biz_kind: str, description: str, profile: dict | None = None) -> str:
+    """The economics/pricing unit noun for a venture — NEVER '/mo' for a per-unit model.
+
+    subscription→seat/account, marketplace→booking, ad_supported→user. For per-unit kinds
+    (transactional/ecommerce/services/hybrid): an explicit per-unit phrase wins, else a
+    category hint, else a kind default. Deterministic; the root fix for '/mo' bleed in the
+    per-unit spine (cycle38)."""
+    from business_model import _norm, is_per_unit
+    prof = profile or {}
+    # `_norm` collapses hyphens and dash variants, the same normalisation #99 added to the
+    # classifier. Without it "per-seat licence" resolved to "account" while "per seat
+    # licence" resolved to "seat" — one concept, two spellings, and the report prices in
+    # whichever the founder happened to type.
+    blob = _norm(
+        f"{description or ''} {prof.get('summary','')} "
+        f"{prof.get('business_model','')} {prof.get('category','')}")
+    if biz_kind == "subscription":
+        return "seat" if ("b2b" in blob or "saas" in blob or "per seat" in blob) else "account"
+    if biz_kind == "marketplace":
+        return "booking"
+    if biz_kind == "ad_supported":
+        return "user"
+    # Extended model type unit nouns
+    if biz_kind == "hourly":
+        return "hour"
+    if biz_kind == "retainer":
+        return "retainer"
+    if biz_kind == "consignment":
+        return "consignment sale"
+    if biz_kind == "wholesale":
+        return "unit (wholesale)"
+    if biz_kind == "freemium":
+        return "paid user"
+    if biz_kind == "razor_blades":
+        return "customer"
+    if biz_kind == "auction":
+        return "lot"
+    if biz_kind == "dynamic":
+        return "booking"
+    if biz_kind == "performance":
+        return "placement"
+    if biz_kind == "anchor_discount":
+        return "unit"
+    if not is_per_unit(biz_kind):
+        return "unit"
+    m = _UNIT_NOUN_RE.search(blob)
+    if m:
+        return m.group(1).lower().replace("dropin", "drop-in")
+    for kw, noun in _UNIT_CATEGORY_HINTS:
+        if kw in blob:
+            return noun
+    return _UNIT_DEFAULT_BY_KIND.get(biz_kind, "unit")
+
+
+def wtp_unit_for(description: str, profile: dict | None = None,
+                 market_scale: dict | None = None) -> str:
+    """The willingness-to-pay display unit, derived from the BUSINESS MODEL — never a bare
+    '/mo' default. Subscription willingness is genuinely monthly; every per-unit model prices
+    willingness in its transaction unit (D1/G1: the last '/mo' leak — bottle/bowl/drop-in
+    economics rendered 'WTP …/mo', detector D05). Deterministic: classifier + unit resolver."""
+    from business_model import classify_business_model
+    # Let the classifier see the venture description too — at step 6c the profile can be
+    # thin (no business_model field yet) while the description carries the pricing signal
+    # ("$13 per bowl").
+    prof = dict(profile or {})
+    prof["summary"] = f"{prof.get('summary') or ''} {description or ''}".strip()
+    kind = classify_business_model(prof, market_scale)
+    if kind in ("subscription", "ad_supported"):
+        return "/mo"  # recurring (or upsell) willingness is per month
+    return "/" + unit_for_model(kind, description, profile)
+
+
+def build_consumer_research(description: str, geo: str, profile: dict,
+                            opps: list[dict],
+                            market_scale: dict | None = None) -> dict | None:
+    """STORM-style multi-perspective consumer research, grounded in known context.
+
+    Env-gated (CASTOR_CONSUMER_RESEARCH=0 disables) and non-fatal — returns the
+    payload dict on success, or None if disabled, skeletoned, or it errored.
+    cycle33.
+    """
+    if os.getenv("CASTOR_CONSUMER_RESEARCH", "1") == "0":
+        return None
+    try:
+        from skills.perspective import consumer_research_skill
+        comp_names = ", ".join(o.get("brand", "") for o in (opps or [])[:5] if o.get("brand"))
+        summary = (profile or {}).get("summary", "")
+        context = f"Product: {summary}. Known competitors: {comp_names}." if comp_names else summary
+        # G1 (D05): unit from the business model — a serum prices WTP per bottle, a salad
+        # chain per bowl; only true subscriptions are monthly. infer_wtp_unit's '/mo'
+        # default was the last unit-bleed leak.
+        wtp_unit = wtp_unit_for(description, profile, market_scale)
+        log.info("[plan] Step 6c: consumer research (multi-perspective), WTP unit=%s", wtp_unit)
+        cr = consumer_research_skill(description=description, geo=geo, context=context,
+                                     wtp_unit=wtp_unit)
+        if cr.payload and not cr.skeleton:
+            return cr.payload
+    except Exception as e:  # never sink the run on a research-enrichment failure
+        log.warning("[plan] consumer research failed (non-fatal): %s", e)
+    return None
+
+
+def scrub_failed_psm_citations(four_ps: dict, pricing: dict | None) -> dict:
+    """If the Van Westendorp PSM simulation FAILED, relabel any 4Ps citation that credits
+    it — so the report never attributes prices to a method that produced no output (audit
+    cycle36: false provenance). Citation ids are kept intact (¹ references still resolve);
+    only the source text changes. Non-mutating; returns four_ps unchanged when PSM is fine."""
+    psm = (pricing or {}).get("psm") or {}
+    if not (bool(psm.get("error")) or not psm) or not isinstance(four_ps, dict):
+        return four_ps
+    honest = "LLM estimate (PSM simulation failed this run — unvalidated)"
+    price = four_ps.get("price")
+    if not (isinstance(price, dict) and isinstance(price.get("citations"), list)):
+        return four_ps
+    new_price = dict(price)
+    new_price["citations"] = [
+        ({**c, "source": honest}
+         if isinstance(c, dict)
+         and re.search(r"psm|van\s*westendorp", str(c.get("source") or ""), re.I)
+         else c)
+        for c in price["citations"]
+    ]
+    return {**four_ps, "price": new_price}
+
+
+def ground_sizing_bottom_up(sizing: dict, description: str, profile: dict,
+                            arpu_monthly_fallback: float | None = None,
+                            biz_kind: str | None = None,
+                            result: dict | None = None) -> dict:
+    """C2/F3 (audit remediation): replace the LLM's hallucinated bottom-up TAM method
+    with a LIVE Census-grounded one (target-customer establishment count × ARPU).
+
+    ARPU basis, in order: the user's stated $/mo, else a modeled monthly price
+    (`arpu_monthly_fallback`, e.g. the PSM optimal price) — so grounding fires for most
+    digital ventures, not only when a price was typed (F3). Degrades gracefully: with
+    no ARPU basis or no live count, returns sizing unchanged.
+    """
+    # R8 (88b416f6): the venture's own description must never be the industry query —
+    # NAICS 518210 (data processing/hosting, the venture's OWN industry) was counted
+    # as its customer universe because target_customer was missing and the description
+    # describes the VENDOR. The founder's target-customer answer is authoritative;
+    # without any customer description the census leg abstains with a note.
+    _facts_tc = str((((result or {}).get("intake") or {}).get("facts") or {})
+                    .get("target_customer") or "").strip()
+    target = _facts_tc or (profile or {}).get("target_customer")
+    if not target:
+        out = dict(sizing)
+        out["notes"] = list(out.get("notes") or []) + [
+            "Bottom-up TAM not Census-grounded: no target-customer description was "
+            "available to resolve a customer industry, and using the venture's own "
+            "description would count its own industry as its market."]
+        return out
+    # ARPU basis priority: (1) user's stated $/mo → (2) SCRAPED competitor price (real,
+    # geographic, origin='scrape') → (3) LLM-modeled fallback (PSM optimal). Preferring a
+    # scraped price over the modeled one grounds the soft multiplier in real data (M2).
+    stated = extract_stated_price(description)
+    # R2 (88b416f6): a stated figure that disagrees with the modeled price by more
+    # than 3x is graded, not trusted — the mis-bound $1,000/mo operating cost became
+    # a $12,000/yr "stated" ARPU and multiplied the Census-badged TAM 10x. (P6 rule:
+    # founder input is an anchor to verify, and 20x apart is not verification.)
+    if stated and arpu_monthly_fallback and arpu_monthly_fallback > 0:
+        _ratio = stated / arpu_monthly_fallback
+        if _ratio > 3 or _ratio < (1 / 3):
+            log.info("[plan] stated $%s/mo diverges %.1fx from modeled $%s/mo — "
+                     "demoting the stated ARPU basis", stated, _ratio,
+                     arpu_monthly_fallback)
+            sizing = dict(sizing)
+            sizing["notes"] = list(sizing.get("notes") or []) + [
+                f"The brief's ${stated:,.0f}/mo figure diverges "
+                f"{max(_ratio, 1 / _ratio):.0f}x from the modeled price "
+                f"(${arpu_monthly_fallback:,.0f}/mo) and was not used as the "
+                f"bottom-up ARPU."]
+            stated = None
+    arpu_monthly = stated
+    arpu_sourced = "stated price"
+    arpu_origin = "stated"
+    if not arpu_monthly and os.getenv("CASTOR_SCRAPE_PRICE", "1") != "0":
+        try:
+            from skills.price_intel import scrape_market_price
+            geo = (profile or {}).get("geography") or "US"
+            spe = scrape_market_price(target, geo)
+            if not spe.skeleton and (spe.payload or {}).get("median_monthly_usd"):
+                arpu_monthly = float(spe.payload["median_monthly_usd"])
+                arpu_sourced = spe.payload.get("source_label", "scraped competitor pricing")
+                arpu_origin = "scrape"
+                # PUBLISH the evidence, do not just consume it. The ledger records
+                # scrape_market_price as producing `price_intel` and the report showed no
+                # such key (D54), because plan.py took the median and dropped the rest --
+                # the source hosts, the sample size, the label. An ARPU whose grounding is
+                # invisible is barely better than an ungrounded one, so this is a publish
+                # rather than a "dropped output" note.
+                if result is not None:
+                    result["price_intel"] = dict(spe.payload)
+                    _step_done(result, "price_intel")
+                log.info("[plan] ARPU grounded from scrape: $%s/mo (%s)",
+                         arpu_monthly, arpu_sourced)
+            elif result is not None:
+                record_dropped_output(
+                    result, "price_intel",
+                    f"scrape_market_price found no usable median: "
+                    f"{spe.error or 'no recurring price on any surviving page'}")
+        except Exception as e:
+            log.warning("[plan] price scrape failed (non-fatal): %s", e)
+    if not arpu_monthly:
+        # The PSM optimal price carries the VENTURE's unit, not months. Annualizing a
+        # per-unit price (x12) fabricates a subscription that does not exist — and the
+        # result is then tagged data_origin="census", so a made-up figure inherits real
+        # provenance. Corpus shape 800c261b prices superconducting tape at $125,000 per
+        # UNIT; x12 would publish a $186M "Census-grounded" bottom-up TAM.
+        #
+        # The other two bases are monthly by construction: extract_stated_price reads $/mo,
+        # and scrape_market_price keeps only recurring $5-$5,000/month values. So the guard
+        # belongs here, on the modeled fallback alone. Unknown kind counts as per-unit —
+        # the safe reading of a modeled price is "unit unspecified".
+        if arpu_monthly_fallback and _modeled_price_is_not_monthly(biz_kind):
+            out = dict(sizing)
+            out["notes"] = list(out.get("notes") or []) + [
+                f"Bottom-up TAM not Census-grounded: the only price available is the "
+                f"modeled optimal (${arpu_monthly_fallback:,.0f}), which for a "
+                f"{biz_kind or 'unclassified'} model is per-unit, not monthly — "
+                f"annualizing it would invent recurring revenue this venture does not "
+                f"have. Provide a monthly price to ground this method."]
+            return out
+        arpu_monthly = arpu_monthly_fallback
+        arpu_sourced = "modeled price (PSM optimal)"
+        arpu_origin = "llm"
+    if not arpu_monthly or arpu_monthly <= 0:
+        return sizing  # no ARPU basis → can't ground; leave legacy bottom-up
+    try:
+        from skills.sizing.bottom_up import grounded_bottom_up
+        gb = grounded_bottom_up(annual_arpu=arpu_monthly * 12.0, category=target)
+    except Exception as e:
+        log.warning("[plan] grounded bottom-up failed (non-fatal): %s", e)
+        return sizing
+    if gb.skeleton or not gb.payload or not gb.payload.get("tam_usd"):
+        return sizing  # no live count → keep legacy
+
+    out = dict(sizing)
+    tam = dict(out.get("tam") or {})
+    fig0 = (gb.payload.get("figures") or [{}])[0]
+    tam["method_bottom_up"] = {
+        "value_usd": gb.payload["tam_usd"],
+        "calculation": fig0.get("formula", ""),
+        "source": fig0.get("source", "US Census CBP"),
+        # The COUNT is fetched; the ARPU multiplying it may not be. A Census count times a
+        # modelled price is not a fetched figure, and `data_origin` is what triangulation
+        # reads to decide which estimates are INDEPENDENT — stamping 'census' on an
+        # LLM-priced product manufactures a second origin out of the same model draw the
+        # other methods came from. `arpu_origin` was already computed here and read by
+        # nothing at all.
+        "data_origin": "census" if arpu_origin in ("stated", "scrape") else "llm",
+        "count_origin": "census",   # the establishment count really was fetched
+        "arpu_origin": arpu_origin,
+    }
+    vals = [tam[k]["value_usd"] for k in
+            ("method_top_down", "method_bottom_up", "method_analog")
+            if isinstance((tam.get(k) or {}).get("value_usd"), (int, float))]
+    if vals:
+        tam["mid"] = round(sum(vals) / len(vals))
+        tam["low"] = round(min(vals) * 0.85)
+        tam["high"] = round(max(vals) * 1.15)
+    out["tam"] = tam
+    out["notes"] = list(out.get("notes") or []) + [
+        f"Bottom-up grounded in live Census count "
+        f"({gb.payload['establishments']:,} establishments × "
+        f"${arpu_monthly * 12:,.0f}/yr from {arpu_sourced})."
+        + ("" if arpu_origin in ("stated", "scrape") else
+           " The establishment count is a live Census figure but the price is modeled, so "
+           "this method is not independent of the LLM estimates.")]
+    log.info("[plan] C2: grounded bottom-up TAM = %s (%s establishments)",
+             gb.payload["tam_usd"], gb.payload["establishments"])
+    return out
+
+
+# A full stop ends the location only when it ends a SENTENCE. "$5.50" and "St. Louis" both
+# contain one and neither is a boundary, so a bare split on "." is wrong in the other
+# direction — it would truncate a price-bearing description at the decimal and turn
+# "St. Louis, Missouri" into "St".
+
+
+# Map common physical categories to a REAL OSM (key, value) tag for competitor lookup.
+# Deterministic config (OSM taxonomy), NOT output-hardcoding. Keys are matched as
+# substrings of the venture category; the LONGEST matching key wins, so "barbershop"
+# beats "bar". Unmatched categories resolve to None (caller skips geo competitors
+# rather than fabricating a wrong-category set).
+# CRITICAL: OSM does NOT put everything under amenity=. Gyms are leisure=fitness_centre;
+# hairdressers/bakeries/bookstores are shop=*. A value-only map (assuming amenity=)
+# silently returned 0 competitors for gyms and salons (audit M1 gap).
+
+
+# Realistic catchment radius (metres) by OSM value — a walk-in cafe draws from ~1.5km, a
+# destination restaurant ~3km, a drive-to gym ~5km. A flat 3km over-counted households (and
+# competitors) for grab-and-go venues, inflating the trade-area TAM. cycle38.
+
+
+def attach_consumer_research(result: dict, description: str, geo: str, profile: dict,
+                            opps: list, checkpoint=None) -> None:
+    """Attach the STORM-style consumer research, or record why it is absent.
+
+    Extracted from run_plan so it can be tested, and so the empty case stops being silent.
+    D54 on the latest live run: `consumer_research` was recorded by the ledger as produced
+    (skills/perspective.py:144) and appeared nowhere in the report, because the whole step was
+    `if cr_payload:` with no else. A step that evaporates is indistinguishable from a step
+    that was never meant to run.
+
+    Deliberately does not fabricate a placeholder section -- an empty consumer_research block
+    would read as "we asked and found nothing", which is a finding, not a gap."""
+    cr_payload = build_consumer_research(description, geo, profile, opps,
+                                         market_scale=result.get("market_scale"))
+    if cr_payload:
+        result["consumer_research"] = cr_payload
+        _step_done(result, "consumer_research")
+        if checkpoint:
+            checkpoint()
+        return
+    record_dropped_output(
+        result, "consumer_research",
+        "build_consumer_research returned nothing — the multi-perspective simulation "
+        "produced no usable synthesis for this venture")
+
+
+def _competitor_count_note(fair_share_n, roster_n) -> str | None:
+    """The sentence that reconciles the report's two competitor counts — or None if only one
+    count exists (nothing to reconcile).
+
+    MEASURED on run9: the SOM formula divided by (102+1) while the narrative said "30
+    competitors" twelve times and the exec summary put 30 in a headline bullet. 102 is the raw
+    OpenStreetMap venue count inside the catchment (the honest fair-share denominator); 30 is
+    the named roster (osm_named_competitors limit=30) the sections profile. Neither is wrong —
+    but unreconciled, the reader cannot tell which number the analysis used, and the silent
+    choice of 102 over 30 cuts the obtainable-share figure 3.4x. One sentence, published next
+    to the sizing notes, ends the ambiguity."""
+    if not isinstance(fair_share_n, (int, float)) or isinstance(fair_share_n, bool):
+        return None
+    if not roster_n or fair_share_n <= roster_n:
+        return None
+    return (f"Competitor counts: {fair_share_n:,.0f} venues of this type inside the catchment "
+            f"per OpenStreetMap — the fair-share SOM divides by this full count. The "
+            f"competitive-landscape section profiles the nearest {roster_n:,.0f} of them by "
+            f"name; narrative references to '{roster_n:,.0f} competitors' mean that profiled "
+            f"subset.")
+
+
+_VOLUME_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)")
+_PERIOD_FACTORS = (("day", 360), ("week", 52), ("month", 12))
+#: The same factors keyed by slots' normalized period, for the typed path.
+_PERIOD_FACTOR = {"day": 360, "week": 52, "month": 12, "year": 1}
+_PRICE_FIELDS = ("avg_ticket", "avg_order", "avg_transaction", "pricing", "rate_basis")
+
+# The Fermi check's service model, by category class. GENERAL by construction (operator
+# rule, 2026-08-20: fixes must apply in other scenarios): the mechanism is always
+# stations x turns/hour x effective hours; only the parameters and nouns follow the
+# trade. A venture whose category matches nothing gets the generic service model, which
+# makes conservative claims in neutral words rather than lecturing a salon about lunch
+# peaks. Every parameter is printed so the reader can re-run the arithmetic.
+_FERMI_MODELS = (
+    # (category words) -> model
+    (("taco", "restaurant", "cafe", "café", "coffee", "food", "diner", "pizza",
+      "bakery", "sushi", "ramen", "bar", "grill", "deli", "eatery", "bistro", "stand",
+      "truck", "cart"),
+     {"turns_hr": 3, "hours": 6, "hours_label": "effective meal-window hours "
+                                                "(lunch and dinner peaks with shoulders)",
+      "station_noun": "seats", "unit_noun": "meals", "ceiling_noun": "seated ceiling",
+      "overflow_note": "The gap has to come from takeout and delivery volume; if "
+                       "walk-away sales are not central to the plan, the estimate "
+                       "is high."}),
+    (("salon", "barber", "spa", "nail", "clinic", "studio", "tattoo"),
+     {"turns_hr": 1, "hours": 8, "hours_label": "service hours",
+      "station_noun": "stations", "unit_noun": "appointments",
+      "ceiling_noun": "appointment ceiling",
+      "overflow_note": "Appointments cannot overflow their stations; the estimate "
+                       "is high unless services are much shorter than an hour."}),
+)
+_FERMI_DEFAULT = {"turns_hr": 2, "hours": 8, "hours_label": "service hours",
+                  "station_noun": "service slots", "unit_noun": "customers",
+                  "ceiling_noun": "capacity ceiling",
+                  "overflow_note": "The gap needs a channel that does not consume "
+                                   "capacity (self-serve, delivery, online); "
+                                   "otherwise the estimate is high."}
+
+
+def _fermi_service_model(category: str) -> dict:
+    low = (category or "").lower()
+    for words, model in _FERMI_MODELS:
+        if any(w in low for w in words):
+            return model
+    return _FERMI_DEFAULT
+
+
+def _apply_founder_volume(ms: dict, result: dict) -> None:
+    """Wave D part 2: the founder's expected volume, printed beside the model and never
+    blended in. MEASURED origin (b98df066): D59 blocked because the SOM sat on an
+    unsourced LLM revenue guess with no alternative beside it, while the one person who
+    HAD an independent estimate was never asked. The intake now asks; this wires the
+    answer to where D59 looks: ms.founder_estimate for the reader, and the som_anchor's
+    alternative slot when the pipeline produced no alternative of its own (an existing
+    alternative is never overwritten; two model estimates plus the founder's is richer
+    than swapping one out)."""
+    import slots
+    _record = (result or {}).get("intake") or {}
+    facts = _record.get("facts") or {}
+    typed = _record.get("slots") or {}
+    vol_text = str(facts.get("expected_volume") or "").strip()
+    if not ms or not vol_text:
+        return
+    # TYPED FIRST, prose only as the fallback for CLI briefs and pre-form sessions. The
+    # founder answered a number box beside a period selector — _INPUT_SPECS has carried
+    # expected_volume's period_choices since Wave D — and this function threw both away,
+    # then re-sniffed the period out of the sentence the composer had just written from
+    # them. Four regexes over three facts we were handed typed.
+    n = slots.number(typed.get("expected_volume"), expect=slots.VOLUME)
+    factor = _PERIOD_FACTOR.get(slots.period_in(typed, "expected_volume"))
+    if n is None:
+        m = _VOLUME_RE.search(vol_text)
+        n = float(m.group(1).replace(",", "")) if m else None
+    if factor is None:
+        factor = next((f for word, f in _PERIOD_FACTORS if word in vol_text.lower()), None)
+    # The price has to BE a price. Taking the first number out of whatever sat in a price
+    # field is how a stated monthly operating COST became the venture's price and shipped
+    # a fabricated "-95%" banner (audit 1, R2). A typed record refuses that substitution
+    # outright, whichever field the cost was filed under and whoever adds it to this list.
+    price = next((p for p in (slots.number(typed.get(f), expect=slots.PRICE)
+                              for f in _PRICE_FIELDS) if p), None)
+    if price is None:
+        for f in _PRICE_FIELDS:
+            pm = _VOLUME_RE.search(str(facts.get(f) or ""))
+            if pm:
+                price = float(pm.group(1).replace(",", ""))
+                break
+    annual = round(n * factor * price) if (n and factor and price) else None
+    # The Fermi screen (operator spec 2026-08-20, refined same day: "it is a meal —
+    # have more rigorous assumptions"). Deterministic arithmetic with NAMED assumptions:
+    # meal venues serve in windows, not flat 12-hour days. Quick-service meal model:
+    # ~3 seat-turns/hour across ~6 effective meal-window hours (lunch + dinner peaks
+    # with shoulders). Every assumption is printed so the reader can re-run the
+    # arithmetic; exceeding the ceiling is a stated tension, never a correction.
+    plausibility = None
+    # A capacity is a STOCK. expect=COUNT is what stops a per-month figure being read as a
+    # room's seating, which is the shape of the 100-seats/month defect.
+    seats = slots.number(typed.get("capacity"), expect=slots.COUNT)
+    if seats is None:
+        cap_m = _VOLUME_RE.search(str(facts.get("capacity") or ""))
+        seats = float(cap_m.group(1).replace(",", "")) if cap_m else None
+    daily = n * (1 if factor == 360 else (1 / 7 if factor == 52 else 1 / 30)) \
+        if (n and factor) else None
+    if seats and daily:
+        model = _fermi_service_model(
+            ((result or {}).get("profile") or {}).get("category")
+            or facts.get("product") or "")
+        capacity_day = round(seats * model["turns_hr"] * model["hours"])
+        _assump = (f"{seats:.0f} {model['station_noun']} x {model['turns_hr']} turns an "
+                   f"hour x {model['hours']} {model['hours_label']}")
+        if daily > capacity_day:
+            plausibility = (
+                f"a Fermi check on the {model['ceiling_noun']}: {_assump} serves about "
+                f"{capacity_day:,} {model['unit_noun']} a day, and the founder expects "
+                f"{daily:,.0f} — {daily / capacity_day:.1f}x that ceiling. "
+                f"{model['overflow_note']}")
+        else:
+            plausibility = (
+                f"a Fermi check on the {model['ceiling_noun']}: {daily:,.0f} a day fits "
+                f"within {_assump} (about {capacity_day:,} {model['unit_noun']} a day).")
+    ms["founder_estimate"] = {
+        "volume_text": vol_text,
+        "annual_usd": annual,
+        "source": "founder",
+        "plausibility": plausibility,
+        "note": ("the founder's own expected volume, at their stated price; their "
+                 "number, printed beside the model's, never blended into it"),
+    }
+    anchor = ms.get("som_anchor")
+    if annual and isinstance(anchor, dict) and anchor and not anchor.get("alternative_usd"):
+        anchor["alternative_usd"] = annual
+        anchor["alternative_source"] = "founder_expected_volume"
+
+
+def _geo_level(location: str | None) -> str | None:
+    """The geocoder's matched precision level for a location string: street /
+    neighbourhood / city / zip / region / None. One light lookup; the chosen sizing
+    skill re-geocodes internally (two calls total, both free and sub-second). None on
+    any failure so the caller keeps today's behavior."""
+    if not location:
+        return None
+    try:
+        from tools import get_tool
+        g = get_tool("geocode_address").fn(location)
+        return (g.payload or {}).get("level")
+    except Exception:
+        return None
+
+
+def size_by_scale(scale_decision: dict | None, description: str, profile: dict,
+                  location: str | None = None) -> dict | None:
+    """For physical ventures with a location, size by trade-area (size_hyperlocal) and
+    adapt to the legacy tam/sam/som shape so the report + gate work. Returns None to
+    let the caller keep the legacy digital sizing. cycle35 (F3, location path).
+
+    The competitor count here is GEOGRAPHIC — size_hyperlocal uses OSM poi_competition
+    within the trade-area radius, not LLM guesses.
+    """
+    if not scale_decision or scale_decision.get("scale") not in ("hyperlocal", "regional"):
+        return None
+    # Only a scale the classifier called multi-site may route to the rollout engine. A
+    # hyperlocal brief that happens to mention "our two espresso machines" must not.
+    _is_rollout = scale_decision.get("scale") in ("regional", "national_physical")
+    # The confirmed site outranks the prose regex (see _venture_location) — the caller
+    # passes it; the regex survives as the no-record fallback.
+    location = location or extract_location(description)
+    if not location:
+        return None  # caller keeps legacy + the existing "needs an address" caveat
+    # Disambiguate a bare neighborhood with the venture's geography so geocoding doesn't
+    # pick the wrong city (e.g. "Highland Park" → Illinois instead of LA).
+    geog = str((profile or {}).get("geography") or "").strip()
+    if "," not in location and geog and geog.lower() not in ("us", "u.s.", "usa", "united states", "global", ""):
+        location = f"{location}, {geog}"
+    cat = (profile or {}).get("category") or ""
+    # Use the correct OSM (key, value). Density count only — a coarse fallback here affects a
+    # saturation note, not the competitor NAMES (those come from the strict geo_competitor_opps
+    # helper, which skips on no-match rather than guessing a wrong category).
+    # NO FALLBACK TAG. `osm_tags`'s own docstring forbids exactly what this line used to do:
+    # "An unmapped category returns None and the caller falls back explicitly — inventing a
+    # plausible-looking tag would return a confident census of the wrong kind of business,
+    # which is harder to notice than none." It fell back to amenity=restaurant, and a live
+    # Lisbon run classified itself "artisan sourdough and pastries" (unmapped), so an artisan
+    # bakery was benchmarked against 1,603 RESTAURANTS — one of them a London burger place —
+    # and D57 read that count as evidence the market was mis-sized.
+    #
+    # A category the taxonomy does not know now yields NO competitor census rather than a
+    # wrong one. The sizing itself still runs on households x spend; D07 then fails honestly
+    # ("no OSM mapping for this category") instead of passing on the wrong trade.
+    _tag = _resolve_osm_tag(cat)
+    if _tag is None:
+        log.info("[plan] no OSM tag for category %r — competitor census skipped rather "
+                 "than run against a guessed category", cat)
+    osm_key, osm = _tag if _tag else (None, None)
+    radius_m = _radius_for_osm_value(osm)  # cycle38: walk-in cafe ~1.5km, not a flat 3km
+
+    # HOW MANY PREMISES. `size_regional` — the multi-site rollout engine — has been written
+    # the whole time (skills/sizing/regional.py, called correctly by the unwired
+    # dispatch.py) and this function had no branch for it, so a chain published ONE site's
+    # trade area as its market: measured, a three-location chain, a five-store bakery and a
+    # four-site rollout all shipped $4.0M with n_locations None. C5 made that fail loudly
+    # rather than silently; this makes it size correctly.
+    #
+    # A count is required, not assumed. Absence of one is not evidence of a single site, but
+    # inventing a multiplier is worse than declining — so an uncountable "chain" keeps the
+    # single-site path and the C5 stamp lets D52 refuse it, which is the honest state.
+    n_locations = extract_location_count(description) if _is_rollout else None
+    # Wave B: the trade-area-vs-city decision belongs to the GEOCODER's matched level,
+    # not the classifier's word and not a regex over the brief. The classifier folds
+    # local_metro into hyperlocal (so "Los Angeles, CA" used to get an arbitrary pin
+    # with a 1.5 km ring around it), and no text predicate can tell "Silver Lake" (a
+    # neighbourhood, no markers) from "Boise" (a city, no markers) — the geocoder can
+    # and does (audit 2026-08-19: suburb vs city matched levels, 12/14 ladder). A
+    # rollout keeps its own engine; an unknown level keeps today's path, where
+    # size_hyperlocal degrades honestly on its own.
+    _level = None if (n_locations and n_locations > 1) else _geo_level(location)
+    # WHICH METHOD, DECIDED IN skills/sizing/routing.py. This was an if/elif here, which
+    # meant adding a sizing method required editing the orchestrator -- and the person
+    # most qualified to add one is the person who should never have to open this file.
+    # The route names a REGISTERED skill and the arguments to call it with; resolving the
+    # name through SKILL_REGISTRY is what makes "declare a method" enough. The city-scale
+    # reroute still carries its reason so D52 can tell it from a silent substitution.
+    import skills  # noqa: F401  — registers every method before the lookup
+    from skills.registry import resolve as resolve_skill
+    from skills.sizing.routing import route_physical_sizing
+    _route = route_physical_sizing(
+        location=location, category=cat or "food_away_from_home",
+        n_locations=n_locations, geo_level=_level,
+        osm_key=osm_key, osm_value=osm, radius_m=radius_m)
+    _downgrade = _route.downgrade
+    _sized_by = _route.skill
+    try:
+        _fn = resolve_skill(_route.skill)
+        if _fn is None:
+            # A route naming a method nobody registered is a declaration bug, not a thin
+            # data run. Loud here beats a report sized by nothing and caught at D52.
+            raise LookupError(f"routing chose {_route.skill!r}, which is not registered")
+        ev = _fn(**_route.kwargs)
+    except Exception as e:
+        log.warning("[plan] %s sizing failed (non-fatal): %s", _sized_by, e)
+        return None
+    if ev.skeleton or not ev.payload:
+        return None
+    p = ev.payload
+    if _sized_by == "size_regional":
+        # The ROLLUP is the market; the FOOTPRINT stays per-site. Publishing five sites'
+        # households against one site's radius is a county-scale density in a 3 km circle,
+        # which D49 would fail — correctly. `per_site[0]` is the representative trade area
+        # those figures actually describe.
+        _first = (p.get("per_site") or [{}])[0]
+        p = dict(_first, **{k: v for k, v in p.items() if v is not None})
+
+    # Map the hyperlocal figures (which carry the real `formula`) so the report's
+    # TAM/SAM/SOM "math" lines render instead of going blank — the template reads
+    # block.calculation, but the hyperlocal payload keeps formulas in figures[].
+    _figs = {f.get("label"): f for f in (p.get("figures") or []) if isinstance(f, dict)}
+
+    def _block(v, full_label, fig_keys):
+        if not (isinstance(v, (int, float)) and not isinstance(v, bool)):
+            return {}
+        formula = ""
+        for k in fig_keys:
+            if _figs.get(k, {}).get("formula"):
+                formula = _figs[k]["formula"]
+                break
+        # cycle36 (audit): the low/high is a fixed ±30% MODELING band around the mid, not a
+        # measured confidence interval. band_note is surfaced so the reader is not misled into
+        # reading the range as researched uncertainty.
+        return {"mid": v, "low": round(v * 0.7), "high": round(v * 1.3),
+                "label": full_label, "calculation": formula,
+                "band_pct": 30, "band_note": "Range is a ±30% modeling band around the estimate, not a measured confidence interval.",
+                "unit": "annual revenue · trade area"}
+
+    # Named geographic competitors — a local venture's rivals are the nearby venues,
+    # not blocked web-search brands. Adoption #1 (operator-approved stack, 2026-08-20):
+    # Overture Maps places is the PREFERRED source because it knows cuisine — the OSM
+    # census ranked California Pizza Kitchen and two dining halls above every taqueria
+    # for a taco stand (bb08c5c3), while Overture tags 59 venues mexican_restaurant at
+    # that exact site. Same-category venues rank FIRST and are marked; OSM stays as the
+    # fallback (never-cost-the-census).
+    geo_competitors: list[dict] = []
+    _n_same_category = None
+    _competitors_source = None
+    try:
+        from tools import get_tool
+        g = get_tool("geocode_address").fn(location)
+        if g.payload and g.payload.get("lat") is not None:
+            _lat, _lng = g.payload["lat"], g.payload["lng"]
+            try:
+                ov = get_tool("overture_places").fn(
+                    lat=_lat, lng=_lng, radius_m=radius_m, category=cat)
+            except Exception as e:
+                log.warning("[plan] overture census failed (non-fatal): %s", e)
+                ov = None
+            if ov is not None and not ov.skeleton and (ov.payload or {}).get("places"):
+                op = ov.payload
+                same = op.get("same_category") or []
+                same_names = {s.get("name") for s in same}
+                rest = [p for p in (op.get("places") or [])
+                        if p.get("name") not in same_names
+                        and p.get("category") and "restaurant" in str(p.get("category"))
+                        or p.get("name") not in same_names
+                        and str(p.get("category") or "") in ("cafe", "coffee_shop",
+                                                             "bakery", "fast_food", "bar")]
+                geo_competitors = (
+                    [{"name": s.get("name"), "category": s.get("category"),
+                      "category_match": True, "confidence": s.get("confidence")}
+                     for s in same]
+                    + [{"name": p.get("name"), "category": p.get("category"),
+                        "category_match": False, "confidence": p.get("confidence")}
+                       for p in rest])[:30]
+                _n_same_category = op.get("n_same_category")
+                _competitors_source = op.get("source")
+                # Adoption #3: ratings/review-counts/price joined onto the roster from
+                # ONE bounded gosom query (measured: 16 venues in ~90s). Enrichment
+                # only — a missing binary, a timeout, or a blocked scrape leaves the
+                # roster exactly as it was.
+                try:
+                    gr = get_tool("gmaps_ratings").fn(
+                        query=cat or "restaurants", lat=_lat, lng=_lng,
+                        radius_m=max(radius_m, 2000))
+                    if not gr.skeleton and (gr.payload or {}).get("venues"):
+                        from tools.gmaps_reviews import join_ratings
+                        joined = join_ratings(geo_competitors,
+                                              gr.payload["venues"])
+                        if joined:
+                            _competitors_source += (
+                                f" + Google Maps ratings via gosom ({joined} joined)")
+                except Exception as e:
+                    log.info("[plan] ratings enrichment skipped: %s", e)
+            else:
+                ne = get_tool("osm_named_competitors").fn(
+                    lat=_lat, lng=_lng, osm_key=osm_key, osm_value=osm, limit=30)
+                if not ne.skeleton and ne.payload:
+                    geo_competitors = ne.payload
+                    _competitors_source = "OpenStreetMap Overpass"
+    except Exception as e:
+        log.warning("[plan] named geo-competitors failed (non-fatal): %s", e)
+
+    val = p.get("validation") or {}
+    notes = p.get("notes") or []
+    return {
+        "tam": _block(p.get("tam_usd"), "Total trade-area market", ["TAM_local"]),
+        "sam": _block(p.get("sam_usd"), "Serviceable (reachable demand)", ["SAM_local"]),
+        # "steady state", not "Year 1-3": the SOM is now the UNRAMPED ceiling the scenario
+        # table climbs toward (the ramp was being applied twice — measured on run12, base
+        # Year 1 landed at 36% of fair share and below this band's own floor while the label
+        # claimed the band covered years 1-3).
+        "som": _block(p.get("som_usd"), "Obtainable at steady state (one location)",
+                      ["SOM_obtainable", "SOM_demand"]),
+        "method": p.get("method"), "figures": p.get("figures"),
+        "households": p.get("households"),
+        # The SOM's PROVENANCE, for the same reason as the scale and spend keys below:
+        # size_hyperlocal computes two independent SOM estimates and how the headline was
+        # anchored, and this allowlist dropped all three — measured None on run14/run15,
+        # so the report showed a single confident number (which moved 67% between those
+        # two runs) with no way to inspect it. Third time this mapping ate produced output.
+        "som_anchor": p.get("som_anchor"),
+        "som_demand_usd": p.get("som_demand_usd"),
+        "som_supply_usd": p.get("som_supply_usd"),
+        # FOURTH time. #91 added the sourced anchor's arithmetic chain and its operand
+        # sources, and this allowlist ate both — measured on run18, where som_anchor came
+        # through populated and som_anchor_chain arrived as None. The chain is the ONLY
+        # thing that makes an Economic Census area average checkable rather than a county
+        # mean wearing a citation, so losing it here loses the point of the change.
+        "som_anchor_chain": p.get("som_anchor_chain"),
+        "som_anchor_sources": p.get("som_anchor_sources"),
+        # Carry the TRADE-AREA SCALE through to the stored report. size_hyperlocal publishes
+        # these; this mapping dropped them, so D49 — the gate guarding the measured 372x
+        # county-as-trade-area error — was N/A on all 16 stored reports while its synthetic
+        # unit tests passed. A gate that cannot see real output is not a safeguard.
+        # test_gate_reachability now enforces this for every gate.
+        "scale": (scale_decision or {}).get("scale") or "hyperlocal",
+        # WHICH SKILL PRODUCED THESE NUMBERS, as distinct from which one the classifier
+        # nominated. This function routes BOTH hyperlocal and regional into
+        # size_hyperlocal — `size_regional` is reachable only from the unwired
+        # skills/sizing/dispatch.py — so a 3-location chain publishes ONE 3 km catchment as
+        # its whole market, with no ×n_locations, while the report note is stamped from
+        # scale_decision["sizing_skill"] and reads "size_regional". D52 exists to catch
+        # exactly that and passed, because it asked whether a trade-area footprint EXISTS
+        # and size_hyperlocal always leaves one. It can now compare the two names.
+        #
+        # This does not wire size_regional. It converts a silent false claim into a loud
+        # failure, which is the honest interim state.
+        "sizing_skill_ran": _sized_by,
+        # Wave B: when the geocoder's level rerouted a city-only run to the city scan,
+        # say so — D52 passes a DISCLOSED downgrade and still fails a silent one.
+        **({"downgrade_reason": _downgrade} if _downgrade else {}),
+        # How many premises the rollup covers, so the report can say "5 trade areas" rather
+        # than presenting a sum as if it were one catchment.
+        "n_locations": p.get("n_locations"),
+        "phasing_schedule": p.get("phasing_schedule"),
+        "trade_area_households": p.get("trade_area_households"),
+        "radius_m": p.get("radius_m"),
+        "catchment_km2": p.get("catchment_km2"),
+        "households_sourced": p.get("households_sourced"),
+        "density_geography": p.get("density_geography"),
+        # And the SPEND half of the same TAM, for the same reason as the comment above — this
+        # allowlist is where produced numbers go to die. size_hyperlocal publishes whether the
+        # per-household spend was grounded in local income; without these three keys D56 fails
+        # on every fresh report while its unit tests pass, which is precisely the D49 story
+        # repeating one function later.
+        "spend_per_hh_usd": p.get("spend_per_hh_usd"),
+        "spend_per_hh_source": p.get("spend_per_hh_source"),
+        "spend_income_adjustment": p.get("spend_income_adjustment"),
+        "competitors": p.get("competitors") or len(geo_competitors),
+        "geo_competitors": geo_competitors,
+        # Adoption #1: the same-trade split and the census source, disclosed. The
+        # ranking chip and the report's DIRECT labels read these.
+        "n_same_category": _n_same_category,
+        "competitors_source": _competitors_source,
+        # One sentence reconciling the OSM fair-share denominator with the profiled roster —
+        # run9 divided SOM by (102+1) while the prose said "30 competitors" twelve times.
+        "notes": notes + ([n] if (n := _competitor_count_note(
+            p.get("competitors"), len(geo_competitors))) else []),
+        "validation": val,
+        "publishable": val.get("passed", True),
+        # Surface the engine's honest confidence + caveats in the template's existing
+        # "data quality" and "weakest assumptions" slots (otherwise they read "unknown").
+        "data_quality": p.get("confidence") or "low",
+        "weakest_assumptions": notes[:3],
+        # G5-shallow / D11: geography-aware — a Lisbon cafe must not be told to
+        # validate Portuguese household data against US-only sources.
+        "sources_to_validate": validation_sources_for(location),
+        "scale_decision": scale_decision,
+        "_hyperlocal_location": location, "_osm_value": osm,
+    }
+
+
+def _venture_location(result: dict | None, description: str) -> str | None:
+    """THE location resolver. The intake record's confirmed facts outrank any
+    re-derivation from prose: MEASURED (deddcd0f), the founder confirmed site
+    '90024 ucla' and extract_location grabbed 'UCLA' out of 'students and locals near
+    UCLA' in the same brief — the authorship defect class, regex edition. The prose
+    regex survives only as the no-record fallback (CLI briefs, old clients)."""
+    facts = ((result or {}).get("intake") or {}).get("facts") or {}
+    for f in ("site", "geography"):
+        v = str(facts.get(f) or "").strip()
+        if v:
+            return v
+    return extract_location(description)
+
+
+def geo_competitor_opps(description: str, profile: dict, market_scale: dict | None,
+                        limit: int = 30, location: str | None = None) -> list[dict]:
+    """M1 (audit): the REAL competitors of a physical-local venture are the nearby venues,
+    not LLM-guessed national DTC brands. Returns them in the canonical `opps` shape
+    (brand/name/rank/geo_sourced) so they can feed clustering, differentiators, personas,
+    and pricing — or [] when this isn't a physical-local venture or has no location.
+
+    `location` comes from the caller's _venture_location (the confirmed site); the prose
+    regex runs only when no location was passed. When the category has no OSM tag, or
+    the OSM census is thin, the Overture same-category census covers (adoption #1):
+    MEASURED (deddcd0f), 'taco stand' has no OSM tag, so this function returned [] and
+    D07 withheld a report while Overture knew 56 taquerias at the site. Description-driven
+    web search runs independently of those category mappings. Small supported rosters
+    remain useful and are not discarded just for containing fewer than three venues."""
+    ms = market_scale or {}
+    is_physical = bool((ms.get("signals") or {}).get("is_physical")) or ms.get("scale") in ("hyperlocal", "regional")
+    if not is_physical:
+        return []
+    location = location or extract_location(description)
+    if not location:
+        return []
+    geog = str((profile or {}).get("geography") or "").strip()
+    if "," not in location and geog and geog.lower() not in ("us", "u.s.", "usa", "united states", "global", "") \
+            and geog.lower() != location.lower():
+        location = f"{location}, {geog}"
+    cat = (profile or {}).get("category") or ""
+    tag = _resolve_osm_tag(cat)
+    try:
+        from tools import get_tool
+        try:
+            g = get_tool("geocode_address").fn(location)
+            point = g.payload or {}
+        except Exception:
+            point = {}
+        _lat, _lng = point.get("lat"), point.get("lng")
+        rows: list[dict] = []
+        if tag and _lat is not None and _lng is not None:
+            osm_key, osm_value = tag
+            try:
+                ne = get_tool("osm_named_competitors").fn(
+                    lat=_lat, lng=_lng, osm_key=osm_key, osm_value=osm_value, limit=limit)
+                if not ne.skeleton and ne.payload:
+                    rows = [c for c in ne.payload if c.get("brand")]
+            except Exception as exc:
+                log.warning("[plan] map competitor source unavailable: %s", type(exc).__name__)
+        if len(rows) < 3 and _lat is not None and _lng is not None:
+            try:
+                ov = get_tool("overture_places").fn(lat=_lat, lng=_lng, category=cat)
+                same = [] if ov.skeleton else ((ov.payload or {}).get("same_category") or [])
+            except Exception as exc:
+                log.warning("[plan] fallback map source unavailable: %s", type(exc).__name__)
+                same = []
+            seen = {str(r.get("brand") or "").lower() for r in rows}
+            for s in same:
+                name = s.get("name")
+                if name and name.lower() not in seen:
+                    rows.append({"brand": name, "name": name,
+                                 "category": s.get("category"),
+                                 "alternate_categories": "; ".join(s.get("alternate") or []),
+                                 "confidence": s.get("confidence"),
+                                 "source": "Overture Maps places"})
+                    seen.add(name.lower())
+        # The founder's description drives discovery for every trade. Map category
+        # mappings supplement it; they must never decide whether a venture is searchable.
+        from local_competitor_search import search_local_competitors
+        extra = search_local_competitors(description, location, limit=limit)
+        seen = {str(r.get("brand") or "").casefold() for r in rows}
+        for r in extra:
+            key = r["brand"].casefold()
+            if key not in seen:
+                rows.append(r)
+                seen.add(key)
+        from geo_relevance import rank_geo_competitors
+        rows = rank_geo_competitors(rows, description, cat, limit=min(limit, 15))
+        # Promote to the opps shape. No domain/signals (these are physical venues, not web
+        # brands) — which is correct: downstream pricing then SKIPS web scraping instead of
+        # mislabeling a competitor's bagged-goods/subscription price as a per-unit price.
+        return [{**c, "rank": i + 1, "geo_sourced": True}
+                for i, c in enumerate(rows[:limit])]
+    except Exception as e:
+        log.warning("[plan] geo_competitor_opps failed (non-fatal): %s", e)
+        return []
+
+
+def _promote_geo_competitors(result: dict, description: str, profile: dict, geo: str) -> list:
+    """M1 fix (audit): for a PHYSICAL-LOCAL venture, the real competitors are the nearby
+    venues (OSM), not LLM-guessed national DTC brands. Classify scale early (cheap;
+    reused by the later sizing step) and, if physical-local, PROMOTE the geo
+    competitors to the canonical `opps` set NOW — so clustering, differentiators,
+    personas, and pricing all analyze the actual local rivals.
+
+    B1/D16 close-out fix: the promotion used to replace ranked_opportunities but leave
+    competitor_density at its stale pre-promotion web-discovery value — a hyperlocal
+    cafe promoted to 30 real nearby venues still reported density=12 (the LLM-guessed
+    DTC brand count), caught live by D16 on the wave2.75 regen. Density now stays in
+    sync with whichever set is canonical. Mutates result["discover"] in place;
+    returns the current opps list (geo-promoted, or the original LLM set)."""
+    disc = result.get("discover") or {}
+    opps = (disc.get("synthesis", {}) or {}).get("ranked_opportunities", [])
+    try:
+        if result.get("market_scale") is None:
+            from skills.sizing.classify import classify_market_scale
+            result["market_scale"] = classify_market_scale(description, geo).payload
+            if "market_scale" not in result["_steps_completed"]:
+                _step_done(result, "market_scale")
+        geo_opps = geo_competitor_opps(description, profile, result.get("market_scale"),
+                                       location=_venture_location(result, description))
+        if geo_opps:
+            opps = geo_opps
+            disc.setdefault("synthesis", {})["ranked_opportunities"] = geo_opps
+            disc["geo_sourced"] = True
+            disc["category"] = (profile or {}).get("category", "")
+            # One owner for all three roster-derived numbers. Setting only the count here
+            # left active_signal_density/avg_opportunity_score describing the web set that
+            # was just discarded — 6/6 geo reports shipped a cited momentum count over a
+            # roster with no signal data.
+            from discover import _set_canonical_density
+            _set_canonical_density(disc)
+            result["discover"] = disc
+            log.info("[plan] M1: promoted %d geo competitors to the canonical set", len(geo_opps))
+    except Exception as e:
+        log.warning("[plan] early geo-competitor promotion failed (non-fatal): %s", e)
+    return opps
+
+
+def _surface_late_geo_competitors(result: dict, geo_competitors: list, category: str = "") -> None:
+    """F3 (location path): once the hyperlocal trade-area sizing override runs, surface
+    its REAL geographic competitors (OSM) when the early discover step found none at
+    its expected key — so the report shows actual nearby rivals instead of "0
+    competitors found". A SEPARATE code path from _promote_geo_competitors (which
+    fires earlier, before web discovery runs at all).
+
+    B1/D16 close-out fix: this used to overwrite ranked_opportunities + geo_sourced
+    via a dict spread, but never touched competitor_density — so the report still
+    cited the STALE pre-override density (a small LLM-guessed candidate count) against
+    the 25-30 real geo competitors now on display. Caught live by D16 on the wave2.75
+    regen (5dbf3f54, 94008e7c, 955a4b3b, a618db1a, c48497fa, e8baf9dd).
+
+    Audit high #7. Two key mistakes, both now fixed:
+
+    * it GUARDED on `discover.ranked_opportunities` / `discover.competitors`, keys nothing
+      in the pipeline writes, so it could not see a roster the discover step had already
+      produced — and would then override `competitor_density` (which IS read) against a
+      roster it had not written;
+    * it WROTE the roster to `discover.ranked_opportunities`, while every renderer reads
+      `discover.synthesis.ranked_opportunities`, so the names never displayed.
+
+    Inert in practice — measured across the 6 corpus reports where it fires, the names it
+    wrote were the same set and order as the ones `_promote_geo_competitors` had already put
+    at the rendered key — but the count-vs-roster divergence was one missing sibling write
+    away.
+
+    Names are surfaced ONLY when the category genuinely maps to an OSM amenity. The roster
+    handed to us rides `size_by_scale`'s coarse tag fallback, which resolves an unmapped
+    category to ("amenity", "restaurant") — deliberately, for a density estimate. Rendering
+    that would print nearby restaurants as a dog groomer's competitor set, and D34 would
+    pass them (bare {brand, name} entries carry no off_category or relevance to fail on).
+    So this follows the rule `geo_competitor_opps` already documents for itself: fail safe,
+    never fabricate a wrong-category set. When the category does not map, nothing changes —
+    not even the density, because a count taken from a wrong-category query is itself a
+    misleading number. Mutates result["discover"] in place; no-op otherwise."""
+    disc = result.get("discover") or {}
+    # Guard on the key that actually renders.
+    if not geo_competitors or (disc.get("synthesis") or {}).get("ranked_opportunities"):
+        return
+    if not _resolve_osm_tag(category or ""):
+        log.info("[plan] geo-competitors NOT surfaced: category %r has no OSM mapping, so "
+                 "the nearby-venue roster would be the wrong category", category)
+        return
+    roster = [{**c, "rank": i + 1, "geo_sourced": True}
+              for i, c in enumerate(geo_competitors) if c.get("brand")]
+    if not roster:
+        return
+    # Mutate in place rather than rebinding: callers hold `disc` aliases (the 4Ps and
+    # viability prompts read density off one), and a dict spread left them on the old value.
+    disc.setdefault("synthesis", {})["ranked_opportunities"] = roster
+    disc["geo_sourced"] = True
+    disc["category"] = category
+    from discover import _set_canonical_density
+    _set_canonical_density(disc)   # B1/D16/D33: one roster owns every number taken from it
+    result["discover"] = disc
+    if "discover" not in result["_steps_completed"]:
+        _step_done(result, "discover")
+    log.info("[plan] geo-competitors surfaced: %d nearby venues", len(roster))
+
+
+def build_provenance_summary(result: dict) -> dict | None:
+    """Aggregate the raw run trace (result['_trace']) into a clean 'Data Provenance' view for the
+    debug panel: per data-source (which tool, how many calls, real-sourced vs failed, a sample
+    detail), and LLM usage (models, cache hits, tokens). Pure read; returns None if no trace."""
+    events = (result or {}).get("_trace") or []
+    if not events:
+        return None
+    tools: dict[str, dict] = {}
+    llm = {"calls": 0, "cached": 0, "fresh": 0, "models": {}, "out_tok": 0}
+    for e in events:
+        if e.get("layer") == "tool":
+            t = tools.setdefault(e["name"], {
+                "tool": e["name"], "category": e.get("category", ""),
+                "calls": 0, "sourced": 0, "failed": 0, "skeleton": 0,
+                "source": e.get("source", ""), "detail": "", "error": ""})
+            t["calls"] += 1
+            # Count independently: a graceful skeleton may ALSO carry an explanatory error
+            # (e.g. "no API key") — that's a fallback, not an unexpected failure.
+            if e.get("error"):
+                t["failed"] += 1
+                t["error"] = e["error"]
+            if e.get("skeleton"):
+                t["skeleton"] += 1
+            if e.get("sourced"):
+                t["sourced"] += 1
+                t["source"] = e.get("source", t["source"])
+                if e.get("detail"):
+                    t["detail"] = e["detail"]
+            elif not t["detail"] and e.get("detail"):
+                t["detail"] = e["detail"]
+        elif e.get("layer") == "llm":
+            llm["calls"] += 1
+            llm["cached" if e.get("cached") else "fresh"] += 1
+            m = e.get("model", "?")
+            llm["models"][m] = llm["models"].get(m, 0) + 1
+            llm["out_tok"] += int(e.get("out_tok") or 0)
+    # Classify each tool's data origin for the panel (real source vs estimate/fallback vs failed).
+    rows = []
+    for t in sorted(tools.values(), key=lambda x: (-x["sourced"], x["tool"])):
+        if t["sourced"]:
+            status = "live"            # returned real data from its source
+        elif t["skeleton"]:
+            status = "skeleton"        # graceful fallback (may carry an explanatory error)
+        elif t["failed"]:
+            status = "failed"          # unexpected error, no graceful skeleton
+        else:
+            status = "skeleton"
+        rows.append({**t, "status": status})
+    return {
+        "data_sources": rows,
+        "llm": llm,
+        "n_events": len(events),
+        "n_tool_calls": sum(t["calls"] for t in tools.values()),
+    }
+
+
+try:  # provenance: record that this function produced a report key
+    from skills.registry import records_production as _records_production
+except Exception:  # pragma: no cover — never let provenance break an import
+    def _records_production(_k):
+        return lambda f: f
+
+
+@_records_production("integrity")
+def build_integrity_summary(result: dict) -> dict:
+    """Surface the (otherwise invisible) backend rigor as a user-facing trust object.
+
+    'Dark' capabilities are a red flag — the validation gate, triangulation, determinism,
+    and provenance only matter if the user can SEE them. Pure read over existing result
+    data; no new computation. cycle35.
+    """
+    ms = (result or {}).get("market_sizing") or {}
+    tam = ms.get("tam") or {}
+    val = ms.get("validation") or {}
+    tri = tam.get("triangulation") or {}
+
+    # Provenance — two DIFFERENT claims, which the old chip conflated (R4 rank 1):
+    #   n_cited    = methods whose LLM-authored `source` string is non-empty. That is
+    #                a citation the model WROTE ("US Census Bureau SUSB"), not a fetch.
+    #   n_grounded = methods whose data_origin records a real fetch (census/bls/...).
+    # The old chip counted the first and rendered it as "Sourced: 3/3" in green — on
+    # 10/16 corpus reports whose every triangulation path was origin='llm', 7 of them
+    # naming Census/BLS for numbers no fetch produced.
+    methods = [tam.get(k) or {} for k in ("method_top_down", "method_bottom_up", "method_analog")]
+    methods = [m for m in methods if isinstance(m.get("value_usd"), (int, float))]
+    if not methods and (ms.get("method") or "") in ("trade_area_catchment", "city_scan"):
+        # HYPERLOCAL SIZING HAS NO method_* TRIPLE — its sourcing lives in figures[].data_origin.
+        # This branch was missing, so the trust box on every hyperlocal report rendered
+        # "Sourced: 0/0 — no sources at all · Model-estimated origins: llm" DIRECTLY ABOVE TAM
+        # math that was genuinely Census ACS x TIGERweb x BLS (run9, figures stamped
+        # census/derived/osm). The one panel titled "how to trust these numbers" told a
+        # skeptical buyer to trust nothing — the D53 under-claiming class in the UI layer.
+        methods = [f for f in (ms.get("figures") or [])
+                   if isinstance(f, dict) and isinstance(f.get("value_usd"), (int, float))]
+    n_cited = sum(1 for m in methods if str(m.get("source") or "").strip())
+    # 'derived' is arithmetic on a sibling figure (SAM = TAM x 35%): it counts toward the
+    # total but NOT as grounded — claiming arithmetic as a fetch would be the OVER-claiming
+    # mirror of the bug this branch fixes.
+    n_grounded = sum(1 for m in methods
+                     if str(m.get("data_origin") or "").strip().lower()
+                     not in ("", "llm", "derived", "unattributed", "caller"))
+
+    # Distinct data origins that actually fired (census/bls/llm…).
+    origins = sorted({str(m.get("data_origin") or "llm") for m in methods}) if methods else []
+
+    has_gate = bool(val)
+
+    # "Validated" must mean the REPORT passed, not that the sizing skill passed its own
+    # internal gate. Measured on job d62bc04f: market_sizing.validation.passed was True while
+    # verification carried a blocking D55 finding that withheld the document — so the panel
+    # titled "HOW TO TRUST THESE NUMBERS" printed "✓ Validated — passed the integrity gate"
+    # four inches below "This report did not pass its own checks". The report-level findings
+    # are the wider object and the label already claims them.
+    _findings = ((result or {}).get("verification") or {}).get("findings") or []
+    _blocking = [f for f in _findings
+                 if str((f or {}).get("severity") or "").lower() in ("block", "blocking")]
+    _sizing_ok = val.get("passed") if has_gate else None
+    _passed = (None if (_sizing_ok is None and not _findings)
+               else bool(_sizing_ok is not False) and not _blocking)
+
+    # "Reproducible" was the literal constant True, so no report could ever falsify it. The
+    # arithmetic IS deterministic, but the claim is about the report, and this pipeline fetches
+    # Trends / Trustpilot / OSM / FRED / DDG and falls back across LLM providers. A run that
+    # dropped an output or halted would not reproduce, and said otherwise.
+    _degraded = bool((result or {}).get("_dropped_outputs")
+                     or (result or {}).get("error")
+                     or (result or {}).get("run_health", {}).get("degraded"))
+
+    return {
+        # temperature=0 + seed makes the arithmetic deterministic; live fetches are not, so
+        # this is asserted only when the run recorded no degradation.
+        "reproducible": not _degraded,
+        "validation": {
+            "ran": has_gate or bool(_findings),
+            "passed": _passed,
+            "n_blocks": len(val.get("blocks") or []) + len(_blocking),
+            "n_warns": len(val.get("warns") or []),
+        },
+        "triangulation": {
+            "confidence": tri.get("confidence"),
+            "n_independent": tri.get("n_independent"),
+        } if tri else None,
+        "provenance": {"n_grounded": n_grounded, "n_cited": n_cited,
+                       "n_total": len(methods)},
+        "data_origins": origins,
+        "grounded": any(o in ("census", "bls", "acs") for o in origins),
+    }
+
+
+def assess_run_health(result: dict) -> dict:
+    """Detect when a run was crippled by transient LLM/network failures so the report
+    can say so LOUDLY instead of presenting $0 TAM / '(generation failed)' as if they
+    were real findings. Pure read over the result; no mutation, no LLM. cycle36.
+
+    The honest-numbers bar: a number that failed to compute must read as "temporarily
+    unavailable — regenerate", never as a real $0 or blank a reader could mistake for signal.
+    """
+    failed: list[str] = []
+
+    # 4Ps sections that the LLM failed to generate.
+    fp = result.get("four_ps") or {}
+    for sect in ("product", "price", "place", "promotion"):
+        nar = str((fp.get(sect) or {}).get("narrative") or "")
+        if "generation failed" in nar.lower():
+            failed.append(f"4Ps · {sect.capitalize()}")
+    if fp.get("error"):
+        failed.append("4Ps plan")
+
+    # Market sizing produced no headline TAM despite the step running.
+    ms = result.get("market_sizing") or {}
+    tam_mid = (ms.get("tam") or {}).get("mid")
+    notes = " ".join(ms.get("notes") or []).lower()
+    sizing_failed = (not isinstance(tam_mid, (int, float)) or tam_mid == 0) and (
+        "not computed" in notes or "unavailable" in notes or bool(ms))
+    if sizing_failed and ms:
+        failed.append("Market sizing · TAM")
+
+    # Consumer research WTP / synthesis empty.
+    syn = (result.get("consumer_research") or {}).get("synthesis") or {}
+    wtp = syn.get("willingness_to_pay")
+    if result.get("consumer_research") and not wtp:
+        failed.append("Consumer research · willingness-to-pay")
+
+    # Viability never scored.
+    if (result.get("viability") or {}).get("error"):
+        failed.append("Viability score")
+
+    # Any raw parse_error leaking into the persisted result is a hard tell.
+    try:
+        import json as _json
+        if "_parse_error" in _json.dumps(result):
+            if "LLM responses (parse_error)" not in failed:
+                failed.append("LLM responses (parse_error)")
+    except Exception:
+        pass
+
+    # Severity: TAM or >=2 sections failing = severe; a single failure = partial.
+    severe = ("Market sizing · TAM" in failed) or (len(failed) >= 2)
+    return {
+        "degraded": bool(failed),
+        "severity": "severe" if severe else ("partial" if failed else "ok"),
+        "failed": failed,
+        "n_failed": len(failed),
+    }
+
+
+def refine_pipeline_result(result: dict, description: str, geo: str, profile: dict,
+                           opps: list[dict], max_rounds: int = 1) -> dict:
+    """Generator-evaluator-refine pass over a finished pipeline result (opt-in).
+
+    Wires `skills.refine_report` (independent judge anchored by the deterministic
+    gate) to real section regenerators: weak sizing → re-ground bottom-up + re-gate;
+    weak consumer insight → re-run consumer research. Bounded + non-fatal: returns
+    the original result on any failure. Attaches `_refine` audit. cycle33."""
+    try:
+        from skills.refine_report import refine_report
+    except Exception as e:
+        log.warning("[plan] refine unavailable (non-fatal): %s", e)
+        return result
+
+    def _regen_sizing(rep: dict) -> dict:
+        # biz_kind must travel here too: without it the modeled-price fallback is treated
+        # as unit-unknown and declines to ground, so a refine would silently lose the
+        # Census-grounded bottom-up that the first pass had.
+        ms = ground_sizing_bottom_up(rep.get("market_sizing") or {}, description, profile,
+                                     biz_kind=rep.get("business_model_kind"))
+        ms = triangulate_sizing(ms)
+        ms = gate_and_annotate_sizing(ms, rep.get("market_scale"))
+        new = dict(rep); new["market_sizing"] = ms; return new
+
+    def _regen_consumer(rep: dict) -> dict:
+        cr = build_consumer_research(description, geo, profile, opps,
+                                     market_scale=rep.get("market_scale"))
+        new = dict(rep)
+        if cr:
+            new["consumer_research"] = cr
+        return new
+
+    try:
+        rr = refine_report(result, description,
+                           regenerators={"market_sizing": _regen_sizing,
+                                         "consumer_research": _regen_consumer},
+                           max_rounds=max_rounds)
+        out = dict(rr.artifact)
+        out["_refine"] = {"passed": rr.passed, "rounds": rr.rounds,
+                          "score_trajectory": rr.score_trajectory,
+                          "weak_dims": rr.weak_dims}
+        return out
+    except Exception as e:
+        log.warning("[plan] refine loop failed (non-fatal): %s", e)
+        return result
+
+
+def run_sizing_stage(result: dict, profile: dict, *, description: str, geo: str,
+                     opps: list, top_audience: dict, competitor_pricing_data: dict,
+                     psm_result: dict, biz_kind: str, checkpoint=None) -> None:
+    """Steps 7a/7b: classify scale, size the market, then override with the
+    hyperlocal trade-area model when the venture has a location.
+
+    Extracted from run_plan (wave 10) so scale_decision/sizing/hl stop being
+    run_plan locals that later blocks can read stale — the bug class behind the
+    dual-SOM and mid-join-empty-read incidents.
+
+    NOT in orchestrator/steps/ like its siblings: four of the five helpers it calls
+    (ground_sizing_bottom_up, triangulate_sizing, gate_and_annotate_sizing,
+    size_by_scale, _surface_late_geo_competitors) are defined in this module —
+    513 lines with 7 transitive plan-local dependencies — so a step module would
+    have to import plan and invert the layering the package forbids. Task #87
+    migrates that family to skills/sizing/ and unblocks the move.
+
+    Records market_sizing once, on the success path, covering both the digital and
+    hyperlocal-override routes (#88 — it used to record only inside `if hl:` and inside
+    the except handler, so a successful digital run recorded nothing and a FAILED
+    override recorded a completion).
+    """
+    checkpoint = checkpoint or (lambda: None)
+    # --- Step 7b: Market sizing (TAM/SAM/SOM) — parallel with 4Ps ---
+    # This uses profile + competitors + audience + pricing, all of which are already computed.
+    # Run in parallel with 4Ps synthesis to save wall-clock time.
+    def _sizing_task():
+        log.info("[plan] Step 7b: Market sizing (TAM/SAM/SOM)")
+        return estimate_market_size(
+            profile=profile,
+            competitors=opps[:6],
+            audience=top_audience,
+            competitor_pricing=competitor_pricing_data,
+            psm_result=psm_result,
+        )
+
+    # cycle33: classify market scale (numbers-right engine). Non-breaking — the
+    # legacy estimate_market_size shape is preserved downstream; we annotate the
+    # result with the scale decision and route physical ventures' caveats.
+    # cycle37: reuse the scale already classified early (above). Only compute here if the early
+    # pass failed, so we never double-append "market_scale" to _steps_completed.
+    scale_decision = result.get("market_scale")
+    if scale_decision is None:
+        try:
+            from skills.sizing.classify import classify_market_scale
+            scale_decision = classify_market_scale(description, geo).payload
+            result["market_scale"] = scale_decision
+            _step_done(result, "market_scale")
+            log.info("[plan] Step 7a: market scale = %s → %s",
+                     scale_decision.get("scale"), scale_decision.get("sizing_skill"))
+        except Exception as e:
+            log.warning("[plan] scale classification failed (non-fatal): %s", e)
+
+    # SIZING BEFORE 4PS — SEQUENCED ON PURPOSE, at a measured wall-clock cost. These two
+    # used to run in parallel as "the pipeline's most expensive pair", and the overlap made
+    # the narrative run AHEAD of the numbers it narrates: _four_ps_task reads
+    # result["market_sizing"] at execution time, which was EMPTY mid-join, and the
+    # hyperlocal override (the sizing that carries competitors + som) landed after the join
+    # entirely. run14's _reminder_facts proved it: ms_competitors=null, ms_som_mid=null —
+    # the volume ladder's SOM rung and the paired-competitor-count rule never once reached
+    # a prompt. Sequencing costs the sizing's runtime (~30-90s, mostly cache-warm Census
+    # calls) and buys every downstream narrative claim its inputs; it also hands the 4Ps
+    # the geo roster and promoted density, which is what D22 wanted from the start.
+    sizing = run_labeled({"sizing": (_sizing_task, 90)})["sizing"]
+    if isinstance(sizing, dict) and sizing.get("error"):
+        log.warning("[plan] market sizing failed: %s", sizing["error"][:160])
+
+    if sizing and not sizing.get("error"):
+        # C2: ground the bottom-up TAM in a live Census count BEFORE the gate, so
+        # the report uses the real establishment count, not the LLM's guess.
+        # F3: ARPU basis = stated price, else the modeled PSM optimal price, so the
+        # Census-grounded bottom-up fires for most digital ventures (not only typed $/mo).
+        _psm_price = (psm_result or {}).get("optimal_price_point")
+        # biz_kind gates the modeled-price fallback: a per-unit price must not be
+        # annualized into recurring revenue (see ground_sizing_bottom_up).
+        sizing = ground_sizing_bottom_up(sizing, description, profile,
+                                         arpu_monthly_fallback=_psm_price,
+                                         biz_kind=biz_kind, result=result)
+        # cycle33: real origin-independent triangulation (replaces naive averaging).
+        sizing = triangulate_sizing(sizing)
+        # cycle33: gate + annotate via the numbers-right engine (non-breaking).
+        sizing = gate_and_annotate_sizing(sizing, scale_decision)
+        result["market_sizing"] = sizing
+
+    # F3 (location path): for a PHYSICAL venture with a location, override the digital
+    # sizing with a real trade-area model (Census households × BLS spend, OSM competitor
+    # density). Falls back silently to the digital sizing if no location / unavailable.
+    try:
+        hl = size_by_scale(scale_decision, description, profile,
+                           location=_venture_location(result, description))
+        if hl:
+            # Wave D part 2: the founder's expected volume rides in as the disclosed
+            # alternative D59 demands (see _apply_founder_volume).
+            _apply_founder_volume(hl, result)
+            # The override REPLACES the sizing, so it must be re-gated. Measured on a fresh
+            # run: gate_and_annotate_sizing had already stamped scale_skill_ran and the
+            # grounded/not-grounded disclosure onto the digital sizing, and assigning `hl`
+            # here discarded both -- on exactly the path that now runs for physical ventures.
+            # The gate is idempotent, so running it again on the new payload is the fix.
+            hl = gate_and_annotate_sizing(hl, scale_decision)
+            result["market_sizing"] = hl
+            log.info("[plan] hyperlocal sizing override (%s @ %s)",
+                     (scale_decision or {}).get("scale"), hl.get("_hyperlocal_location"))
+            _surface_late_geo_competitors(result, hl.get("geo_competitors") or [],
+                                          category=(profile or {}).get("category", ""))
+    except Exception as e:
+        # Non-fatal: a geo failure leaves the digital sizing that already succeeded.
+        # It deliberately does NOT record the step here — see below.
+        log.warning("[plan] hyperlocal override failed (non-fatal): %s", e)
+
+    # ONE recording site, on the success path, covering both routes (#88). It used to sit
+    # inside `if hl:` and inside the `except`, so an ordinary digital venture — sizing
+    # computed, grounded, triangulated, gated and sitting in result — finished with the
+    # step UNRECORDED, while a FAILED override recorded it. Gate D01 counts the length of
+    # _steps_completed and the plan artifact reports it, so the run under-reported work it
+    # had really done and credited work it had not. Recording from an exception handler
+    # also inverts the convention every extracted step follows: failure leaves a step
+    # unrecorded so a resume recomputes it instead of skipping a hole.
+    if result.get("market_sizing"):
+        _step_done(result, "market_sizing")   # idempotent
+        checkpoint()
+# The functions run_plan delegates to, in order. Wiring tests read the run path as SOURCE
+# ("does run_plan call verify_report?"), and inspect.getsource(run_plan) stops answering
+# that the moment any part of the path is extracted -- which is how a behaviour-preserving
+# refactor turns seven green wiring tests red. Naming the path here means an extraction
+# updates ONE list instead of twelve assertions, and the tests keep asking their real
+# question: is this step wired into the run at all?
+_RUN_PATH = ("run_plan", "_finalize_run")
+
+
+def run_path_source() -> str:
+    """The concatenated source of every function on the run path.
+
+    For wiring tests only. Use this rather than inspect.getsource(run_plan): the latter
+    silently narrows as the pipeline is decomposed, so an assertion can pass, then fail
+    for a refactor, then pass again for the wrong reason.
+
+    READ FROM THE FILE, NOT FROM THE LIVE OBJECT, and that is the whole point of this
+    rewrite. It used to do inspect.getsource(globals()[name]), which asks the CURRENT
+    binding where its source is. A test that monkeypatches run_plan therefore changed what
+    the wiring tests inspected: MEASURED, this returned _finalize_run's body twice and
+    run_plan's not at all, so `assertIn("run_labeled", src)` failed against a function that
+    had never stopped containing it. Under a Mock it raises OSError instead.
+
+    A helper whose job is "what does the source say" must answer from the source. Parsing
+    the module file means the answer cannot be changed by anything a test does at runtime,
+    which is exactly the guarantee a wiring assertion needs.
+    """
+    import ast
+    import pathlib
+    text = pathlib.Path(__file__).read_text(encoding="utf-8")
+    tree = ast.parse(text)
+    wanted = {n: None for n in _RUN_PATH}
+    for node in tree.body:                      # top level only: these are module functions
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in wanted:
+            wanted[node.name] = ast.get_source_segment(text, node) or ""
+    return "\n".join(src for src in wanted.values() if src)
+
+
+def _finalize_run(result: dict, *, description: str, geo: str, _levers: dict,
+                  own_transcript) -> dict:
+    """Everything run_plan does AFTER the pipeline has produced its sections.
+
+    Six independent steps: record the plan artifact, run the research crew when the
+    effort lever bought it, verify the report against the invariants, release the
+    ledger, and say so if every LLM backend refused.
+
+    EACH ONE IS WRAPPED SEPARATELY AND NONE MAY RAISE. They run after the expensive
+    work is already done and paid for, so a failure here must cost the reader a
+    footnote, never the report. That is also why they are grouped: the shape is the
+    same six times, and reading it once beside its reasons is easier than reading it
+    six times inline while looking for the pipeline.
+
+    Mutates and returns `result`, which is what the caller already holds.
+    """
+    try:
+        from orchestrator.plan_artifact import PlanArtifact
+        _declared = list(dict.fromkeys(result.get("_steps_completed") or []))
+        _artifact = PlanArtifact(_declared)
+        for _n in _declared:
+            _artifact.finish(_n)
+        result["_plan"] = {**_artifact.to_dict(), "summary": _artifact.summary()}
+    except Exception as e:
+        log.debug("[plan] plan artifact unavailable: %s", e)
+
+    # W6: the research crew as an evidence stage — DEEP effort only. It has existed
+    # since cycle33 but was reachable only via POST /research/crew, so its evidence
+    # never reached a report. Returns None when the lever is off, which is distinct
+    # from an error: a reader must be able to tell "not bought" from "bought and failed".
+    # (→ orchestrator/sections.py, declared not called) The fourth section, and the first
+    # that is an AGENT CREW rather than a single producer. run_crew_step's docstring
+    # insisted "not attempted" and "bought and failed" must be distinguishable, and this
+    # block then dropped that distinction: a standard-effort report said nothing at all,
+    # on 19 of 19 corpus runs. `inapplicable` is exactly that third answer, so the report
+    # now names the tier that would have produced the brief.
+    # The step is credited as "research_brief" rather than "research_crew": the cover
+    # page's step list names artifacts everywhere else (market_sizing, viability, four_ps),
+    # nothing reads the old name, and 0 of 19 corpus reports carry it.
+    # NO checkpoint= HERE. `checkpoint` is defined ~176 lines further down, and the
+    # pre-migration crew call never took one either. Passing it raised NameError on every
+    # real run at this line, which 4052 passing tests did not catch because nothing in the
+    # suite executes run_plan's body this far. See test_run_plan_uses_no_name_before_it_exists.
+    apply_sections([research_brief_section(description, geo, effort_levers=_levers)],
+                   result)
+
+    # W6-1: run the 22 invariants on THIS report before it ships. gates.py has only
+    # ever swept a corpus after the fact — a developer's view. This is the buyer's:
+    # what would have gone out wrong. Advisory by default (it annotates the report);
+    # never allowed to fail the run, because a verifier that can crash a paid report
+    # is a worse trade than one that occasionally misses.
+    try:
+        from report import verifier as verifier_mod
+        from report.verifier import verify_report
+        # Render the page BEFORE verifying it. Measured: 10 invariants — every one
+        # fail-severity — can only return a verdict when they can read the rendered report
+        # (D02/D06/D24/D25/D27/D36/D41/D43/D45/D48), so verifying with html=None left the
+        # pass blind to the whole class of defects that only exist once the report is a page,
+        # while reporting a clean verdict. Best-effort: a render problem degrades coverage,
+        # it must never fail a paid run.
+        _html = None
+        try:
+            from report.render_html import render_report_html
+            _html = render_report_html(result)
+        except Exception as e:
+            log.warning("[plan] pre-verification render failed, verifying without the "
+                        "page (%d page-dependent gates will report as blind): %s",
+                        10, e)
+        vr = verify_report(result, _html, use_llm=_levers["verify_with_llm"])
+        result["verification"] = {
+            # STATUS, always. A reader must be able to tell a clean verdict from an
+            # absent one, and the absent case is the common one -- see verifier.unverified.
+            "status": verifier_mod.BLOCKED if not vr.publishable else verifier_mod.VERIFIED,
+            "summary": vr.summary(),
+            "findings": [{"invariant": f.invariant, "severity": f.severity,
+                          "detail": f.detail, "audit_class": f.audit_class}
+                         for f in vr.findings],
+        }
+        if not vr.publishable:
+            log.warning("[plan] verification found %d blocking issue(s)",
+                        vr.summary().get("block", 0))
+    except Exception as e:
+        # RECORD THE FAILURE ON THE REPORT, do not just log it. Before this, a crash here
+        # left `verification` absent, the template rendered nothing, and an unchecked
+        # report was indistinguishable from one that passed every invariant. 16 of 19
+        # corpus reports were in exactly that state.
+        log.warning("[plan] verification pass failed: %s", e)
+        try:
+            from report.verifier import unverified
+            result["verification"] = unverified(f"{type(e).__name__}: {e}")
+        except Exception:                                    # noqa: BLE001
+            result["verification"] = {"status": "not_run", "reason": "verification failed",
+                                      "summary": {"publishable": True}, "findings": []}
+
+    # THE ANALYST REPORT, LAST. (-> orchestrator/sections.py, declared not called) It reads
+    # every other section, the verification findings included, so it runs after all of
+    # them and after the verifier: the order is derived from what it declares, and this is
+    # simply the last place in the run where the fact layer is complete. MEASURED
+    # 2026-09-12: one Opus pass over the fact layer wrote what the four narrated sections
+    # could not, and found four pipeline defects while doing it. A stubbed run, a missing
+    # key or a deployment that has not opted into paid backends makes it NOT_APPLICABLE
+    # with the reason on the page; a write that fails is a FAILED section. Neither can
+    # cost the run, and the cost of a write that succeeds lands in _cogs below.
+    _write_the_analyst_report(result, description)
+
+    # Item 6: release the ledger on the normal path. An early return leaves it behind, which
+    # persistence.transcript.attach reclaims on the next direct run rather than going silent.
+    try:
+        from persistence import transcript as _tr_done
+        _tr_done.detach(own_transcript)
+    except Exception:
+        pass
+
+    # If every LLM backend refused a call at any point, SAY SO on the result. Steps that
+    # failed that way (market scale, customer voice, the 4Ps sections) leave the report
+    # looking like a venture with thin signal, when in fact the pipeline could not look.
+    # MEASURED cause: free-tier limits (Groq 30 RPM, Gemini 15 RPM) against a run that
+    # calls in bursts.
+    try:
+        from llm import exhaustion_summary as _exh
+        _e = _exh()
+        if _e:
+            result["_llm_exhaustion"] = _e
+            log.warning("[plan] %d LLM call(s) exhausted every backend — sections may be "
+                        "missing for that reason, not for lack of signal", _e["count"])
+    except Exception as e:
+        log.debug("[plan] exhaustion summary unavailable: %s", e)
+
+    # W6-4: what this report cost to produce. Unanswerable before now, which made
+    # pricing the product a guess instead of a margin calculation.
+    try:
+        from persistence import ledger as _ledger
+        result["_cogs"] = _ledger.cogs()
+    except Exception as e:
+        log.debug("[plan] cogs unavailable: %s", e)
+    return result
+
+
+def _stamp_report_style(result: dict, report_style: str | None,
+                        seed_style: str | None = None) -> None:
+    """Record the founder's chosen report style where the synthesis section reads it.
+
+    ON THE INTAKE RECORD, not a key of its own: it is an answer the founder gave, the
+    survey is where answers live, and the section reads intake as one declared input
+    rather than two. A fresh dict rather than a write into the caller's: `intake` arrives
+    from the request body, and stamping into it would edit the request.
+
+    THREE PLACES A CHOICE CAN COME FROM, in order: the caller's `report_style`, the style
+    already on the intake record, and `seed_style`, which is what a resumed run's first
+    attempt chose. The seed comes last and is still read, because run_plan lets a fresh
+    intake record overwrite a resumed one, and the style rode that record: MEASURED, a
+    memo interrupted by a deploy resumed as a full report. Nothing anywhere means nothing
+    written, and the section falls back to DEFAULT_STYLE.
+    """
+    style = (report_style or (result.get("intake") or {}).get("report_style")
+             or seed_style)
+    if not style:
+        return
+    result["intake"] = {**(result.get("intake") or {}), "report_style": style}
+
+
+def _write_the_analyst_report(result: dict, description: str) -> None:
+    """Declare and assemble the synthesis section, and let nothing on that line fail the run.
+
+    THE ASSEMBLER ALREADY CONTAINS THE PRODUCER: a raising write is a FAILED section with
+    the exception's class as its reason, and a raising applicability check is contained the
+    same way. What it cannot contain is the declaration itself, which imports
+    report/synthesis.py at call time; a module that fails to import would have raised
+    here, outside every guard, and cost twenty-two sections of finished research the
+    moment the twenty-third could not be named. So the declaration gets the same treatment
+    the assembler gives the write: recorded under _dropped_outputs with the exception's own
+    class and message, and the run goes on to its bill.
+    """
+    try:
+        apply_sections([synthesis_section(result, description)], result)
+    except Exception as e:                                   # noqa: BLE001 - never block a run
+        log.error("[plan] the analyst report could not be declared: %s: %s",
+                  type(e).__name__, e)
+        record_dropped_output(result, "synthesis", f"{type(e).__name__}: {e}")
+        return
+    _check_the_writing(result)
+
+
+def _check_the_writing(result: dict) -> None:
+    """Run the two synthesis gates on the report that was just written.
+
+    THE VERIFIER RUNS BEFORE THE WRITER, BY DESIGN, so D62 and D63 answered "not
+    applicable" when verify_report ran and the gate that exists to catch an invented
+    number never saw the prose (MEASURED on diag02, 2026-09-14: D62 sat in blind_ids).
+    The check therefore runs here, after the write. It LIVES in report/check_writing.py,
+    because the workshop's rewrite runs the same check after every rewrite and must not
+    import the pipeline to do it; the rule itself (a D62 failure withholds the writing,
+    never the report) is stated there.
+    """
+    from report.check_writing import check_the_writing
+    check_the_writing(result)
+
+
+def run_plan(description: str, geo: str = "US", max_candidates: int = 20, progress=None,
+             operator_weights: dict | None = None, refine: bool = False,
+             resume_from: dict | None = None, effort: str | None = None,
+             intake: dict | None = None, report_style: str | None = None) -> dict:
+    """
+    Run the full market research pipeline on a raw description.
+
+    If `progress` callback is provided, it's called with the partial result
+    after every step so the UI can show live progress.
+    If `refine=True`, runs the generator-evaluator-refine loop after the pipeline
+    (independent judge + deterministic gate → regenerate weak sections). Opt-in
+    because it adds LLM cost; default path is unchanged.
+    If `resume_from` is given, the run is SEEDED with a previous run's outputs and every
+    step whose evidence is intact is skipped rather than recomputed. NOTE: this is the
+    receiving half only. persistence/resume.py, which built that dict from a killed run's
+    ledger, was deleted as unused: nothing ever called it, so no run was ever actually
+    resumed. The parameter is kept because it is the seam a real resume would use, and it
+    is exercised directly by callers that already hold a partial result.
+    `report_style` is the founder's choice of analyst report (report.synthesis.STYLES);
+    it is stamped onto result["intake"], where the synthesis section reads it.
+    """
+    # Item 6: a run outside the job system had NO ledger record at all -- measured zero
+    # transcript files for a direct plan.run_plan call -- so every provenance question about
+    # a CLI, benchmark or corpus-regeneration run was unanswerable after the fact. Those are
+    # precisely the runs a developer needs to trace. Idempotent: when the job system already
+    # attached, this is a no-op and the job's transcript keeps ownership.
+    _own_transcript = None
+    try:
+        from persistence import transcript as _tr
+        _own_transcript = _tr.attach(f"direct-{int(time.time())}")
+    except Exception:
+        pass
+    t_start = time.time()
+    # Per-run counter: a throttled run must be distinguishable from a thin-data venture.
+    try:
+        from llm import reset_exhaustion as _reset_exh
+        _reset_exh()
+    except Exception:
+        pass
+    # W6-3: the effort dial. An unknown level resolves to STANDARD inside
+    # effort_config, never down to quick — a typo must not silently thin a report the
+    # operator paid extra for. `max_candidates` stays honoured when the caller passed
+    # a non-default value explicitly; effort only widens it.
+    from capabilities.effort import effort_config, resolve_effort
+    _effort = resolve_effort(effort)
+    _levers = effort_config(_effort)
+    max_candidates = max(max_candidates, _levers["max_candidates"]) if effort else max_candidates
+
+    # Wave 3 item 4: seed from a prior killed run. Steps are skipped individually via
+    # _skip_step (intact-evidence only), so a partial/corrupt seed degrades to a normal
+    # full run rather than propagating holes.
+    result: dict = dict(resume_from or {})
+    result.setdefault("_steps_completed", [])
+    # The style the first attempt chose, read before the fresh record can overwrite it.
+    _seed_style = ((result.get("intake") or {}).get("report_style")) if resume_from else None
+    # Wave A: the intake record lands on the result BEFORE any step runs, because the
+    # profile step is its first consumer (confirmed facts beat LLM re-extraction) and
+    # the verifier its last (declared unknowns are disclosed, not hidden). A fresh
+    # record wins over a resumed one; absent both, old behavior is untouched.
+    if intake:
+        result["intake"] = intake
+    elif not (result.get("intake") or {}).get("facts"):
+        # R3 (88b416f6): a brief composed by the intake form arrived WITHOUT its
+        # record (the client is supposed to send intake_record with POST /plan, and
+        # did not). The composer's templates are lossless, so reconstruct the facts
+        # spine rather than letting every intake-driven mechanism go blind — that run
+        # shipped an UNSOURCED $22,000/mo cost guess over the founder's stated
+        # $1,000/month, dropped the year-one goal, and called a venture with declared
+        # differentiation a commodity copycat. Free-prose briefs yield {} and keep
+        # today's behavior.
+        try:
+            from intake import facts_from_description
+            _re_facts = facts_from_description(description)
+            if _re_facts:
+                result["intake"] = {"facts": _re_facts, "confirmed": False,
+                                    "reconstructed_from_brief": True}
+                log.info("[plan] intake record reconstructed from the brief's own "
+                         "labels: %d fact(s)", len(_re_facts))
+        except Exception as e:                       # noqa: BLE001 - never block a run
+            log.warning("[plan] intake reconstruction skipped: %s", e)
+    _stamp_report_style(result, report_style, seed_style=_seed_style)
+    # HOW THE REPORT READS, resolved once and stamped before any step runs, so the
+    # synthesis layer reads one key. The explicit request wins over the intake record,
+    # the record over the default, and a name nobody knows resolves to the default rather
+    # than failing a submitted brief: POST /plan already refused it at the door, so only
+    # a direct caller can get here with one, and a typo must not cost them the run.
+    from intake import DEFAULT_REPORT_STYLE, parse_report_style
+    try:
+        result["report_style"] = parse_report_style(
+            report_style or (result.get("intake") or {}).get("report_style"))
+    except ValueError as e:
+        log.warning("[plan] %s Using %r.", e, DEFAULT_REPORT_STYLE)
+        result["report_style"] = DEFAULT_REPORT_STYLE
+    result["_effort"] = _effort
+    if resume_from:
+        log.info("[plan] resuming with %d completed step(s): %s",
+                 len(result["_steps_completed"]), result["_steps_completed"])
+
+    # Provenance trace (debugging): record every data-source + LLM call this run makes.
+    try:
+        import provenance as _trace
+        _trace.reset()
+    except Exception:
+        _trace = None
+
+    def checkpoint():
+        """Persist partial result so the UI can see progress mid-run."""
+        if progress:
+            try:
+                result["_elapsed_seconds"] = round(time.time() - t_start, 1)
+                progress(result)
+            except Exception:
+                pass
+
+    # Persist operator weights for segment scoring (iter 36 spec step 1)
+    if operator_weights:
+        result["operator_weights"] = operator_weights
+
+    # --- Step 2: Extract profile --- (extracted → orchestrator/steps/profile.py)
+    profile = run_profile_step(result, description, geo)
+    if profile.get("error"):
+        return {"error": f"Profile extraction failed: {profile['error']}", "profile": profile}
+    checkpoint()
+
+    # --- Step 3: Competitive intelligence --- (→ orchestrator/steps/competitors.py)
+    disc = run_discover_step(result, profile, geo, max_candidates)
+    checkpoint()
+
+    opps = _promote_geo_competitors(result, description, profile, geo)
+
+    if not opps:
+        # Degraded but not fatal — skip downstream steps that need competitors
+        log.warning("[plan] no competitors found — proceeding with profile-only plan")
+
+    # --- Step 3e: Firmographics (B2B only) --- (→ orchestrator/steps/firmographics.py)
+    run_firmographics_step(result, profile, disc, opps, checkpoint=checkpoint)
+
+    # --- Step 3c: Clustering + whitespace --- (→ orchestrator/steps/clustering.py)
+    run_clustering_step(result, profile, opps, checkpoint=checkpoint)
+
+    # --- Step 5: Customer universe (B2B only) --- (→ orchestrator/steps/customer_universe.py)
+    # (→ orchestrator/sections.py, declared not called) Third on the assembler, and the
+    # root of the chain: segment_ranking's skip reason points here, so this section had to
+    # stop being silent for that pointer to lead anywhere.
+    apply_sections([customer_universe_section(profile, opps)], result, checkpoint=checkpoint)
+
+    # --- PARALLEL EVIDENCE PHASE --- (→ orchestrator/steps/evidence.py)
+    # Taste decodes, channels, prices, Reddit/HN/multi-source voice: one fan-out,
+    # persisted by the step; the bundle feeds personas, differentiators, PSM and 4Ps.
+    _ev = run_evidence_step(result, profile, opps, checkpoint=checkpoint)
+    taste_results = _ev["taste_results"]
+    channel_data = _ev["channel_data"]
+    competitor_pricing_data = _ev["competitor_pricing"]
+    reddit_data = _ev["reddit"]
+    top_audience = _ev["top_audience"]
+
+    # --- Step 6b: Personas --- (→ orchestrator/steps/personas.py)
+    run_personas_step(result, profile, taste_results, checkpoint=checkpoint)
+
+    # --- Step 6c: STORM-style consumer research (multi-perspective) — cycle33 ---
+    attach_consumer_research(result, description, geo, profile, opps, checkpoint=checkpoint)
+
+    if competitor_pricing_data and competitor_pricing_data.get("competitors_with_prices", 0) > 0:
+        result["competitor_pricing"] = competitor_pricing_data
+        _step_done(result, "competitor_pricing")
+        checkpoint()
+
+    # --- Step 3d: Differentiators, post-evidence (R4 rank 6) --- (→ orchestrator/steps/differentiators.py)
+    run_differentiators_step(result, profile, opps,
+                             competitor_pricing_data=competitor_pricing_data,
+                             reddit_data=reddit_data, channel_data=channel_data,
+                             checkpoint=checkpoint)
+
+    # --- Step 3e: Gap-seeded competitor refinement --- (→ orchestrator/steps/competitor_refinement.py)
+    # Reads the gaps differentiators just identified, runs targeted round-2 searches
+    # ("who already solves this gap?"), and unions any new rivals into the roster.
+    # Non-fatal: if search is unavailable or no gaps exist, the existing roster is untouched.
+    run_competitor_refinement_step(result, profile, opps, checkpoint=checkpoint)
+
+    # If refinement found new competitors, re-run differentiators so gaps/positioning
+    # reflect the enriched landscape rather than the initial (potentially incomplete) set.
+    if result.get("_refinement_added_competitors"):
+        opps = (result.get("discover", {}).get("synthesis") or {}).get("ranked_opportunities") or opps
+        run_differentiators_step(result, profile, opps,
+                                 competitor_pricing_data=competitor_pricing_data,
+                                 reddit_data=reddit_data, channel_data=channel_data,
+                                 checkpoint=checkpoint)
+        # AND THE MAP. Clustering ran at step 3c against the roster as it stood then;
+        # refinement has since unioned new rivals into it, so without this the report
+        # publishes a map of one set beside a roster of another. MEASURED on runs
+        # 91346ea9 and de585f13: rosters of 58 and 48 against a map built from 30, which
+        # is the single most common reason a report is withheld (D33, 5 of 16 blocks).
+        # Differentiators were already re-run here for exactly this reason; the map was
+        # simply forgotten alongside them. Cheap: K-Means and PCA are local, and only the
+        # axis labelling costs a call.
+        run_clustering_step(result, profile, opps, checkpoint=checkpoint)
+
+    # segment_summary feeds max_diff, the PSM task and subscription economics — built
+    # once here, passed explicitly to each.
+    segment_summary = (
+        (top_audience.get("purchase_motivation", "") + " ")
+        + " Audience: " + (profile.get("apparent_target_customer") or "")
+    )[:1000]
+
+    # --- Step 9a: Max-Diff feature ranking --- (→ orchestrator/steps/max_diff.py)
+    max_diff_result = run_max_diff_step(result, profile, segment_summary,
+                                        checkpoint=checkpoint)
+
+    # --- Step 9b + Step 11 LLM recommendation in parallel (both need max_diff-ish inputs, but independent of each other) ---
+    top_features = [f["feature"] for f in max_diff_result.get("ranked_features", [])[:5] if isinstance(f, dict)]
+
+    # cycle37: classify market scale + business model BEFORE the PSM so the PSM simulates the right
+    # monetization model (per-drink retail vs monthly subscription) rather than always SaaS tiers.
+    if result.get("market_scale") is None:
+        try:
+            from skills.sizing.classify import classify_market_scale
+            result["market_scale"] = classify_market_scale(description, geo).payload
+            _step_done(result, "market_scale")
+            log.info("[plan] Step 7a (early): market scale = %s",
+                     (result.get("market_scale") or {}).get("scale"))
+        except Exception as e:
+            log.warning("[plan] early scale classification failed (non-fatal): %s", e)
+    from business_model import classify_with_confidence, is_per_unit
+    # WITH CONFIDENCE, not just the kind. The classifier ends in a silent default to
+    # `subscription`, and MEASURED across 35 natural phrasings, 16 of them landed there — so
+    # a marketplace was handed CLV, churn and MRR for a venture that never said it was
+    # recurring. Everything else in this pipeline discloses whether a number was fetched or
+    # assumed; the monetization model, which picks the entire economic engine downstream,
+    # was the one load-bearing choice that never did.
+    _bm = classify_with_confidence(profile, result.get("market_scale"))
+    biz_kind = _bm["kind"]
+    result["business_model_kind"] = biz_kind
+    result["business_model"] = {"kind": biz_kind, "explicit": _bm["explicit"],
+                                "disclosure": _bm.get("disclosure")}
+    if _bm.get("disclosure"):
+        log.info("[plan] monetization model INFERRED (%s) — brief carried no signal", biz_kind)
+    # cycle38: the economics/PSM unit must be model-derived and NEVER "/mo" for a per-unit
+    # venture (infer_wtp_unit defaults to /mo → sized a $45 serum and a gym "per month").
+    _psm_unit = unit_for_model(biz_kind, description, profile)
+    # Only a true subscription uses the recurring (monthly) PSM frame; per-unit AND marketplace/
+    # ad-supported price per transaction, not per month.
+    _psm_recurring = (biz_kind == "subscription")
+    log.info("[plan] business model = %s (psm unit=%s, recurring=%s)", biz_kind, _psm_unit, _psm_recurring)
+
+    # --- Steps 9b + 11: PSM + place recommendation, parallel --- (→ orchestrator/steps/pricing_sim.py)
+    psm_result, place_result = run_pricing_sim_step(
+        result, profile, segment_summary=segment_summary, top_features=top_features,
+        competitor_pricing_data=competitor_pricing_data, channel_data=channel_data,
+        psm_unit=_psm_unit, psm_recurring=_psm_recurring, checkpoint=checkpoint)
+
+    # C5 (Manus-parity): the user's stated price must not be silently dropped.
+    # Reconcile it against the model's recommended optimal price, visibly.
+    # R4 rank 16: in the venture's own unit, never a hardcoded "/mo".
+    _recon_unit = _reconciliation_unit(biz_kind, _psm_unit)
+    recon = reconcile_pricing(extract_stated_price(description),
+                              psm_result.get("optimal_price_point"),
+                              unit_label=_recon_unit)
+    if recon:
+        result["price_reconciliation"] = recon
+        log.info("[plan] price reconciliation: stated=%s recommended=%s verdict=%s",
+                 recon["stated_usd"], recon["recommended_usd"], recon["verdict"])
+
+    # B3/D18: a SEPARATE reconciliation — the consumer-research WTP simulation vs the
+    # PSM-recommended price. These can differ by 10-100x (a simulated individual's
+    # casual WTP vs. an enterprise/B2B budget-holder's price point) and used to render
+    # side by side with no comment. Disclose the mismatch; never fabricate agreement.
+    _wtp_syn = (result.get("consumer_research") or {}).get("synthesis") or {}
+    wtp_flag = reconcile_wtp_with_price(
+        _wtp_syn.get("willingness_to_pay"),
+        psm_result.get("optimal_price_point"),
+        interviews=(result.get("consumer_research") or {}).get("interviews"))
+    if wtp_flag:
+        _wtp_syn["wtp_price_mismatch"] = wtp_flag
+        log.info("[plan] WTP/price mismatch flagged: wtp=%s recommended=%s ratio=%sx",
+                 wtp_flag["wtp"], wtp_flag["recommended"], wtp_flag["ratio"])
+
+    if psm_result.get("optimal_price_point"):
+        # cycle38: route ALL per-unit kinds (transactional/ecommerce/services/hybrid) through the
+        # retail per-unit economics, not just literal "transactional".
+        is_transactional = is_per_unit(biz_kind)
+        try:
+            _opt = float(psm_result["optimal_price_point"])
+        except (TypeError, ValueError):
+            _opt = None
+        # (cost structure is estimated inside run_economics_step, once, and shared by
+        # break-even + unit economics)
+        # Transactional retail prices per real unit (e.g. $6/drink), not the PSM monthly point.
+        # Prefer an explicit per-unit stated price ("$6 per drink"), then a one-time
+        # device/hardware price ("$199 device" — B2/D17: a hybrid hardware+subscription
+        # venture used to fall through to the /mo app fee here, produce a negative
+        # margin against real hardware COGS, error out of economics, and silently land
+        # financials on the subscription model). Falls back to a monthly stated price,
+        # then the PSM optimal.
+        _unit_noun = _psm_unit  # cycle38: model-derived unit, never "/mo" for a per-unit venture
+        # R4 rank 16: ONE disclosed price of record + provenance (which source won, the
+        # PSM optimal, whether they materially differ) — so a second price can't hide.
+        _por = price_from_brief(description, _unit_noun, _opt, is_transactional)
+        result["pricing"]["price_of_record"] = _por
+        if is_transactional:
+            _price_per_unit = _por["value"] if _por["value"] is not None else float(_opt)
+        else:
+            _price_per_unit = _opt
+
+        # --- Break-even + benchmark + model-aware economics --- (→ orchestrator/steps/economics_step.py)
+        run_economics_step(
+            result, profile, psm_result=psm_result, biz_kind=biz_kind, opt=_opt,
+            price_per_unit=_price_per_unit, is_transactional=is_transactional,
+            unit_noun=_unit_noun,
+            benchmark_recurring=_pricing_is_recurring(biz_kind),  # D06: only true subscriptions
+            segment_summary=segment_summary,
+            competitor_pricing_data=competitor_pricing_data, opps=opps,
+            checkpoint=checkpoint)
+
+    # Non-priced ad-supported/marketplace ventures still get honest labeled economics.
+    ensure_nonpriced_economics(result, biz_kind)
+
+    result["place"] = place_result
+    if not place_result.get("error"):
+        _step_done(result, "place")
+        checkpoint()
+
+    # --- Step 12: Validation gate ---
+    log.info("[plan] Step 12: validation gate")
+    val = _validation_gate(result)
+    result["validation"] = val
+    _step_done(result, "validation")
+    checkpoint()
+
+    def _four_ps_task():
+        log.info("[plan] Step 13: assembling 4Ps plan (split into 4 focused prompts)")
+        return assemble_4ps_split(
+            profile=profile,
+            competitors=opps[:5],
+            top_audience=top_audience,
+            max_diff=max_diff_result,
+            van_westendorp=psm_result,
+            place=place_result,
+            pricing_benchmark=(result.get("pricing") or {}).get("benchmark"),
+            economics=result.get("economics"),
+            reddit_signal=reddit_data,
+            business_model_kind=biz_kind,  # M4: forbid model bleed in the 4Ps narrative
+            # RE-READ result["discover"] AT CALL TIME. `disc` is a local bound at the
+            # discover step; the geo-roster promotion that sets competitor_density=30 and
+            # geo_sourced runs later, and whether the local sees it depends on
+            # mutation-vs-replacement semantics three functions away. run13's paired-count
+            # rule never reached the prompts while the FINAL artifact carried the right
+            # values — a call site must never depend on a stale binding when the source of
+            # truth is one dict lookup away.
+            competitor_density=(result.get("discover") or {}).get("competitor_density"),
+            active_signal_density=(result.get("discover") or {}).get("active_signal_density"),
+            # Volume ladder: SOM/day + break-even/day computed ONCE, injected into every
+            # section — run9's 4Ps stated five incompatible daily targets (400/300/200/33
+            # vs a 13.5/day sizing ceiling) because each section invented its own.
+            market_sizing=result.get("market_sizing"),
+        )
+
+    # --- Steps 7a/7b: market scale + sizing + hyperlocal override --- (→ run_sizing_stage)
+    run_sizing_stage(result, profile, description=description, geo=geo, opps=opps,
+                     top_audience=top_audience,
+                     competitor_pricing_data=competitor_pricing_data,
+                     psm_result=psm_result, biz_kind=biz_kind, checkpoint=checkpoint)
+
+    # 4Ps runs AFTER the sizing (including the hyperlocal override above) is in `result`,
+    # so the section prompts carry the real SOM ladder and both competitor counts.
+    four_ps = run_labeled({"four_ps": (_four_ps_task, 120)})["four_ps"]
+    if isinstance(four_ps, dict) and four_ps.get("error"):
+        log.warning("[plan] 4Ps synthesis failed: %s", four_ps["error"][:160])
+
+    # Honesty gate: never credit a PSM simulation that didn't actually run (audit cycle36).
+    four_ps = scrub_failed_psm_citations(four_ps, result.get("pricing"))
+    result["four_ps"] = four_ps
+    if not four_ps.get("error"):
+        _step_done(result, "four_ps")
+        checkpoint()
+
+    # --- Steps 7-8: Segment scoring --- (→ orchestrator/sections.py, declared not called)
+    # Second on the assembler. This one is here for the absence, not the ordering: the step
+    # opened with a bare `return` when customer_universe had no segments, which is 14 of
+    # the 19 corpus reports, and not one recorded why. Declaring the input makes the
+    # assembler produce the reason and `apply` route it to where the page reads it.
+    apply_sections([segment_ranking_section(profile, opps)], result, checkpoint=checkpoint)
+
+    # --- Step 10b: Financial projections --- (→ orchestrator/steps/financials_step.py)
+    run_financials_step(result, profile, psm_result=psm_result, biz_kind=biz_kind,
+                        checkpoint=checkpoint)
+
+    # --- Step 14: Viability score --- (→ orchestrator/sections.py, declared not called)
+    # THE FIRST SECTION ON THE ASSEMBLER. Everything above is still a literal call in a
+    # hand-maintained order; this one declares what it needs and lets core/section.py
+    # derive the rest. It buys four things no literal call can: the reads are bounded to
+    # what was declared (a stale read raises instead of returning {}), the context is a
+    # deep copy (a producer cannot rewrite a section that already passed), the section is
+    # verified the moment it lands rather than at the end of the report, and an absence
+    # arrives with a reason attached instead of as a gap.
+    # Verified byte-identical: the scorer receives the same kwargs on all 19 corpus
+    # reports before and after the move.
+    apply_sections([viability_section(profile, biz_kind=biz_kind)], result,
+                   checkpoint=checkpoint)
+
+    # cycle30: re-run validation gate at end so viability/segment/source flags
+    # surface — the early gate ran before downstream signals existed.
+    # cycle36 FIX: the final gate runs on the COMPLETE result, so it strictly supersedes
+    # the early pass. We must NOT union the two flag lists — the early pass (run before
+    # sizing+viability) emitted stale "Viability step was skipped" / "TAM 0/3 methods"
+    # flags that the final pass correctly omits. Use the final flags; keep MIN confidence.
+    final_val = _validation_gate(result)
+    if result.get("validation"):
+        prev = result["validation"]
+        merged_conf = min(prev.get("confidence_score", 1.0), final_val.get("confidence_score", 1.0))
+        result["validation"] = {"flags": final_val.get("flags") or [], "confidence_score": merged_conf}
+    else:
+        result["validation"] = final_val
+
+    # cycle33: opt-in generator-evaluator-refine pass (Anthropic harness pattern).
+    if refine:
+        log.info("[plan] running generator-evaluator-refine loop")
+        result = refine_pipeline_result(result, description, geo, profile, opps)
+        if "refine" not in (result.get("_steps_completed") or []):
+            result.setdefault("_steps_completed", []).append("refine")
+
+    # LAST, AND DELIBERATELY SO: did anything a section read change after it read it?
+    # `consumes` proves an input existed at production time, never that it was final --
+    # a step can rewrite a key it does not own, which run_financials_step does to
+    # result["economics"] while viability consumes it. The order is right today; this is
+    # what notices if it stops being. See orchestrator.sections.check_reads_are_still_current.
+    try:
+        check_reads_are_still_current(result)
+    except Exception:                                    # noqa: BLE001
+        pass          # bookkeeping about the run must never be able to end the run
+
+    result["_duration_seconds"] = round(time.time() - t_start, 1)
+    # Snapshot the provenance trace into the result so the report can render the debug panel.
+    try:
+        if _trace is not None:
+            result["_trace"] = _trace.snapshot()
+    except Exception:
+        pass
+
+    # W5-7: the run's plan as a first-class artifact. `_steps_completed` is a flat
+    # list of names, so nothing could answer "what was this run SUPPOSED to do, and
+    # what happened to each part of it?". The expensive half is SKIPS: a step skipped
+    # because a backend was unconfigured produces a report indistinguishable from one
+    # where that step ran and found nothing. Bookkeeping, so it never raises.
+    # The post-pipeline steps, grouped and each independently guarded: see _finalize_run.
+    result = _finalize_run(result, description=description, geo=geo, _levers=_levers,
+                           own_transcript=_own_transcript)
+    return result

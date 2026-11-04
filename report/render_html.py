@@ -1,0 +1,351 @@
+"""
+One renderer, two callers.
+
+The report HTML was built inline inside the `/report.html` route, which made it reachable
+only by an HTTP request. `run_plan` therefore verified each report with `html=None`, and
+MEASURED, 10 of the invariants -- every one of them fail-severity -- can only answer when
+they can read the rendered page:
+
+    D02 report renders (>1KB HTML)          D36 validation warns surfaced
+    D06 rendered report free of SaaS        D41 no empty per-customer price
+    D24 withheld profit never a number      D43 no dead in-page nav anchors
+    D25 provenance chip never overclaims    D45 cannot-decode notice not self-refuting
+    D27 no impossible share-of-SOM claim    D48 shipped report attributes its sections
+
+So the in-run verification pass -- the one whose whole purpose is "what would have gone out
+wrong" -- was structurally blind to the entire class of defects that only exist once the
+report is a page. It reported those 10 as not-applicable and called the rest a verdict.
+
+Extracting the render makes the page available before it ships, which is the only way those
+detectors can run at the moment they matter.
+"""
+from __future__ import annotations
+
+# MODULE SCOPE, NOT CALL TIME. These were borrowed from `api` inside the function with
+# the note "api imports plan, plan imports us": a cycle worked around rather than
+# removed, and the last edge where the report layer reached up into routing.
+from paths import TEMPLATES_DIR
+from rendering import SafeUndefined, display_title
+
+import re
+
+import logging
+
+from core.section import for_the_reader
+from report.section_provenance import SECTION_SOURCES  # noqa: F401  (template may read it)
+from report.render_synthesis import synthesis_view
+
+log = logging.getLogger("mrp.report.render")
+
+
+def _ladder_period(r: dict) -> str:
+    """The period this venture plans in — asked of `financials`, never decided here.
+
+    A second place deciding a period is exactly the defect C6 spent a day consolidating
+    away. Falls back to "day", which is what the template hardcoded before, so a result too
+    thin to judge renders as it always did.
+    """
+    try:
+        from financials import ladder_inputs
+        return ladder_inputs(r.get("economics"), r.get("market_sizing"),
+                             (r.get("business_model") or {}).get("kind"))["period"]
+    except Exception:                                        # noqa: BLE001
+        return "day"
+
+
+def render_report_html(result: dict, job_id: str = "", debug: int = 0,
+                       annotate: int = 0, public: int = 0) -> str:
+    """Render one report to HTML from its result dict. Pure: no DB, no request.
+
+    `public` suppresses the reader's own layer: the marks they wrote in the margin and the
+    questions they asked. It is NOT the same switch as `annotate`.
+
+    THE DIFFERENCE COST A REAL LEAK. `annotate` controls the refine CONTROLS, and the two
+    public routes already passed annotate=0 — but the marks and Q&A render in the page
+    BODY, from a block gated on `{% if iteration %}` alone, whose own comment notes that
+    the PDF carries it too. That is right for the owner's export and wrong for a stranger:
+    publishing a report to the library put the founder's private notes on the open web,
+    verbatim, under a card promising the exact opposite. So it needs its own flag rather
+    than a wider `annotate`, because the owner's PDF must keep carrying their notes.
+    """
+    # `charts` draws MARKET-RESEARCH figures (a segment radar), so it is domain, not frame.
+    # Taken at call time: the renderer must stay importable without the market-research
+    # modules, or the frame cannot be reused for another kind of report.
+    import charts
+    j = {"result": result or {}}
+    from jinja2 import Environment, FileSystemLoader
+    from datetime import datetime
+
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=True,
+                      undefined=SafeUndefined)
+    tpl = env.get_template("report.html")
+
+    r = j["result"] or {}
+    profile = r.get("profile", {})
+    profile = {**profile, "name": display_title(profile)}
+    four_ps = r.get("four_ps", {})
+    viability = r.get("viability", {})
+    validation = r.get("validation", {})
+    psm = (r.get("pricing", {}) or {}).get("psm", {})
+    _all_ranked = (r.get("discover", {}).get("synthesis", {}) or {}).get("ranked_opportunities", [])
+    # Split into direct competitors (no tier or tier=direct) and indirect competitors
+    competitors = [c for c in _all_ranked if c.get("_tier") != "indirect"]
+    indirect_competitors = [c for c in _all_ranked if c.get("_tier") == "indirect"]
+
+    # Color for viability score
+    score = viability.get("viability_score") or 0
+    if score >= 70:
+        viability_color = "#10b981"
+    elif score >= 40:
+        viability_color = "#f59e0b"
+    else:
+        viability_color = "#ef4444"
+
+    # Render competitor map SVG if clustering data exists
+    from charts import competitor_map_svg
+    from report.section_provenance import build_section_provenance
+    clustering = r.get("clustering")
+    whitespace = r.get("whitespace")
+    competitor_chart = competitor_map_svg(clustering, whitespace) if clustering else ""
+
+    # Build a transparent "data sources used" summary for the report
+    sigs = (r.get("discover", {}).get("steps", {}) or {}).get("signals", [])
+    audience = r.get("audience", {})
+    cp = r.get("competitor_pricing", {})
+    _geo_sourced = bool((r.get("discover", {}) or {}).get("geo_sourced"))
+    _census_src = str((r.get("market_sizing") or {}).get("competitors_source") or "").lower()
+    _aud_ev = audience.get("_evidence", {}) or {}
+    sources_used = {
+        "google_trends": any(s.get("trend_slope") is not None for s in sigs),
+        "trustpilot": any(s.get("trustpilot_reviews") is not None for s in sigs) or _aud_ev.get("trustpilot_review_count", 0) > 0,
+        "google_reviews": _aud_ev.get("google_review_count", 0) > 0
+                          or "google maps" in _census_src,
+        "overture_maps": "overture" in _census_src,
+        "reddit": any((s.get("reddit_mentions") or 0) > 0 for s in sigs) or _aud_ev.get("reddit_post_count", 0) > 0,
+        "wayback_machine": any(s.get("wayback_avg_per_month") is not None for s in sigs),
+        "instagram": any(s.get("ig_followers") is not None for s in sigs),
+        "domain_age_rdap": any(s.get("domain_age_days") is not None for s in sigs),
+        "review_articles": _aud_ev.get("article_count", 0) > 0,
+        "competitor_homepage_scrape": len(sigs) > 0,
+        "competitor_pricing": (cp.get("competitors_with_prices", 0) or 0) > 0,
+        "clustering": clustering is not None and not clustering.get("error"),
+        "market_sizing": (r.get("market_sizing") is not None) and not (r.get("market_sizing") or {}).get("error"),
+    }
+    # P3: the chip row lists what the venture's SHAPE could use, not every instrument
+    # the codebase owns — a struck-through chip reads as a pipeline failure. Web-brand
+    # instruments are omitted on geo-sourced rosters (venues rarely own a web presence);
+    # the geo instruments are omitted on web-brand rosters. Fired chips always stay.
+    _WEB_BRAND_ONLY = ("google_trends", "wayback_machine", "instagram",
+                       "domain_age_rdap")
+    _GEO_ONLY = ("overture_maps", "google_reviews")
+    _inapplicable = _WEB_BRAND_ONLY if _geo_sourced else _GEO_ONLY
+    sources_used = {k: v for k, v in sources_used.items()
+                    if v or k not in _inapplicable}
+
+    from market_sizing import format_currency
+
+    # The refinement layer (iteration.py): reader annotations, Q&A, revision stamp. Loaded
+    # here so BOTH the HTML route and the PDF derive the revised page from artifact + layer
+    # — the original result JSON is never touched.
+    try:
+        import iteration as _iteration
+        _iter_state = _iteration.get_state(job_id) if job_id else None
+        if _iter_state is not None and not _iteration.has_content(_iter_state):
+            _iter_state = None
+    except Exception:                                # noqa: BLE001 - the layer is optional
+        _iter_state = None
+
+    # C2 (9201627d audit): a step whose output is a skeleton (missing key, failed
+    # fetch) is DEGRADED, not completed — the cover page listed customer_universe
+    # among "24 steps completed" while its stored output said "No LLM API key found".
+    _degraded = []
+    for _k in ("customer_universe", "clustering", "market_sizing", "economics",
+               "personas", "consumer_research", "differentiators"):
+        _v = r.get(_k)
+        if isinstance(_v, dict) and (_v.get("_skeleton") or _v.get("_skeleton_reason")
+                                     or (_v.get("icp_details") or {}).get("_skeleton")
+                                     if isinstance(_v.get("icp_details"), dict)
+                                     else (_v.get("_skeleton") or _v.get("_skeleton_reason"))):
+            _degraded.append(_k)
+
+    # A SECTION THAT WAS DROPPED HAS TO SAY SO ON THE PAGE.
+    # record_dropped_output() writes the reason to result["_dropped_outputs"] and gate D54
+    # checks it is there, so the frame KNEW why a section was absent -- and then rendered
+    # nothing. MEASURED: 7 call sites record a drop, 3 of 19 corpus reports carry one, and
+    # the template mentioned the key zero times. A reader met a gap where the run held an
+    # explanation, which is the same defect as an unchecked report looking like a passing
+    # one: an absence that does not distinguish itself from a thing that was never meant
+    # to exist. Labelled from SECTION_SOURCES so the notice names "Price Intelligence"
+    # rather than a result key.
+    _labels = {s.result_key: s.section for s in SECTION_SOURCES}
+    # A SECTION THE TABLE DOES NOT KNOW STILL HAS A NAME: the one it declared on the
+    # assembler, which rides the run's own record in _section_results. The table stays
+    # first for the sections it lists, because its names are the page's curated ones;
+    # the record is what stops a new section reaching the reader as its result key,
+    # title-cased. MEASURED: the analyst report rendered as "Synthesis".
+    _declared = {sr.get("key"): sr.get("label")
+                 for sr in (r.get("_section_results") or [])
+                 if isinstance(sr, dict) and sr.get("label")}
+
+    def _sec_label(key: str) -> str:
+        return _labels.get(key) or _declared.get(key) or key.replace("_", " ").title()
+
+    # A SECTION THAT LANDED BUT FAILED ITS OWN CHECK. core/section.py verifies each
+    # section the moment it is produced, which is the whole reason for assembling one at a
+    # time -- and the verdict was going into result["_section_results"] and no further.
+    # Recorded and shown to nobody is the same defect as the drop reasons below it, so it
+    # gets the same treatment. SKIPPED and FAILED already arrive via _dropped_outputs;
+    # FLAGGED is the case only this line can carry.
+    _flagged = [{"label": _sec_label(sr.get("key", "")), "findings": sr.get("findings") or []}
+                for sr in (r.get("_section_results") or [])
+                if sr.get("status") == "flagged" and sr.get("findings")]
+
+    # "DOES NOT APPLY" IS NOT "COULD NOT BE PRODUCED". MEASURED: 14 of 19 corpus reports
+    # have no customer universe and all 14 are direct-to-consumer, so their missing segment
+    # prioritization is by design. Listing it beside genuine failures hands a founder a
+    # list of things that look broken. Separate line, separate colour, no alarm.
+    # A REASON ABOUT THE DEPLOYMENT KEEPS ITS OPERATOR NOTE OFF THE PAGE. The stored
+    # reason may end with "[operator: ...]" naming the variable to set; the log and the
+    # JSON keep it, the founder does not see it. See core.section.for_the_reader.
+    _na = [{"label": _sec_label(k), "reason": for_the_reader(v)}
+           for k, v in sorted((r.get("_inapplicable_sections") or {}).items())]
+
+    # A FOUNDER MUST NOT BE SHOWN "ValueError:". The assembler records a failed section as
+    # "{ExceptionName}: {message}", which is right for the log and for the gates that read
+    # _dropped_outputs, and wrong for a page a buyer reads. The stored reason keeps the
+    # class name; only the rendered one drops it.
+    _exc_prefix = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*"
+                             r"(Error|Exception|Interrupt|Timeout|Exit)\s*:\s*")
+    _dropped = [{"label": _sec_label(k),
+                 "reason": for_the_reader(_exc_prefix.sub("", str(v)))}
+                for k, v in sorted((r.get("_dropped_outputs") or {}).items())]
+
+    # THE ANALYST'S REPORT, WHEN THE RUN WROTE ONE. result["synthesis"]["markdown"] is one
+    # frontier-model pass over the whole fact layer; on the page it replaces the narrative
+    # front half (viability headline and summary, the segment-ranking callouts, the 4Ps
+    # prose) and every path it cites becomes a link into a Cited facts appendix. None when
+    # absent, and None means the template renders exactly what it rendered before: the
+    # fallback is byte-identical and a test pins it.
+    _synthesis = synthesis_view(r, label=_sec_label)
+
+    html = tpl.render(
+        synthesis=_synthesis,
+        degraded_steps=_degraded,
+        dropped_sections=_dropped,
+        inapplicable_sections=_na,
+        flagged_sections=_flagged,
+        iteration=_iter_state,
+        annotate=bool(annotate),
+        public=bool(public),
+        job_id=job_id,
+        # The founder's own survey answers, for refine mode's "fix an input" form. They
+        # already rode the run on result["intake"], so the report can show the survey back
+        # with its values in place instead of asking the reader to name a field by hand.
+        intake_facts=((r.get("intake") or {}).get("facts") or {}),
+        profile=profile,
+        market_sizing=r.get("market_sizing"),
+        financials=r.get("financials"),
+        personas=r.get("personas"),
+        audiences=r.get("audiences"),
+        audiences_undecodable=r.get("audiences_undecodable"),
+        deltas=r.get("_deltas_vs_previous"),
+        previous_job_id=r.get("_previous_job_id"),
+        format_currency=format_currency,
+        four_ps=four_ps,
+        viability=viability,
+        viability_color=viability_color,
+        validation=validation,
+        # W6-1: what the pre-publication verifier found on THIS report.
+        verification=r.get("verification"),
+        # W6: the research crew's integrated brief (deep effort only).
+        research_brief=r.get("research_brief"),
+        psm=psm,
+        competitors=competitors,
+        # Indirect competitors (needs-based or resource-based) — shown separately
+        indirect_competitors=indirect_competitors,
+        # R4 rank 10: reference/off-category entries partitioned out of the competitor
+        # roster — shown separately so they don't count as competitors.
+        reference_cases=(r.get("discover", {}).get("synthesis", {}) or {}).get("reference_cases", []),
+        not_shown_candidates=(r.get("discover", {}).get("synthesis", {}) or {}).get("not_shown", []),
+        # C3 (9201627d audit): NEVER passed before, so the template's `{% if
+        # multi_source_signal._tech %}` was always Undefined/false — every venture
+        # read "dev forums are skipped for non-tech ventures" while this run had
+        # fetched 12 Stack Overflow and 7 DEV.to results, and the whole
+        # dev-forum section silently never rendered.
+        multi_source_signal=r.get("multi_source_signal") or {},
+        # D-class (report_audit): hn_signal was produced every run and never passed —
+        # the same silent-discard bug as multi_source_signal, one key over. The
+        # auditor now fails any produced section the renderer does not forward.
+        hn_signal=r.get("hn_signal") or {},
+        price_intel=r.get("price_intel") or {},
+        unverified_mentions=(r.get("discover", {}).get("synthesis", {}) or {}).get("unverified_mentions", []),
+        # Debuggable report: section→script provenance + the ?debug=1 toggle.
+        section_provenance=build_section_provenance(r),
+        debug=bool(debug),
+        competitor_chart=competitor_chart,
+        clustering=clustering,
+        whitespace=whitespace,
+        steps_completed=r.get("_steps_completed", []),
+        duration_seconds=r.get("_duration_seconds"),
+        generated_date=datetime.now().strftime("%Y-%m-%d %H:%M"),
+        sources_used=sources_used,
+        competitor_pricing=cp,
+        reddit_signal=r.get("reddit_signal"),
+        economics=r.get("economics"),
+        pricing_benchmark=(r.get("pricing") or {}).get("benchmark"),
+        # WHICH PERIOD THIS VENTURE PLANS IN, from the one function that decides it. The
+        # break-even tiles hardcoded "/day", so a consultancy read "0.3 projects/day" —
+        # arithmetically right (30x12 = 360 = _DAYS_PER_YEAR) and useless. Passing the
+        # ladder's period rather than adding a second rule here is the whole point: the
+        # computation stays in business_model, the CHOICE stays in financials.
+        ladder_period=_ladder_period(r),
+        # The price of record has been computed since R4 rank 16 and rendered nowhere, so
+        # its provenance — including "we read no price at all" — existed only for whoever
+        # opened the artifact. Same shape as #83's som_anchor: a disclosure that never
+        # reaches the page is not a disclosure.
+        price_of_record=(r.get("pricing") or {}).get("price_of_record"),
+        differentiators=r.get("differentiators"),
+        customer_universe=r.get("customer_universe"),
+        segment_ranking=r.get("segment_ranking"),
+        segment_radar=(charts.segment_radar_svg((r.get("segment_ranking") or {}).get("top_pick", {}))
+                      if (r.get("segment_ranking") or {}).get("top_pick") else ""),
+        # Iter 41: max_diff was being computed (11 features in cycle 5) but never passed to template
+        max_diff=r.get("max_diff"),
+        # cycle33: STORM-style multi-perspective consumer research
+        consumer_research=r.get("consumer_research"),
+        market_scale=r.get("market_scale"),
+        # cycle33 C5: stated-vs-recommended price reconciliation (no silent re-pricing)
+        price_reconciliation=r.get("price_reconciliation"),
+        # cycle33: generator-evaluator-refine audit (present only when refine=True)
+        refine_audit=r.get("_refine"),
+        # cycle35: surface backend rigor to the UX (no dark capabilities)
+        integrity=__import__("plan").build_integrity_summary(r),
+        # cycle36: flag a run crippled by transient LLM/network failures (never present
+        # $0 TAM / failed sections as real findings — tell the reader to regenerate).
+        run_health=__import__("plan").assess_run_health(r),
+        # cycle37: business model (transactional retail vs subscription) → model-aware
+        # pricing / unit-economics / financials rendering.
+        business_model_kind=r.get("business_model_kind"),
+        # The kind AND whether the brief actually said so. A disclosure that reaches
+        # the JSON and not the template is not a disclosure — this codebase has
+        # shipped that shape before (the SOM anchor block, rendered nowhere).
+        business_model=r.get("business_model"),
+        # DEBUG-ONLY: the raw per-run call log (every tool invocation, including failures).
+        # It was passed unconditionally, so the "🔍 Data Provenance (debug)" table — raw
+        # HTTPSConnectionPool errors, garbage discovery domains and all — shipped inside the
+        # buyer's report on every default render (measured on run9.html). The template's own
+        # comment marks it DEBUG and the sentence-annotator below already honours the flag;
+        # the wiring here just ignored it. The reader-facing "How each section was produced"
+        # table is separate and stays.
+        provenance=__import__("plan").build_provenance_summary(r) if debug else None,
+    )
+    if debug:
+        # Sentence-level provenance: mark every result-derived run of text with the exact
+        # result path behind it, so a sentence that reads wrong names the field — and the
+        # script — to go and read. Debug-only: this changes the page's bytes (never its
+        # words), and it must not reach the buyer's report or the PDF.
+        from report.trace import annotate as _annotate
+        html, _trace_stats = _annotate(html, r)
+        log.info("[report] sentence trace: %d/%d blocks attributed to a result path",
+                 _trace_stats["matched"], _trace_stats["blocks"])
+    return html

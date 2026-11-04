@@ -1,0 +1,60 @@
+Extract one business object from the supplied list of {id, text} statements.
+Return only a JSON object, with exactly these keys and fields:
+{
+  "version": "business-object-trial/v1",
+  "company_alias": "supplied alias",
+  "root": {"id": "company", "kind": "company", "label": "supplied alias",
+           "statement_ids": ["s1"], "children": []},
+  "relationships": [{"from": "offering_id", "to": "customer_id",
+                     "kind": "serves", "statement_ids": ["s1"]}],
+  "missing_details": [{"id": "q1", "node_id": "company",
+                       "detail": "Specific information not stated",
+                       "question": "A concrete question to obtain it?"}],
+  "report_projections": [{"section": "summary", "node_ids": ["company"],
+                          "missing_detail_ids": ["q1"]}]
+}
+Every node has exactly id, kind, label, statement_ids, children; children contain
+nodes with that same recursive shape. Root ID is company and kind is company.
+Allowed node kinds: company, group, reported_segment, business_line, offering,
+customer, user, supplier, partner, revenue_stream, metric, capability.
+Allowed relationship kinds: serves, uses, generates, measures, pays, supplies,
+depends_on. Direction examples: offering -> customer serves; offering -> capability
+uses; offering -> revenue_stream generates; actor -> revenue_stream pays;
+metric -> offering measures; supplier -> offering supplies; business_line ->
+capability depends_on. Keep direction explicit. No self links or duplicate typed
+edges. Cross-relationship cycles are allowed; children must form a tree.
+
+Use only supplied statements, never company-name familiarity, external knowledge,
+web search, assumptions about industry, or expected examples. Preserve meaningful
+mechanisms in labels, including percentage-of-GMV fee versus GMV metric versus
+revenue. Gross bookings and GMV are not company revenue. Distinguish a paying
+customer from an end user, supplier, or partner; do not assume these are identical.
+Do not call an offering a reported segment unless the statements say so. Keep
+overlapping concepts distinct when their roles differ and link them when supported.
+Every factual node and every relationship needs one or more ORIGINAL input
+statement IDs that support its label or relation. Do not invent input IDs. These
+IDs test input grounding only; they are not external citations or verified claims.
+Only group nodes may have no statement IDs. Every group label starts with
+'[inferred grouping] ' and names an organizational grouping, never a new fact.
+Labels may faithfully paraphrase statements but must not add unsupported facts.
+
+Choose natural business hierarchy from the statements: segments, lines, offerings,
+actors, revenue, metrics and capabilities as needed. Do not force one branch per
+report section. Shared entities/resources appear once and are referenced by ID
+from other branches. Children are ownership/grouping structure; cross-relations
+carry supported interactions. Do not duplicate nodes to represent shared resources.
+Use stable, descriptive lowercase snake_case IDs (letters, digits, underscores;
+start with a letter; at most 64 characters), never array-position IDs for nodes.
+IDs are unique across nodes and missing details. Keep IDs stable across revisions
+for the same concept. Include all supplied business facts that fit this contract.
+
+Unknown information goes in missing_details as an explicit detail and a question
+tied to an existing node; never turn it into a factual node or a fabricated answer.
+Use no more than 200 nodes, depth 12 (root depth 0), 400 relationships, 100 questions.
+Project existing nodes/questions into ALL eight report sections exactly once:
+summary, target_personas, multi_perspective, market_size, revenue, differentiators,
+competitive_landscape, customer_voice. Projections contain only section, node_ids,
+missing_detail_ids. Empty arrays are valid when no information applies; relevant
+missing information should be a question. Projection is selection, not generated
+report prose. The same node may be projected into multiple sections. Return no
+additional fields, confidence scores, source/claim ledger, or research results.

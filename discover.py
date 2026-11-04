@@ -1,0 +1,1452 @@
+"""
+Phase 0: Opportunity Discovery via trend momentum + review velocity.
+
+Low-cost, scraper-free (except Trustpilot which has a stable JSON endpoint).
+
+Pipeline:
+  1. Google Trends category scan → slope + rising related queries
+  2. LLM (Haiku) extracts brand candidates from the rising queries
+  3. For each candidate: validate via brand-level trend slope, Trustpilot
+     momentum (review count + velocity + avg stars), Reddit mention count,
+     and domain age.
+  4. Composite momentum score (pure math)
+  5. LLM (Haiku) synthesis writes thesis for each opportunity
+
+All HTTP-bound calls are cached 7 days (see cache.py). Re-running the same
+category within a week costs only the LLM calls.
+"""
+from __future__ import annotations
+import json
+import os
+import re
+import time
+
+from sources import (
+    google_trends_rising,
+    brand_trend_slope,
+    trustpilot_momentum,
+    reddit_mentions,
+    estimate_domain_age_days,
+    resolve_brand_domain,
+    probe_domain_patterns,
+    validate_domain,
+    wayback_activity,
+    instagram_signal,
+    meta_ad_library,
+    rank_meta_advertisers,
+)
+from llm import call_json
+from logger import get
+
+log = get("discover")
+
+
+LLM_BRAND_GENERATION_PROMPT_B2B = """You are researching the "{category}" product category in {geo} for a B2B SaaS founder.
+
+Your job: list 12+ COMPETING B2B PRODUCTS in this space. NOT consumer brands.
+
+⛔ CRITICAL: do NOT include B2C brands or megabrand SaaS incumbents the founder already knows:
+  Salesforce, HubSpot, Microsoft 365, Google Workspace, Slack, Notion, Asana, Monday,
+  Atlassian (Jira/Confluence), Zoom, Adobe, Oracle, SAP, AWS, Azure, GCP,
+  any consumer DTC brand, any retail / e-commerce / CPG brand.
+
+✅ PRIORITIZE these instead — what a B2B founder needs to learn from:
+  • Newer SaaS startups (founded 2018+) sold via product-led growth or sales
+  • YC / Techstars batch grads in this space
+  • Indie SaaS / bootstrapped tools (think Indie Hackers, MicroConf)
+  • Niche category leaders (smaller vertical or specific buyer-persona focus)
+  • Open-source-with-paid-tier alternatives
+  • Recently-funded Series A/B startups in this space (Crunchbase signal)
+  • Acquisitions in the last 3 years (signal of hot market)
+
+For each: name, likely_domain (their primary B2B website — NOT app store listing or Amazon),
+category_fit (one sentence — what they sell + WHO buys + why a B2B founder should study them).
+
+Return JSON {{"brands": [{{"name": ..., "likely_domain": ..., "query_evidence": "LLM-generated", "category_fit": ...}}, ...]}}.
+
+Quality > quantity. 4 real B2B challengers > 12 with Salesforce padding."""
+
+
+LLM_BRAND_GENERATION_PROMPT = """You are researching the "{category}" product category in {geo} for a DTC founder.
+
+⛔ CRITICAL: do NOT include legacy mass-market megabrands. The founder ALREADY KNOWS those exist. They learn nothing from a list that includes:
+  Mentos, Wrigley, Hershey, Kellogg's, Coca-Cola, Pepsi, Nike, Apple, Samsung,
+  Procter & Gamble brands, Unilever brands, Mars brands, Kraft brands,
+  any brand owned by Nestle, J&J, Colgate-Palmolive, etc.
+  Established household names predating 2010 generally don't count unless they recently pivoted.
+
+✅ PRIORITIZE these instead — these are who founders actually need to learn from:
+  • Shopify-store DTC challengers (sell direct, often launched 2018-2024)
+  • TikTok-native brands with viral growth
+  • Indie / bootstrapped brands featured on Product Hunt, BeautyTok, /r/DTC
+  • Crowdfunded brands (Kickstarter / Indiegogo origin)
+  • Subscription-box natives
+  • "Better-for-you" / health-conscious challengers
+  • Sustainable / B-corp / mission-driven brands
+  • Celebrity-founded / creator-founded brands
+  • Niche premium / specialty positioning
+  • International DTC brands now expanding to {geo}
+
+For "{category}" specifically, think: who would a savvy DTC founder follow on Twitter? Who's on the latest Forbes "30 under 30" CPG list? Who's been featured in Modern Retail or Retail Brew newsletters? Who's been acquired by big CPG in the last 3 years (signal of a hot space)?
+
+List AT LEAST 12 such challenger brands. For each:
+- name: the brand name
+- likely_domain: their primary DTC website (NOT amazon.com listings)
+- category_fit: ONE sentence — what makes them a CHALLENGER worth studying (not just "they sell X")
+
+Return JSON:
+{{
+  "brands": [
+    {{"name": "Brand Name", "likely_domain": "brand.com", "query_evidence": "LLM-generated", "category_fit": "what makes them a challenger worth studying"}},
+    ...
+  ]
+}}
+
+If you can only think of legacy brands, return fewer brands rather than padding with incumbents. Quality > quantity. A list of 4 real DTC challengers is more useful than 12 with Wrigley/Hershey at the top."""
+
+
+EXTRACT_BRANDS_PROMPT = """From these Google Trends "rising" queries in the "{category}" category, extract distinct EMERGING or DTC brand names and guess their likely .com domain.
+
+Rising queries (search term + relative lift):
+{queries}
+
+Return JSON:
+{{
+  "brands": [
+    {{"name": "Brand Name", "query_evidence": "the query that mentions this brand", "likely_domain": "brandname.com"}},
+    ...
+  ]
+}}
+
+Rules:
+- SKIP well-known megabrands (Apple, Samsung, Sony, Nike, Amazon, etc.) — we want EMERGING or DTC challengers only
+- Only include queries that clearly reference a distinct brand/product name
+- Skip generic category queries like "best {category} 2024"
+- If multiple queries reference the same brand, combine them
+- Maximum 10 brands
+- Prefer brands that are small, new, or direct-to-consumer
+- If uncertain about the domain, still include the brand and set likely_domain to your best guess"""
+
+
+SYNTHESIS_PROMPT = """You are ranking market opportunities from momentum signals.
+
+Category: {category}
+Category-level trend slope (12mo): {slope}
+Competitors discovered: {density} total; {active_density} with meaningful web-momentum signal (low = open opportunity, high = crowded)
+Average opportunity score across candidates: {avg_score}
+
+Candidate brands with evidence:
+{candidates}
+
+CRITICAL: produce a `ranked_opportunities` entry for **EVERY candidate listed** —
+do NOT drop any. If a candidate looks weak, still include it but mark
+`suggested_next_step: "ignore"` and explain why in the thesis. Founders need
+the full landscape, not a curated subset.
+
+For each candidate write a one-sentence thesis explaining what makes it an opportunity (or why it's a reference to learn from), and suggest the next move.
+
+Return JSON:
+{{
+  "category_read": "2-3 sentences on the category as a whole",
+  "ranked_opportunities": [
+    {{
+      "rank": int,
+      "brand": "name",
+      "domain": "domain.com",
+      "opportunity_score": 0-100,
+      "signals": {{
+        "trend_slope": float or null,
+        "trustpilot_reviews": int or null,
+        "trustpilot_avg_stars": float or null,
+        "trustpilot_velocity_slope": float or null,
+        "reddit_mentions": int or null,
+        "domain_age_days": int or null
+      }},
+      "description": "1 sentence — what this business sells or does",
+      "relevance": "direct | adjacent | reference — 'direct' = same product category; 'adjacent' = same buyer/business model but different product; 'reference' = different category but instructive case study",
+      "is_competitor": "true | false — set FALSE when this is NOT a competitor in this market: a wrong-entity match (e.g. a cryptography firm surfaced for a superconductor venture), a different-category business, or a pure reference. Put the reason in the thesis. This is a STRUCTURED verdict — do not bury 'this isn't really a competitor' in the thesis prose while leaving relevance 'direct'.",
+      "tier": "direct | indirect — copied from the homepage relevance filter; null if unscored",
+      "indirect_type": "needs-based | resource-based | null",
+      "thesis": "why this is an opportunity or reference — 1-2 sentences, specific",
+      "suggested_next_step": "decode_taste | monitor | ignore"
+    }}
+  ]
+}}
+
+Use the `tier` and `indirect_type` fields as provided — do not re-classify. If null, classify based on your knowledge.
+
+Scoring guidance:
+- Rising trend slope + young domain + growing Trustpilot velocity = hottest (80-100)
+- Rising trend + established domain = mature reference (50-75)
+- Flat or declining signals = low opportunity (0-40)
+- No Trustpilot + no Reddit = insufficient data (mark thesis accordingly)"""
+
+
+# Megabrands to flag — if discovered, score them down hard. They add noise.
+MEGABRAND_NAMES = {
+    # Candy / mints
+    "mentos", "wrigley", "altoids", "tic tac", "tictac", "ice breakers", "icebreakers",
+    "trident", "extra", "dentyne", "orbit", "stride", "5 gum", "eclipse",
+    # Mega CPG
+    "hershey", "nestle", "mars", "kraft", "kellogg", "kelloggs", "general mills",
+    "coca-cola", "coca cola", "pepsi", "pepsico", "kraft heinz",
+    "procter & gamble", "p&g", "unilever", "j&j", "johnson & johnson",
+    "colgate", "palmolive", "crest", "oral-b", "oral b", "philips sonicare",
+    # Tech mega
+    "apple", "samsung", "google", "amazon", "microsoft", "meta", "facebook",
+    "nike", "adidas", "under armour",
+    # Fashion / beauty mega
+    "loreal", "l'oreal", "estee lauder", "estée lauder", "shiseido",
+}
+
+
+def _density_counts(enriched: list[dict]) -> tuple[int, int]:
+    """B1/D16: competitor_density must count the actual competitor SET discovered
+    (len(enriched)), not web-momentum hits (_score>20). A hyperlocal cafe with 30
+    real OSM-sourced venues and zero web presence used to score density=1 — the
+    viability prompt then faithfully rendered '1 meaningful competitor' against a
+    market with 30 real rivals (R4 criticals: e8baf9dd, 955a4b3b, 94008e7c).
+    Returns (competitor_density, active_signal_density) — the latter preserves the
+    old web-momentum-only count as a distinct, honestly-labeled signal."""
+    active = sum(1 for e in enriched if (e.get("_score") or 0) > 20)
+    return len(enriched), active
+
+
+def _set_canonical_density(result: dict) -> None:
+    """R4 rank 9: the ONE competitor count a report stands behind is the roster it
+    DISPLAYS — ranked_opportunities — not the larger discovered pool. Density counted
+    len(enriched) (~20 on national ventures) while the report listed the LLM's curated
+    7-9, so a buyer read "20 competitors" above a list of 9. Pin density to the
+    displayed roster after synthesis so every surface counts the same set. No-op when
+    no roster exists yet.
+
+    All THREE numbers, not just the count. `active_signal_density` and
+    `avg_opportunity_score` are published beside the density and describe the same set, so
+    a swap that resyncs only the count leaves two numbers measured over a pool the report
+    does not show. Measured on the shipped corpus: 6 of 6 geo-sourced reports stated an
+    active-momentum count over a 26-30 venue OSM roster carrying no signal data at all, and
+    the claim was cited and load-bearing — "Focus initial promotional efforts on the 7
+    competitors with active web-momentum signals" named rivals from the discarded set.
+
+    An unmeasurable number becomes None, never 0. OSM venue records carry no web-momentum
+    data; zero would assert "all 30 were checked and none have momentum", which is the same
+    absence-read-as-measurement error in the other direction. Callers already treat None as
+    "say nothing" (competitive_density_directive omits the parenthetical)."""
+    roster = ((result.get("synthesis") or {}).get("ranked_opportunities")
+              or result.get("ranked_opportunities") or [])
+    if not roster:
+        return
+    result["competitor_density"] = len(roster)
+
+    # Recount only from what the displayed roster itself carries.
+    scored = [o for o in roster if isinstance(o.get("opportunity_score"), (int, float))]
+    result["avg_opportunity_score"] = (
+        round(sum(o["opportunity_score"] for o in scored) / len(scored), 1)
+        if scored else None)
+
+    # "Has signal data" is a property of the record, not of the count: an entry with
+    # `signals: {}` was checked and found quiet, an entry with no `signals` key at all was
+    # never checked. Only the first kind can be counted.
+    observed = [o for o in roster if ("signals" in o or "_score" in o
+                                      or "active_signal" in o)]
+    result["active_signal_density"] = (
+        sum(1 for o in observed
+            if (o.get("signals") or {}) or o.get("active_signal")
+            or (o.get("_score") or 0) > 20)
+        if observed else None)
+
+
+import re as _re
+
+
+def _is_megabrand(brand_name: str) -> bool:
+    """True if the brand is a legacy megabrand the founder doesn't need to learn from."""
+    if not brand_name:
+        return False
+    n = brand_name.lower().strip()
+    if n in MEGABRAND_NAMES:
+        return True
+    # Also check as a WHOLE WORD (e.g. "Ice Breakers Candy" → "ice breakers"). This used to
+    # be a bare substring test guarded by len(mega) > 4, and "orbit" — Wrigley's Orbit gum,
+    # five characters — matched inside "Reflect Orbital". That is the one real company in the
+    # orbital-reflection market: it was demoted 0.4x as a legacy megabrand, fell past the
+    # synthesis prompt truncation, and the report invented three competitors in its place and
+    # advised positioning "against the 3 competitors by delivering physical sunlight
+    # redirection rather than adjacent software" — aimed straight at the real hardware player.
+    #
+    # KNOWN RESIDUAL: this list was assembled for a chewing-gum venture and still contains
+    # generic words ("extra", "eclipse", "stride", "crest"), so "Extra Space Storage" would
+    # still be demoted. Word boundaries fix the measured defect; scoping a CPG denylist to CPG
+    # ventures is a separate change and is deliberately not smuggled in here.
+    for mega in MEGABRAND_NAMES:
+        if _re.search(rf"(?<!\w){_re.escape(mega)}(?!\w)", n):
+            return True
+    return False
+
+
+def _signal_score(signals: dict) -> float:
+    """
+    Composite 0-100 score from free signals. Pure math, no LLM.
+
+    Weighting philosophy: any single signal failing (pytrends rate-limit,
+    Trustpilot 403, Reddit 403) shouldn't collapse the score. We now rely
+    more on the signals that reliably work, and give credit for a brand
+    simply being real+active (validated domain, Wayback, Instagram).
+
+    Weights (max 100):
+      - Validated domain existence:    10 pts (base — brand is real)
+      - Brand Google Trends slope:     0–25 pts (demand signal, when available)
+      - Trustpilot velocity:           0–15 pts (when Trustpilot accessible)
+      - Trustpilot quality penalty:    −10 pts if stars <3
+      - Reddit context mentions:       0–10 pts (when Reddit accessible)
+      - Domain youth (0–5 years):      0–15 pts (opportunity freshness)
+      - Wayback activity:              0–15 pts (site liveness)
+      - Wayback positive velocity:     0–10 pts (growing)
+      - Instagram presence + scale:    0–15 pts (social validation)
+    """
+    score = 0.0
+
+    # Base credit: the brand has a validated, reachable, non-parked domain
+    # This handles the degenerate case where pytrends/Trustpilot/Reddit are all down
+    if signals.get("domain") and signals.get("domain_confidence") in ("high", "medium"):
+        score += 10
+
+    slope = signals.get("trend_slope")
+    if slope is not None:
+        # slope of +1.0 (doubled) → 25 pts; +0.3 → 7 pts; negative → 0
+        score += max(0, min(25, slope * 25))
+
+    tv = signals.get("trustpilot_velocity_slope")
+    if tv is not None:
+        score += max(0, min(15, tv * 15))
+    elif signals.get("trustpilot_reviews") is not None:
+        # on Trustpilot but insufficient history → partial credit
+        score += 5
+
+    stars = signals.get("trustpilot_avg_stars")
+    if stars is not None and stars < 3.0:
+        score -= 10
+
+    rm = signals.get("reddit_mentions") or 0
+    score += min(10, rm * 1.0)
+
+    age = signals.get("domain_age_days")
+    if age is not None:
+        if age < 730:
+            score += 15
+        elif age < 1825:
+            score += 15 * (1 - (age - 730) / (1825 - 730))
+
+    wb_avg = signals.get("wayback_avg_per_month")
+    wb_vel = signals.get("wayback_velocity")
+    if wb_avg is not None:
+        score += min(15, wb_avg * 1.5)
+        if wb_vel is not None and wb_vel > 0:
+            score += min(10, wb_vel * 10)
+
+    # Instagram — now up to 15 pts (was 8), rewards scale more
+    ig_followers = signals.get("ig_followers")
+    if ig_followers is not None:
+        score += 3  # has IG at all
+        if ig_followers >= 10_000:
+            score += 3
+        if ig_followers >= 100_000:
+            score += 4
+        if ig_followers >= 500_000:
+            score += 5
+
+    # Megabrand penalty: if this is a legacy giant, slash the score in half
+    # so genuine challengers rank above them in synthesis output
+    if _is_megabrand(signals.get("brand", "")):
+        score = score * 0.4
+        signals["_is_megabrand"] = True
+
+    return round(max(0.0, min(100.0, score)), 1)
+
+
+def _union_named_competitors(candidates: list[dict], named_competitors) -> list[dict]:
+    """cycle29 + W2-4: operator-named competitors are GUARANTEED to flow through —
+    but a near-duplicate of an existing candidate ('Calm Business' when 'Calm.com'
+    was already surfaced) TAGS the existing entry as operator-seeded instead of
+    appending a second copy of the same company. Returns a new list."""
+    if not named_competitors:
+        return candidates
+    from sources import brand_names_match
+    out = [dict(c) for c in candidates]
+    for nc in named_competitors:
+        nc_clean = (nc or "").strip()
+        if not nc_clean:
+            continue
+        hit = next((c for c in out
+                    if brand_names_match(c.get("name") or "", nc_clean)), None)
+        if hit is not None:
+            hit["_seed"] = "operator"
+            continue
+        out.append({
+            "name": nc_clean,
+            "query_evidence": "named_in_description",
+            "_seed": "operator",
+        })
+    return out
+
+
+def _msd(*args, **kwargs):
+    """Lazy indirection to skills.discovery_multi.multi_strategy_discovery — kept as a
+    module-level function so it's a stable patch seam in tests AND avoids a top-level
+    import cycle (discovery_multi imports from skills.discovery, which pulls tools)."""
+    from skills.discovery_multi import multi_strategy_discovery
+    return multi_strategy_discovery(*args, **kwargs)
+
+
+def _union_candidates(base: list[dict], additions: list[dict],
+                      ceiling: int = 30) -> list[dict]:
+    """Merge two candidate lists, deduplicating by lowercased name. Preserves base order;
+    additions are appended only when their name is not already present and the ceiling
+    has not been reached."""
+    out = list(base)
+    existing = {(c.get("name") or "").strip().lower() for c in out}
+    for c in additions:
+        if len(out) >= ceiling:
+            break
+        name = (c.get("name") or "").strip()
+        if not name or name.lower() in existing:
+            continue
+        out.append(c)
+        existing.add(name.lower())
+    return out
+
+
+def _web_fanout_primary(category: str, geo: str, max_candidates: int) -> list[dict]:
+    """Run multi-strategy web fan-out as the PRIMARY competitor sourcing step (was
+    additive cleanup inside _run_signal_gathering_and_synthesis). Returns a list of
+    candidates — empty when search backends are unavailable, so callers always get a
+    list they can union into. Generous ceiling (max_candidates * 2) because
+    collapse_near_dupes and signal scoring trim the roster afterwards."""
+    try:
+        ev = _msd(description=category, geo=geo, max_candidates=max_candidates)
+        web = (getattr(ev, "payload", None) or {}).get("competitors") or []
+    except Exception as e:
+        log.warning("[discover] web fan-out primary failed (non-fatal): %s", e)
+        return []
+    candidates: list[dict] = []
+    existing: set[str] = set()
+    for c in web[:max_candidates * 2]:
+        name = (c.get("name") or "").strip()
+        if not name or name.lower() in existing:
+            continue
+        candidates.append({
+            "name": name,
+            "domain": c.get("domain"),
+            "query_evidence": "web_search",
+            "_seed": "web_fanout_primary",
+            "relationship": c.get("relationship"),
+        })
+        existing.add(name.lower())
+    log.info("[discover] web fan-out primary: %d candidates", len(candidates))
+    return candidates
+
+
+def _union_web_discovered_competitors(candidates: list[dict], category: str, geo: str,
+                                      max_candidates: int, ceiling: int = 18) -> list[dict]:
+    """Item 2 (scraper audit): ground the competitor SET in LIVE WEB SEARCH, not only
+    LLM recall / Google-Trends extraction. Runs the multi-strategy fan-out
+    (skills.discovery_multi): parallel diverse web searches (category / 'alternatives
+    to X' / 'best <category>' / review-site angles) → dedupe + rank by cross-strategy
+    agreement → direct/indirect classification. Its real, web-sourced competitors are
+    unioned into the candidate list BEFORE signal gathering, so they flow through the
+    same enrichment / ranking / hygiene gates as every other candidate.
+
+    Additive + best-effort: if the search backends are down or return nothing (e.g. no
+    TAVILY_API_KEY/BRAVE_SEARCH_KEY and public SearXNG unreachable), the LLM/Trends
+    candidates are left untouched — the pipeline degrades to the prior behavior rather
+    than failing. Physical-local ventures are additionally covered by the OSM geo path
+    in plan.py, which overrides this set when it fires. Mutates+returns the list."""
+    try:
+        ev = _msd(description=category, geo=geo, max_candidates=max_candidates)
+        web = (getattr(ev, "payload", None) or {}).get("competitors") or []
+    except Exception as e:
+        log.warning("[discover] web fan-out discovery failed (non-fatal): %s", e)
+        return candidates
+    if not web:
+        log.info("[discover] web fan-out returned no competitors (backends down / no keys?)")
+        return candidates
+    existing = {(c.get("name") or "").strip().lower() for c in candidates}
+    added = 0
+    for c in web:
+        if len(candidates) >= ceiling:
+            break
+        name = (c.get("name") or "").strip()
+        if not name or name.lower() in existing:
+            continue
+        candidates.append({
+            "name": name,
+            "domain": c.get("domain"),
+            "query_evidence": "web_search",
+            "_seed": "web_fanout",
+            "relationship": c.get("relationship"),
+        })
+        existing.add(name.lower())
+        added += 1
+    log.info("[discover] web fan-out grounded the set with %d live competitors "
+             "(%d total candidates)", added, len(candidates))
+    return candidates
+
+
+_COMPLETENESS_SYSTEM = (
+    "You audit a competitor list for COMPLETENESS. Given a venture, the competitors "
+    "already found, and fresh web-search results, name REAL competitor companies that "
+    "are clearly MISSING from the list — actual companies/products drawn from the "
+    "search results that genuinely compete, NOT ones already found, NOT review sites / "
+    "publishers (Forbes, G2, Capterra, PCMag…), NOT generic phrases ('Best CRM'). If "
+    "the list already looks complete, return an empty list. Return ONLY JSON: "
+    "{\"missing\": [{\"name\": str, \"domain\": str|null}]}."
+)
+
+
+def _verify_competitor_completeness(candidates: list[dict], category: str, geo: str,
+                                    max_add: int = 6, ceiling: int = 20) -> list[dict]:
+    """Item 4 (scraper audit — the verification loop): a SECOND, adversarial pass that
+    attacks the LLM-recall blind spot the fan-out can still share. It seeds live searches
+    off the CURRENT set ('alternatives to <known competitor>') plus category queries,
+    then asks an LLM — grounded in the fresh search results, not its own memory — which
+    real competitors are MISSING, and unions them in. This is the 'what did we miss?'
+    critic: 'alternatives to X' surfaces rivals that no category query returns.
+
+    Best-effort and additive: any failure (backends down, no LLM) leaves the set
+    untouched. Mutates + returns the list."""
+    try:
+        from tools.scrape import web_search, filter_aggregator_domains
+        existing = [(c.get("name") or "").strip() for c in candidates if c.get("name")]
+        queries = [
+            f"top {category} companies",
+            f"{category} competitors",
+            f"best {category} software",
+            f"{category} market leaders",
+        ]
+        for seed in existing[:4]:  # was [:2] — more seeds surface rivals single-query misses
+            queries.append(f"alternatives to {seed}")
+        hits: list[dict] = []
+        for q in queries[:8]:  # was [:4]
+            ev = web_search(q, max_results=6)
+            rows = (filter_aggregator_domains(ev.payload or []).payload) or []
+            hits.extend(r for r in rows if isinstance(r, dict))
+        if not hits:
+            return candidates
+        lines = [f"- {h.get('title','')} | {(h.get('snippet') or '')[:140]}" for h in hits[:30]]
+        raw = call_json(
+            system=_COMPLETENESS_SYSTEM,
+            user=(f"VENTURE: {category}\n\nALREADY FOUND:\n"
+                  + "\n".join(f"- {n}" for n in existing)
+                  + "\n\nFRESH SEARCH RESULTS:\n" + "\n".join(lines)),
+            max_tokens=500,
+        ) or {}
+    except Exception as e:
+        log.warning("[discover] completeness check failed (non-fatal): %s", e)
+        return candidates
+    existing_lower = {n.lower() for n in existing}
+    added = 0
+    for m in (raw.get("missing") or []):
+        if added >= max_add or len(candidates) >= ceiling:
+            break
+        if not isinstance(m, dict):
+            continue
+        name = (m.get("name") or "").strip()
+        if not name or name.lower() in existing_lower:
+            continue
+        candidates.append({
+            "name": name,
+            "domain": m.get("domain"),
+            "query_evidence": "completeness_check",
+            "_seed": "completeness",
+        })
+        existing_lower.add(name.lower())
+        added += 1
+    if added:
+        log.info("[discover] completeness critic surfaced %d missing competitor(s)", added)
+    return candidates
+
+
+_RELEVANCE_FILTER_SYSTEM = (
+    "You are classifying a competitor list for a startup founder. "
+    "For each candidate, read the homepage snippet and classify it.\n\n"
+    "TIER definitions:\n"
+    "  direct — same product, same customer, same use case as the venture\n"
+    "  indirect — different product, but competes for same customer need or budget\n\n"
+    "INDIRECT_TYPE definitions (only set when tier=indirect):\n"
+    "  needs-based — different product, same underlying customer job-to-be-done "
+    "(e.g. spreadsheets vs project management software)\n"
+    "  resource-based — different product, competes for same budget or customer attention "
+    "(e.g. energy drinks vs premium coffee)\n\n"
+    "RELEVANCE_SCORE 0-100: how strongly this candidate competes within its tier. "
+    "Base this on the PAGE CONTENT, not the brand name alone. "
+    "If no snippet was fetched, score on name + domain only and note it.\n\n"
+    "Return ONLY JSON:\n"
+    "{\"results\": [{\"name\": str, \"tier\": \"direct\"|\"indirect\", "
+    "\"indirect_type\": \"needs-based\"|\"resource-based\"|null, "
+    "\"relevance_score\": int, \"reason\": str}]}\n\n"
+    "Return an entry for EVERY candidate. Never drop any."
+)
+
+
+def _fetch_homepage_snippet(domain: str, max_chars: int = 600) -> str | None:
+    """Fetch a competitor homepage and return a short text snippet for LLM classification.
+
+    Fast path: scrape.http (cached 24h). Slow path: crawl4ai if the page is a JS shell.
+    Returns title + meta description + first max_chars of body text, or None on failure.
+    """
+    import re as _re
+    url = f"https://{domain}"
+    html = ""
+    try:
+        from scrape.http import request as _http
+        resp = _http("GET", url, timeout=8)
+        if resp is not None and getattr(resp, "status_code", 0) == 200:
+            html = resp.text or ""
+    except Exception:
+        html = ""
+
+    from scrape.structured import page_is_substantive
+    if not html or not page_is_substantive(html)[0]:
+        try:
+            from scrape.crawl import fetch_page as _crawl
+            res = _crawl(url)
+            if isinstance(res, dict):
+                html = res.get("markdown") or res.get("html") or html
+        except Exception:
+            pass
+
+    if not html:
+        return None
+
+    # Extract title
+    title_m = _re.search(r"<title[^>]*>(.*?)</title>", html, _re.I | _re.S)
+    title = title_m.group(1).strip()[:120] if title_m else ""
+
+    # Extract meta description (og:description or name="description")
+    meta_m = _re.search(
+        r'<meta[^>]+(?:name=["\']description["\']|property=["\']og:description["\'])[^>]+content=["\']([^"\']{0,300})',
+        html, _re.I
+    ) or _re.search(
+        r'<meta[^>]+content=["\']([^"\']{0,300})[^>]+(?:name=["\']description["\']|property=["\']og:description["\'])',
+        html, _re.I
+    )
+    meta = meta_m.group(1).strip() if meta_m else ""
+
+    # Extract body text — strip tags, collapse whitespace
+    body = _re.sub(r"<[^>]+>", " ", html)
+    body = _re.sub(r"\s+", " ", body).strip()[:max_chars]
+
+    parts = [p for p in [f"Title: {title}", f"Meta: {meta}", f"Content: {body}"] if p.split(": ", 1)[1]]
+    return "\n".join(parts) if parts else None
+
+
+def _filter_by_homepage(
+    candidates: list[dict],
+    venture_description: str,
+    keep_direct: int = 10,
+    keep_indirect: int = 10,
+    indirect_drop_threshold: int = 50,
+) -> tuple[list[dict], list[dict]]:
+    """Fetch each candidate's homepage and classify as direct vs indirect competitor.
+
+    Returns (kept_candidates, dropped_candidates).
+
+    Direct competitors: ranked by relevance score, all kept (up to keep_direct).
+    Indirect competitors: split into needs-based and resource-based, each ranked,
+    those below indirect_drop_threshold are dropped (unless operator-seeded).
+    Unscored candidates (fetch + LLM both failed) are kept and passed through.
+    """
+    from concurrent.futures import as_completed
+    from persistence.ledger import StepPool
+
+    # Resolve domains for candidates that don't have one.
+    #
+    # This was a plain for-loop sitting in front of the pool below: one probe at a time,
+    # each of them a network round trip that can run for most of a minute. MEASURED
+    # 2026-09-22 (job dbda8897, a quiet machine): 71 probe_domain_patterns calls, 7.5
+    # minutes summed, slowest 46.9s, while the tool layer showed under one call in flight
+    # for most of that stretch. The pool is six lines further down; the probes belong in
+    # it. Each probe is an independent lookup of one name, so there is nothing to order.
+    #
+    # The probe runs in the worker and the candidate dict is written here, on one thread,
+    # so no candidate is mutated from two places.
+    needs_domain = [c for c in candidates if not c.get("domain")]
+    if needs_domain:
+        from sources import probe_domain_patterns as _probe
+
+        def _resolve(c: dict) -> tuple[dict, object]:
+            try:
+                return c, _probe(c["name"])
+            except Exception:
+                return c, None
+
+        with StepPool(max_workers=6) as pool:
+            for c, result in pool.map(_resolve, needs_domain):
+                if result and isinstance(result, dict):
+                    c["domain"] = result.get("domain")
+
+    # Fetch snippets in parallel
+    fetchable = [c for c in candidates if c.get("domain")]
+    snippets: dict[str, str | None] = {}
+
+    def _fetch(c: dict) -> tuple[str, str | None]:
+        return c["domain"], _fetch_homepage_snippet(c["domain"])
+
+    with StepPool(max_workers=6) as pool:
+        futures = {pool.submit(_fetch, c): c for c in fetchable}
+        for future in as_completed(futures):
+            try:
+                domain, snippet = future.result()
+                snippets[domain] = snippet
+            except Exception:
+                pass
+
+    for c in candidates:
+        c["_homepage_snippet"] = snippets.get(c.get("domain", ""))
+
+    # Build prompt
+    lines = []
+    for i, c in enumerate(candidates, 1):
+        snippet = c.get("_homepage_snippet") or "(no page content fetched)"
+        lines.append(f"{i}. {c.get('name', '?')} ({c.get('domain', 'unknown domain')})\n{snippet}")
+
+    user_msg = (
+        f"VENTURE: {venture_description}\n\n"
+        f"CANDIDATES:\n\n" + "\n\n".join(lines)
+    )
+
+    try:
+        raw = call_json(system=_RELEVANCE_FILTER_SYSTEM, user=user_msg, max_tokens=1500) or {}
+        results = raw.get("results") or []
+    except Exception as e:
+        log.warning("[discover] relevance filter LLM call failed (non-fatal): %s", e)
+        return candidates, []
+
+    # Merge scores back
+    name_index = {(c.get("name") or "").strip().lower(): c for c in candidates}
+    for entry in results:
+        if not isinstance(entry, dict):
+            continue
+        key = (entry.get("name") or "").strip().lower()
+        c = name_index.get(key)
+        if not c:
+            continue
+        c["_tier"] = entry.get("tier")
+        c["_indirect_type"] = entry.get("indirect_type")
+        c["_relevance_score"] = entry.get("relevance_score", 50)
+        c["_relevance_reason"] = entry.get("reason", "")
+
+    # Split by tier
+    direct = [c for c in candidates if c.get("_tier") == "direct"]
+    indirect = [c for c in candidates if c.get("_tier") == "indirect"]
+    unscored = [c for c in candidates if "_tier" not in c]
+
+    # Direct: sort by relevance, keep all up to cap
+    direct_sorted = sorted(direct, key=lambda c: c.get("_relevance_score", 0), reverse=True)
+    direct_out = direct_sorted[:keep_direct]
+
+    # Indirect: split by type, rank, drop below threshold
+    needs = sorted(
+        [c for c in indirect if c.get("_indirect_type") == "needs-based"],
+        key=lambda c: c.get("_relevance_score", 0), reverse=True,
+    )
+    resource = sorted(
+        [c for c in indirect if c.get("_indirect_type") == "resource-based"],
+        key=lambda c: c.get("_relevance_score", 0), reverse=True,
+    )
+
+    def _above_threshold(c: dict) -> bool:
+        if c.get("_seed") == "operator":
+            return True
+        return (c.get("_relevance_score") or 0) >= indirect_drop_threshold
+
+    needs_kept = [c for c in needs if _above_threshold(c)]
+    needs_dropped = [c for c in needs if not _above_threshold(c)]
+    resource_kept = [c for c in resource if _above_threshold(c)]
+    resource_dropped = [c for c in resource if not _above_threshold(c)]
+
+    indirect_out = (needs_kept + resource_kept)[:keep_indirect]
+    dropped = needs_dropped + resource_dropped
+
+    # Tag dropped candidates so they appear in not_shown_candidates with a reason
+    for c in dropped:
+        c["_filter_dropped"] = True
+        c["_drop_reason"] = (
+            f"indirect/{c.get('_indirect_type', 'unknown')} relevance score "
+            f"{c.get('_relevance_score', 0)} < {indirect_drop_threshold}"
+        )
+
+    kept = direct_out + indirect_out + unscored
+    log.info(
+        "[discover] relevance filter: %d direct, %d indirect kept, %d dropped",
+        len(direct_out), len(indirect_out), len(dropped),
+    )
+    return kept, dropped
+
+
+def _enriched_index(enriched: list) -> tuple[dict, dict]:
+    """domain→record and brand→record lookups, for matching the records the synthesis
+    LLM rebuilt back to the Python-enriched originals they came from."""
+    return ({e.get("domain"): e for e in enriched if e.get("domain")},
+            {e.get("brand"): e for e in enriched if e.get("brand")})
+
+
+def _match_enriched(op: dict, by_domain: dict, by_brand: dict) -> dict | None:
+    """The enriched record an LLM-ranked record refers to. Domain first: brand names
+    collide across ventures (two 'Citizen's), domains don't."""
+    return by_domain.get(op.get("domain")) or by_brand.get(op.get("brand"))
+
+
+def _merge_enrichment_provenance(ranked_ops: list, enriched: list) -> None:
+    """Copy per-record provenance from the enriched candidates into the LLM-ranked
+    records, matched by domain then brand (R4 rank 4).
+
+    The synthesis LLM rebuilds each record, so everything the enrichment learned —
+    HOW the domain was adopted (domain_source/domain_confidence) and the relevance
+    verdict — was dropped on the floor: 251/251 stored ranked records carried none of
+    it, which meant no gate could ever police identity-blind adoption. Mutates
+    ranked_ops in place; records with no enriched counterpart are left alone.
+    """
+    by_domain, by_brand = _enriched_index(enriched)
+    for op in ranked_ops or []:
+        src = _match_enriched(op, by_domain, by_brand)
+        if not src:
+            continue
+        for key in ("off_category", "relevance_score", "domain_source",
+                    "domain_confidence", "_tier", "_indirect_type"):
+            if key in src:
+                op[key] = src[key]
+
+
+# Every signal `_gather_signals` fetches and `_signal_score` reads. These are the values
+# a ranked record is allowed to display — the model may describe them, never restate them.
+_GATHERED_SIGNAL_KEYS = (
+    "trend_slope", "trend_current", "trustpilot_reviews", "trustpilot_avg_stars",
+    "trustpilot_velocity_slope", "trustpilot_monthly", "reddit_mentions",
+    "reddit_raw_mentions", "domain_age_days", "wayback_avg_per_month",
+    "wayback_velocity", "wayback_months_covered", "ig_followers", "ig_posts",
+    "ig_following",
+)
+
+
+def _restore_computed_numbers(ranked_ops: list, enriched: list) -> int:
+    """Put the Python-computed numbers back after synthesis. Returns records corrected.
+
+    Audit critical #1. The synthesis prompt asks the LLM to rebuild each record with an
+    `opportunity_score` and a `signals` block, and nothing copied the Python values back
+    — so the report printed the model's re-scoring of data Python had already scored.
+    Measured on the 16-venture corpus: 73/77 records with a Python counterpart (94%)
+    displayed a different score, the model inflating by a mean of +14.3 points (62 higher
+    vs 11 lower; MetOx 0.0 -> 45, Taskrabbit 25.0 -> 68). In all 10 affected reports the
+    disclosed Python average sat beside displayed scores averaging +16 to +37.5 higher.
+
+    The asymmetry that gave it away: the `except` fallback below already built
+    `opportunity_score` from `_score`. Only the failure path was honest.
+
+    A record with no enriched counterpart keeps its prose but loses any score — an
+    unmatched brand is one Python never measured, so there is no number to show. The
+    template renders a missing score as 'nearby' (geo-sourced neighbours) or an em dash.
+    Mutates in place.
+    """
+    by_domain, by_brand = _enriched_index(enriched)
+    corrected = 0
+    for op in ranked_ops or []:
+        src = _match_enriched(op, by_domain, by_brand)
+        if src is None:
+            # No Python counterpart: strip an unbacked score rather than print it.
+            if op.get("opportunity_score") is not None:
+                op["opportunity_score"] = None
+                corrected += 1
+            continue
+        was = op.get("opportunity_score")
+        now = src.get("_score")
+        op["opportunity_score"] = now
+        signals = dict(op.get("signals") or {})
+        # Re-source every key either side mentions: a signal the gatherer never found is
+        # the model inventing one, so it resolves to None rather than staying a guess.
+        for key in set(signals) | set(_GATHERED_SIGNAL_KEYS):
+            if key in _GATHERED_SIGNAL_KEYS or key in src:
+                signals[key] = src.get(key)
+        op["signals"] = {k: v for k, v in signals.items()
+                         if v is not None or k in (op.get("signals") or {})}
+        if was != now:
+            corrected += 1
+    # REORDER, because the values just changed underneath the order.
+    #
+    # The list arrived sorted by the model using its OWN inflated scores; restoring Python's
+    # composite leaves true values in a stale order. Measured on the corpus: 10/10 reports
+    # then print a score column that is not descending — worst case [0.0, 10.0, 26.0, 0.0],
+    # a top-ranked competitor scoring zero above one scoring 26. A regression introduced by
+    # the restore itself, so it is fixed here rather than left for a renderer to paper over.
+    #
+    # Scoreless records (geo-sourced neighbours) sort LAST and keep their relative order —
+    # they are not competitors that scored badly, they are competitors nobody scored. The
+    # sort is stable, so `_apply_relevance_to_ranking`'s on-category-first pass still holds
+    # afterwards, and whole records move so prose travels with its own numbers.
+    if ranked_ops:
+        ranked_ops.sort(key=lambda o: (o.get("opportunity_score") is None,
+                                       -(o.get("opportunity_score") or 0.0)))
+        for i, op in enumerate(ranked_ops, 1):
+            if "rank" in op:          # persisted, and read by render_md and the one-pager
+                op["rank"] = i
+    if corrected:
+        log.info("[discover] restored Python-computed numbers on %d ranked record(s)",
+                 corrected)
+    return corrected
+
+
+def _apply_relevance_to_ranking(entries: list[dict]) -> list[dict]:
+    """B4/D19: an off-category domain (content relevance below the W2-5 threshold)
+    must never present as a "direct" competitor, and never outrank on-category
+    entries by raw signal score alone (a stale/idle domain with a matching age still
+    isn't a rival). Sorted with on-category entries first (stable by their existing
+    order otherwise); any off_category entry has its relevance forced to "reference".
+    Entries without an off_category field are treated as on-category (no verdict
+    available — do not penalize what wasn't checked)."""
+    out = []
+    for e in entries:
+        e = dict(e)
+        if e.get("off_category"):
+            e["relevance"] = "reference"
+        out.append(e)
+    out.sort(key=lambda e: bool(e.get("off_category")))
+    return out
+
+
+def _partition_reference_cases(entries: list[dict]) -> tuple[list[dict], list[dict]]:
+    """R4 rank 10: split the ranked list into real COMPETITORS and REFERENCE cases.
+
+    B4/D19 relabeled an off-category or non-competitor entry `relevance: "reference"`
+    and sorted it last, but LEFT it in ranked_opportunities — so it still inflated
+    competitor_density, took a dot on the PCA map, and could name a positioning pole.
+    The misattribution verdict ("a cryptography firm, not a superconductor company")
+    lived in the free-text thesis, never a flag. This excludes from the competitor set
+    any entry that is off_category, explicitly flagged `is_competitor: false`, or
+    labelled `relevance: "reference"` (different category, instructive only). An entry
+    with no relevance verdict is KEPT — do not exclude what was never classified.
+    Returns (competitors, reference_cases), preserving order within each."""
+    competitors, references = [], []
+    for e in entries or []:
+        relevance = (e.get("relevance") or "").strip().lower()
+        is_reference = (e.get("off_category")
+                        or e.get("is_competitor") is False
+                        or relevance == "reference")
+        (references if is_reference else competitors).append(e)
+    return competitors, references
+
+
+def _gather_signals(brand: dict, category: str, geo: str) -> dict:
+    """
+    Pull all free signals for one brand. Category is used as disambiguation
+    context — 'David' alone is noise, 'David protein' is signal.
+    """
+    name = brand["name"]
+    out: dict = {"brand": name, "query_evidence": brand.get("query_evidence")}
+
+    # 1. Resolve domain — cascade: (a) validate LLM guess → (b) pattern probe → (c) DDG
+    # Use the most distinctive word in the category ("protein" from "protein
+    # bars"), not the filler tail word ("bars"). Longest word is a decent proxy.
+    context_kw = max(category.split(), key=len) if " " in category else category
+    domain = None
+    domain_confidence = None
+    llm_guess = brand.get("likely_domain")
+    if llm_guess:
+        v = validate_domain(llm_guess, context_keyword=context_kw, brand_name=name,
+                            category=category)  # W2-5: content relevance gate
+        # NEW: reject parked domains
+        if v.get("parked"):
+            log.info(f"  rejected parked domain for {name}: {llm_guess}")
+        elif v.get("ok") and v.get("strong_match"):
+            # W2-3: registrable root, multi-part-TLD aware — the naive last-two-labels
+            # join stored 'co.uk' as a UK brand's domain (then fetched https://co.uk).
+            from sources import root_domain
+            domain = root_domain(v["final_url"])
+            out["domain_source"] = "llm_validated"
+            domain_confidence = "high"
+            # Capture homepage description for the UI
+            if v.get("meta_desc"):
+                out["description"] = v["meta_desc"]
+            elif v.get("title"):
+                out["description"] = v["title"]
+        # B4/D19: retain the W2-5 relevance verdict regardless of strong_match outcome
+        # — validate_domain already computed it, and discarding it let an off-category
+        # domain (e.g. a crypto-SaaS site for a superconductor venture) rank as a
+        # "direct" competitor purely on domain age, with no relevance signal at all.
+        if "relevance" in v or "off_category" in v:
+            out["relevance_score"] = v.get("relevance")
+            out["off_category"] = bool(v.get("off_category"))
+    if not domain:
+        try:
+            p = probe_domain_patterns(name, context_keyword=context_kw)
+            if p and p["confidence"] in ("high", "medium"):
+                domain = p["domain"]
+                out["domain_source"] = "pattern_probe"
+                domain_confidence = p["confidence"]
+                ev = p.get("evidence", {})
+                if ev.get("meta_desc") and "description" not in out:
+                    out["description"] = ev["meta_desc"]
+                elif ev.get("title") and "description" not in out:
+                    out["description"] = ev["title"]
+        except Exception as e:
+            out["pattern_error"] = str(e)
+    if not domain:
+        try:
+            r = resolve_brand_domain(name, context=category)
+            if r:
+                domain = r
+                out["domain_source"] = "ddg"
+                domain_confidence = "medium"
+        except Exception as e:
+            out["ddg_error"] = str(e)
+    # R8 / audit item 7: tiers (b) pattern-probe and (c) DDG resolve a domain WITHOUT ever
+    # checking category relevance — validate_domain is the only tier that computes the
+    # verdict. Measured on the Wave-4-entry corpus: only 168/312 competitor signals carried
+    # an off_category verdict at all, so 46% reached the ranking with NO relevance signal.
+    # _apply_relevance_to_ranking deliberately does not penalize what wasn't checked, so
+    # those ranked as DIRECT competitors on signal score alone — and the pipeline then
+    # scraped the wrong site, wrote a thesis about it, and priced it into the benchmark
+    # (PurpleAir -> purpleair.shop age 7d; Clay -> Clay Labs GTM SaaS). Whichever tier wins,
+    # the SAME verdict runs before the domain is trusted. The re-fetch is served from the
+    # 24h requests-cache the probe just populated, so this costs ~nothing.
+    if domain and "off_category" not in out:
+        try:
+            v2 = validate_domain(domain, context_keyword=context_kw, brand_name=name,
+                                 category=category)
+            if "relevance" in v2 or "off_category" in v2:
+                out["relevance_score"] = v2.get("relevance")
+                out["off_category"] = bool(v2.get("off_category"))
+        except Exception as e:
+            out["relevance_check_error"] = str(e)
+
+    if domain:
+        out["domain"] = domain
+        out["domain_confidence"] = domain_confidence
+
+    # 2. Brand trend slope — use the distinctive word for disambiguation,
+    # but skip it if the brand name already contains it (avoids "david protein protein")
+    if context_kw.lower() in name.lower():
+        trend_query = name.lower()
+    else:
+        trend_query = f"{name} {context_kw}".lower()
+    try:
+        bt = brand_trend_slope(trend_query, geo=geo)
+        out["trend_slope"] = bt.get("slope_12m")
+        out["trend_current"] = bt.get("current")
+        out["trend_query_used"] = trend_query
+    except Exception as e:
+        out["trend_error"] = str(e)
+
+    time.sleep(2.5)  # pytrends rate limit courtesy (429s appear around 1/sec)
+
+    # 3. Trustpilot momentum (only if we resolved a domain)
+    if domain:
+        try:
+            tm = trustpilot_momentum(domain)
+            if tm.get("on_trustpilot"):
+                out["trustpilot_reviews"] = tm.get("review_count_sample")
+                out["trustpilot_avg_stars"] = tm.get("avg_stars")
+                out["trustpilot_velocity_slope"] = tm.get("velocity_slope")
+                out["trustpilot_monthly"] = tm.get("monthly_review_counts")
+        except Exception as e:
+            out["trustpilot_error"] = str(e)
+
+    # 4. Reddit mentions — search with context, filter by subreddit relevance
+    try:
+        posts = reddit_mentions(f'"{name}" {context_kw}', limit=25)
+        # Filter posts whose title or body actually mentions the category word
+        relevant = [
+            p for p in posts
+            if context_kw.lower() in (p.get("title") or "").lower()
+            or context_kw.lower() in (p.get("selftext") or "").lower()
+        ]
+        out["reddit_mentions"] = len(relevant)
+        out["reddit_raw_mentions"] = len(posts)
+        out["reddit_top_subs"] = list({p.get("subreddit") for p in relevant if p.get("subreddit")})[:5]
+    except Exception as e:
+        out["reddit_error"] = str(e)
+
+    # 5. Domain age
+    if domain:
+        try:
+            age = estimate_domain_age_days(domain)
+            out["domain_age_days"] = age
+        except Exception as e:
+            out["age_error"] = str(e)
+
+    # 6. Wayback Machine activity — crawl frequency as liveness/traffic proxy
+    if domain:
+        try:
+            wb = wayback_activity(domain, months_back=12)
+            if "error" not in wb:
+                out["wayback_snapshots_total"] = wb.get("snapshots_total")
+                out["wayback_avg_per_month"] = wb.get("avg_per_month")
+                out["wayback_velocity"] = wb.get("velocity")
+                out["wayback_months_covered"] = wb.get("months_covered")
+        except Exception as e:
+            out["wayback_error"] = str(e)
+
+    # 7. Instagram handle + follower count (free, no auth)
+    if domain:
+        try:
+            ig = instagram_signal(domain)
+            if ig.get("has_instagram"):
+                out["ig_handle"] = ig.get("handle")
+                out["ig_followers"] = ig.get("followers")
+                out["ig_posts"] = ig.get("posts")
+                out["ig_following"] = ig.get("following")
+        except Exception as e:
+            out["ig_error"] = str(e)
+
+    out["_score"] = _signal_score(out)
+    return out
+
+
+def _run_signal_gathering_and_synthesis(result: dict, candidates: list, category: str, geo: str, max_candidates: int) -> dict:
+    """Shared logic for steps 3-5: gather signals, optional Meta, LLM synthesis.
+
+    Web fan-out is no longer called here — it runs as the PRIMARY sourcing step in
+    discover() before candidates reach this function. The completeness critic below
+    is retained as a final safety net: it seeds from the already-known set, so it
+    adds only genuine stragglers, not duplicates."""
+    # Adversarial completeness pass: 'alternatives to <known competitor>' + category
+    # queries → LLM 'what did we miss?' critic grounded in fresh search results.
+    # Runs before enrichment so any additions get the same signal gathering + hygiene.
+    candidates = _verify_competitor_completeness(candidates, category, geo)
+
+    # Homepage relevance filter: fetch each candidate's homepage, classify as direct vs
+    # indirect, drop low-relevance indirect competitors before the expensive enrichment loop.
+    candidates, dropped_by_filter = _filter_by_homepage(
+        candidates,
+        venture_description=category,
+    )
+
+    # 3. Gather signals for each candidate.
+    # Iter 39: parallelize — each candidate's signal gathering is fully
+    # independent (different domains, different APIs). Sequential was
+    # ~30s/candidate × 12 = 6 min; with 4 workers that drops to ~90 sec.
+    # Per-host rate limiting in scrape.http protects against hammering one
+    # host even when concurrency rises.
+    log.info(f"[discover] step 3/5: gather signals for {len(candidates)} brands (parallel)")
+    from concurrent.futures import as_completed
+    from persistence.ledger import StepPool
+
+    def _enrich_one(brand: dict) -> dict:
+        try:
+            sig = _gather_signals(brand, category=category, geo=geo)
+            if not sig.get("description") and brand.get("category_fit"):
+                sig["description"] = brand["category_fit"]
+            return sig
+        except Exception as e:
+            return {"brand": brand.get("name"), "error": str(e)}
+
+    enriched = [None] * len(candidates)  # type: ignore
+    with StepPool(max_workers=4) as pool:
+        future_to_idx = {pool.submit(_enrich_one, b): i for i, b in enumerate(candidates)}
+        done_count = 0
+        for fut in as_completed(future_to_idx):
+            i = future_to_idx[fut]
+            try:
+                enriched[i] = fut.result(timeout=120)
+            except Exception as e:
+                enriched[i] = {"brand": candidates[i].get("name"), "error": f"timeout: {e}"}
+            done_count += 1
+            log.info(f"  [{done_count}/{len(candidates)}] {candidates[i].get('name')} done")
+    # Replace any None (shouldn't happen but defensive)
+    enriched = [e or {"brand": "?", "error": "no result"} for e in enriched]
+    result["steps"]["signals"] = enriched
+
+    # 4. (Optional) Meta Ad Library
+    meta_token = os.environ.get("META_ACCESS_TOKEN", "")
+    if meta_token:
+        log.info("[discover] step 4/5: meta ad library enrichment")
+        ads = []
+        for brand in candidates[:5]:
+            try:
+                ads.extend(meta_ad_library(brand["name"], access_token=meta_token, limit=20))
+            except Exception:
+                pass
+            time.sleep(0.5)
+        result["steps"]["meta_advertisers"] = rank_meta_advertisers(ads)[:10] if ads else []
+    else:
+        log.info("[discover] step 4/5: meta ad library SKIPPED (no token)")
+
+    # 5. LLM synthesis
+    log.info("[discover] step 5/5: llm synthesis")
+    # One website is one company. Enrichment is the FIRST point where a domain exists, so
+    # this is the first point the collapse can happen at all — collapse_near_dupes runs at
+    # candidate time on names alone, and a live run shipped "AetherMirror B2B", "ReflectX
+    # Logistics" and "SunFleet Ops" as three direct competitors, all reflectorbital.com,
+    # all scored 6.3. Collapsing AFTER the sort keeps the strongest record per company, and
+    # doing it here means the density count, the synthesis prompt and the fallback roster all
+    # see companies rather than name variants. The full pre-collapse roster stays in
+    # result["steps"]["signals"] above, so the evidence survives — only the count stops lying.
+    from sources import collapse_by_domain
+    enriched_sorted = collapse_by_domain(
+        sorted(enriched, key=lambda x: x.get("_score", 0), reverse=True))
+    density, active_density = _density_counts(enriched_sorted)
+    avg_score = (
+        round(sum((e.get("_score") or 0) for e in enriched_sorted) / len(enriched_sorted), 1)
+        if enriched_sorted else 0
+    )
+    result["competitor_density"] = density
+    result["active_signal_density"] = active_density
+    result["avg_opportunity_score"] = avg_score
+
+    try:
+        synthesis = call_json(
+            system="You rank DTC market opportunities from momentum signals.",
+            user=SYNTHESIS_PROMPT.format(
+                category=category,
+                slope=result.get("steps", {}).get("trends", {}).get("slope_12m"),
+                density=density,
+                active_density=active_density,
+                avg_score=avg_score,
+                candidates=json.dumps(enriched_sorted, default=str)[:5000],
+            ),
+            max_tokens=6000,  # iter 39: bumped — was dropping 7/8 candidates due to truncation
+        )
+        # call_json returns {"_parse_error": ...} on bad JSON — treat as failure
+        if isinstance(synthesis, dict) and "_parse_error" in synthesis:
+            raise RuntimeError(f"LLM JSON parse failed: {synthesis.get('_parse_error')}")
+        # Also ensure it has the expected structure
+        if not isinstance(synthesis, dict) or "ranked_opportunities" not in synthesis:
+            raise RuntimeError("LLM returned malformed synthesis: missing ranked_opportunities")
+        # B4/D19: the LLM ranks/labels relevance itself and doesn't see off_category —
+        # merge the W2-5 verdict back in by domain (fallback: brand name) so an
+        # off-category domain can never present as "direct" or outrank on-category
+        # entries by raw score.
+        _merge_enrichment_provenance(synthesis.get("ranked_opportunities") or [],
+                                     enriched_sorted)
+        # Audit critical #1: the model narrates, Python scores. Every number the record
+        # displays is re-sourced from the enriched original, so the per-record scores can
+        # no longer contradict `avg_opportunity_score` computed from the same pool above.
+        _restore_computed_numbers(synthesis.get("ranked_opportunities") or [],
+                                  enriched_sorted)
+        synthesis["ranked_opportunities"] = _apply_relevance_to_ranking(
+            synthesis["ranked_opportunities"])
+        # R8 (88b416f6): 20 candidates were scored, 7 shipped, and the other 13 —
+        # including direct managed-RAG rivals (Vectara, Contextual AI, Dust,
+        # Pinecone Assistant) — vanished with no disclosure anywhere. A cut roster
+        # names what it cut.
+        _shown = {str(o.get("brand") or "").lower()
+                  for o in synthesis["ranked_opportunities"]}
+        _refs = {str((o or {}).get("brand") or "").lower()
+                 for o in (synthesis.get("reference_cases") or [])
+                 if isinstance(o, dict)}
+        synthesis["not_shown"] = [
+            {"brand": c.get("brand"), "score": c.get("_score")}
+            for c in enriched_sorted
+            if str(c.get("brand") or "").lower() not in _shown
+            and str(c.get("brand") or "").lower() not in _refs][:20]
+        # Append candidates dropped by the homepage relevance filter
+        for c in dropped_by_filter:
+            synthesis["not_shown"].append({
+                "brand": c.get("name") or c.get("brand"),
+                "score": c.get("_score"),
+                "_drop_reason": c.get("_drop_reason"),
+            })
+        result["synthesis"] = synthesis
+    except Exception as e:
+        log.warning("LLM synthesis failed (%s), building raw ranking", e)
+        raw_ranked = [
+            {
+                "rank": i,
+                "brand": c.get("brand"),
+                "domain": c.get("domain"),
+                "description": c.get("description", ""),
+                "opportunity_score": c.get("_score", 0),
+                "relevance": "direct",
+                "off_category": c.get("off_category", False),
+                "relevance_score": c.get("relevance_score"),
+                "signals": {
+                    k: c.get(k) for k in
+                    ["trend_slope", "trustpilot_reviews", "trustpilot_avg_stars",
+                     "ig_followers", "wayback_avg_per_month", "domain_age_days"]
+                    if c.get(k) is not None
+                },
+                "thesis": "(LLM synthesis unavailable — review raw signals)",
+                "suggested_next_step": "decode_taste" if c.get("_score", 0) > 20 else "investigate_further",
+            }
+            for i, c in enumerate(enriched_sorted, 1)
+        ]
+        result["synthesis"] = {
+            "category_read": f"Category '{category}' with {len(enriched_sorted)} candidates analyzed.",
+            "ranked_opportunities": _apply_relevance_to_ranking(raw_ranked),  # B4/D19
+            "_synthesis_error": str(e),
+        }
+
+    # R4 rank 10: move reference / off-category / non-competitor entries OUT of the
+    # competitor roster into reference_cases, so density and the map (rank 9, both
+    # derived from ranked_opportunities) count only real competitors.
+    syn = result.get("synthesis") or {}
+    comps, refs = _partition_reference_cases(syn.get("ranked_opportunities") or [])
+    syn["ranked_opportunities"] = comps
+    if refs:
+        syn["reference_cases"] = refs
+    # Ensure dropped_by_filter entries appear in not_shown (covers the fallback path too)
+    if dropped_by_filter:
+        existing_not_shown = syn.get("not_shown") or []
+        existing_brands = {str(e.get("brand") or "").lower() for e in existing_not_shown}
+        for c in dropped_by_filter:
+            brand = c.get("name") or c.get("brand")
+            if str(brand or "").lower() not in existing_brands:
+                existing_not_shown.append({
+                    "brand": brand,
+                    "score": c.get("_score"),
+                    "_drop_reason": c.get("_drop_reason"),
+                })
+                existing_brands.add(str(brand or "").lower())
+        syn["not_shown"] = existing_not_shown
+    result["synthesis"] = syn
+
+    _set_canonical_density(result)  # R4 rank 9: density == displayed roster length
+    return result
+
+
+def discover(category: str, geo: str = "US", max_candidates: int = 10, business_model: str = "", named_competitors: list[str] | None = None) -> dict:
+    """Discover the competitor set for a category.
+
+    Sourcing order (web-first, introduced to fix relevance):
+      1. Web fan-out PRIMARY  — multi-strategy parallel search (best X, alternatives to Y,
+                                G2/Capterra angles). Most relevant source; non-fatal if keys absent.
+      2. Google Trends SUPPLEMENT — adds trending brands not already found. Was the primary
+                                    source; demoted because trending ≠ relevant. Non-fatal.
+      3. LLM generation FALLBACK  — only fires when web + trends together yield < 4 brands.
+      4. named_competitors union  — operator-named brands guaranteed to appear regardless.
+      5. Completeness critic      — adversarial 'what did we miss?' pass (in signal step).
+    """
+    log.info(f"[discover] category={category!r} geo={geo}")
+    result: dict = {"category": category, "geo": geo, "steps": {}}
+
+    # --- Step 1: Web fan-out PRIMARY ---
+    log.info("[discover] step 1/5: web fan-out (primary source)")
+    candidates = _web_fanout_primary(category, geo, max_candidates)
+
+    # --- Step 2: Google Trends SUPPLEMENT ---
+    # Non-fatal: if Trends fails or returns nothing, we keep whatever the web fan-out gave us.
+    log.info("[discover] step 2/5: google trends supplement")
+    try:
+        trends = google_trends_rising(category, geo=geo)
+        result["steps"]["trends"] = trends
+        rising = trends.get("rising_queries", [])
+        if not isinstance(rising, list):
+            rising = []
+        if rising:
+            queries_str = "\n".join(
+                f'- "{q.get("query")}" (+{q.get("value")}%)' for q in rising[:30]
+            )
+            try:
+                brands_resp = call_json(
+                    system="You extract brand names from search trend data.",
+                    user=EXTRACT_BRANDS_PROMPT.format(category=category, queries=queries_str),
+                    max_tokens=1500,
+                )
+                trend_brands = brands_resp.get("brands", [])
+                pre = len(candidates)
+                candidates = _union_candidates(candidates, trend_brands, ceiling=max_candidates * 2)
+                log.info("[discover] trends supplement added %d brand(s)", len(candidates) - pre)
+                result["brand_extraction_method"] = (
+                    "web_primary+trends" if candidates else "trends_only"
+                )
+            except Exception as e:
+                log.warning("[discover] trends brand extraction failed (non-fatal): %s", e)
+
+            # Rule-based fallback if LLM extraction failed and trends returned queries
+            if len(candidates) == 0:
+                cat_words = set(category.lower().split()) | {
+                    "best", "review", "reviews", "healthy", "the", "are", "where",
+                    "to", "buy", "how", "why", "is", "new", "top", "for", "vs",
+                    "good", "bad", "cheap", "online", "near", "free", "does", "what",
+                    "can", "should", "which", "your", "our", "with", "without",
+                    "natural", "organic", "premium", "safe", "effective",
+                    "app", "apps", "tracking", "tracker", "device", "tool", "tools",
+                    "supplement", "supplements", "vitamin", "vitamins", "pill", "pills",
+                    "capsule", "capsules", "powder", "gummy", "gummies", "cream",
+                    "serum", "oil", "spray", "mask", "patch", "tape",
+                    "melatonin", "magnesium", "theanine", "ashwagandha", "valerian",
+                    "zinc", "iron", "calcium", "collagen", "retinol", "niacinamide",
+                    "caffeine", "creatine", "protein", "fiber", "probiotic",
+                }
+                seen: set[str] = set()
+                rule_candidates: list[dict] = []
+                for q in rising:
+                    words = [w for w in re.findall(r"[a-z]+", q.get("query", "").lower())
+                             if w not in cat_words and len(w) > 2]
+                    if words:
+                        name = " ".join(words[:2]).title()
+                        if name not in seen:
+                            seen.add(name)
+                            rule_candidates.append({"name": name, "query_evidence": q.get("query")})
+                    if len(rule_candidates) >= max_candidates:
+                        break
+                candidates = _union_candidates(candidates, rule_candidates, ceiling=max_candidates * 2)
+                result["brand_extraction_method"] = "rule_based"
+    except Exception as e:
+        result["steps"]["trends"] = {"error": str(e)}
+        log.warning("[discover] google trends failed (non-fatal): %s", e)
+
+    # --- Step 3: LLM generation FALLBACK (web + trends both thin) ---
+    _MIN_BEFORE_LLM = 4
+    if len(candidates) < _MIN_BEFORE_LLM:
+        log.info("[discover] step 3/5: LLM brand generation (only %d candidates so far)",
+                 len(candidates))
+        try:
+            prompt = (LLM_BRAND_GENERATION_PROMPT_B2B
+                      if "b2b" in (business_model or "").lower()
+                      else LLM_BRAND_GENERATION_PROMPT)
+            llm_brands = call_json(
+                system="You are a DTC market research analyst with deep knowledge of emerging consumer brands.",
+                user=prompt.format(category=category, geo=geo),
+                max_tokens=2000,
+            )
+            llm_candidates = llm_brands.get("brands", [])
+            candidates = _union_candidates(candidates, llm_candidates, ceiling=max_candidates * 2)
+            if not result.get("brand_extraction_method"):
+                result["brand_extraction_method"] = "llm_generated"
+            result["steps"]["trends"] = result["steps"].get("trends") or {
+                "category": category, "geo": geo, "slope_12m": None,
+                "rising_queries": [],
+                "note": "Google Trends unavailable — brands generated by LLM",
+            }
+        except Exception as e:
+            log.warning("[discover] LLM brand generation failed: %s", e)
+
+    if not candidates:
+        result["error"] = (
+            "Could not find competitors — web search unavailable, "
+            "Google Trends is rate-limited, and LLM fallback failed."
+        )
+        return result
+
+    # --- Step 4: Collapse near-dupes + named competitors ---
+    # W2-4: collapse near-duplicate candidates ('Calm' / 'Calm App') before the
+    # operator union so enrichment never runs twice for one company.
+    from sources import collapse_near_dupes
+    candidates = collapse_near_dupes(candidates)
+
+    # cycle29: operator-named competitors are GUARANTEED to flow through.
+    if named_competitors:
+        candidates = _union_named_competitors(candidates, named_competitors)
+        max_candidates = max(max_candidates, len(candidates))
+        log.info("  → seeded %d operator-named competitors; total: %d",
+                 len(named_competitors), len(candidates))
+
+    log.info("  → %d candidates before signal gathering: %s",
+             len(candidates), [c.get("name") for c in candidates])
+
+    # --- Steps 3-5: Signal gathering, Meta enrichment, LLM synthesis ---
+    return _run_signal_gathering_and_synthesis(result, candidates, category, geo, max_candidates)
+
+
+if __name__ == "__main__":
+    import sys
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    if len(sys.argv) < 2:
+        log.info("usage: python discover.py <category> [geo]")
+        sys.exit(1)
+    cat = sys.argv[1]
+    geo = sys.argv[2] if len(sys.argv) > 2 else "US"
+    out = discover(cat, geo=geo)
+    print(json.dumps(out, indent=2, default=str))

@@ -1,0 +1,75 @@
+{
+  "candidate": {
+    "version": "market_research.business/2",
+    "company_alias": "Company A",
+    "nodes": [
+      {
+        "id": "company",
+        "kind": "company",
+        "label": "Company A",
+        "parent_id": null,
+        "statement_ids": []
+      }
+    ],
+    "facts": [],
+    "relationships": [],
+    "gaps": []
+  },
+  "accepted": {
+    "version": "market_research.business/2",
+    "company_alias": "Company A",
+    "nodes": [
+      {
+        "id": "company",
+        "kind": "company",
+        "label": "Company A",
+        "parent_id": null,
+        "statement_ids": []
+      }
+    ],
+    "facts": [],
+    "relationships": [],
+    "gaps": []
+  },
+  "quarantined": [],
+  "support_review": {
+    "status": "complete",
+    "assessments": [],
+    "error": null
+  },
+  "inferred_ids": [],
+  "expansion_complete": false,
+  "pending": [
+    "company"
+  ],
+  "stop_reason": "expansion_failed",
+  "calls": 2,
+  "history": [
+    {
+      "call": 1,
+      "stage": "expansion",
+      "target_id": "company",
+      "request_digest": "e39d32b0e770d6d5f9dfced6f6bcf4a94e3d16aabcc8d49a2384db51dcd8cf15",
+      "accepted": false,
+      "error": "ValueError: model call failed",
+      "revision_before": 0,
+      "revision_after": 0
+    },
+    {
+      "call": 2,
+      "stage": "support_review",
+      "target_id": null,
+      "request_digest": "e26ffd84fe6c3d64d82b733bda4d0a3971d065b4c0f6bc3e9bb50590fbe1ec53",
+      "accepted": true,
+      "error": null,
+      "revision_before": 0,
+      "revision_after": 0
+    }
+  ],
+  "revision": 0,
+  "limits": {
+    "max_calls": 6,
+    "max_depth": 6
+  },
+  "input_fingerprint": "3c07df8a74cfbcc4862e3db63e623a7a0a0c382fd1b2d7d5be9f33bcf5eb4585"
+}

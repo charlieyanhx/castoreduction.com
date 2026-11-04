@@ -1,0 +1,335 @@
+{
+  "schema_version": "market_research.business_readiness/1",
+  "support_review": {
+    "status": "complete"
+  },
+  "expansion_complete": true,
+  "blocked_reason": null,
+  "sections": {
+    "summary": {
+      "status": "partial_input",
+      "available_requirement_ids": [
+        "summary.offering"
+      ],
+      "missing_requirements": [
+        {
+          "id": "summary.actor",
+          "question": "Who is served by each offering?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "summary.monetization",
+          "question": "How does each offering generate revenue?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "input_gap.g_higher_tier_name",
+          "question": "What is the higher-tier plan, and how does it differ from other plans?",
+          "resolution": "customer_input"
+        }
+      ],
+      "node_ids": [
+        "advertising_offerings",
+        "apps_offering",
+        "b2b_selling_feature",
+        "commerce_platform",
+        "domain_registration",
+        "higher_tier_plan",
+        "lending_services",
+        "merchant_payment_service",
+        "platform_subscription_plans",
+        "pos_hardware_sales",
+        "premium_pos_subscription",
+        "shipping_label_sales",
+        "themes_offering"
+      ],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "target_personas": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "target_personas.actor",
+          "question": "Which customers are served by each offering?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "target_personas.need",
+          "question": "What need, problem, or workflow does each customer have?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "target_personas.buyer",
+          "question": "Who buys, and what buying trigger or purchasing constraint applies?",
+          "resolution": "external_research"
+        },
+        {
+          "id": "input_gap.g_merchant_needs",
+          "question": "What needs, problems, buying triggers or purchasing constraints do merchants have?",
+          "resolution": "customer_input"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "multi_perspective": {
+      "status": "partial_input",
+      "available_requirement_ids": [
+        "multi_perspective.roles"
+      ],
+      "missing_requirements": [
+        {
+          "id": "multi_perspective.concerns",
+          "question": "What concerns are stated for those stakeholders?",
+          "resolution": "external_research"
+        },
+        {
+          "id": "input_gap.g_merchant_needs",
+          "question": "What needs, problems, buying triggers or purchasing constraints do merchants have?",
+          "resolution": "customer_input"
+        }
+      ],
+      "node_ids": [
+        "b2b_selling_feature",
+        "commerce_platform",
+        "merchants",
+        "platform_subscription_plans"
+      ],
+      "fact_ids": [
+        "f_merchants_role"
+      ],
+      "relationship_ids": [
+        "r_b2b_serves_merchants",
+        "r_plans_serve_merchants",
+        "r_platform_serves_merchants"
+      ],
+      "ready_for_research": true,
+      "report_ready": false
+    },
+    "market_size": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "market_size.scope",
+          "question": "What geography, analysis period, and counting unit define each market?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "market_size.base",
+          "question": "What population count or annual spending is available for that exact market scope?",
+          "resolution": "external_research"
+        },
+        {
+          "id": "input_gap.g_scope",
+          "question": "What geography, analysis period and counting unit define the market and revenue forecast?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "input_gap.g_adoption",
+          "question": "How many merchants use the platform, or what adoption rate applies, for the forecast scope?",
+          "resolution": "customer_input"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "revenue": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "revenue.monetization",
+          "question": "Which revenue streams belong to each offering?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "revenue.scope",
+          "question": "What geography, forecast period, and customer unit define the forecast?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "revenue.pricing",
+          "question": "What numeric unit price, charging unit, currency, and billing period apply?",
+          "resolution": "external_research"
+        },
+        {
+          "id": "revenue.adoption",
+          "question": "What numeric adoption rate or customer count applies to the forecast scope and period?",
+          "resolution": "external_research"
+        },
+        {
+          "id": "input_gap.g_subsol_payer",
+          "question": "Which actor pays the subscription solutions fees?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "input_gap.g_mersol_payer",
+          "question": "Which actor pays each merchant solutions fee?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "input_gap.g_plan_pricing",
+          "question": "What unit price, charging unit, currency and billing period apply to each subscription plan?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "input_gap.g_payment_pricing",
+          "question": "What fee rates and charging units apply to payment-processing and currency-conversion fees?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "input_gap.g_scope",
+          "question": "What geography, analysis period and counting unit define the market and revenue forecast?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "input_gap.g_adoption",
+          "question": "How many merchants use the platform, or what adoption rate applies, for the forecast scope?",
+          "resolution": "customer_input"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "differentiators": {
+      "status": "partial_input",
+      "available_requirement_ids": [
+        "differentiators.offering"
+      ],
+      "missing_requirements": [
+        {
+          "id": "differentiators.alternatives",
+          "question": "What named alternatives or status quo compete with each offering?",
+          "resolution": "external_research"
+        },
+        {
+          "id": "differentiators.comparison",
+          "question": "What concrete comparison and basis support each claimed advantage?",
+          "resolution": "external_research"
+        },
+        {
+          "id": "input_gap.g_competitors",
+          "question": "Which direct competitors and indirect alternatives compete with the commerce platform?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "input_gap.g_higher_tier_name",
+          "question": "What is the higher-tier plan, and how does it differ from other plans?",
+          "resolution": "customer_input"
+        }
+      ],
+      "node_ids": [
+        "advertising_offerings",
+        "apps_offering",
+        "b2b_selling_feature",
+        "commerce_platform",
+        "domain_registration",
+        "higher_tier_plan",
+        "lending_services",
+        "merchant_payment_service",
+        "platform_subscription_plans",
+        "pos_hardware_sales",
+        "premium_pos_subscription",
+        "shipping_label_sales",
+        "themes_offering"
+      ],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": true,
+      "report_ready": false
+    },
+    "competitive_landscape": {
+      "status": "partial_input",
+      "available_requirement_ids": [
+        "competitive_landscape.offering"
+      ],
+      "missing_requirements": [
+        {
+          "id": "competitive_landscape.scope",
+          "question": "What geography defines the competitive search?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "competitive_landscape.competitors",
+          "question": "Which direct competitors and indirect alternatives are stated?",
+          "resolution": "external_research"
+        },
+        {
+          "id": "input_gap.g_scope",
+          "question": "What geography, analysis period and counting unit define the market and revenue forecast?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "input_gap.g_competitors",
+          "question": "Which direct competitors and indirect alternatives compete with the commerce platform?",
+          "resolution": "customer_input"
+        }
+      ],
+      "node_ids": [
+        "advertising_offerings",
+        "apps_offering",
+        "b2b_selling_feature",
+        "commerce_platform",
+        "domain_registration",
+        "higher_tier_plan",
+        "lending_services",
+        "merchant_payment_service",
+        "platform_subscription_plans",
+        "pos_hardware_sales",
+        "premium_pos_subscription",
+        "shipping_label_sales",
+        "themes_offering"
+      ],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "customer_voice": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "customer_voice.actor",
+          "question": "Which customer group should be heard?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "customer_voice.observations",
+          "question": "What observed customer quotations include participant context and an observation method?",
+          "resolution": "external_research"
+        },
+        {
+          "id": "input_gap.g_customer_voice",
+          "question": "What observed merchant quotations, with participant context and observation method, are available?",
+          "resolution": "customer_input"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    }
+  },
+  "report_ready": false,
+  "limitations": [
+    "Coverage describes accepted customer input, not externally verified evidence.",
+    "Sufficient input still requires research, calculation, review, and report writing.",
+    "Inferred and quarantined items never satisfy required input coverage."
+  ]
+}

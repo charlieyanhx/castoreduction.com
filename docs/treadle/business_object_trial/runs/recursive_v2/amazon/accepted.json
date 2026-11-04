@@ -1,0 +1,16 @@
+{
+  "version": "market_research.business/2",
+  "company_alias": "Company A",
+  "nodes": [
+    {
+      "id": "company",
+      "kind": "company",
+      "label": "Company A",
+      "parent_id": null,
+      "statement_ids": []
+    }
+  ],
+  "facts": [],
+  "relationships": [],
+  "gaps": []
+}

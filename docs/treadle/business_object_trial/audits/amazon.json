@@ -1,0 +1,230 @@
+{
+  "company": "Amazon",
+  "summary": {
+    "evaluated_output": "docs/treadle/business_object_trial/runs/normalized/amazon/object.json",
+    "basis": "Only input_statements; sources and company familiarity were not used. Normalized output removes only the complete outer Markdown fence; raw output remains unchanged.",
+    "rubric": "Pass means the stated distinction/mechanism is retained. Partial means some required graph nesting or connection is absent although labels preserve part or all of the fact. Fail means the required fact is absent or contradicted. Exact check counts are not a factual-accuracy score.",
+    "check_counts": {
+      "total": 7,
+      "pass": 4,
+      "partial": 3,
+      "fail": 0
+    },
+    "inspection": {
+      "node_count": 34,
+      "relationship_count": 26,
+      "node_ids_reviewed": [
+        "company",
+        "reported_segments_group",
+        "seg_north_america",
+        "seg_international",
+        "seg_cloud_services",
+        "cloud_computing_storage_database_services",
+        "retail_and_seller_offerings_group",
+        "online_stores",
+        "physical_stores",
+        "first_party_product_sales",
+        "seller_programs",
+        "seller_fulfillment_shipping_services",
+        "advertising_services",
+        "individual_digital_media_purchases",
+        "subscription_offerings_group",
+        "consumer_membership",
+        "membership_entertainment_access",
+        "digital_media_subscriptions",
+        "actors_group",
+        "consumers",
+        "third_party_sellers",
+        "advertising_customers",
+        "developers_and_enterprises",
+        "capabilities_group",
+        "shared_technology_infrastructure",
+        "revenue_streams_group",
+        "online_store_sales_revenue",
+        "physical_store_sales_revenue",
+        "seller_services_revenue",
+        "advertising_sales_revenue",
+        "subscription_services_revenue",
+        "cloud_services_sales_revenue",
+        "metrics_group",
+        "paid_units_metric"
+      ],
+      "relationship_positions_reviewed": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26
+      ],
+      "relationship_position_basis": "One-based order in normalized object.json"
+    },
+    "missing_details_review": {
+      "total_questions": 14,
+      "focused_report_gaps": [
+        "Market size, competitors, customer feedback and differentiators are correctly marked as missing.",
+        "Seller commission basis, pricing, segment/offering revenue, subscription buyers and cloud customer profiles are relevant to the fixed revenue and persona fields."
+      ],
+      "secondary_or_overbroad": [
+        "q_internal_infra_allocation asks cost and capacity allocation without showing why that is required for the fixed multi_perspective section.",
+        "q_paid_units_values requests company activity, which is not itself a market-size estimate; q_international_scope is contextual and requires a defined market-sizing use.",
+        "q_cloud_segment_financials adds operating income although the fixed section is revenue."
+      ],
+      "remaining_gaps": [
+        "Market-size questions lack a requested date, geography, currency, method and evidence source.",
+        "Revenue questions do not systematically request all revenue-category amounts for the same period.",
+        "The multi_perspective projection asks only infrastructure allocation, leaving participant motivations, constraints and outcomes unspecified.",
+        "Generic feedback questions do not request attributable quotations, dates or collection method."
+      ]
+    }
+  },
+  "checks": [
+    {
+      "id": "A-C01",
+      "description": "Separate regional segment classifications from offering hierarchy.",
+      "status": "pass",
+      "finding": "Regional reported segments remain separate from the store, seller, advertising and subscription offering groups; labels preserve their multi-offering scope.",
+      "node_ids": [
+        "seg_north_america",
+        "seg_international",
+        "retail_and_seller_offerings_group",
+        "subscription_offerings_group"
+      ]
+    },
+    {
+      "id": "A-C02",
+      "description": "Distinguish consumers, third-party sellers and advertising customers.",
+      "status": "pass",
+      "finding": "Consumers, seller-service customers and advertising customers are distinct nodes; advertising customer types are retained, and seller-program label retains not-seller-of-record qualification.",
+      "node_ids": [
+        "consumers",
+        "third_party_sellers",
+        "advertising_customers",
+        "seller_programs"
+      ]
+    },
+    {
+      "id": "A-C03",
+      "description": "Nest computing, storage and databases under cloud services.",
+      "status": "partial",
+      "finding": "Computing, storage and database services are preserved as one combined offering under the cloud segment. There are no separate service nodes under a cloud-services offering, so the requested nested distinctions cannot be addressed individually.",
+      "node_ids": [
+        "seg_cloud_services",
+        "cloud_computing_storage_database_services"
+      ]
+    },
+    {
+      "id": "A-C04",
+      "description": "Represent shared infrastructure serving internal operations and cloud customers.",
+      "status": "partial",
+      "finding": "One shared infrastructure node and a cloud-service uses edge are present. Internal use appears only in the infrastructure label; no internal-operations or company dependency links to the same resource.",
+      "node_ids": [
+        "cloud_computing_storage_database_services",
+        "shared_technology_infrastructure",
+        "company"
+      ]
+    },
+    {
+      "id": "A-C05",
+      "description": "Connect membership to shipping and entertainment benefits.",
+      "status": "partial",
+      "finding": "Membership has an entertainment child and both benefits are named in its label. Shipping benefits have no node or relationship, so only the entertainment connection is explicit in the graph.",
+      "node_ids": [
+        "consumer_membership",
+        "membership_entertainment_access"
+      ]
+    },
+    {
+      "id": "A-C06",
+      "description": "Keep seller fees and paid-unit metrics distinct.",
+      "status": "pass",
+      "finding": "Commissions plus fulfillment and shipping fees are retained in a revenue node. Paid units remain a separate item-count metric explicitly distinct from net sales, covering company and third-party items.",
+      "node_ids": [
+        "seller_services_revenue",
+        "paid_units_metric",
+        "first_party_product_sales",
+        "seller_programs"
+      ]
+    },
+    {
+      "id": "A-C07",
+      "description": "Preserve transaction-versus-subscription and order-channel classification rules.",
+      "status": "pass",
+      "finding": "Individual media purchases generate online-store sales, ongoing rights generate subscriptions, cloud subscriptions are excluded, online pickup remains online sales and in-store selection remains physical-store sales.",
+      "node_ids": [
+        "individual_digital_media_purchases",
+        "digital_media_subscriptions",
+        "subscription_services_revenue",
+        "online_store_sales_revenue",
+        "physical_store_sales_revenue"
+      ]
+    }
+  ],
+  "unsupported_claims": [],
+  "omissions": [
+    {
+      "finding": "No separately addressable computing, storage and database offering nodes; their names are retained in one leaf.",
+      "node_ids": [
+        "cloud_computing_storage_database_services"
+      ],
+      "statement_ids": [
+        "A-S05"
+      ],
+      "relationships": []
+    },
+    {
+      "finding": "No explicit company/internal-operation relationship to shared infrastructure; internal use is retained only in the label.",
+      "node_ids": [
+        "shared_technology_infrastructure",
+        "company"
+      ],
+      "statement_ids": [
+        "A-S05"
+      ],
+      "relationships": []
+    },
+    {
+      "finding": "No separately addressable membership shipping benefit; the fact is retained in the membership label.",
+      "node_ids": [
+        "consumer_membership"
+      ],
+      "statement_ids": [
+        "A-S06"
+      ],
+      "relationships": []
+    }
+  ],
+  "schema_limitations": [
+    "All 34 nodes and 26 typed edges were inspected against the supplied statements. No unambiguous unsupported node label or reversed edge was found. This is a manual grounding judgment, not a result of shape validation.",
+    "The edge seller_programs -> physical_stores (uses) specializes the broad input phrase \"our stores\" to a particular channel. A-S03/A-S04 make that plausible but do not independently specify seller-program availability by channel; downstream reports should not expand it into a geographic or contractual coverage claim.",
+    "paid_units_metric -> seller_programs (measures) uses a broad program as a proxy for third-party item sales. The label correctly limits the quantity to items, but the schema has no measurement-subject or inclusion field.",
+    "Regional offering coverage, cloud-subscription exclusion and channel classification rules are in labels rather than typed classification/qualifier fields. A consumer that ignores labels can misclassify or double count.",
+    "consumers -> subscription_services_revenue (pays) identifies a payer for part of the combined category; it does not establish that the same consumers buy every digital subscription. The object itself asks who buys digital subscriptions.",
+    "No shared infrastructure node is duplicated. Seller and advertising-customer role nodes may overlap in actual participants; their distinct roles are supported and should not be merged solely because sellers appear in both.",
+    "Projected capabilities and membership benefits are not comparative-advantage evidence; paid-unit counts, even if later supplied, are company activity rather than addressable market size."
+  ],
+  "report_readiness": {
+    "ready": false,
+    "reason": "Not ready for a full eight-section report. The 216-word fixture supports a qualitative business map and revenue mechanisms, but contains no revenue totals, market estimates, competitors, comparative evidence or customer quotations. Missing-details questions identify several of these gaps; projection completeness is not evidence completeness."
+  }
+}

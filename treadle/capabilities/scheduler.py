@@ -1,0 +1,180 @@
+"""
+capabilities/scheduler.py — concurrency-classified tool executor (L4, plan item 4.1).
+
+Enforces the single rule that makes parallel execution safe:
+  - parallel_safe tools  → run concurrently, pool capped at MAX_PARALLEL (10)
+  - mutating tools       → run serially, one at a time
+
+This is a mechanism, not judgment. The caller decides which tools to run and
+what concurrency class they are. The scheduler decides only HOW to execute them.
+
+Usage:
+    from treadle.capabilities.scheduler import Scheduler
+
+    scheduler = Scheduler()
+    results = scheduler.run([
+        {"fn": web_search,      "concurrency": "parallel_safe", "kwargs": {"query": "..."}},
+        {"fn": write_ledger,    "concurrency": "mutating",      "kwargs": {"data": ...}},
+    ])
+    # results is a list of Evidence, in the same order as the input list
+
+Connection to the rest of the codebase (Wave 5):
+    plan.py / orchestrator/run.py will eventually replace ad-hoc ThreadPoolExecutors
+    with Scheduler.run(). That wiring happens when @tool(concurrency=) lands on
+    tools/registry.py — not yet. For now this module is built and tested in isolation.
+
+NO PROCESS-WIDE CEILING HERE — it was tried, and it DEADLOCKS.
+    Per-scheduler widths genuinely do not bound nesting: customer-voice fans out
+    inside signal-gathering, so two 10-wide schedulers put 100 requests in flight.
+    The obvious fix — every worker holding one shared BoundedSemaphore — wedges on
+    the first run: an OUTER task holds a slot for its whole duration while its INNER
+    tasks queue for slots that only free when the outer finishes. (The test written
+    to catch that hung the suite.) A slot must be held by work waiting on a HOST, not
+    on other work, so the global ceiling belongs at the tool boundary —
+    capabilities/gateway.py, through which every external call already passes.
+    Left undone rather than left deadlocking.
+"""
+from __future__ import annotations
+
+import time
+from concurrent.futures import (FIRST_COMPLETED, ThreadPoolExecutor,
+                                as_completed, wait)
+from typing import Callable
+
+# core, not tools.registry: the latter lives inside the `tools` package, so
+# importing it executes tools/__init__.py and loads all 43 domain tool modules.
+from treadle.core import Evidence
+
+# One implementation, shared by both doors into tool execution.
+from .safe_call import safe_call as _safe_call
+
+MAX_PARALLEL = 10
+
+
+
+
+def _call_with_timeout(fn: Callable, kwargs: dict, timeout: float | None) -> Evidence:
+    """_safe_call, but the BATCH stops waiting after `timeout` seconds.
+
+    Python cannot interrupt the worker thread, so the point is only that the batch is
+    released — hence shutdown(wait=False). A `with` block here would JOIN the thread
+    and make the timeout do nothing at all, which is exactly the bug the first draft
+    of this shipped with (the test file ran in 5.4s instead of 0.45s).
+    """
+    if timeout is None:
+        return _safe_call(fn, kwargs)
+    solo = ThreadPoolExecutor(max_workers=1)
+    try:
+        fut = solo.submit(_safe_call, fn, kwargs)
+        done, _ = wait([fut], timeout=timeout, return_when=FIRST_COMPLETED)
+        if not done:
+            return Evidence(source=getattr(fn, "__name__", "unknown"),
+                            category="unknown", count=0, payload=None,
+                            fetched_at=time.time(),
+                            error=f"timeout after {timeout}s")
+        return fut.result()
+    finally:
+        solo.shutdown(wait=False)
+
+
+class Scheduler:
+    """Executes a batch of tool calls with concurrency classification.
+
+    Each item in the tools list is a dict:
+        {
+            "fn":          callable,        # the tool function
+            "concurrency": str,             # "parallel_safe" | "mutating"
+            "kwargs":      dict,            # arguments to pass to fn
+            "timeout":     float | None,    # optional; a hung call must not stall the batch
+        }
+
+    Returns a list of Evidence in the same order as the input list.
+    """
+
+    def __init__(self, max_parallel: int = MAX_PARALLEL) -> None:
+        self.max_parallel = max_parallel
+
+    def run(self, tools: list[dict]) -> list[Evidence]:
+        """Execute all tools, respecting their concurrency class.
+
+        parallel_safe tools are submitted to a thread pool (capped at max_parallel).
+        mutating tools run serially after the parallel batch completes.
+
+        Result order matches input order regardless of execution order.
+        """
+        results: list[Evidence | None] = [None] * len(tools)
+
+        parallel_jobs: list[tuple[int, Callable, dict]] = []
+        mutating_jobs: list[tuple[int, Callable, dict]] = []
+
+        for i, spec in enumerate(tools):
+            fn = spec["fn"]
+            kwargs = spec.get("kwargs") or {}
+            job = (i, fn, kwargs, spec.get("timeout"))
+            if spec.get("concurrency") == "parallel_safe":
+                parallel_jobs.append(job)
+            else:
+                mutating_jobs.append(job)
+
+        # --- parallel_safe: thread pool capped at max_parallel ---
+        if parallel_jobs:
+            with ThreadPoolExecutor(max_workers=self.max_parallel) as pool:
+                future_to_job = {
+                    pool.submit(_call_with_timeout, fn, kwargs, timeout): (i, fn)
+                    for i, fn, kwargs, timeout in parallel_jobs
+                }
+                for future in as_completed(future_to_job):
+                    i, fn = future_to_job[future]
+                    try:
+                        results[i] = future.result()
+                    except Exception as e:
+                        # _safe_call catches everything, so this is a guard, not a
+                        # path. It carries the JOB's own fn — indexing parallel_jobs
+                        # by `i` (an index into `tools`) named the wrong tool, and
+                        # could IndexError when some jobs were mutating.
+                        results[i] = Evidence(
+                            source=getattr(fn, "__name__", "unknown"),
+                            category="unknown", count=0,
+                            error=f"{type(e).__name__}: {e}",
+                        )
+
+        # --- mutating: strict serial execution ---
+        for i, fn, kwargs, timeout in mutating_jobs:
+            results[i] = _call_with_timeout(fn, kwargs, timeout)
+
+        return results  # type: ignore[return-value]
+
+
+def run_labeled(tasks: dict) -> dict:
+    """Run labelled zero-arg callables concurrently; return {label: value}.
+
+    `tasks` maps a label to `(callable, timeout_seconds_or_None)`.
+
+    This exists to replace plan.py's hand-rolled joins, which shared a bug worth
+    naming: they wrapped `future.result(timeout=N)` in a `with ThreadPoolExecutor(...)`
+    block. The timeout DID fire and the degraded value WAS set — but exiting the
+    `with` calls shutdown(wait=True), so the block still waited out the hung task.
+    The timeout bought nothing except a log line claiming the pipeline had moved on.
+    Here the timeout genuinely releases the batch (see _call_with_timeout).
+
+    The return shape mirrors what those call sites already expect, so none of their
+    error handling changes:
+      * a task that returns a dict/list/scalar     -> that value
+      * a task that returns None                   -> {}   (call sites do `... or {}`)
+      * a task that times out or raises            -> {"error": "..."}
+    """
+    tasks = dict(tasks or {})
+    if not tasks:
+        return {}
+    labels = list(tasks)
+    specs = [{"fn": tasks[k][0], "concurrency": "parallel_safe",
+              "kwargs": {}, "timeout": tasks[k][1]} for k in labels]
+    out = {}
+    for label, ev in zip(labels, Scheduler().run(specs)):
+        if ev.error:
+            out[label] = {"error": ev.error}
+        elif isinstance(ev.payload, Evidence):     # a task that returned Evidence
+            out[label] = ev.payload
+        else:
+            out[label] = ev.payload if ev.payload is not None else {}
+    return out

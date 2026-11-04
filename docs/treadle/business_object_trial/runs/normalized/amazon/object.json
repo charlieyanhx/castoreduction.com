@@ -1,0 +1,727 @@
+{
+  "version": "business-object-trial/v1",
+  "company_alias": "Company A",
+  "root": {
+    "id": "company",
+    "kind": "company",
+    "label": "Company A",
+    "statement_ids": [
+      "A-S01"
+    ],
+    "children": [
+      {
+        "id": "reported_segments_group",
+        "kind": "group",
+        "label": "[inferred grouping] Reported operating segments",
+        "statement_ids": [],
+        "children": [
+          {
+            "id": "seg_north_america",
+            "kind": "reported_segment",
+            "label": "North America operating segment (regional; spans retail sales, seller activity, advertising and subscriptions)",
+            "statement_ids": [
+              "A-S01",
+              "A-S02"
+            ],
+            "children": []
+          },
+          {
+            "id": "seg_international",
+            "kind": "reported_segment",
+            "label": "International operating segment (regional; spans retail sales, seller activity, advertising and subscriptions)",
+            "statement_ids": [
+              "A-S01",
+              "A-S02"
+            ],
+            "children": []
+          },
+          {
+            "id": "seg_cloud_services",
+            "kind": "reported_segment",
+            "label": "Cloud-services operating segment",
+            "statement_ids": [
+              "A-S01",
+              "A-S05"
+            ],
+            "children": [
+              {
+                "id": "cloud_computing_storage_database_services",
+                "kind": "offering",
+                "label": "Cloud computing, storage and database services",
+                "statement_ids": [
+                  "A-S05"
+                ],
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "retail_and_seller_offerings_group",
+        "kind": "group",
+        "label": "[inferred grouping] Store, seller and advertising offerings",
+        "statement_ids": [],
+        "children": [
+          {
+            "id": "online_stores",
+            "kind": "offering",
+            "label": "Online stores where consumers buy products (including online orders collected at physical stores)",
+            "statement_ids": [
+              "A-S03",
+              "A-S11"
+            ],
+            "children": []
+          },
+          {
+            "id": "physical_stores",
+            "kind": "offering",
+            "label": "Physical stores where customers select products while visiting",
+            "statement_ids": [
+              "A-S03",
+              "A-S11"
+            ],
+            "children": []
+          },
+          {
+            "id": "first_party_product_sales",
+            "kind": "offering",
+            "label": "Products sold by the company itself as seller",
+            "statement_ids": [
+              "A-S03",
+              "A-S12"
+            ],
+            "children": []
+          },
+          {
+            "id": "seller_programs",
+            "kind": "offering",
+            "label": "Seller programs letting third parties sell in company stores (company not seller of record)",
+            "statement_ids": [
+              "A-S04"
+            ],
+            "children": []
+          },
+          {
+            "id": "seller_fulfillment_shipping_services",
+            "kind": "offering",
+            "label": "Fulfillment and shipping services provided to third-party sellers",
+            "statement_ids": [
+              "A-S04",
+              "A-S07"
+            ],
+            "children": []
+          },
+          {
+            "id": "advertising_services",
+            "kind": "offering",
+            "label": "Sponsored, display and video advertising",
+            "statement_ids": [
+              "A-S02",
+              "A-S08"
+            ],
+            "children": []
+          },
+          {
+            "id": "individual_digital_media_purchases",
+            "kind": "offering",
+            "label": "Individual digital-media purchases (counted as online-store sales)",
+            "statement_ids": [
+              "A-S10"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "subscription_offerings_group",
+        "kind": "group",
+        "label": "[inferred grouping] Subscription offerings",
+        "statement_ids": [],
+        "children": [
+          {
+            "id": "consumer_membership",
+            "kind": "offering",
+            "label": "Consumer membership combining shipping benefits with entertainment access",
+            "statement_ids": [
+              "A-S06",
+              "A-S09"
+            ],
+            "children": [
+              {
+                "id": "membership_entertainment_access",
+                "kind": "offering",
+                "label": "Membership entertainment access: movies, series and live sports",
+                "statement_ids": [
+                  "A-S06"
+                ],
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "digital_media_subscriptions",
+            "kind": "offering",
+            "label": "Digital video, music, audiobook and ebook subscriptions granting ongoing viewing or usage rights",
+            "statement_ids": [
+              "A-S09",
+              "A-S10"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "actors_group",
+        "kind": "group",
+        "label": "[inferred grouping] Customers and counterparties",
+        "statement_ids": [],
+        "children": [
+          {
+            "id": "consumers",
+            "kind": "customer",
+            "label": "Consumers buying products and holding memberships",
+            "statement_ids": [
+              "A-S03",
+              "A-S06"
+            ],
+            "children": []
+          },
+          {
+            "id": "third_party_sellers",
+            "kind": "customer",
+            "label": "Independent third-party sellers using seller programs and paying for seller services",
+            "statement_ids": [
+              "A-S03",
+              "A-S04",
+              "A-S07"
+            ],
+            "children": []
+          },
+          {
+            "id": "advertising_customers",
+            "kind": "customer",
+            "label": "Advertising customers: sellers, vendors, publishers and authors",
+            "statement_ids": [
+              "A-S08"
+            ],
+            "children": []
+          },
+          {
+            "id": "developers_and_enterprises",
+            "kind": "customer",
+            "label": "Developers and enterprises buying cloud services",
+            "statement_ids": [
+              "A-S05"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "capabilities_group",
+        "kind": "group",
+        "label": "[inferred grouping] Shared capabilities",
+        "statement_ids": [],
+        "children": [
+          {
+            "id": "shared_technology_infrastructure",
+            "kind": "capability",
+            "label": "Shared technology infrastructure serving cloud customers and internal needs",
+            "statement_ids": [
+              "A-S05"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "revenue_streams_group",
+        "kind": "group",
+        "label": "[inferred grouping] Net-sales revenue categories",
+        "statement_ids": [],
+        "children": [
+          {
+            "id": "online_store_sales_revenue",
+            "kind": "revenue_stream",
+            "label": "Online-store sales (including individual digital-media purchases and online orders collected at physical stores)",
+            "statement_ids": [
+              "A-S10",
+              "A-S11"
+            ],
+            "children": []
+          },
+          {
+            "id": "physical_store_sales_revenue",
+            "kind": "revenue_stream",
+            "label": "Physical-store sales of products customers select while visiting a store",
+            "statement_ids": [
+              "A-S11"
+            ],
+            "children": []
+          },
+          {
+            "id": "seller_services_revenue",
+            "kind": "revenue_stream",
+            "label": "Seller-service revenue: sales commissions plus fulfillment and shipping fees from third-party sellers",
+            "statement_ids": [
+              "A-S07"
+            ],
+            "children": []
+          },
+          {
+            "id": "advertising_sales_revenue",
+            "kind": "revenue_stream",
+            "label": "Advertising purchased by advertising customers",
+            "statement_ids": [
+              "A-S02",
+              "A-S08"
+            ],
+            "children": []
+          },
+          {
+            "id": "subscription_services_revenue",
+            "kind": "revenue_stream",
+            "label": "Subscription revenue: consumer membership fees and digital media subscriptions (excluding cloud-service subscriptions)",
+            "statement_ids": [
+              "A-S09",
+              "A-S10"
+            ],
+            "children": []
+          },
+          {
+            "id": "cloud_services_sales_revenue",
+            "kind": "revenue_stream",
+            "label": "Sales of cloud computing, storage and database services",
+            "statement_ids": [
+              "A-S05"
+            ],
+            "children": []
+          }
+        ]
+      },
+      {
+        "id": "metrics_group",
+        "kind": "group",
+        "label": "[inferred grouping] Operating metrics",
+        "statement_ids": [],
+        "children": [
+          {
+            "id": "paid_units_metric",
+            "kind": "metric",
+            "label": "Paid units: item counts sold by the company and third-party sellers (distinct from net-sales revenue)",
+            "statement_ids": [
+              "A-S12"
+            ],
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "relationships": [
+    {
+      "from": "online_stores",
+      "to": "consumers",
+      "kind": "serves",
+      "statement_ids": [
+        "A-S03"
+      ]
+    },
+    {
+      "from": "physical_stores",
+      "to": "consumers",
+      "kind": "serves",
+      "statement_ids": [
+        "A-S03"
+      ]
+    },
+    {
+      "from": "seller_programs",
+      "to": "third_party_sellers",
+      "kind": "serves",
+      "statement_ids": [
+        "A-S04"
+      ]
+    },
+    {
+      "from": "seller_fulfillment_shipping_services",
+      "to": "third_party_sellers",
+      "kind": "serves",
+      "statement_ids": [
+        "A-S04",
+        "A-S07"
+      ]
+    },
+    {
+      "from": "third_party_sellers",
+      "to": "seller_fulfillment_shipping_services",
+      "kind": "uses",
+      "statement_ids": [
+        "A-S04"
+      ]
+    },
+    {
+      "from": "seller_programs",
+      "to": "online_stores",
+      "kind": "uses",
+      "statement_ids": [
+        "A-S03",
+        "A-S04"
+      ]
+    },
+    {
+      "from": "seller_programs",
+      "to": "physical_stores",
+      "kind": "uses",
+      "statement_ids": [
+        "A-S03",
+        "A-S04"
+      ]
+    },
+    {
+      "from": "advertising_services",
+      "to": "advertising_customers",
+      "kind": "serves",
+      "statement_ids": [
+        "A-S08"
+      ]
+    },
+    {
+      "from": "consumer_membership",
+      "to": "consumers",
+      "kind": "serves",
+      "statement_ids": [
+        "A-S06"
+      ]
+    },
+    {
+      "from": "cloud_computing_storage_database_services",
+      "to": "developers_and_enterprises",
+      "kind": "serves",
+      "statement_ids": [
+        "A-S05"
+      ]
+    },
+    {
+      "from": "cloud_computing_storage_database_services",
+      "to": "shared_technology_infrastructure",
+      "kind": "uses",
+      "statement_ids": [
+        "A-S05"
+      ]
+    },
+    {
+      "from": "online_stores",
+      "to": "online_store_sales_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "A-S11"
+      ]
+    },
+    {
+      "from": "individual_digital_media_purchases",
+      "to": "online_store_sales_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "A-S10"
+      ]
+    },
+    {
+      "from": "physical_stores",
+      "to": "physical_store_sales_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "A-S11"
+      ]
+    },
+    {
+      "from": "seller_programs",
+      "to": "seller_services_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "A-S07"
+      ]
+    },
+    {
+      "from": "seller_fulfillment_shipping_services",
+      "to": "seller_services_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "A-S07"
+      ]
+    },
+    {
+      "from": "third_party_sellers",
+      "to": "seller_services_revenue",
+      "kind": "pays",
+      "statement_ids": [
+        "A-S07"
+      ]
+    },
+    {
+      "from": "advertising_services",
+      "to": "advertising_sales_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "A-S08"
+      ]
+    },
+    {
+      "from": "advertising_customers",
+      "to": "advertising_sales_revenue",
+      "kind": "pays",
+      "statement_ids": [
+        "A-S08"
+      ]
+    },
+    {
+      "from": "consumer_membership",
+      "to": "subscription_services_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "A-S09"
+      ]
+    },
+    {
+      "from": "digital_media_subscriptions",
+      "to": "subscription_services_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "A-S09",
+        "A-S10"
+      ]
+    },
+    {
+      "from": "consumers",
+      "to": "subscription_services_revenue",
+      "kind": "pays",
+      "statement_ids": [
+        "A-S06",
+        "A-S09"
+      ]
+    },
+    {
+      "from": "cloud_computing_storage_database_services",
+      "to": "cloud_services_sales_revenue",
+      "kind": "generates",
+      "statement_ids": [
+        "A-S05"
+      ]
+    },
+    {
+      "from": "developers_and_enterprises",
+      "to": "cloud_services_sales_revenue",
+      "kind": "pays",
+      "statement_ids": [
+        "A-S05"
+      ]
+    },
+    {
+      "from": "paid_units_metric",
+      "to": "first_party_product_sales",
+      "kind": "measures",
+      "statement_ids": [
+        "A-S12"
+      ]
+    },
+    {
+      "from": "paid_units_metric",
+      "to": "seller_programs",
+      "kind": "measures",
+      "statement_ids": [
+        "A-S12"
+      ]
+    }
+  ],
+  "missing_details": [
+    {
+      "id": "q_regional_segment_offering_mix",
+      "node_id": "seg_north_america",
+      "detail": "Revenue split by offering within the regional segments",
+      "question": "How much of North America and International segment revenue comes from retail sales, seller services, advertising and subscriptions?"
+    },
+    {
+      "id": "q_international_scope",
+      "node_id": "seg_international",
+      "detail": "Geographic scope of the International segment",
+      "question": "Which countries or regions are included in the International segment?"
+    },
+    {
+      "id": "q_cloud_segment_financials",
+      "node_id": "seg_cloud_services",
+      "detail": "Cloud segment revenue and profitability",
+      "question": "What revenue and operating income does the cloud-services segment report?"
+    },
+    {
+      "id": "q_internal_infra_allocation",
+      "node_id": "shared_technology_infrastructure",
+      "detail": "Allocation of shared infrastructure between internal use and cloud customers",
+      "question": "How is the cost and capacity of shared technology infrastructure allocated between internal needs and cloud customers?"
+    },
+    {
+      "id": "q_commission_basis",
+      "node_id": "seller_services_revenue",
+      "detail": "Basis and rates of seller commissions and fees",
+      "question": "How are seller commissions calculated, for example as a percentage of sale price, and what are typical rates?"
+    },
+    {
+      "id": "q_advertising_pricing",
+      "node_id": "advertising_sales_revenue",
+      "detail": "Advertising pricing model and revenue amount",
+      "question": "How is advertising priced, for example per click or per impression, and how much advertising revenue is recognized?"
+    },
+    {
+      "id": "q_membership_pricing",
+      "node_id": "consumer_membership",
+      "detail": "Membership price and member count",
+      "question": "What does the consumer membership cost and how many members are there?"
+    },
+    {
+      "id": "q_digital_subscription_buyers",
+      "node_id": "digital_media_subscriptions",
+      "detail": "Who buys digital media subscriptions",
+      "question": "Which customer types subscribe to the digital video, music, audiobook and ebook subscriptions?"
+    },
+    {
+      "id": "q_paid_units_values",
+      "node_id": "paid_units_metric",
+      "detail": "Paid unit volumes and third-party share",
+      "question": "How many paid units were sold, and what share was sold by third-party sellers?"
+    },
+    {
+      "id": "q_cloud_customer_profile",
+      "node_id": "developers_and_enterprises",
+      "detail": "Size and industry profile of cloud customers",
+      "question": "What sizes and industries of developers and enterprises use the cloud services?"
+    },
+    {
+      "id": "q_market_size",
+      "node_id": "company",
+      "detail": "Addressable market size for each business",
+      "question": "What is the estimated addressable market for retail, seller services, advertising, subscriptions and cloud services?"
+    },
+    {
+      "id": "q_differentiators",
+      "node_id": "company",
+      "detail": "Stated competitive advantages",
+      "question": "What does the company state differentiates its offerings from alternatives?"
+    },
+    {
+      "id": "q_competitors",
+      "node_id": "company",
+      "detail": "Named competitors",
+      "question": "Which competitors does the company identify for each segment or offering?"
+    },
+    {
+      "id": "q_customer_feedback",
+      "node_id": "consumers",
+      "detail": "Customer feedback or satisfaction data",
+      "question": "What feedback or satisfaction measures exist from consumers, sellers, advertisers and cloud customers?"
+    }
+  ],
+  "report_projections": [
+    {
+      "section": "summary",
+      "node_ids": [
+        "company",
+        "seg_north_america",
+        "seg_international",
+        "seg_cloud_services",
+        "online_stores",
+        "physical_stores",
+        "seller_programs",
+        "advertising_services",
+        "consumer_membership",
+        "cloud_computing_storage_database_services"
+      ],
+      "missing_detail_ids": [
+        "q_regional_segment_offering_mix"
+      ]
+    },
+    {
+      "section": "target_personas",
+      "node_ids": [
+        "consumers",
+        "third_party_sellers",
+        "advertising_customers",
+        "developers_and_enterprises"
+      ],
+      "missing_detail_ids": [
+        "q_cloud_customer_profile",
+        "q_digital_subscription_buyers"
+      ]
+    },
+    {
+      "section": "multi_perspective",
+      "node_ids": [
+        "consumers",
+        "third_party_sellers",
+        "advertising_customers",
+        "developers_and_enterprises",
+        "shared_technology_infrastructure",
+        "seller_fulfillment_shipping_services"
+      ],
+      "missing_detail_ids": [
+        "q_internal_infra_allocation"
+      ]
+    },
+    {
+      "section": "market_size",
+      "node_ids": [
+        "company",
+        "paid_units_metric"
+      ],
+      "missing_detail_ids": [
+        "q_market_size",
+        "q_paid_units_values",
+        "q_international_scope"
+      ]
+    },
+    {
+      "section": "revenue",
+      "node_ids": [
+        "online_store_sales_revenue",
+        "physical_store_sales_revenue",
+        "seller_services_revenue",
+        "advertising_sales_revenue",
+        "subscription_services_revenue",
+        "cloud_services_sales_revenue",
+        "paid_units_metric"
+      ],
+      "missing_detail_ids": [
+        "q_commission_basis",
+        "q_advertising_pricing",
+        "q_membership_pricing",
+        "q_cloud_segment_financials",
+        "q_regional_segment_offering_mix"
+      ]
+    },
+    {
+      "section": "differentiators",
+      "node_ids": [
+        "consumer_membership",
+        "membership_entertainment_access",
+        "seller_fulfillment_shipping_services",
+        "shared_technology_infrastructure"
+      ],
+      "missing_detail_ids": [
+        "q_differentiators"
+      ]
+    },
+    {
+      "section": "competitive_landscape",
+      "node_ids": [],
+      "missing_detail_ids": [
+        "q_competitors"
+      ]
+    },
+    {
+      "section": "customer_voice",
+      "node_ids": [],
+      "missing_detail_ids": [
+        "q_customer_feedback"
+      ]
+    }
+  ]
+}

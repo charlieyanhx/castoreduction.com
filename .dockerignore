@@ -1,0 +1,26 @@
+# Don't copy local dev junk into the deploy image
+.venv
+__pycache__
+*.pyc
+.env
+.session_secret
+.transcripts/
+.claude/
+.bin/
+claude-code-main/
+jobs.db
+*.sqlite-wal
+*.sqlite-shm
+.ruff_cache/
+.cache.sqlite
+.jobs.sqlite
+.http_cache.sqlite
+.cache/
+out/
+.pytest_cache
+.git
+.gitignore
+.DS_Store
+node_modules
+*.log
+/tmp

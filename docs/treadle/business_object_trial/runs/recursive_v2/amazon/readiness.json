@@ -1,0 +1,214 @@
+{
+  "schema_version": "market_research.business_readiness/1",
+  "support_review": {
+    "status": "complete"
+  },
+  "expansion_complete": false,
+  "blocked_reason": "expansion_incomplete",
+  "sections": {
+    "summary": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "summary.offering",
+          "question": "What product or service is offered?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "summary.actor",
+          "question": "Who is served by each offering?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "summary.monetization",
+          "question": "How does each offering generate revenue?",
+          "resolution": "customer_input"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "target_personas": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "target_personas.actor",
+          "question": "Which customers are served by each offering?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "target_personas.need",
+          "question": "What need, problem, or workflow does each customer have?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "target_personas.buyer",
+          "question": "Who buys, and what buying trigger or purchasing constraint applies?",
+          "resolution": "external_research"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "multi_perspective": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "multi_perspective.roles",
+          "question": "Which stakeholder roles should the analysis consider?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "multi_perspective.concerns",
+          "question": "What concerns are stated for those stakeholders?",
+          "resolution": "external_research"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "market_size": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "market_size.scope",
+          "question": "What geography, analysis period, and counting unit define each market?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "market_size.base",
+          "question": "What population count or annual spending is available for that exact market scope?",
+          "resolution": "external_research"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "revenue": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "revenue.monetization",
+          "question": "Which revenue streams belong to each offering?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "revenue.scope",
+          "question": "What geography, forecast period, and customer unit define the forecast?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "revenue.pricing",
+          "question": "What numeric unit price, charging unit, currency, and billing period apply?",
+          "resolution": "external_research"
+        },
+        {
+          "id": "revenue.adoption",
+          "question": "What numeric adoption rate or customer count applies to the forecast scope and period?",
+          "resolution": "external_research"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "differentiators": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "differentiators.offering",
+          "question": "What offering should be differentiated?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "differentiators.alternatives",
+          "question": "What named alternatives or status quo compete with each offering?",
+          "resolution": "external_research"
+        },
+        {
+          "id": "differentiators.comparison",
+          "question": "What concrete comparison and basis support each claimed advantage?",
+          "resolution": "external_research"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "competitive_landscape": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "competitive_landscape.offering",
+          "question": "Which offering and customers define the competitive market?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "competitive_landscape.scope",
+          "question": "What geography defines the competitive search?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "competitive_landscape.competitors",
+          "question": "Which direct competitors and indirect alternatives are stated?",
+          "resolution": "external_research"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    },
+    "customer_voice": {
+      "status": "needs_input",
+      "available_requirement_ids": [],
+      "missing_requirements": [
+        {
+          "id": "customer_voice.actor",
+          "question": "Which customer group should be heard?",
+          "resolution": "customer_input"
+        },
+        {
+          "id": "customer_voice.observations",
+          "question": "What observed customer quotations include participant context and an observation method?",
+          "resolution": "external_research"
+        }
+      ],
+      "node_ids": [],
+      "fact_ids": [],
+      "relationship_ids": [],
+      "ready_for_research": false,
+      "report_ready": false
+    }
+  },
+  "report_ready": false,
+  "limitations": [
+    "Coverage describes accepted customer input, not externally verified evidence.",
+    "Sufficient input still requires research, calculation, review, and report writing.",
+    "Inferred and quarantined items never satisfy required input coverage."
+  ]
+}

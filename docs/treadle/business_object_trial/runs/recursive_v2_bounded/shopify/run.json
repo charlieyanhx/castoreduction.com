@@ -1,0 +1,132 @@
+{
+  "company": "Shopify",
+  "model": "claude-opus-5-5",
+  "fixture": "/Users/charlieyan/Downloads/castor-advisories/docs/treadle/business_object_trial/inputs/shopify.json",
+  "max_calls": 6,
+  "max_depth": 6,
+  "status": "completed",
+  "candidate_structure": {
+    "node_count": 30,
+    "fact_count": 33,
+    "relationship_count": 27,
+    "gap_count": 0,
+    "max_depth": 4,
+    "nodes_by_kind": {
+      "actor": 6,
+      "capability": 1,
+      "classification": 1,
+      "company": 1,
+      "group": 4,
+      "metric": 1,
+      "offering": 13,
+      "reported_segment": 1,
+      "revenue_stream": 2
+    },
+    "referenced_statement_count": 12,
+    "unreferenced_statement_ids": []
+  },
+  "accepted_structure": {
+    "node_count": 29,
+    "fact_count": 32,
+    "relationship_count": 21,
+    "gap_count": 0,
+    "max_depth": 4,
+    "nodes_by_kind": {
+      "actor": 6,
+      "capability": 1,
+      "classification": 1,
+      "company": 1,
+      "group": 4,
+      "metric": 1,
+      "offering": 12,
+      "reported_segment": 1,
+      "revenue_stream": 2
+    },
+    "referenced_statement_count": 12,
+    "unreferenced_statement_ids": []
+  },
+  "support_review": "complete",
+  "expansion_complete": true,
+  "stop_reason": "complete",
+  "pending": [],
+  "quarantined_count": 8,
+  "calls": [
+    {
+      "model": "claude-opus-5-5",
+      "status": "parsed",
+      "automatic_retries": 0,
+      "usage": {
+        "input_tokens": 4876,
+        "output_tokens": 3962
+      },
+      "stop_reason": "end_turn",
+      "format_normalization": "none",
+      "elapsed_seconds": 33.91
+    },
+    {
+      "model": "claude-opus-5-5",
+      "status": "parsed",
+      "automatic_retries": 0,
+      "usage": {
+        "input_tokens": 6763,
+        "output_tokens": 2110
+      },
+      "stop_reason": "end_turn",
+      "format_normalization": "removed_complete_json_code_fence",
+      "elapsed_seconds": 18.73
+    },
+    {
+      "model": "claude-opus-5-5",
+      "status": "parsed",
+      "automatic_retries": 0,
+      "usage": {
+        "input_tokens": 7691,
+        "output_tokens": 2502
+      },
+      "stop_reason": "end_turn",
+      "format_normalization": "none",
+      "elapsed_seconds": 20.51
+    },
+    {
+      "model": "claude-opus-5-5",
+      "status": "parsed",
+      "automatic_retries": 0,
+      "usage": {
+        "input_tokens": 9547,
+        "output_tokens": 3157
+      },
+      "stop_reason": "end_turn",
+      "format_normalization": "removed_complete_json_code_fence",
+      "elapsed_seconds": 25.19
+    },
+    {
+      "model": "claude-opus-5-5",
+      "status": "parsed",
+      "automatic_retries": 0,
+      "usage": {
+        "input_tokens": 11655,
+        "output_tokens": 995
+      },
+      "stop_reason": "end_turn",
+      "format_normalization": "none",
+      "elapsed_seconds": 10.04
+    },
+    {
+      "model": "claude-opus-5-5",
+      "status": "parsed",
+      "automatic_retries": 0,
+      "usage": {
+        "input_tokens": 9420,
+        "output_tokens": 6857
+      },
+      "stop_reason": "end_turn",
+      "format_normalization": "none",
+      "elapsed_seconds": 51.23
+    }
+  ],
+  "usage": {
+    "input_tokens": 49952,
+    "output_tokens": 19583
+  },
+  "elapsed_seconds": 159.64
+}

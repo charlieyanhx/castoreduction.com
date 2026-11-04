@@ -1,0 +1,82 @@
+{
+  "corpus": "market_research_next/eval/1",
+  "about": "Five fictional ventures answered through the customer form (treadle.form/1). Each probes one kind of business or one kind of difficulty. Kept fixed so a scorecard before and after a change compares like with like.",
+  "cases": [
+    {
+      "id": "local_cafe",
+      "probe": "physical local business with concrete prices, capacity and costs",
+      "answers": {
+        "description": "A specialty coffee shop on NW 23rd Avenue in Portland, Oregon. Espresso and pour-over, a small pastry case, about 15 seats. Mostly locals and people working on laptops. Drinks are around six dollars.",
+        "status_quo": "Other neighbourhood cafes, Starbucks two blocks away, and making coffee at home or at the office.",
+        "monthly_cost_estimate": "About $28,000 a month: rent $7,500, two baristas and a manager about $14,000, beans and milk $4,000, utilities and the rest $2,500.",
+        "customer_evidence": "We ran a weekend pop-up for a month and sold about 120 drinks a day; people liked the pour-over and asked for more seating.",
+        "named_competitors": "Barista on NW 13th and Coava Coffee.",
+        "success_target": "Around $450,000 in the first year, roughly 200 drinks a day.",
+        "business_model": "Pay per item: drinks and pastries.",
+        "delivery_mode": "In person.",
+        "geography": "NW 23rd Avenue, Portland, Oregon. People will walk 10 minutes or drive about 2 miles.",
+        "service_capacity": "About 300 drinks a day at most with two baristas.",
+        "scalability": "Fixed capacity at one site; a second site would need its own lease and staff.",
+        "acquisition_channels": "Foot traffic, Instagram, and word of mouth from regulars.",
+        "unit_economics": "A $6 latte costs about $1.40 in beans, milk and cup.",
+        "fixed_costs": "Rent $7,500 a month, salaries about $14,000 a month, equipment lease $600 a month.",
+        "constraints": "Needs a Multnomah County food service licence; the lease limits signage."
+      }
+    },
+    {
+      "id": "b2b_saas",
+      "probe": "online B2B subscription with a named buyer and price",
+      "answers": {
+        "description": "A scheduling tool for small physiotherapy clinics. They pay monthly per practitioner. Right now they run on paper diaries and a lot of phone calls, and no-shows cost them a fortune.",
+        "status_quo": "Paper diaries, Google Calendar, and general practice systems like Jane App.",
+        "monthly_cost_estimate": "About $9,000 a month: two developers part time and hosting.",
+        "customer_evidence": "Three clinics are piloting it for free and say no-shows dropped.",
+        "named_competitors": "Jane App and Cliniko.",
+        "success_target": "100 paying clinics in the first year.",
+        "business_model": "Subscription: $39 per practitioner per month.",
+        "delivery_mode": "Online.",
+        "geography": "United States first, then Canada.",
+        "service_capacity": "Software, so effectively unlimited clinics.",
+        "scalability": "Scales easily; support is the bottleneck.",
+        "acquisition_channels": "Physio association newsletters, Google search, and referrals between clinics.",
+        "unit_economics": "Hosting and SMS reminders cost about $3 per practitioner per month.",
+        "fixed_costs": "Developer time and about $400 a month in software subscriptions.",
+        "constraints": "Patient data means HIPAA compliance in the US."
+      }
+    },
+    {
+      "id": "marketplace",
+      "probe": "two-sided marketplace with a cold-start problem",
+      "answers": {
+        "description": "An app where dog owners book local walkers. We take a cut of each booking. The hard part is getting enough walkers signed up in one neighbourhood before owners will trust it.",
+        "status_quo": "Rover, Wag, asking neighbours, or friends walking the dog.",
+        "named_competitors": "Rover and Wag.",
+        "business_model": "We take 20% of each booking; a 30 minute walk costs about $25.",
+        "delivery_mode": "A mix: booked online, walked in person.",
+        "geography": "Launching in the Annex and Little Italy neighbourhoods of Toronto.",
+        "acquisition_channels": "Flyers in dog parks, Instagram, and referral credit for both sides.",
+        "constraints": "Walkers need insurance and a background check."
+      }
+    },
+    {
+      "id": "vague",
+      "probe": "a one-line brief with every question skipped",
+      "answers": {
+        "description": "An app that helps people be more productive."
+      }
+    },
+    {
+      "id": "conflicting",
+      "probe": "answers that contradict the description and each other",
+      "answers": {
+        "description": "An online-only subscription meal-planning service for busy parents, $20 a month, delivered entirely through our app across the US.",
+        "monthly_cost_estimate": "About $2,000 a month in total: rent is $5,000 and salaries are $10,000.",
+        "business_model": "Customers pay $5 per meal plan, one at a time.",
+        "delivery_mode": "In person, at our kitchen in Chicago.",
+        "geography": "Only Chicago's Lincoln Park neighbourhood.",
+        "success_target": "10 million subscribers in the first year.",
+        "service_capacity": "We can serve about 50 families a week."
+      }
+    }
+  ]
+}

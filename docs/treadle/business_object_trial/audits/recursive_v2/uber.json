@@ -1,0 +1,406 @@
+{
+  "company": "Uber",
+  "summary": {
+    "evaluated_output": "docs/treadle/business_object_trial/runs/recursive_v2_bounded/uber/accepted.json",
+    "basis": "Independent model audit against input_statements only. No web sources, company familiarity, or rejected candidate records were used to give the accepted object credit. Candidate and quarantine were inspected separately to assess the internal review.",
+    "rubric": "Same seven checks as the first pilot. Pass retains the stated distinction/mechanism, including the graph connections explicitly requested. Partial retains some required detail but lacks a requested connection or distinction. Fail means the required fact is absent or contradicted. Counts are not a factual-accuracy score. Organizational parent links do not imply financial classification or ownership.",
+    "check_counts": {
+      "total": 7,
+      "pass": 6,
+      "partial": 1,
+      "fail": 0
+    },
+    "inspection": {
+      "node_count": 31,
+      "fact_count": 22,
+      "relationship_count": 29,
+      "node_ids_reviewed": [
+        "company",
+        "seg_mobility",
+        "seg_delivery",
+        "seg_freight",
+        "consumer_membership",
+        "shared_platform_rd",
+        "cap_mapping",
+        "cap_payments_technology",
+        "cap_internal_infrastructure",
+        "metric_gross_bookings",
+        "delivery_restaurant_meals",
+        "delivery_grocery_retail_group",
+        "delivery_grocery",
+        "delivery_convenience",
+        "delivery_other_retail",
+        "delivery_white_label",
+        "actor_delivery_consumers",
+        "actor_delivery_merchants",
+        "actor_delivery_couriers",
+        "actor_white_label_clients",
+        "actor_freight_shippers",
+        "actor_freight_carriers",
+        "rev_freight_brokerage_fees",
+        "rev_freight_tms_fees",
+        "rev_freight_related_services_fees",
+        "actor_mobility_riders",
+        "actor_mobility_drivers",
+        "mobility_ridesharing",
+        "mobility_taxis",
+        "rev_mobility_driver_service_fees",
+        "rev_mobility_consumer_charges"
+      ],
+      "fact_ids_reviewed": [
+        "f_shared_platform_not_segment",
+        "f_gb_components",
+        "f_gb_pre_deduction",
+        "f_gb_not_revenue",
+        "f_membership_benefit_rides",
+        "f_membership_benefit_delivery",
+        "f_delivery_reportable",
+        "f_delivery_revenue_separate",
+        "f_consumers_role",
+        "f_merchants_role",
+        "f_couriers_role",
+        "f_white_label_function",
+        "f_freight_reportable",
+        "f_freight_revenue_separate",
+        "f_freight_brokerage_form",
+        "f_freight_tms_form",
+        "f_freight_related_form",
+        "f_mobility_reportable",
+        "f_mobility_revenue_separate",
+        "f_mobility_revenue_arrangement_varies",
+        "f_mobility_driver_fees_form",
+        "f_mobility_consumer_charges_form"
+      ],
+      "relationship_ids_reviewed": [
+        "r_gb_measures_mobility",
+        "r_gb_measures_delivery",
+        "r_gb_measures_freight",
+        "r_mobility_uses_platform",
+        "r_delivery_uses_platform",
+        "r_freight_uses_platform",
+        "r_membership_applies_mobility",
+        "r_membership_applies_delivery",
+        "r_delivery_offers_restaurant",
+        "r_delivery_offers_grocery",
+        "r_delivery_offers_convenience",
+        "r_delivery_offers_other_retail",
+        "r_delivery_offers_white_label",
+        "r_delivery_connects_consumers",
+        "r_delivery_connects_merchants",
+        "r_delivery_connects_couriers",
+        "r_white_label_serves_clients",
+        "r_freight_connects_shippers",
+        "r_freight_connects_carriers",
+        "r_freight_serves_shippers",
+        "r_freight_generates_brokerage",
+        "r_freight_generates_tms",
+        "r_freight_generates_related",
+        "r_mobility_connects_riders",
+        "r_mobility_connects_drivers",
+        "r_mobility_offers_ridesharing",
+        "r_mobility_offers_taxis",
+        "r_mobility_generates_driver_fees",
+        "r_mobility_generates_consumer_charges"
+      ],
+      "gap_ids_reviewed": [
+        "g_membership_monetization",
+        "g_membership_adoption",
+        "g_delivery_revenue_streams",
+        "g_white_label_monetization",
+        "g_freight_fee_pricing",
+        "g_freight_carrier_role",
+        "g_freight_related_services_scope",
+        "g_mobility_market_arrangements",
+        "g_mobility_fee_pricing",
+        "g_mobility_rider_adoption"
+      ],
+      "support_status": "No unambiguous unsupported accepted factual label, atomic fact, or edge was found. This is a model judgment, not external verification."
+    },
+    "missing_details_review": {
+      "total_questions": 10,
+      "focused_report_gaps": [
+        "Fee prices, charging units, market arrangements, Delivery revenue mechanisms, membership monetization, adoption and carrier roles are reasonably left unresolved."
+      ],
+      "remaining_gaps": [
+        "Shipper payer links were removed, but no explicit question now asks whether shippers pay each Freight fee; the carrier-payer question does not resolve that.",
+        "Membership and rider adoption measure company activity rather than the complete addressable market. The deterministic market-scope and population questions remain necessary.",
+        "Competitors, observed customer evidence and comparative claims remain absent and must be researched."
+      ]
+    }
+  },
+  "checks": [
+    {
+      "id": "U-C01",
+      "description": "Nest restaurant, grocery/retail and white-label offerings within Delivery.",
+      "statement_ids": [
+        "U-S01",
+        "U-S03",
+        "U-S05"
+      ],
+      "status": "pass",
+      "finding": "Restaurant meals, Grocery & Retail with separate grocery/convenience/other-retail leaves, and white-label delivery are organized within Delivery. Explicit offers edges preserve segment-to-offering scope; the white-label function retains customer branding.",
+      "record_ids": [
+        "seg_delivery",
+        "delivery_restaurant_meals",
+        "delivery_grocery_retail_group",
+        "delivery_grocery",
+        "delivery_convenience",
+        "delivery_other_retail",
+        "delivery_white_label",
+        "r_delivery_offers_restaurant",
+        "r_delivery_offers_grocery",
+        "r_delivery_offers_convenience",
+        "r_delivery_offers_other_retail",
+        "r_delivery_offers_white_label",
+        "f_white_label_function"
+      ],
+      "reason": "Restaurant meals, Grocery & Retail with separate grocery/convenience/other-retail leaves, and white-label delivery are organized within Delivery. Explicit offers edges preserve segment-to-offering scope; the white-label function retains customer branding."
+    },
+    {
+      "id": "U-C02",
+      "description": "Distinguish rider, driver, consumer, merchant and courier roles.",
+      "statement_ids": [
+        "U-S02",
+        "U-S04"
+      ],
+      "status": "pass",
+      "finding": "Riders, drivers, ordering consumers, merchants and couriers remain distinct actors. Delivery participant roles are explicit facts, and segment connects edges retain the relationships without inventing supplier or employment status.",
+      "record_ids": [
+        "actor_mobility_riders",
+        "actor_mobility_drivers",
+        "actor_delivery_consumers",
+        "actor_delivery_merchants",
+        "actor_delivery_couriers",
+        "f_consumers_role",
+        "f_merchants_role",
+        "f_couriers_role",
+        "r_mobility_connects_riders",
+        "r_mobility_connects_drivers",
+        "r_delivery_connects_consumers",
+        "r_delivery_connects_merchants",
+        "r_delivery_connects_couriers"
+      ],
+      "reason": "Riders, drivers, ordering consumers, merchants and couriers remain distinct actors. Delivery participant roles are explicit facts, and segment connects edges retain the relationships without inventing supplier or employment status."
+    },
+    {
+      "id": "U-C03",
+      "description": "Connect Freight to shippers, carriers and shipper-paid services.",
+      "statement_ids": [
+        "U-S06"
+      ],
+      "status": "partial",
+      "finding": "Freight connects separately to shippers and carriers, serves shippers through the named services, and generates distinct fee streams. No shipper pays edge remains accepted. U-S06 directly identifies service beneficiaries but does not expressly establish the payer; the unchanged rubric requests a payer connection beyond that explicit fact. Quarantined inferred payer links are not credited.",
+      "record_ids": [
+        "seg_freight",
+        "actor_freight_shippers",
+        "actor_freight_carriers",
+        "rev_freight_brokerage_fees",
+        "rev_freight_tms_fees",
+        "rev_freight_related_services_fees",
+        "r_freight_connects_shippers",
+        "r_freight_connects_carriers",
+        "r_freight_serves_shippers",
+        "r_freight_generates_brokerage",
+        "r_freight_generates_tms",
+        "r_freight_generates_related"
+      ],
+      "reason": "Freight connects separately to shippers and carriers, serves shippers through the named services, and generates distinct fee streams. No shipper pays edge remains accepted. U-S06 directly identifies service beneficiaries but does not expressly establish the payer; the unchanged rubric requests a payer connection beyond that explicit fact. Quarantined inferred payer links are not credited."
+    },
+    {
+      "id": "U-C04",
+      "description": "Connect one membership across Mobility and Delivery.",
+      "statement_ids": [
+        "U-S07"
+      ],
+      "status": "pass",
+      "finding": "One consumer membership now has explicit applies_to links to Mobility rides and Delivery, with grocery and retail scope preserved. The Mobility mapping is transparently marked inferred from the rides-to-Mobility connection.",
+      "record_ids": [
+        "consumer_membership",
+        "f_membership_benefit_rides",
+        "f_membership_benefit_delivery",
+        "r_membership_applies_mobility",
+        "r_membership_applies_delivery"
+      ],
+      "reason": "One consumer membership now has explicit applies_to links to Mobility rides and Delivery, with grocery and retail scope preserved. The Mobility mapping is transparently marked inferred from the rides-to-Mobility connection."
+    },
+    {
+      "id": "U-C05",
+      "description": "Preserve market-dependent fee payers without inventing prices.",
+      "statement_ids": [
+        "U-S08"
+      ],
+      "status": "pass",
+      "finding": "Distinct driver-service-fee and consumer-charge streams and their generation edges retain the market-dependent condition. No prices or fee percentages are invented. As in the baseline rubric, retaining these conditional revenue mechanisms satisfies this preservation check even though the internal review removed explicit payer edges.",
+      "record_ids": [
+        "rev_mobility_driver_service_fees",
+        "rev_mobility_consumer_charges",
+        "f_mobility_revenue_arrangement_varies",
+        "f_mobility_driver_fees_form",
+        "f_mobility_consumer_charges_form",
+        "r_mobility_generates_driver_fees",
+        "r_mobility_generates_consumer_charges"
+      ],
+      "reason": "Distinct driver-service-fee and consumer-charge streams and their generation edges retain the market-dependent condition. No prices or fee percentages are invented. As in the baseline rubric, retaining these conditional revenue mechanisms satisfies this preservation check even though the internal review removed explicit payer edges."
+    },
+    {
+      "id": "U-C06",
+      "description": "Represent mapping, payments and infrastructure as shared capabilities.",
+      "statement_ids": [
+        "U-S09"
+      ],
+      "status": "pass",
+      "finding": "Mapping, payments technology and internal infrastructure are separate children of one shared capability. All three businesses reference that capability, with the specialization marked inferred; an explicit fact says it is not a reportable segment.",
+      "record_ids": [
+        "shared_platform_rd",
+        "cap_mapping",
+        "cap_payments_technology",
+        "cap_internal_infrastructure",
+        "f_shared_platform_not_segment",
+        "r_mobility_uses_platform",
+        "r_delivery_uses_platform",
+        "r_freight_uses_platform"
+      ],
+      "reason": "Mapping, payments technology and internal infrastructure are separate children of one shared capability. All three businesses reference that capability, with the specialization marked inferred; an explicit fact says it is not a reportable segment."
+    },
+    {
+      "id": "U-C07",
+      "description": "Preserve Gross Bookings as a metric with stated inclusions/exclusions.",
+      "statement_ids": [
+        "U-S10",
+        "U-S11",
+        "U-S12"
+      ],
+      "status": "pass",
+      "finding": "Gross Bookings is a separate metric. Its facts retain ride/order values plus Freight revenue, taxes/tolls/fees, driver-tip exclusion, the pre-deduction condition for rides/orders, and separation from reported revenue.",
+      "record_ids": [
+        "metric_gross_bookings",
+        "f_gb_components",
+        "f_gb_pre_deduction",
+        "f_gb_not_revenue",
+        "r_gb_measures_mobility",
+        "r_gb_measures_delivery",
+        "r_gb_measures_freight",
+        "f_delivery_revenue_separate",
+        "f_freight_revenue_separate",
+        "f_mobility_revenue_separate"
+      ],
+      "reason": "Gross Bookings is a separate metric. Its facts retain ride/order values plus Freight revenue, taxes/tolls/fees, driver-tip exclusion, the pre-deduction condition for rides/orders, and separation from reported revenue."
+    }
+  ],
+  "unsupported_claims": [],
+  "omissions": [
+    {
+      "finding": "No accepted shipper-to-fee payer relationship; all three proposed inferences were quarantined. This remains the sole partial expected check.",
+      "record_ids": [
+        "actor_freight_shippers",
+        "rev_freight_brokerage_fees",
+        "rev_freight_tms_fees",
+        "rev_freight_related_services_fees"
+      ],
+      "statement_ids": [
+        "U-S06"
+      ]
+    },
+    {
+      "finding": "No accepted explicit driver-fee payer relationship and no distinct generic Mobility-consumer actor. Driver service fees and consumer charges survive as conditional revenue facts, so the baseline preservation check still passes.",
+      "record_ids": [
+        "actor_mobility_drivers",
+        "rev_mobility_driver_service_fees",
+        "rev_mobility_consumer_charges"
+      ],
+      "statement_ids": [
+        "U-S08"
+      ]
+    }
+  ],
+  "schema_limitations": [
+    "Semantic content is more addressable than v1, but atomicity is incomplete: f_gb_components and f_gb_pre_deduction each combine several independently useful details in one scalar sentence. Some inclusions/exclusions use qualifier lists while pre-deduction components remain prose.",
+    "is_reportable_segment values are the strings \"true\" and \"false\", not JSON booleans. Their meaning is supported, but a generic truthiness check could misread the string \"false\".",
+    "The accepted graph includes well-supported inferred links for membership, shared capabilities and metric scope. Readiness deliberately excludes inferred records; an accepted graph connection does not necessarily count toward readiness.",
+    "Readiness undercounts captured actors and roles: Delivery roles are attached to segment-level connects relationships, while the matcher searches offering-level serves relationships. The multi_perspective result has no available requirements despite three explicit participant-role facts. This is a graph-to-requirement mapping limitation, not proof that customer input omitted all stakeholder roles.",
+    "Freight service types are represented as fee streams and a segment serves qualifier rather than offering nodes. A report consumer that enumerates only offerings can omit the Freight business from its scope.",
+    "Missing pricing, market geography/period/population, competitor comparisons and observed customer testimony correctly prevent full-report readiness. A rich business object does not supply those absent facts."
+  ],
+  "internal_review": {
+    "quarantined_count": 5,
+    "quarantined_ids": [
+      "r_shippers_pay_brokerage",
+      "r_shippers_pay_tms",
+      "r_shippers_pay_related",
+      "r_drivers_pay_service_fees",
+      "r_riders_pay_consumer_charges"
+    ],
+    "missed_unsupported_claims": [],
+    "likely_overrejections": [
+      {
+        "record_ids": [
+          "r_drivers_pay_service_fees"
+        ],
+        "statement_ids": [
+          "U-S08"
+        ],
+        "finding": "The candidate edge is explicitly inferred and conditional on the market. Interpreting driver service fees as fees paid by drivers is a reasonable ordinary-language inference. Rejecting it solely because the input lacks the literal verb pay is stricter than the treatment of other accepted inferred links; this is a calibration issue, not a reason to relabel it as verified fact."
+      }
+    ],
+    "reasonable_caution": [
+      {
+        "record_ids": [
+          "r_shippers_pay_brokerage",
+          "r_shippers_pay_tms",
+          "r_shippers_pay_related"
+        ],
+        "statement_ids": [
+          "U-S06"
+        ],
+        "finding": "Services for shippers do not conclusively identify who pays. Quarantining these inferences is defensible, although the unchanged U-C03 benchmark consequently stays partial."
+      },
+      {
+        "record_ids": [
+          "r_riders_pay_consumer_charges"
+        ],
+        "statement_ids": [
+          "U-S02",
+          "U-S08"
+        ],
+        "finding": "The text does not expressly identify every charged consumer as a rider. Keeping that exact identity unresolved is defensible; the generic consumer-charge mechanism remains accepted."
+      }
+    ]
+  },
+  "report_readiness": {
+    "ready": false,
+    "reason": "All eight sections remain partial_input or needs_input. Only differentiators is marked ready_for_research; none is report_ready. Company-activity descriptions are not market sizing, a forecast, comparative evidence or customer testimony.",
+    "readiness_limitations": [
+      "The all-offerings requirements and strict relationship matching can turn partial captured evidence into needs_input. Use the listed records alongside that coarse status."
+    ]
+  },
+  "over_rejections": [
+    {
+      "record_ids": [
+        "r_drivers_pay_service_fees"
+      ],
+      "statement_ids": [
+        "U-S08"
+      ],
+      "finding": "The candidate edge is explicitly inferred and conditional on the market. Interpreting driver service fees as fees paid by drivers is a reasonable ordinary-language inference. Rejecting it solely because the input lacks the literal verb pay is stricter than the treatment of other accepted inferred links; this is a calibration issue, not a reason to relabel it as verified fact."
+    }
+  ],
+  "readiness_mapping_issues": [
+    {
+      "record_ids": [
+        "f_consumers_role",
+        "f_merchants_role",
+        "f_couriers_role",
+        "r_delivery_connects_consumers",
+        "r_delivery_connects_merchants",
+        "r_delivery_connects_couriers",
+        "r_white_label_serves_clients"
+      ],
+      "section_ids": [
+        "target_personas",
+        "multi_perspective",
+        "customer_voice"
+      ],
+      "finding": "Delivery actor roles exist, but _actor_facts enumerates only actors reached by offering-to-serves edges. The Delivery actors are reached by segment-to-connects, and the separately served white-label actor lacks role facts. This gives no multi_perspective roles evidence despite the three explicit role facts. The every-offering actor requirement also discards partial served-customer evidence when other offerings lack the expected edge shape."
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+# fly.toml — alternative deploy config for Fly.io.
+# https://fly.io/docs/reference/configuration/
+#
+# To deploy on Fly (alternative to Render):
+#   1. Install flyctl:  curl -L https://fly.io/install.sh | sh
+#   2. Authenticate:    flyctl auth login
+#   3. Create app:      flyctl launch --name castor-research --region sjc --no-deploy
+#   4. Create volume:   flyctl volumes create castor_data --size 5 --region sjc
+#   5. Set secrets:     flyctl secrets set GEMINI_API_KEY=... GROQ_API_KEY=... ANTHROPIC_API_KEY=...
+#   6. Deploy:          flyctl deploy
+#   7. Open:            flyctl open
+
+app = "castor-research"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PIPELINE_PROFILE = "default"
+  PYTHONUNBUFFERED = "1"
+  PORT = "8765"
+  # Without this, _current_owner falls back to LEGACY_OWNER and every anonymous visitor
+  # reads every customer's library. render.yaml sets it; this file did not, so the two
+  # deploy targets disagreed about whether the product had authentication.
+  CASTOR_ENV = "production"
+  # Paid backends are excluded from the chain unless the operator says otherwise, so a box
+  # with an Anthropic key AND a free key silently resolves to the free one.
+  LLM_ALLOW_PAID = "1"
+  # The app is behind Fly's proxy, so X-Forwarded-For is the only real client IP. Unset,
+  # every visitor collapses onto the proxy's address as ONE rate-limit key and ten wrong
+  # passwords lock out every customer at once.
+  CASTOR_TRUST_PROXY = "1"
+
+[[mounts]]
+  source = "castor_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8765
+  force_https = true
+  auto_stop_machines = false   # always-on; long /plan jobs need this
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "60s"
+    method = "GET"
+    timeout = "10s"
+    path = "/healthz"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 1024

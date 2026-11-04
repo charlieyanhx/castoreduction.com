@@ -1,0 +1,738 @@
+"""The new backend must research with PREP, rather than merely label itself an agent."""
+from __future__ import annotations
+
+import copy
+from contextlib import ExitStack
+import json
+import unittest
+from unittest.mock import patch
+
+from packs.market_research_next.research import (
+    EXTERNAL_CATEGORIES, EXTERNAL_TOOLS, LocalResearchBackend, OBSERVATION_CHARS, PARTIAL_NOTICE,
+    ResearchError, SIMULATION_NOTICE, _SYSTEM as SYSTEM_PROMPT, _sound_revenue, arithmetic_problem,
+    reads_needed,
+)
+from packs.market_research_next.open_tools import research_tools
+from packs.market_research_next.render import render_html
+from treadle.core import Evidence
+from treadle.harness.agent import AgentResult, MAX_STEPS_CEILING, Step, select_tools
+from treadle.run import Report
+from treadle.workflow import ReviewIssue
+
+
+def context(section_key):
+    return {
+        "prep": {
+            "venture": {"attributes": {
+                "product": {"value": "AI dental receptionist", "status": "customer_statement"},
+                "geography": {"value": "California", "status": "working_assumption"},
+            }},
+            "research_spec": {section_key: {
+                "scope": "Independent dental practices; exclude hospital systems",
+                "questions": ["Who pays for after-hours appointment handling?"],
+                "assumptions_to_test": ["Missed calls represent lost appointments"],
+                "required_deliverables": ["Explain the evidence and unresolved uncertainty"],
+            }},
+        },
+        "target_personas": {"findings": ["Practice owners control purchasing"]},
+    }
+
+
+def valid_section():
+    return {
+        "title": "Research findings", "narrative": "Practice owners may buy the product.",
+        "findings": ["Buying authority needs validation"],
+        "assumptions": ["California is the working geography"],
+        "uncertainties": ["Willingness to pay is unknown"],
+    }
+
+
+def complex_context(section_key):
+    ctx = context(section_key)
+    ctx["prep"]["business_context"] = {
+        "schema_version": "market_research.business_context/1",
+        "object": {
+            "version": "market_research.business/2", "company_alias": "Hybrid Studio",
+            "nodes": [
+                {"id": "company", "kind": "company", "label": "Hybrid Studio",
+                 "parent_id": None, "statement_ids": ["input_1"]},
+                {"id": "classes", "kind": "offering", "label": "Studio and online classes",
+                 "parent_id": "company", "statement_ids": ["input_1"]},
+                {"id": "memberships", "kind": "revenue_stream", "label": "Memberships",
+                 "parent_id": "classes", "statement_ids": ["input_1"]},
+                {"id": "drop_in", "kind": "revenue_stream", "label": "Drop-in fees",
+                 "parent_id": "classes", "statement_ids": ["input_1"]},
+            ],
+            "facts": [
+                {"id": "locations", "node_id": "classes", "key": "locations",
+                 "value": ["Oakland", "Berkeley"], "basis": "stated",
+                 "statement_ids": ["input_1"], "qualifiers": {"geography": "California"}},
+                {"id": "channels", "node_id": "classes", "key": "delivery_channels",
+                 "value": ["in person", "online"], "basis": "stated",
+                 "statement_ids": ["input_1"], "qualifiers": {}},
+                {"id": "audience", "node_id": "classes", "key": "buyer_role",
+                 "value": "Busy local professionals", "basis": "inferred",
+                 "statement_ids": ["input_1"], "qualifiers": {}},
+            ],
+            "relationships": [
+                {"id": "classes_memberships", "from_id": "classes", "to_id": "memberships",
+                 "kind": "generates", "basis": "stated", "statement_ids": ["input_1"],
+                 "qualifiers": {}},
+                {"id": "classes_drop_in", "from_id": "classes", "to_id": "drop_in",
+                 "kind": "generates", "basis": "stated", "statement_ids": ["input_1"],
+                 "qualifiers": {}},
+            ],
+            "gaps": [{"id": "pricing", "node_id": "classes",
+                      "question": "What are the membership and drop-in prices?",
+                      "section_ids": [section_key]}],
+        },
+        "statements": [{"id": "input_1", "text": "Our Oakland and Berkeley studios offer "
+                        "classes online and in person, with memberships and drop-in fees."}],
+        "statement_paths": {"input_1": "/description"},
+        "construction": {"stop_reason": "budget_exhausted", "expansion_complete": False,
+                         "quarantined_count": 1},
+        "readiness": {"report_ready": False, "sections": {section_key: {
+            "status": "needs_input", "ready_for_research": False, "report_ready": False,
+            "missing_requirements": [{"id": "revenue.pricing", "resolution": "external_research",
+                                      "question": "What are the membership and drop-in prices?"}],
+            "node_ids": ["classes"], "fact_ids": [], "relationship_ids": [],
+        }}},
+        "limitations": ["Some business details could not be expanded within the preparation limit."],
+    }
+    return ctx
+
+
+def observed_result(*, completed=True, failed=False):
+    result = AgentResult(
+        goal="Research", answer="Observed public discussion mentions missed calls.",
+        completed=completed, stop_reason="done" if completed else "budget_exhausted",
+        evidence=[Evidence(
+            source="web_search", category="scrape", count=1,
+            payload=[{"url": "https://example.org/discussion", "snippet": "Missed calls"}],
+        )],
+        steps=[Step(0, "web_search", {}, True, "One result")],
+    )
+    if failed:
+        result.evidence.append(Evidence.empty("fetch_page", "scrape", error="timeout"))
+        result.steps.append(Step(1, "fetch_page", {}, False, "timeout", error="timeout"))
+    return result
+
+
+class TestResearchBackend(unittest.TestCase):
+    def test_full_business_graph_and_section_gaps_reach_research_and_writing(self):
+        captured = []
+
+        def model(system, user, **kwargs):
+            captured.append((system, json.loads(user)))
+            return valid_section()
+
+        ctx = complex_context("market_size")
+        before = copy.deepcopy(ctx)
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result()) as agent:
+            output = LocalResearchBackend(model)("market_size", ctx)
+        self.assertEqual(ctx, before)
+        business = ctx["prep"]["business_context"]
+        research_request = json.loads(agent.call_args.kwargs["context"])
+        for request in (research_request, captured[0][1]):
+            self.assertEqual(request["context"]["prep"]["business_context"], business)
+            self.assertEqual(request["section_input_readiness"],
+                             business["readiness"]["sections"]["market_size"])
+            graph = request["context"]["prep"]["business_context"]["object"]
+            self.assertEqual([item["label"] for item in graph["nodes"]
+                              if item["kind"] == "revenue_stream"], ["Memberships", "Drop-in fees"])
+            self.assertEqual(graph["facts"][0]["value"], ["Oakland", "Berkeley"])
+            self.assertEqual(graph["facts"][1]["value"], ["in person", "online"])
+            self.assertEqual(graph["facts"][2]["basis"], "inferred")
+        self.assertIn("full accepted business graph", agent.call_args.args[0])
+        self.assertIn("stated versus inferred", captured[0][0])
+        # needs_input is a starting-information gap, not a hard stop or a prompt
+        # for the customer. External research still runs and can return findings.
+        self.assertEqual(output["research_status"], "completed")
+        # The gaps and limitations steer the model (they are in its request above); they
+        # are engine notes, not the reader's uncertainties, and the readiness check can
+        # list a question the founder did answer (live cafe report, 2026-10-30).
+        self.assertNotIn(business["limitations"][0], output["uncertainties"])
+        self.assertFalse(any(u.startswith("Starting information did not answer")
+                             for u in output["uncertainties"]))
+
+    def test_cut_short_research_is_said_in_plain_words(self):
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result(completed=False)):
+            output = LocalResearchBackend(lambda *a, **kw: valid_section()).research(
+                "competitive_landscape", context("competitive_landscape"))
+        self.assertEqual(output["research_status"], "partial")
+        text = " ".join(output["uncertainties"])
+        self.assertNotIn("stop reason", text)
+        self.assertNotIn("tool result", text)
+        self.assertIn(PARTIAL_NOTICE, output["uncertainties"])
+
+    def test_missing_questions_are_section_specific_and_not_technical_ids(self):
+        ctx = complex_context("summary")
+        ctx["prep"]["business_context"]["readiness"]["sections"]["revenue"] = {
+            "missing_requirements": [{"id": "revenue.adoption", "question": "What is the adoption rate?"}]
+        }
+        output = LocalResearchBackend(lambda *a, **kw: valid_section())("summary", ctx)
+        self.assertNotIn("revenue.pricing", " ".join(output["uncertainties"]))
+        self.assertNotIn("What is the adoption rate?", " ".join(output["uncertainties"]))
+
+    def test_malformed_business_context_does_not_silently_use_flat_attributes(self):
+        cases = [None, {}, {"object": {}, "readiness": {"sections": {}}}]
+        for value in cases:
+            ctx = context("summary")
+            ctx["prep"]["business_context"] = value
+            with self.subTest(value=value), \
+                 patch("packs.market_research_next.research._default_model") as model:
+                with self.assertRaises(ResearchError):
+                    LocalResearchBackend()("summary", ctx)
+                model.assert_not_called()
+
+    def test_report_discloses_and_escapes_initial_business_limitations(self):
+        ctx = complex_context("summary")
+        business = ctx["prep"]["business_context"]
+        limitation = "Description still contains <script>alert('limit')</script> assumptions."
+        question = "How does <img src=x onerror=alert(1)> earn revenue?"
+        business["limitations"] = [limitation, limitation]
+        business["readiness"]["sections"] = {
+            key: {"missing_requirements": [{"id": "internal." + key, "question": question}]}
+            for key in ("summary", "revenue")
+        }
+        ctx["prep"]["venture"]["attributes"]["geography"] = {"basis": "unknown", "value": None}
+        html = render_html(Report(type="example", result={"prep": ctx["prep"]}, sections=None))
+        self.assertIn("Business description limitations", html)
+        self.assertIn("Section findings may address these questions through research", html)
+        self.assertEqual(html.count("How does &lt;img"), 1)
+        self.assertEqual(html.count("Description still contains &lt;script&gt;"), 1)
+        self.assertNotIn("<script>", html)
+        self.assertNotIn("<img ", html)
+        self.assertNotIn("internal.summary", html)
+        self.assertIn("Business details still unknown:", html)
+        self.assertIn("geography", html)
+
+    def test_prep_and_dependencies_reach_both_research_and_structuring(self):
+        captured = []
+
+        def model(system, user, **kwargs):
+            captured.append((system, json.loads(user), kwargs))
+            return {**valid_section(), "metrics": {"competitors": []}}
+
+        ctx = context("competitive_landscape")
+        before = copy.deepcopy(ctx)
+        result = observed_result()
+        with patch("packs.market_research_next.research.run_agent", return_value=result) as agent:
+            output = LocalResearchBackend(model, max_steps=4).research(
+                "competitive_landscape", ctx, issues=["Clarify buyer scope"],
+            )
+        self.assertEqual(ctx, before)
+        research_input = json.loads(agent.call_args.kwargs["context"])
+        self.assertEqual(research_input["context"], ctx)
+        self.assertEqual(research_input["issues_to_address"], ["Clarify buyer scope"])
+        self.assertEqual(research_input["research_specification"],
+                         ctx["prep"]["research_spec"]["competitive_landscape"])
+        self.assertEqual(len(captured), 1)
+        structured_input = captured[0][1]
+        self.assertEqual(structured_input["context"], ctx)
+        self.assertEqual(structured_input["external_research"]["answer"], result.answer)
+        self.assertEqual(structured_input["external_research"]["evidence"],
+                         [item.to_dict() for item in result.evidence])
+        self.assertEqual(output["research_status"], "completed")
+        self.assertEqual(captured[0][2]["tier"], "reasoning")
+        self.assertEqual(agent.call_args.kwargs["max_steps"], 4)
+
+    def test_each_external_section_masks_explicit_registered_tools(self):
+        from tools import TOOL_REGISTRY
+
+        registered = {meta.category for meta in TOOL_REGISTRY.values()}
+        for key, categories in EXTERNAL_CATEGORIES.items():
+            with self.subTest(section=key):
+                self.assertTrue(set(categories).issubset(registered))
+                with patch("packs.market_research_next.research.run_agent",
+                           return_value=observed_result()) as agent:
+                    LocalResearchBackend(lambda *a, **kw: valid_section())(key, context(key))
+                self.assertEqual(agent.call_args.kwargs["allowed_categories"], list(categories))
+                self.assertEqual(agent.call_args.kwargs["allowed_tools"], list(EXTERNAL_TOOLS[key]))
+                selected = select_tools(allowed_tools=list(EXTERNAL_TOOLS[key]),
+                                        allowed_categories=list(categories),
+                                        registry=research_tools())
+                self.assertEqual({tool.name for tool in selected}, set(EXTERNAL_TOOLS[key]))
+
+    def test_real_agent_rejects_excluded_tools_even_when_model_requests_them(self):
+        from tools import TOOL_REGISTRY
+
+        excluded = ("fetch_page", "trustpilot_reviews", "enrich_competitor",
+                    "enrich_competitors_batch")
+        for key in EXTERNAL_TOOLS:
+            for forbidden in excluded:
+                with self.subTest(section=key, tool=forbidden), ExitStack() as stack:
+                    # Exercise the real harness and its registry lookup. Mock only
+                    # model decisions and external calls so this never uses providers.
+                    denied = {
+                        name: stack.enter_context(patch.object(TOOL_REGISTRY[name], "fn"))
+                        for name in excluded
+                    }
+                    search = stack.enter_context(patch.object(
+                        TOOL_REGISTRY["web_search"], "fn",
+                        return_value=observed_result().evidence[0],
+                    ))
+                    stack.enter_context(patch("treadle.harness.agent.call_next", side_effect=[
+                        {"tool": forbidden, "args": {"url": "http://127.0.0.1/private"}},
+                        {"tool": "web_search", "args": {"query": "dental receptionist"}},
+                        {"done": True, "answer": "One public search result."},
+                    ]))
+                    captured = []
+
+                    def model(system, user, **kwargs):
+                        captured.append(json.loads(user))
+                        return valid_section()
+
+                    output = LocalResearchBackend(model, max_steps=3)(key, context(key))
+                    for tool in denied.values():
+                        tool.assert_not_called()
+                    search.assert_called_once_with(query="dental receptionist")
+                    steps = captured[0]["external_research"]["steps"]
+                    self.assertEqual(steps[0]["error"], "invalid_tool")
+                    self.assertFalse(steps[0]["ok"])
+                    self.assertEqual(output["research_status"], "partial")
+
+    def test_workflow_review_issues_reach_research_and_structuring_as_json(self):
+        captured = []
+
+        def model(system, user, **kwargs):
+            captured.append(json.loads(user))
+            return valid_section()
+
+        issue = ReviewIssue("scope_conflict", "Use the same geography", ("market_size",))
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result()) as agent:
+            LocalResearchBackend(model)("market_size", context("market_size"), issues=(issue,))
+        self.assertEqual(json.loads(agent.call_args.kwargs["context"])["issues_to_address"],
+                         [issue.as_dict()])
+        self.assertEqual(captured[0]["issues_to_address"], [issue.as_dict()])
+
+    def test_default_model_uses_the_existing_llm_adapter_without_reasking(self):
+        with patch("treadle.llm.call_json", return_value=valid_section()) as model:
+            LocalResearchBackend()("summary", context("summary"))
+        model.assert_called_once()
+        self.assertEqual(model.call_args.kwargs["tier"], "critical")
+        self.assertEqual(model.call_args.kwargs["max_retries"], 0)
+
+    def test_summary_uses_upstream_results_without_another_research_loop(self):
+        captured = []
+
+        def model(system, user, **kwargs):
+            captured.append((json.loads(user), kwargs))
+            return valid_section()
+
+        ctx = context("summary")
+        ctx["market_size"] = {"narrative": "Market estimate remains conditional"}
+        with patch("packs.market_research_next.research.run_agent") as agent:
+            output = LocalResearchBackend(model)("summary", ctx)
+        agent.assert_not_called()
+        self.assertEqual(captured[0][0]["context"]["market_size"], ctx["market_size"])
+        self.assertEqual(captured[0][1]["tier"], "critical")
+        self.assertEqual(output["research_status"], "derived")
+
+    def test_simulated_perspectives_get_a_visible_backend_owned_disclosure(self):
+        with patch("packs.market_research_next.research.run_agent") as agent:
+            output = LocalResearchBackend(lambda *a, **kw: valid_section())(
+                "multi_perspective", context("multi_perspective"),
+            )
+        agent.assert_not_called()
+        self.assertEqual(output["research_status"], "simulated")
+        self.assertTrue(output["narrative"].startswith(SIMULATION_NOTICE))
+        self.assertIn("simulated", output["title"])
+
+    def test_no_evidence_or_heuristics_do_not_become_research(self):
+        cases = [
+            [],
+            [Evidence.empty("web_search", "scrape", error="offline")],
+            [Evidence("estimate", "geo", 1, {"count": 999}, skeleton=True)],
+            [Evidence("web_search", "scrape", 1, [])],
+        ]
+        for evidence in cases:
+            with self.subTest(evidence=evidence):
+                result = AgentResult("Research", "Looks complete", evidence=evidence,
+                                     completed=True, stop_reason="done")
+                with patch("packs.market_research_next.research.run_agent", return_value=result), \
+                     patch("packs.market_research_next.research._default_model") as model:
+                    with self.assertRaisesRegex(ResearchError, "no usable external evidence"):
+                        LocalResearchBackend()("market_size", context("market_size"))
+                model.assert_not_called()
+
+    def test_partial_research_discloses_budget_and_tool_failures(self):
+        for completed, failed in ((False, False), (True, True)):
+            with self.subTest(completed=completed, failed=failed):
+                result = observed_result(completed=completed, failed=failed)
+                with patch("packs.market_research_next.research.run_agent", return_value=result):
+                    output = LocalResearchBackend(lambda *a, **kw: valid_section())(
+                        "customer_voice", context("customer_voice"),
+                    )
+                self.assertEqual(output["research_status"], "partial")
+                self.assertEqual(output["uncertainties"][0], PARTIAL_NOTICE)
+                if failed:
+                    self.assertIn("Tool failures: 1", output["research_note"])
+
+    def test_input_transforms_alone_are_not_external_research(self):
+        for source in ("filter_aggregator_domains", "extract_prices", "extract_structured",
+                       "enrich_competitors_batch"):
+            with self.subTest(source=source):
+                result = observed_result()
+                result.evidence = [Evidence(source, "scrape", 1, {"invented": "input"})]
+                with patch("packs.market_research_next.research.run_agent", return_value=result), \
+                     patch("packs.market_research_next.research._default_model") as model:
+                    with self.assertRaisesRegex(ResearchError, "no usable external evidence"):
+                        LocalResearchBackend()("competitive_landscape", context("competitive_landscape"))
+                model.assert_not_called()
+
+    def test_agent_and_model_exceptions_surface_without_fallback(self):
+        with patch("packs.market_research_next.research.run_agent", side_effect=OSError("offline")):
+            with self.assertRaisesRegex(ResearchError, "external research failed") as exc:
+                LocalResearchBackend()("market_size", context("market_size"))
+            self.assertIsInstance(exc.exception.__cause__, OSError)
+
+        def unavailable(*args, **kwargs):
+            raise TimeoutError("model unavailable")
+
+        with self.assertRaisesRegex(ResearchError, "section structuring failed") as exc:
+            LocalResearchBackend(unavailable)("summary", context("summary"))
+        self.assertIsInstance(exc.exception.__cause__, TimeoutError)
+
+    def test_a_rejected_write_up_is_asked_again_once_with_the_reason(self):
+        # A bad write-up used to fail the section and cost a whole correction round.
+        calls = []
+
+        def model(system, user, **kwargs):
+            calls.append((system, json.loads(user)))
+            return {**valid_section(), "narrative": " "} if len(calls) == 1 else valid_section()
+
+        output = LocalResearchBackend(model)("summary", context("summary"))
+        self.assertEqual(output["narrative"], valid_section()["narrative"])
+        self.assertEqual(len(calls), 2)
+        self.assertNotIn("previous_answer_rejected", calls[0][1])
+        self.assertIn("no usable narrative", calls[1][1]["previous_answer_rejected"])
+        self.assertIn("previous_answer_rejected", calls[1][0])
+
+    def test_one_failed_read_among_good_results_is_not_incomplete_research(self):
+        # Marketplace, 2026-11-03: one unreadable PDF marked five good results as partial.
+        result = observed_result(failed=True)
+        result.evidence += [Evidence(source="web_search", category="scrape", count=1,
+                                     payload=[{"url": "https://a.org/x"}])]
+        with patch("packs.market_research_next.research.run_agent", return_value=result):
+            output = LocalResearchBackend(lambda *a, **kw: {**valid_section(),
+                                                            "metrics": {"competitors": []}})(
+                "competitive_landscape", context("competitive_landscape"))
+        self.assertEqual(output["research_status"], "completed")
+        self.assertIn("Tool failures: 1", output["research_note"])
+
+    def test_revenue_figures_are_checked_by_multiplying_them(self):
+        calls = []
+        wrong = {**valid_section(), "metrics": {
+            "years": [{"year": 1, "units": 100, "unit": "seat", "price": 39, "revenue": 4000,
+                       "basis": "founder target"}], "break_even": []}}
+        right = {**valid_section(), "metrics": {
+            "years": [{"year": 1, "units": 100, "unit": "seat", "price": 39, "revenue": 3900,
+                       "basis": "founder target"}], "break_even": []}}
+
+        def model(system, user, **kwargs):
+            calls.append(json.loads(user))
+            return wrong if len(calls) == 1 else right
+
+        output = LocalResearchBackend(model)("revenue", context("revenue"))
+        self.assertEqual(len(calls), 2)
+        self.assertIn("year 1", calls[1]["previous_answer_rejected"])
+        self.assertEqual(output["research_status"], "derived")
+        self.assertEqual(output["metrics"]["years"][0]["revenue"], 3900)
+
+    def test_a_cost_already_in_the_unit_cost_is_not_a_fixed_cost(self):
+        rows = {"units": 6087, "unit_margin": 4.6, "fixed_cost": 28000,
+                "fixed_items": [{"name": "rent", "amount": 7500},
+                                {"name": "beans and milk", "amount": 4000},
+                                {"name": "staff", "amount": 16500}]}
+        years = [{"year": "1", "units": 100, "price": 6, "revenue": 600}]
+        problem = arithmetic_problem({"years": years, "break_even": [rows]})
+        self.assertIn("beans and milk", problem)
+        # With no unit cost taken off, nothing is counted twice.
+        free = {**rows, "units": 5600, "unit_margin": 5.0}
+        self.assertIsNone(arithmetic_problem(
+            {"years": [{**years[0], "price": 5, "revenue": 500}], "break_even": [free]}))
+
+    def test_fixed_items_must_add_up_to_the_fixed_cost(self):
+        row = {"units": 100, "unit_margin": 10, "fixed_cost": 1000,
+               "fixed_items": [{"name": "rent", "amount": 700}]}
+        self.assertIn("add up", arithmetic_problem({"years": [], "break_even": [row]}))
+
+    def test_a_second_answer_does_not_lose_the_first_answers_figures(self):
+        backend = LocalResearchBackend(model=lambda *a, **k: None)
+        section = {"title": "T", "narrative": "N", "findings": [], "assumptions": [],
+                   "uncertainties": []}
+        first = {**section, "narrative": "The TAM is $5 billion.", "metrics": {"figures": [{"a": 1}]}}
+        answers = iter([first, section])
+        backend.model = lambda *a, **k: next(answers)
+        kept = backend._write_up("market_size", {})
+        self.assertEqual(kept["narrative"], "N")
+        self.assertEqual(kept["metrics"], first["metrics"])
+
+    def test_a_row_that_counts_a_cost_twice_is_not_kept(self):
+        row = {"units": 6087, "unit_margin": 4.6, "fixed_cost": 28000,
+               "fixed_items": [{"name": "rent", "amount": 24000},
+                               {"name": "beans and milk", "amount": 4000}]}
+        years = [{"year": "1", "units": 100, "price": 6, "revenue": 600}]
+        self.assertEqual(_sound_revenue({"years": years, "break_even": [row]})["break_even"], [])
+
+    def test_a_break_even_is_checked_too(self):
+        bad = {"units": 10, "unit": "drink", "period": "month", "fixed_cost": 28000,
+               "unit_margin": 4.6}
+        good = {**bad, "units": 6087}
+        self.assertIn("break-even", arithmetic_problem({"years": [], "break_even": [bad]}))
+        self.assertIsNone(arithmetic_problem({"years": [], "break_even": [good]}))
+
+    def test_figures_returned_as_text_still_multiply(self):
+        row = {"year": 2, "units": "1,000", "unit": "seat", "price": "$39", "revenue": 39000}
+        self.assertIsNone(arithmetic_problem({"years": [row], "break_even": []}))
+
+    def test_revenue_without_yearly_figures_is_marked_incomplete(self):
+        output = LocalResearchBackend(lambda *a, **kw: valid_section())(
+            "revenue", context("revenue"))
+        self.assertEqual(output["research_status"], "partial")
+        self.assertTrue(any("yearly revenue" in u for u in output["uncertainties"]))
+        self.assertNotIn(PARTIAL_NOTICE, output["uncertainties"])
+
+    def test_rows_that_still_do_not_multiply_are_not_published(self):
+        wrong = {**valid_section(), "metrics": {
+            "years": [{"year": 1, "units": 2, "unit": "seat", "price": 2, "revenue": 9,
+                       "basis": "x"}], "break_even": []}}
+        output = LocalResearchBackend(lambda *a, **kw: wrong)("revenue", context("revenue"))
+        self.assertEqual(output["metrics"]["years"], [])
+        self.assertEqual(output["research_status"], "partial")
+
+    def test_a_tam_written_by_hand_is_sent_back(self):
+        # Marketplace, 2026-11-03: the writer computed its own TAM, sizing computed none,
+        # and the two correction rounds went on that contradiction.
+        calls = []
+        hand = {**valid_section(), "metrics": {"figures": []},
+                "narrative": "The TAM comes to $21.96M a year."}
+
+        def model(system, user, **kwargs):
+            calls.append(json.loads(user))
+            return hand if len(calls) == 1 else {**valid_section(), "metrics": {"figures": []}}
+
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result()):
+            LocalResearchBackend(model)("market_size", context("market_size"))
+        self.assertEqual(len(calls), 2)
+        self.assertIn("TAM", calls[1]["previous_answer_rejected"])
+
+    def test_trade_area_figures_reach_the_writer_and_the_sizing(self):
+        calls, area = [], [{"name": "Households within 1.5 km", "kind": "customer_count",
+                            "value": 15062, "unit": "households", "trade_area": True,
+                            "source_url": "https://data.census.gov/"}]
+
+        def model(system, user, **kwargs):
+            calls.append(json.loads(user))
+            return {**valid_section(), "metrics": {"figures": []}}
+
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result()) as agent:
+            output = LocalResearchBackend(model, market_facts=lambda ctx: area)(
+                "market_size", context("market_size"))
+        self.assertEqual(calls[0]["trade_area_figures"], area)
+        self.assertEqual(output["metrics"]["figures"], area)
+        self.assertIn("trade area", agent.call_args.args[0])
+
+    def test_trade_area_failure_falls_back_to_the_planner(self):
+        def broken(ctx):
+            raise RuntimeError("census down")
+
+        def model(system, user, **kwargs):
+            return {**valid_section(), "metrics": {"figures": []}}
+
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result()):
+            output = LocalResearchBackend(model, market_facts=broken)(
+                "market_size", context("market_size"))
+        self.assertEqual(output["metrics"]["figures"], [])
+
+    def test_the_writer_counts_a_cost_once(self):
+        prompt = " ".join(SYSTEM_PROMPT.split())
+        self.assertIn("already in the unit cost", prompt)
+
+    def test_internal_words_in_a_section_are_sent_back(self):
+        calls = []
+        internal = {**valid_section(), "narrative": "As the upstream section shows, demand exists."}
+
+        def model(system, user, **kwargs):
+            calls.append(json.loads(user))
+            return internal if len(calls) == 1 else valid_section()
+
+        output = LocalResearchBackend(model)("summary", context("summary"))
+        self.assertEqual(len(calls), 2)
+        self.assertIn("upstream", calls[1]["previous_answer_rejected"])
+        self.assertNotIn("upstream", output["narrative"])
+
+    def test_internal_words_never_cost_the_section(self):
+        internal = {**valid_section(), "narrative": "Per upstream analysis, demand exists."}
+        output = LocalResearchBackend(lambda *a, **kw: internal)("summary", context("summary"))
+        self.assertEqual(output["narrative"], internal["narrative"])
+
+    def test_research_sections_can_read_pages_without_a_browser(self):
+        # Marketplace, 2026-11-03: market_size ran three searches and opened no page.
+        for key in ("competitive_landscape", "customer_voice", "market_size"):
+            self.assertIn("read_page", EXTERNAL_TOOLS[key])
+            self.assertNotIn("fetch_page", EXTERNAL_TOOLS[key])
+
+    def test_a_section_may_not_finish_on_snippets_alone(self):
+        rule = reads_needed("market_size")
+        result = observed_result()
+        self.assertIn("read_page", rule(result))
+        result.evidence.append(Evidence(source="read_page", category="scrape", count=1,
+                                        payload={"url": "https://a.com", "content": "x"}))
+        self.assertIn("read_page", rule(result))
+        result.evidence.append(Evidence(source="read_page", category="scrape", count=1,
+                                        payload={"url": "https://b.com", "content": "x"}))
+        self.assertIsNone(rule(result))
+
+    def test_a_failed_read_does_not_count_as_a_page_read(self):
+        result = observed_result()
+        result.evidence.append(Evidence.empty("read_page", "scrape", error="blocked"))
+        self.assertIn("read_page", reads_needed("competitive_landscape")(result))
+
+    def test_the_planner_gets_the_read_rule_and_room_to_see_results(self):
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result()) as agent:
+            LocalResearchBackend(lambda *a, **kw: {**valid_section(), "metrics": {"figures": []}})(
+                "market_size", context("market_size"))
+        kwargs = agent.call_args.kwargs
+        self.assertEqual(kwargs["observation_chars"], OBSERVATION_CHARS)
+        self.assertGreaterEqual(kwargs["max_steps"], 8)
+        self.assertIn("read_page", kwargs["before_done"](observed_result()))
+
+    def test_a_write_up_without_its_contract_metrics_is_asked_again(self):
+        # Marketplace, 2026-11-03: the landscape named Rover and Wag! in prose and returned
+        # no metrics, so pricing had no competitors and no correction round could help.
+        calls = []
+
+        def model(system, user, **kwargs):
+            calls.append(json.loads(user))
+            return (valid_section() if len(calls) == 1
+                    else {**valid_section(), "metrics": {"competitors": []}})
+
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result()):
+            output = LocalResearchBackend(model)("competitive_landscape",
+                                                 context("competitive_landscape"))
+        self.assertEqual(len(calls), 2)
+        self.assertIn("competitors", calls[1]["previous_answer_rejected"])
+        self.assertEqual(output["metrics"]["competitors"], [])
+
+    def test_a_section_still_without_metrics_after_asking_again_is_kept(self):
+        # The metrics stay ignored when missing: the prose is still worth keeping.
+        calls = []
+
+        def model(system, user, **kwargs):
+            calls.append(user)
+            return valid_section()
+
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result()):
+            output = LocalResearchBackend(model)("competitive_landscape",
+                                                 context("competitive_landscape"))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(output["narrative"], valid_section()["narrative"])
+
+    def test_planner_stop_without_answer_cannot_claim_completed_research(self):
+        # The existing harness can set completed=True when its planner JSON fails.
+        result = observed_result()
+        result.answer = ""
+        with patch("packs.market_research_next.research.run_agent", return_value=result):
+            output = LocalResearchBackend(lambda *a, **kw: valid_section())(
+                "market_size", context("market_size"),
+            )
+        self.assertEqual(output["research_status"], "partial")
+        self.assertIn("did not return a final answer", output["research_note"])
+
+    def test_malformed_model_results_are_rejected(self):
+        cases = [None, [], {}, {"_parse_error": "invalid JSON"},
+                 {**valid_section(), "narrative": " "},
+                 {**valid_section(), "findings": "not a list"},
+                 {**valid_section(), "assumptions": [None]},
+                 {**valid_section(), "metrics": {"tam": float("nan")}}]
+        for value in cases:
+            with self.subTest(value=value):
+                with self.assertRaises(ResearchError):
+                    LocalResearchBackend(lambda *a, **kw: value)("summary", context("summary"))
+
+    def test_budget_is_bounded_and_no_automatic_correction_rounds_run(self):
+        backend = LocalResearchBackend(lambda *a, **kw: valid_section(), max_steps=1000)
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result(completed=False)) as agent:
+            backend("market_size", context("market_size"), issues=["Recheck scope"])
+        agent.assert_called_once()
+        self.assertEqual(agent.call_args.kwargs["max_steps"], MAX_STEPS_CEILING)
+        for invalid in (0, -1, True, 2.5, "6"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                LocalResearchBackend(max_steps=invalid)
+
+    def test_missing_prep_or_section_spec_is_an_error_before_any_model_call(self):
+        cases = [{}, {"prep": {}}, {"prep": {"venture": {"attributes": {}}}}]
+        with patch("packs.market_research_next.research._default_model") as model:
+            for ctx in cases:
+                with self.subTest(context=ctx), self.assertRaises(ResearchError):
+                    LocalResearchBackend()("summary", ctx)
+            with self.assertRaisesRegex(ResearchError, "Unknown research section"):
+                LocalResearchBackend()("unknown", context("summary"))
+        model.assert_not_called()
+
+    def test_the_write_up_has_room_for_a_full_section(self):
+        # Live 2026-10-30: customer voice's write-up stopped mid-string at 3,500 tokens.
+        captured = []
+
+        def model(system, user, **kwargs):
+            captured.append(kwargs)
+            return valid_section()
+
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result()):
+            LocalResearchBackend(model).research("competitive_landscape",
+                                                 context("competitive_landscape"))
+        self.assertGreaterEqual(captured[-1]["max_tokens"], 6000)
+
+    def test_community_hint_matches_what_reddit_search_can_reach(self):
+        def found(source):
+            ctx = context("customer_voice")
+            ctx["community_discovery"] = {"data": {"source": source, "subreddits": [
+                {"name": "Coffee_Shop"}, {"name": "barista"}]}}
+            return ctx
+
+        def goal(ctx):
+            with patch("packs.market_research_next.research.run_agent",
+                       return_value=observed_result()) as agent:
+                LocalResearchBackend(lambda *a, **k: valid_section()).research(
+                    "customer_voice", ctx)
+            return agent.call_args.args[0]
+
+        with_keys = goal(found("reddit"))
+        self.assertIn("r/Coffee_Shop", with_keys)
+        self.assertIn("subreddit:", with_keys)
+        # reddit_mentions reads Reddit's public feed, so it reaches them with no credentials.
+        archive = goal(found("open_archive"))
+        self.assertIn("r/Coffee_Shop", archive)
+        self.assertIn("subreddit:", archive)
+
+
+class TestRigorRules(unittest.TestCase):
+    """The write-up rules each live failure of 2026-10-30 broke, as the model is told them."""
+
+    def test_the_rules_reach_every_write_up(self):
+        from packs.market_research_next.research import _SYSTEM
+
+        for phrase in ("Never apply a share, rate, price, attachment rate",
+                       "Never call an\n  assumed number a benchmark",
+                       "Do not compute TAM, SAM or SOM",
+                       "a first-year target stays first-year",
+                       "use it instead of the intake's wording",
+                       "Never mention reviews, review issues, flags, checks or reconciliation"):
+            self.assertIn(phrase, _SYSTEM)
+
+
+if __name__ == "__main__":
+    unittest.main()
