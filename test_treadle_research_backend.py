@@ -212,7 +212,7 @@ class TestResearchBackend(unittest.TestCase):
 
         def model(system, user, **kwargs):
             captured.append((system, json.loads(user), kwargs))
-            return valid_section()
+            return {**valid_section(), "metrics": {"competitors": []}}
 
         ctx = context("competitive_landscape")
         before = copy.deepcopy(ctx)
@@ -408,6 +408,39 @@ class TestResearchBackend(unittest.TestCase):
         self.assertNotIn("previous_answer_rejected", calls[0][1])
         self.assertIn("no usable narrative", calls[1][1]["previous_answer_rejected"])
         self.assertIn("previous_answer_rejected", calls[1][0])
+
+    def test_a_write_up_without_its_contract_metrics_is_asked_again(self):
+        # Marketplace, 2026-11-03: the landscape named Rover and Wag! in prose and returned
+        # no metrics, so pricing had no competitors and no correction round could help.
+        calls = []
+
+        def model(system, user, **kwargs):
+            calls.append(json.loads(user))
+            return (valid_section() if len(calls) == 1
+                    else {**valid_section(), "metrics": {"competitors": []}})
+
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result()):
+            output = LocalResearchBackend(model)("competitive_landscape",
+                                                 context("competitive_landscape"))
+        self.assertEqual(len(calls), 2)
+        self.assertIn("competitors", calls[1]["previous_answer_rejected"])
+        self.assertEqual(output["metrics"]["competitors"], [])
+
+    def test_a_section_still_without_metrics_after_asking_again_is_kept(self):
+        # The metrics stay ignored when missing: the prose is still worth keeping.
+        calls = []
+
+        def model(system, user, **kwargs):
+            calls.append(user)
+            return valid_section()
+
+        with patch("packs.market_research_next.research.run_agent",
+                   return_value=observed_result()):
+            output = LocalResearchBackend(model)("competitive_landscape",
+                                                 context("competitive_landscape"))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(output["narrative"], valid_section()["narrative"])
 
     def test_planner_stop_without_answer_cannot_claim_completed_research(self):
         # The existing harness can set completed=True when its planner JSON fails.

@@ -7,7 +7,7 @@ return the same types. Usage tracking works for all backends.
 
 Supported backends + free tier:
   groq    → Llama 3.3 70B, 30 RPM free, set GROQ_API_KEY
-  gemini  → Gemini 2.0 Flash, 15 RPM free, set GEMINI_API_KEY
+  gemini  → Gemini 3.5 Flash, set GEMINI_API_KEY
   anthropic → Claude Haiku, paid, set ANTHROPIC_API_KEY
 """
 from __future__ import annotations
@@ -170,11 +170,18 @@ def get_usage() -> Usage:
 # ---------------------------------------------------------------------------
 # Backend auto-detection
 # ---------------------------------------------------------------------------
+#: The Gemini models a call walks through, first to last. Fixed names lead because Google
+#: moves the `latest` aliases: on 2026-11-03 gemini-flash-latest moved to a model that took
+#: about 60 s for 540 tokens where these took 2 to 10 s, median time per call went from 20 s
+#: to 80 s, and all five scorecard briefs ran out of time. The moving alias stays last, so a
+#: run reaches it only when every fixed model has refused.
+GEMINI_CHAIN = ("gemini-3.5-flash", "gemini-2.5-flash-lite", "gemini-flash-lite-latest",
+                "gemini-flash-latest")
+
 BACKEND_DEFAULTS = {
     "groq": {"model": "llama-3.3-70b-versatile", "key_env": "GROQ_API_KEY"},
-    # cycle36: gemini-2.0-flash now 404s for this key tier. gemini-flash-latest is a
-    # live, non-deprecating alias (verified generateContent OK). See _call_gemini fallbacks.
-    "gemini": {"model": "gemini-flash-latest", "key_env": "GEMINI_API_KEY"},
+    # A fixed name, never a `latest` alias: see GEMINI_CHAIN below.
+    "gemini": {"model": "gemini-3.5-flash", "key_env": "GEMINI_API_KEY"},
     "anthropic": {"model": "claude-haiku-4-5", "key_env": "ANTHROPIC_API_KEY"},
 }
 
@@ -501,9 +508,8 @@ def _gemini_client():
                         **_gemini_http_options())
 
 
-#: One Gemini call's ceiling. A plain request to gemini-flash-latest stalled for 139 s
-#: (2026-11-03), and with the whole remaining task as its timeout one stall spent a
-#: section's 480 s deadline. The largest structured answer takes about a minute.
+#: One Gemini call's ceiling. With the whole remaining task as its timeout, one 139 s call
+#: to the slow alias (2026-11-03) was enough to spend most of a section's 480 s deadline.
 GEMINI_CALL_TIMEOUT_S = 120.0
 
 
@@ -522,6 +528,8 @@ def _gemini_http_options() -> dict:
 #   gemini-flash-latest / gemini-flash-lite-latest  -> 400 INVALID_ARGUMENT WITH it
 #   gemini-3.5-flash                                -> emits ZERO characters WITHOUT it
 # so no single static config works, and this is a per-model fact rather than a global one.
+# (Re-measured 2026-11-03: flash-latest and 3.5-flash now answer both ways, flash-lite-latest
+# still refuses it. The first attempt stays thinking-off, so nothing depends on the change.)
 # Before this, `thinking_config` was sent unconditionally and the primary model rejected
 # every request: the whole LLM layer returned _parse_error, reported to the user as
 # "the model is busy (rate limit)".
@@ -539,14 +547,8 @@ def _call_gemini(system: str, user: str, max_tokens: int, model: str,
 
 
     # Try multiple models on 429 — different models have separate quota pools.
-    # cycle36: these are the models VERIFIED available for this key tier (gemini-2.0-flash
-    # and gemini-2.5-flash now 404). Ordered live → fast-lite → quality backup.
-    models_to_try = [model]
-    fallbacks = ["gemini-flash-latest", "gemini-flash-lite-latest",
-                 "gemini-2.5-flash-lite", "gemini-3.5-flash"]
-    for fb in fallbacks:
-        if fb != model and fb not in models_to_try:
-            models_to_try.append(fb)
+    # cycle36: gemini-2.0-flash and gemini-2.5-flash now 404 for this key tier.
+    models_to_try = [model, *(m for m in GEMINI_CHAIN if m != model)]
 
     # Iter 39: kill the 5s+15s retry on 429. Per-minute quota doesn't reset
     # in seconds — falling through to the next model in the chain is always

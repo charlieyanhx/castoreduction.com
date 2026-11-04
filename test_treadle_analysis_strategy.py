@@ -559,6 +559,30 @@ class Sequence:
         return copy.deepcopy(self.answers[len(self.calls) - 1])
 
 
+def test_a_median_spelled_in_words_is_sent_back_with_the_figure_in_digits():
+    # Marketplace, 2026-11-03: the model wrote "USD twenty" and the digit check refused it
+    # three times out of three, because the refusal never said what it was looking for.
+    fake = Sequence(_gtm_answer("Anchor on a median of thirty Canadian dollars per walk."),
+                    _gtm_answer("Anchor on the CAD 30 per walk median."))
+    section = go_to_market.produce(_per_walk_context(), model=fake)
+    rejected = fake.calls[1]["user"]["previous_answer_rejected"]
+    assert "in digits" in rejected and "30" in rejected and "per walk" in rejected
+    assert "30" in section["data"]["price"]["summary"]
+
+
+def test_a_monthly_median_is_refused_with_its_figure():
+    context = _full_context()
+    context["pricing"]["data"] = {**context["pricing"]["data"], "category_median_monthly": 45.5}
+    with pytest.raises(base.AnalysisError, match=r"in digits.*45\.5"):
+        go_to_market.produce(context, model=Fake(_gtm_answer("About the category median.")))
+
+
+def test_the_prompt_keeps_quoted_figures_in_digits_and_only_counts_in_words():
+    prompt = " ".join(go_to_market._SYSTEM.split())
+    assert "quoted figure in digits" in prompt
+    assert "other count in words" in prompt
+
+
 def test_a_rejected_answer_is_asked_again_once_with_the_reason():
     # Measured 2026-11-02: a failed section cost a whole correction round 13 times.
     bad = _forces_answer()

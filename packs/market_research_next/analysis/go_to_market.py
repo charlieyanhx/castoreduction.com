@@ -46,9 +46,10 @@ rests_on: the keys of the sections it rests on, chosen only from allowed_sources
 means the venture attributes). Tie every P to the positioning statement and its strategy.
 The price P quotes price_quotes.category_median_monthly when it is not null; when it is
 null and price_quotes.category_median_per_unit is not null, it quotes that median with
-its unit (for example "per walk"). It quotes price_quotes.founder_price when it is not
-null, may cite price_quotes.competitor_prices, and contains no other number: write any
-count in words. Write for the founder: never name these input fields, and never mention
+its unit (for example "$20 per walk"). It quotes price_quotes.founder_price when it is
+not null, may cite price_quotes.competitor_prices, and contains no other number. Write
+every quoted figure in digits, as supplied, and any other count in words. Write for the
+founder: never name these input fields, and never mention
 a quote that is null; only when every median and the stated price are null, say that no
 category median or stated price was available. positioning_link is one sentence tying
 the plan to the positioning statement.
@@ -164,13 +165,15 @@ def _check_price(price: Mapping[str, Any], quotes: Mapping[str, Any]) -> None:
         # A median quoted to the cent or to the whole unit is the same figure.
         allowed |= {round(median, 2), float(round(median))}
         if not found & {round(median, 2), float(round(median))}:
-            raise ValueError("the price P must quote the category median")
+            raise ValueError("the price P must quote the category median in digits: "
+                             f"{median:g}")
     per_unit = quotes.get("category_median_per_unit")
     if per_unit is not None:
         item = per_unit["median"]
         allowed |= {round(item, 2), float(round(item))}
         if median is None and not found & {round(item, 2), float(round(item))}:
-            raise ValueError("the price P must quote the per-item category median")
+            raise ValueError("the price P must quote the per-item category median in "
+                             f"digits: {item:g} {per_unit['currency']} {per_unit['unit']}")
     if founder and not _money(founder) <= found:
         raise ValueError("the price P must quote the founder's stated price")
     if _money(text) - allowed:

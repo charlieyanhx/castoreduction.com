@@ -141,8 +141,14 @@ def _support(record: dict, sources: set[str], *, optional: bool = False) -> set[
 
 def _qualifiers(record: dict) -> str:
     value = record["qualifiers"]
-    if not isinstance(value, dict) or not set(value) <= _SCALAR_QUALIFIERS | _LIST_QUALIFIERS:
-        raise ValueError(f"{record['id']}.qualifiers has unknown fields or is not an object")
+    if not isinstance(value, dict):
+        raise ValueError(f"{record['id']}.qualifiers must be an object")
+    allowed = _SCALAR_QUALIFIERS | _LIST_QUALIFIERS
+    if not set(value) <= allowed:
+        # This text is what the model is re-asked with, so it says what to change.
+        raise ValueError(f"{record['id']}.qualifiers has unknown fields "
+                         f"{sorted(map(str, set(value) - allowed))}; only {sorted(allowed)} "
+                         "are allowed, so remove the others")
     for key, item in value.items():
         if key in _SCALAR_QUALIFIERS:
             _text(item, f"qualifiers.{key}")

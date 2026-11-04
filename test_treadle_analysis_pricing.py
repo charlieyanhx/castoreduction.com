@@ -113,6 +113,25 @@ def test_no_competitors_is_partial_and_keeps_places_levels(competitors):
     assert "median price level 2" in out["narrative"]
 
 
+def test_counted_places_stand_in_when_the_landscape_lists_no_competitors():
+    # Marketplace, 2026-11-03: Places had counted Mutts in the 6ix while the landscape
+    # returned no list, and pricing reported that no competitors were identified.
+    context = _context(None)
+    context["competitor_count"] = {"data": {"available": True, "competitors": [
+        {"name": "Mutts in the 6ix", "website": "https://mutts.example/"},
+        {"name": "No Site Walkers"}]}}
+    assert pricing._selected(context) == [
+        {"name": "Mutts in the 6ix", "url": "https://mutts.example/", "kind": None},
+        {"name": "No Site Walkers", "url": None, "kind": None}]
+
+
+def test_the_landscape_list_wins_over_counted_places():
+    context = _context([_comp("Rover")])
+    context["competitor_count"] = {"data": {"available": True, "competitors": [
+        {"name": "Mutts in the 6ix", "website": "https://mutts.example/"}]}}
+    assert [c["name"] for c in pricing._selected(context)] == ["Rover"]
+
+
 def test_hallucinated_source_url_is_dropped_with_a_warning():
     entry = _entry("Acme", ["https://acme.com/pricing/", "https://invented.io/prices"])
     out, _, model = _run([entry], ["https://acme.com/pricing"])

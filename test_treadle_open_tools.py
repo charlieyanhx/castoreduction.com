@@ -168,4 +168,4 @@ def test_a_stalled_gemini_model_falls_through_to_the_next(monkeypatch):
     monkeypatch.setattr(llm, "_gemini_rate_gate", lambda model="": None)
     text, _, _ = llm._call_gemini("system", "user", 10, "gemini-flash-latest")
     assert text == '{"ok": true}'
-    assert tried == ["gemini-flash-latest", "gemini-flash-lite-latest"]
+    assert tried == ["gemini-flash-latest", llm.GEMINI_CHAIN[0]]

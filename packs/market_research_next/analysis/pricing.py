@@ -113,6 +113,18 @@ def _select(landscape: dict | None, sites: dict[str, str] | None = None) -> list
     return picked[:MAX_COMPETITORS]
 
 
+def _selected(context: Mapping[str, Any]) -> list[dict]:
+    """The competitors to price: the landscape's list, else the businesses Places counted."""
+    sites = _sites(context)
+    picked = _select(base.upstream(context, "competitive_landscape"), sites)
+    if picked:
+        return picked
+    data = (base.upstream(context, "competitor_count") or {}).get("data")
+    places = data.get("competitors") if isinstance(data, dict) else None
+    return _select({"metrics": {"competitors": places if isinstance(places, list) else None}},
+                   sites)
+
+
 def _local_levels(context: Mapping[str, Any]) -> dict | None:
     data = (base.upstream(context, "competitor_count") or {}).get("data")
     # Only a search that ran says anything: an unavailable count carries all-zero
@@ -329,7 +341,7 @@ def produce(context: dict, *, model: Callable[..., dict] | None = None,
             agent: Callable[..., Any] | None = None, now: Any = None) -> dict:
     """The pricing section. `now` is accepted for the shared signature and unused."""
     founder, levels = _founder_price_text(context), _local_levels(context)
-    selected = _select(base.upstream(context, "competitive_landscape"), _sites(context))
+    selected = _selected(context)
     if not selected:
         return _partial(founder, levels, "No competitors were identified, so no competitor "
                         "pricing was researched.", ["No competitors were identified by the "

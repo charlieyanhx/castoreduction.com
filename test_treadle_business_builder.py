@@ -145,16 +145,16 @@ class BusinessBuilder(unittest.TestCase):
         result = build_business_object(STATEMENTS, model=FakeModel(expand))
         self.assertEqual(result["accepted"]["relationships"][0]["id"], "software_service")
 
-    def test_requeueing_a_visited_target_is_rejected_after_one_reask(self):
+    def test_requeueing_a_visited_target_is_rejected_after_two_reasks(self):
         def expand(request):
             if request["target_id"] == "company":
                 return patch(request, nodes=[node("software")], expand_node_ids=["software"])
             return patch(request, expand_node_ids=["company"])
         result = build_business_object(STATEMENTS, model=FakeModel(expand))
         self.assertEqual(result["stop_reason"], "invalid_patch")
-        self.assertEqual(result["calls"], 4)
+        self.assertEqual(result["calls"], 5)
         self.assertEqual([h["target_id"] for h in result["history"]],
-                         ["company", "software", "software", None])
+                         ["company", "software", "software", "software", None])
 
     def test_noop_closes_target_without_incrementing_revision(self):
         result = build_business_object(STATEMENTS, model=FakeModel())
@@ -167,7 +167,7 @@ class BusinessBuilder(unittest.TestCase):
         def fail(_request):
             raise RuntimeError("provider unavailable")
         result = build_business_object(STATEMENTS, model=FakeModel(fail))
-        self.assertEqual(result["calls"], 3)  # the failed call is asked once more
+        self.assertEqual(result["calls"], 4)  # the failed call is asked twice more
         self.assertEqual(result["stop_reason"], "expansion_failed")
         self.assertEqual(result["support_review"]["status"], "complete")
         self.assertEqual(result["history"][0]["error"], "RuntimeError: model call failed")
@@ -180,7 +180,7 @@ class BusinessBuilder(unittest.TestCase):
                 result = build_business_object(STATEMENTS, model=FakeModel(lambda _: response))
                 self.assertEqual(result["stop_reason"], "invalid_patch")
                 self.assertEqual(result["revision"], 0)
-                self.assertEqual(result["calls"], 3)
+                self.assertEqual(result["calls"], 4)
 
     def test_a_rejected_patch_is_asked_again_once_with_the_reason(self):
         # Live 2026-11-02: one invalid first patch failed PREP and cost a whole round.
@@ -198,6 +198,23 @@ class BusinessBuilder(unittest.TestCase):
         self.assertIn("previous_answer_rejected", model.requests[1])
         self.assertTrue(result["history"][0]["error"])
         self.assertTrue(result["history"][1]["accepted"])
+
+    def test_a_patch_that_fails_a_second_way_gets_a_second_reask(self):
+        # Live 2026-11-03: the fix for a duplicate id came back with an unknown qualifier.
+        answers = iter([{"nodes": []}, {"facts": []}])
+
+        def expand(request):
+            return next(answers, None) or patch(request)
+        model = FakeModel(expand)
+        result = build_business_object(STATEMENTS, model=model)
+        self.assertEqual(result["stop_reason"], "complete")
+        self.assertEqual(result["calls"], 4)
+        self.assertIn("previous_answer_rejected", model.requests[2])
+
+    def test_re_asks_stop_at_the_limit_with_calls_left(self):
+        result = build_business_object(STATEMENTS, model=FakeModel(lambda _: {}), max_calls=6)
+        self.assertEqual(result["stop_reason"], "invalid_patch")
+        self.assertEqual(result["calls"], 4)
 
     def test_no_reask_when_only_the_review_call_is_left(self):
         result = build_business_object(STATEMENTS, model=FakeModel(lambda _: {}), max_calls=2)

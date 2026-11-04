@@ -126,7 +126,7 @@ class TestLlmIntegration(unittest.TestCase):
              patch("llm._detect_backend", return_value="gemini"), \
              patch.dict("os.environ", {"GEMINI_API_KEY": "x" * 20}, clear=False):
             llm.call_text("s", "u")
-        self.assertEqual(seen["model"], "gemini-flash-latest")
+        self.assertEqual(seen["model"], llm.BACKEND_DEFAULTS["gemini"]["model"])
 
     def test_tier_is_part_of_the_cache_key(self):
         """Same prompt at two tiers is two different answers — one cache slot would

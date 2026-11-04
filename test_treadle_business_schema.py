@@ -180,6 +180,18 @@ class BusinessSchemaTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate_document(graph, STATEMENTS)
 
+    def test_an_unknown_qualifier_is_refused_by_name_with_the_allowed_list(self):
+        # Conflicting brief, 2026-11-03: "has unknown fields" named neither, so the re-ask
+        # came back with the same mistake and PREP failed all three rounds.
+        graph = document()
+        graph["facts"][0]["qualifiers"] = {"currency": "USD", "billing": "monthly"}
+        with self.assertRaises(ValueError) as caught:
+            validate_document(graph, STATEMENTS)
+        self.assertIn("billing", str(caught.exception))
+        for allowed in ("unit", "currency", "period", "geography", "conditions", "includes",
+                        "excludes"):
+            self.assertIn(allowed, str(caught.exception))
+
     def test_qualifiers_require_known_typed_nonempty_values(self):
         for qualifiers in ({"currency": 2}, {"includes": "shipping"}, {"excludes": [""]},
                             {"conditions": []}, {"geography": " "}):
